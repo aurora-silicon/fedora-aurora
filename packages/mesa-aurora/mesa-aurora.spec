@@ -60,7 +60,7 @@ options=(--prefix=/usr --libdir=lib64 --libexecdir=libexec --buildtype=release -
   -Dexpat=enabled -Dzstd=enabled -Dlmsensors=enabled -Dlibunwind=disabled -Dvalgrind=disabled)
 meson setup tools "${options[@]}" -Dllvm=enabled -Dbuild-tests=false
 ninja -C tools %{?_smp_mflags} src/compiler/clc/mesa_clc src/compiler/spirv/vtn_bindgen2 src/asahi/clc/asahi_clc
-printf '[binaries]\nmesa_clc = "%s"\nvtn_bindgen2 = "%s"\nasahi_clc = "%s"\n' \
+printf "[binaries]\nmesa_clc = '%s'\nvtn_bindgen2 = '%s'\nasahi_clc = '%s'\n" \
   "$PWD/tools/src/compiler/clc/mesa_clc" "$PWD/tools/src/compiler/spirv/vtn_bindgen2" "$PWD/tools/src/asahi/clc/asahi_clc" > tools.ini
 meson setup build "${options[@]}" --native-file tools.ini -Dllvm=disabled -Dspirv-tools=disabled -Dmesa-clc=system -Dprecomp-compiler=system -Dbuild-tests=true
 ninja -C build %{?_smp_mflags}

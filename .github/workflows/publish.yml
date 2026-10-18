@@ -1,0 +1,70 @@
+name: Publish signed testing repository
+on:
+  workflow_dispatch:
+    inputs:
+      build-run:
+        description: Successful Fedora RPM builds run ID from this repository
+        required: true
+      release-tag:
+        description: New immutable testing release tag
+        required: true
+permissions:
+  contents: write
+  actions: read
+  pages: write
+  id-token: write
+concurrency:
+  group: repository-publication
+  cancel-in-progress: false
+jobs:
+  repository:
+    runs-on: ubuntu-24.04-arm
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Validate the candidate build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ inputs.build-run }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          [[ $RUN =~ ^[0-9]+$ && $RELEASE_TAG =~ ^testing-[A-Za-z0-9._-]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN" > build.json
+          jq -e --arg repo "$GITHUB_REPOSITORY" '.conclusion == "success" and .head_branch == "main" and .head_repository.full_name == $repo and (.event == "push" or .event == "workflow_dispatch")' build.json
+          gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --pattern 'rpm-*' --dir downloaded
+          mkdir -p input-rpms
+          find downloaded -name '*.rpm' ! -name '*.src.rpm' -exec cp {} input-rpms/ \;
+          test "$(find input-rpms -name '*.rpm' | wc -l)" -gt 0
+      - name: Sign RPMs and repository metadata
+        env:
+          FEDORA_RPM_SIGNING_KEY: ${{ secrets.FEDORA_RPM_SIGNING_KEY }}
+          FEDORA_RPM_SIGNING_PASSPHRASE: ${{ secrets.FEDORA_RPM_SIGNING_PASSPHRASE }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src \
+            -e FEDORA_RPM_SIGNING_KEY -e FEDORA_RPM_SIGNING_PASSPHRASE -e RELEASE_TAG -e GITHUB_REPOSITORY \
+            registry.fedoraproject.org/fedora:44 bash -euo pipefail -c '
+              dnf install -y rpm-sign gnupg2 createrepo_c python3
+              python3 scripts/sign-repository.py --rpms input-rpms --output site \
+                --asset-base "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG"
+            '
+      - name: Upload immutable package assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          gh release create "$RELEASE_TAG" site/44/testing/aarch64/*.rpm \
+            site/44/testing/aarch64/manifest.json site/RPM-GPG-KEY-aurora \
+            --prerelease --title "Fedora Aurora $RELEASE_TAG" \
+            --notes 'Signed development package set. Image installation qualification is recorded separately.'
+          find site -name '*.rpm' -delete
+          cp keys/fingerprint.txt site/fingerprint.txt
+          printf '%s\n' 'Fedora Aurora Remix testing RPM repository' > site/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

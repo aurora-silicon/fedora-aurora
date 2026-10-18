@@ -5,6 +5,10 @@ on:
     paths: [packages/**, scripts/**, sources.json, .github/workflows/rpms.yml]
   pull_request:
   workflow_dispatch:
+    inputs:
+      packages:
+        description: Space-separated packages; empty builds the entire set
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -17,16 +21,14 @@ jobs:
       packages: ${{ steps.plan.outputs.packages }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - id: plan
         run: |
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          from pathlib import Path
-          names = sorted(p.parent.name for p in Path('packages').glob('*/*.spec'))
-          print('packages=' + json.dumps(names))
-          PY
+          python3 scripts/ci-plan.py >> "$GITHUB_OUTPUT"
   rpm:
     needs: plan
+    if: needs.plan.outputs.packages != '[]'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
     strategy:
