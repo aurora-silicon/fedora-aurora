@@ -1,0 +1,54 @@
+name: Deploy signed testing repository snapshot
+on:
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: Signed testing release whose metadata should be deployed
+        required: true
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: repository-publication
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fetch and authenticate repository metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          [[ $RELEASE_TAG =~ ^testing-[A-Za-z0-9._-]+$ ]]
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'repository-metadata-*.tar.gz' --pattern 'repository-metadata-*.tar.gz.asc' --dir snapshot
+          mkdir -m 700 "$RUNNER_TEMP/gnupg"
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"
+          gpg --batch --import keys/RPM-GPG-KEY-aurora
+          archive=$(find snapshot -name '*.tar.gz')
+          gpg --batch --verify "$archive.asc" "$archive"
+          mkdir site
+          python3 - "$archive" <<'PY'
+          from pathlib import Path
+          import sys, tarfile
+          with tarfile.open(sys.argv[1]) as archive:
+              archive.extractall('site', filter='data')
+          PY
+          gpg --batch --verify site/44/testing/aarch64/repodata/repomd.xml.asc site/44/testing/aarch64/repodata/repomd.xml
+          cp keys/fingerprint.txt site/fingerprint.txt
+          printf '%s\n' 'Fedora Aurora Remix testing RPM repository' > site/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: pages
+        uses: actions/deploy-pages@v4
