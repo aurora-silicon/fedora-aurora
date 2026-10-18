@@ -1,0 +1,14 @@
+#!/bin/bash
+set -euo pipefail
+case ${1:?mode required} in
+  swap)
+    # Fedora's zram-generator-defaults creates size-appropriate compressed swap.
+    systemctl disable asahi-setup-swap-firstboot.service
+    ;;
+  extras)
+    # Never execute or download unverified installer-provided programs as root.
+    # Fedora's normal repositories supply codecs and applications after setup.
+    systemctl disable asahi-extras-firstboot.service
+    ;;
+  *) exit 2 ;;
+esac

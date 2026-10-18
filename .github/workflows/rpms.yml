@@ -1,0 +1,54 @@
+name: Fedora RPM builds
+on:
+  push:
+    branches: [main]
+    paths: [packages/**, scripts/**, sources.json, .github/workflows/rpms.yml]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: rpm-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      packages: ${{ steps.plan.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: plan
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+          names = sorted(p.parent.name for p in Path('packages').glob('*/*.spec'))
+          print('packages=' + json.dumps(names))
+          PY
+  rpm:
+    needs: plan
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        package: ${{ fromJSON(needs.plan.outputs.packages) }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build Fedora 44 RPMs natively
+        run: |
+          docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src \
+            registry.fedoraproject.org/fedora:44 bash -euo pipefail -c '
+              dnf install -y rpm-build dnf5-plugins python3 git tar gzip coreutils findutils
+              AURORA_INSTALL_BUILDDEPS=1 AURORA_BUILD_JOBS=4 bash scripts/build-rpm "$1"
+            ' build '${{ matrix.package }}' 2>&1 | tee build.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rpm-${{ matrix.package }}
+          path: |
+            out/rpms/*.rpm
+            out/srpms/*.rpm
+            build.log
+          retention-days: 30

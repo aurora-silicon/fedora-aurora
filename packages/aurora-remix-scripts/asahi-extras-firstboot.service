@@ -1,0 +1,8 @@
+[Unit]
+Description=Fedora Aurora first-boot extras setup
+After=local-fs.target
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/aurora/firstboot extras
+[Install]
+WantedBy=multi-user.target

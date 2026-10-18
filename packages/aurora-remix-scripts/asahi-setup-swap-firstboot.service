@@ -1,0 +1,8 @@
+[Unit]
+Description=Fedora Aurora first-boot swap setup
+After=local-fs.target
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/aurora/firstboot swap
+[Install]
+WantedBy=multi-user.target
