@@ -1,14 +1,14 @@
 %global commit b2da7512e9bfcd5837355d2393f3c43219acf6b9
 Name: aurora-audio
 Version: 4.1
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
 Source0: aurora-audio-%{commit}.tar.gz
 BuildArch: noarch
 BuildRequires: make
-Requires: alsa-ucm-conf-aurora pipewire wireplumber bankstown lsp-plugins-lv2 speakersafetyd speakerguardd
+Requires: alsa-ucm-conf-aurora pipewire wireplumber bankstown lv2-triforce lsp-plugins-lv2 speakersafetyd speakerguardd
 
 %description
 Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source revision.

@@ -22,11 +22,15 @@ receipt=json.load(open(sys.argv[1]))
 subprocess.run(receipt['build_command'],check=True)
 PY
 
-# Retain the raw image locally; compress a transport artifact for CI download.
+# The common producer seals firstboot identities before exporting any filesystem.
 shopt -s nullglob
 images=("$root/out/$profile-description-image/"*.raw)
-(( ${#images[@]} > 0 )) || { echo 'KIWI produced no raw image' >&2; exit 1; }
-for image in "${images[@]}"; do
-  xz -T"${AURORA_BUILD_JOBS:-4}" -1 --keep "$image"
-  sha256sum "$image.xz" > "$image.xz.sha256"
-done
+(( ${#images[@]} == 1 )) || { echo 'Expected one KIWI raw image' >&2; exit 1; }
+python3 "$root/scripts/fetch-sources.py" aurora-firstboot --output "$root/out/finalizer-source"
+source_archive=("$root/out/finalizer-source/"aurora-firstboot-*.tar.gz)
+(( ${#source_archive[@]} == 1 ))
+mkdir -p "$root/out/finalizer"
+tar -xzf "${source_archive[0]}" --strip-components=1 -C "$root/out/finalizer"
+bash "$root/out/finalizer/images/finalize-image" "${images[0]}" "$profile" "$root/out/$profile-installer"
+tar --sparse -C "$root/out/$profile-installer" -cf - . | zstd -T"${AURORA_BUILD_JOBS:-4}" -3 -o "$root/out/$profile-filesystems.tar.zst"
+sha256sum "$root/out/$profile-filesystems.tar.zst" > "$root/out/$profile-filesystems.tar.zst.sha256"

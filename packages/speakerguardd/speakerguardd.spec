@@ -1,7 +1,7 @@
 %global commit e03febfe52a540e9255036a01e18030e0a5135f9
 Name: speakerguardd
 Version: 0.1.0
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Feed-forward speaker protection for Apple J700
 License: MIT
 URL: https://github.com/aurora-silicon/speakerguardd
@@ -29,6 +29,7 @@ mkdir -p %{buildroot}%{_datadir}/speakerguardd
 cp -a conf/. %{buildroot}%{_datadir}/speakerguardd/
 install -Dm644 speakerguardd.service %{buildroot}%{_unitdir}/speakerguardd.service
 sed -i 's@ExecStart=/usr/bin/speakerguardd -c /usr/share/speakerguardd@ExecStart=/usr/bin/speakerguardd -c /usr/share/speakerguardd -C AppleJ700@' %{buildroot}%{_unitdir}/speakerguardd.service
+sed -i '/^StartLimitInterval=60$/d; /^StartLimitBurst=10$/d; /Description=Speaker Protection Daemon (feed-forward)/a StartLimitIntervalSec=60\nStartLimitBurst=10' %{buildroot}%{_unitdir}/speakerguardd.service
 install -Dm644 95-speakerguardd.rules %{buildroot}%{_udevrulesdir}/95-speakerguardd.rules
 install -Dm755 %{SOURCE1} %{buildroot}/usr/lib/speakerguardd/use-feedback-guard
 install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/speakersafetyd.service.d/50-j700-guard.conf

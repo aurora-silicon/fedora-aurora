@@ -25,7 +25,7 @@ jobs:
           set -euo pipefail
           docker run --rm --privileged -v /dev:/dev -v /run/udev:/run/udev:ro -v "$PWD:/src" -w /src \
             registry.fedoraproject.org/fedora:44 bash -euo pipefail -c '
-              dnf install -y kiwi-cli kiwi-systemdeps distribution-gpg-keys git gnupg2 python3 xz
+              dnf install -y kiwi-cli kiwi-systemdeps distribution-gpg-keys git gnupg2 python3 xz zstd btrfs-progs cryptsetup util-linux cpio
               bash scripts/build-image "$1"
             ' image "$PROFILE" 2>&1 | tee image-build.log
       - uses: actions/upload-artifact@v4
@@ -35,6 +35,9 @@ jobs:
           compression-level: 0
           path: |
             image-build.log
+            out/*-filesystems.tar.zst*
+            out/*-installer/image.json
+            out/*-installer/initramfs-inventory.txt
             out/*-image/*.xz
             out/*-image/*.sha256
             out/*-image/*.packages

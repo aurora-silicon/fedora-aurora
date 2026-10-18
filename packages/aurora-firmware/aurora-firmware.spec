@@ -1,6 +1,6 @@
 Name: aurora-firmware
 Version: 44
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Aurora device firmware and peripheral ordering
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora

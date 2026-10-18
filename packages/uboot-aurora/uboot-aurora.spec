@@ -2,7 +2,7 @@
 %global commit 0cb6fed6a10512d1013a4a80b6d83c3d56140f2f
 Name: uboot-aurora
 Version: 2026.07
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Aurora U-Boot for Apple Silicon
 License: GPL-2.0-or-later
 URL: https://github.com/aurora-silicon/u-boot
