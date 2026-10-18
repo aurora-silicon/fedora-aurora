@@ -160,6 +160,12 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
     # Check the RPM's preset result inside the assembled image. A build must
     # fail before exporting an image that will omit peripheral admission.
     text = text.replace("\nexit 0\n", '''
+if [[ -f /usr/lib/systemd/system/plasma-setup.service &&
+      ! -f /usr/lib/systemd/system/plasma-setup.service.d/aurora-firstboot.conf ]]; then
+    echo 'Plasma Setup must defer to Aurora owner setup in this image' >&2
+    exit 1
+fi
+
 if [[ "$(systemctl is-enabled aurora-peripherals.service)" != enabled ]]; then
     echo 'Aurora peripheral admission must be enabled in the image' >&2
     exit 1

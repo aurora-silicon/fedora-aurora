@@ -21,6 +21,8 @@ An image must consume an exact tested package set. Building RPMs, resolving an i
 
 `aurora-firmware` 44-3 applies the peripheral service preset on first installation. Image builds reject a disabled peripheral admission service. Package updates preserve an administrator's disabled or masked service settings. Existing development images containing 44-2 need `sudo systemctl preset --now aurora-peripherals.service` after updating to adopt the default; this command is an explicit choice to apply that preset.
 
+`aurora-remix-scripts` 44-2 orders Plasma Setup after Aurora account creation and skips its separate wizard once the Aurora Linux owner exists. It preserves the normal Plasma Login greeter and leaves Apple Recovery accounts untouched.
+
 ## Checks
 
 ```sh
