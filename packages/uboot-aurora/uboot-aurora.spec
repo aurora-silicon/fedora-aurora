@@ -10,7 +10,7 @@ Source0: uboot-aurora-%{commit}.tar.gz
 ExclusiveArch: aarch64
 Provides: uboot-images-armv8
 Conflicts: uboot-images-armv8
-BuildRequires: gcc make bc dtc python3 python3-pyelftools swig openssl-devel openssl-devel-engine gnutls-devel
+BuildRequires: gcc make bc bison flex dtc python3 python3-pyelftools swig openssl-devel openssl-devel-engine gnutls-devel
 
 %description
 Aurora U-Boot for Apple Silicon. Built from the recorded Aurora source revision.
