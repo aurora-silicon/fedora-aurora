@@ -1,6 +1,6 @@
 Name: aurora-firmware
 Version: 44
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Aurora device firmware and peripheral ordering
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -8,6 +8,7 @@ BuildArch: noarch
 
 Requires: dracut-asahi bash kmod coreutils grep
 BuildRequires: systemd-rpm-macros
+%{?systemd_requires}
 
 Source100: 90-aurora-peripherals.preset
 Source101: admit-peripherals.sh
@@ -31,6 +32,13 @@ install -Dm755 %{_sourcedir}/admit-peripherals.sh %{buildroot}/usr/lib/dracut/mo
 install -Dm644 %{_sourcedir}/aurora-peripherals.service %{buildroot}%{_unitdir}/aurora-peripherals.service
 install -Dm644 %{_sourcedir}/90-aurora-peripherals.preset %{buildroot}/usr/lib/systemd/system-preset/90-aurora-peripherals.preset
 
+%post
+%systemd_post aurora-peripherals.service
+%preun
+%systemd_preun aurora-peripherals.service
+%postun
+%systemd_postun_with_restart aurora-peripherals.service
+
 %files
 %{_modprobedir}/aurora-firmware-order.conf
 /usr/libexec/aurora/
@@ -39,5 +47,8 @@ install -Dm644 %{_sourcedir}/90-aurora-peripherals.preset %{buildroot}/usr/lib/s
 /usr/lib/systemd/system-preset/90-aurora-peripherals.preset
 
 %changelog
+* Sun Oct 18 2026 Aurora Silicon <hey@djdev.me> - 44-3
+- Apply systemd service presets and lifecycle hooks for peripheral firmware admission.
+
 * Sun Oct 18 2026 Aurora Silicon <hey@djdev.me> - 1
 - Initial Fedora Aurora package.

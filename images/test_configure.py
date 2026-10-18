@@ -3,6 +3,7 @@
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -33,7 +34,7 @@ class ConfigureTests(unittest.TestCase):
                 '<package name="fedora-release-kde"/><package name="mesa-dri-drivers"/></packages></image>')
         (cls.source / "repositories/asahi.xml").write_text("<image/>")
         for name in ("config.sh", "post_bootstrap.sh", "pre_disk_sync.sh"):
-            (cls.source / name).write_text("#!/bin/bash\n# kernel-16k-core\n")
+            (cls.source / name).write_text("#!/bin/bash\nset -euo pipefail\n# kernel-16k-core\nexit 0\n")
         (cls.source / "COPYING").write_text("upstream license fixture\n")
         subprocess.run(["git", "init", "-q", str(cls.source)], check=True)
         subprocess.run(["git", "-C", str(cls.source), "add", "."], check=True)
@@ -106,6 +107,22 @@ class ConfigureTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.prepare(destination)
         self.assertEqual((destination / "keep").read_text(), "preserve")
+
+    def test_image_configuration_rejects_inactive_peripheral_presets(self):
+        output = self.root / "peripheral-preset"
+        self.prepare(output)
+        commands = self.root / "mock-commands"
+        commands.mkdir()
+        systemctl = commands / "systemctl"
+        systemctl.write_text('#!/bin/bash\nprintf "%s\\n" "$AURORA_TEST_UNIT_STATE"\n')
+        systemctl.chmod(0o755)
+        for state in ("enabled", "disabled", "masked", "static"):
+            with self.subTest(state=state):
+                result = subprocess.run(["bash", str(output / "config.sh")],
+                                        env={**os.environ, "PATH": str(commands) + ":" + os.environ["PATH"],
+                                             "AURORA_TEST_UNIT_STATE": state},
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                self.assertEqual(result.returncode == 0, state == "enabled")
 
     def test_output_cannot_recurse_into_the_upstream_checkout(self):
         with self.assertRaisesRegex(ValueError, "outside"):

@@ -154,7 +154,20 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
     text = config.read_text()
     if "kernel-16k-core" not in text:
         raise ValueError("upstream kernel selection changed; review the integration")
-    config.write_text(text.replace("kernel-16k-core", "kernel-aurora-core"))
+    text = text.replace("kernel-16k-core", "kernel-aurora-core")
+    if text.count("\nexit 0\n") != 1:
+        raise ValueError("upstream image configuration exit changed; review the integration")
+    # Check the RPM's preset result inside the assembled image. A build must
+    # fail before exporting an image that will omit peripheral admission.
+    text = text.replace("\nexit 0\n", '''
+if [[ "$(systemctl is-enabled aurora-peripherals.service)" != enabled ]]; then
+    echo 'Aurora peripheral admission must be enabled in the image' >&2
+    exit 1
+fi
+
+exit 0
+''')
+    config.write_text(text)
     receipt = {
         "schema": 1, "distribution": "Fedora Aurora Remix",
         "fedora_release": lock["fedora_release"], "architecture": "aarch64",

@@ -19,6 +19,8 @@ The initial update channel is `testing`. RPMs and repository metadata are signed
 
 An image must consume an exact tested package set. Building RPMs, resolving an image, booting it and completing a physical installation are different validation stages. Until that sequence is complete, this repository is development infrastructure rather than an installable distribution release.
 
+`aurora-firmware` 44-3 applies the peripheral service preset on first installation. Image builds reject a disabled peripheral admission service. Package updates preserve an administrator's disabled or masked service settings. Existing development images containing 44-2 need `sudo systemctl preset --now aurora-peripherals.service` after updating to adopt the default; this command is an explicit choice to apply that preset.
+
 ## Checks
 
 ```sh
