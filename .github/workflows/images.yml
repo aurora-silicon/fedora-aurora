@@ -23,7 +23,7 @@ jobs:
           PROFILE: ${{ inputs.profile }}
         run: |
           set -euo pipefail
-          docker run --rm --privileged -v "$PWD:/src" -w /src \
+          docker run --rm --privileged -v /dev:/dev -v /run/udev:/run/udev:ro -v "$PWD:/src" -w /src \
             registry.fedoraproject.org/fedora:44 bash -euo pipefail -c '
               dnf install -y kiwi-cli kiwi-systemdeps distribution-gpg-keys git gnupg2 python3 xz
               bash scripts/build-image "$1"
