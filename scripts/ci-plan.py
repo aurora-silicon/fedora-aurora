@@ -19,6 +19,16 @@ else:
     paths = subprocess.check_output([
         "git", "diff", "--name-only", event["before"], os.environ["GITHUB_SHA"],
     ], cwd=root, text=True).splitlines()
+    if "sources.json" in paths:
+        previous = json.loads(subprocess.check_output(
+            ["git", "show", event["before"] + ":sources.json"], cwd=root, text=True))
+        current = json.loads((root / "sources.json").read_text())
+        changed = {key for key in previous.keys() | current.keys()
+                   if previous.get(key) != current.get(key)}
+        if changed <= {"aurora-firstboot"}:
+            paths.remove("sources.json")
+            if changed:
+                paths.append("packages/aurora-firstboot/aurora-firstboot.spec")
     if {"sources.json", "scripts/build-rpm", "scripts/fetch-sources.py"} & set(paths):
         result = names
     else:
