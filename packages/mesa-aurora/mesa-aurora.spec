@@ -11,6 +11,7 @@ Patch0: 0001-hk-preserve-library-assertion-mode-in-test.patch
 ExclusiveArch: aarch64
 BuildRequires: gcc gcc-c++ clang clang-devel systemd-devel llvm-devel lld rust cargo bindgen-cli cbindgen
 BuildRequires: meson ninja-build python3-mako python3-pyyaml python3-packaging
+BuildRequires: bison flex elfutils-libelf-devel
 BuildRequires: libclc-devel spirv-llvm-translator-devel spirv-tools-devel glslang-devel
 BuildRequires: libdrm-devel expat-devel libglvnd-devel libX11-devel libxcb-devel
 BuildRequires: libXext-devel libXfixes-devel libXrandr-devel libxshmfence-devel libXxf86vm-devel

@@ -21,3 +21,4 @@ rpmbuild -ba --define "_topdir $top" --define "_smp_mflags -j${AURORA_BUILD_JOBS
 mkdir -p "$root/out/rpms" "$root/out/srpms"
 find "$top/RPMS" -type f -name '*.rpm' -exec cp -p {} "$root/out/rpms/" \;
 find "$top/SRPMS" -type f -name '*.rpm' -exec cp -p {} "$root/out/srpms/" \;
+python3 "$root/scripts/build-receipt.py" "$package"

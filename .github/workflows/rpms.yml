@@ -11,6 +11,9 @@ on:
         default: ''
 permissions:
   contents: read
+defaults:
+  run:
+    shell: bash
 concurrency:
   group: rpm-${{ github.ref }}
   cancel-in-progress: false
@@ -40,6 +43,7 @@ jobs:
       - uses: actions/checkout@v5
       - name: Build Fedora 44 RPMs natively
         run: |
+          set -euo pipefail
           docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src \
             registry.fedoraproject.org/fedora:44 bash -euo pipefail -c '
               dnf install -y rpm-build dnf5-plugins python3 git tar gzip coreutils findutils
@@ -52,5 +56,6 @@ jobs:
           path: |
             out/rpms/*.rpm
             out/srpms/*.rpm
+            out/manifests/*.json
             build.log
           retention-days: 30
