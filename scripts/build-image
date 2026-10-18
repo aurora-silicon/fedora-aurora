@@ -1,0 +1,32 @@
+#!/bin/bash
+set -euo pipefail
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+profile=${1:?fedora-kde, fedora-gnome or fedora-minimal required}
+[[ $profile =~ ^fedora-(kde|gnome|minimal)$ ]] || exit 2
+[[ $(uname -m) == aarch64 && $(id -u) == 0 ]] || { echo 'Use a disposable privileged native AArch64 image builder' >&2; exit 2; }
+mkdir -p "$root/out"
+upstream=$root/out/upstream-kiwi
+if [[ ! -e $upstream ]]; then
+  git clone https://pagure.io/fedora-asahi/kiwi-descriptions.git "$upstream"
+fi
+revision=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["commit"])' "$root/images/upstream.json")
+git -C "$upstream" checkout --detach "$revision"
+python3 "$root/images/configure.py" --upstream "$upstream" \
+  --output "$root/out/$profile-description" --profile "$profile" \
+  --repository-url "${AURORA_REPOSITORY_URL:-https://aurorasilicon.org/fedora-aurora/44/testing/aarch64}" \
+  --signing-key "$root/keys/RPM-GPG-KEY-aurora" \
+  --signing-key-fingerprint "$(cat "$root/keys/fingerprint.txt")"
+python3 - "$root/out/$profile-description/aurora-image.json" <<'PY'
+import json,subprocess,sys
+receipt=json.load(open(sys.argv[1]))
+subprocess.run(receipt['build_command'],check=True)
+PY
+
+# Retain the raw image locally; compress a transport artifact for CI download.
+shopt -s nullglob
+images=("$root/out/$profile-description-image/"*.raw)
+(( ${#images[@]} > 0 )) || { echo 'KIWI produced no raw image' >&2; exit 1; }
+for image in "${images[@]}"; do
+  xz -T"${AURORA_BUILD_JOBS:-4}" -1 --keep "$image"
+  sha256sum "$image.xz" > "$image.xz.sha256"
+done

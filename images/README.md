@@ -11,13 +11,13 @@ Requirements: Python 3.9+, Git and GnuPG. The image worker additionally needs a 
 ```sh
 git clone --branch f44 https://pagure.io/fedora-asahi/kiwi-descriptions.git upstream-kiwi
 git -C upstream-kiwi checkout 960ea8dc8fb33952a874bb4da94a07a055bb11ab
-python3 fedora/configure.py \
+python3 images/configure.py \
   --upstream upstream-kiwi \
   --output out/fedora-kde \
   --profile fedora-kde \
-  --repository-url https://YOUR-RPM-HOST/fedora/44/aarch64 \
-  --signing-key /path/to/aurora-rpm-public-key.asc \
-  --signing-key-fingerprint YOUR-OPENPGP-FINGERPRINT
+  --repository-url https://aurorasilicon.org/fedora-aurora/44/testing/aarch64 \
+  --signing-key keys/RPM-GPG-KEY-aurora \
+  --signing-key-fingerprint D6C974933C41AACE00AE3C4591B639B8C6A77AC1
 ```
 
 The repository URL and public key must belong to the RPM set being tested. The script records their identities and produces the exact KIWI build command in `aurora-image.json`. The repository must provide all listed Aurora RPMs before that command can build an image. `fedora-gnome` and `fedora-minimal` select the other descriptions.
@@ -51,9 +51,14 @@ For public branding, follow Fedora's [Remix guidance](https://fedoraproject.org/
 ## Checks
 
 ```sh
-python3 fedora/test_configure.py
+python3 images/test_configure.py
 kiwi-ng --target-arch=aarch64 --type=oem --profile=Workstation-KDE image info \
   --description out/fedora-kde --print-xml
 ```
 
 The first command tests profile selection, repository/key binding, source pinning and output preservation. The second runs KIWI's real description loader and schema checks. A successful description check is separate from resolving RPMs, building the image and installing it on Neo.
+
+
+Current producer: `scripts/build-image fedora-minimal` (or `fedora-kde` / `fedora-gnome`) runs the pinned KIWI build on a disposable privileged native AArch64 worker. The manual **Native Fedora Aurora images** workflow supplies this environment and retains a compressed raw image, build log and source/repository receipt. Raw images are candidate artifacts; installer payload assembly and physical qualification remain separate gates.
+
+The signed development feed is live at [the Aurora Fedora repository](https://aurorasilicon.org/fedora-aurora/44/testing/aarch64/). Its public key is committed under `keys/`. The kernel core RPM uses Fedora grubby's `20-grub.install` to copy its matching DTBs from `/usr/lib/modules/$version/dtb` into `/boot/dtb-$version`; `10-devicetree.install` selects that version for U-Boot. No separate DTB-copy hook is needed.

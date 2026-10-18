@@ -1,0 +1,43 @@
+name: Native Fedora Aurora images
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Installation profile
+        type: choice
+        options: [fedora-minimal, fedora-kde, fedora-gnome]
+        default: fedora-minimal
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+jobs:
+  image:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the image using verified Fedora and Aurora repositories
+        env:
+          PROFILE: ${{ inputs.profile }}
+        run: |
+          set -euo pipefail
+          docker run --rm --privileged -v "$PWD:/src" -w /src \
+            registry.fedoraproject.org/fedora:44 bash -euo pipefail -c '
+              dnf install -y kiwi-cli kiwi-systemdeps distribution-gpg-keys git gnupg2 python3 xz
+              bash scripts/build-image "$1"
+            ' image "$PROFILE" 2>&1 | tee image-build.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ inputs.profile }}-candidate
+          compression-level: 0
+          path: |
+            image-build.log
+            out/*-image/*.xz
+            out/*-image/*.sha256
+            out/*-image/*.packages
+            out/*-image/*.log
+            out/*-description/aurora-image.json
+          retention-days: 14

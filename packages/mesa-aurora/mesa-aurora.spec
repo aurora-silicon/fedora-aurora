@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 1%{?dist}.aurora
+Release: 2%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -25,11 +25,17 @@ first; installed drivers do not link to LLVM or SPIRV-Tools.
 %package -n mesa-aurora-dri-drivers
 Summary: Aurora Mesa OpenGL, EGL and GBM
 Provides: mesa-dri-drivers = %{version}-%{release}
+Provides: mesa-dri-drivers%{?_isa} = %{version}-%{release}
 Provides: mesa-libEGL = %{version}-%{release}
+Provides: mesa-libEGL%{?_isa} = %{version}-%{release}
 Provides: mesa-libGL = %{version}-%{release}
+Provides: mesa-libGL%{?_isa} = %{version}-%{release}
 Provides: mesa-libgbm = %{version}-%{release}
+Provides: mesa-libgbm%{?_isa} = %{version}-%{release}
 Provides: mesa-libglapi = %{version}-%{release}
+Provides: mesa-libglapi%{?_isa} = %{version}-%{release}
 Provides: mesa-libgallium = %{version}-%{release}
+Provides: mesa-libgallium%{?_isa} = %{version}-%{release}
 Obsoletes: mesa-dri-drivers < %{version}-%{release}
 Obsoletes: mesa-libEGL < %{version}-%{release}
 Obsoletes: mesa-libGL < %{version}-%{release}
@@ -44,6 +50,7 @@ Aurora Asahi, Zink and software OpenGL drivers, plus EGL and GBM integration.
 %package -n mesa-aurora-vulkan-drivers
 Summary: Aurora Honeykrisp Vulkan driver
 Provides: mesa-vulkan-drivers = %{version}-%{release}
+Provides: mesa-vulkan-drivers%{?_isa} = %{version}-%{release}
 Obsoletes: mesa-vulkan-drivers < %{version}-%{release}
 Requires: vulkan-loader
 

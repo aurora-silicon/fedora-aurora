@@ -143,7 +143,7 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
         "type": "rpm-md", "alias": "aurora", "sourcetype": "baseurl", "priority": "1",
     })
     origin = ET.SubElement(node, "source", {"path": repository_url.rstrip("/")})
-    ET.SubElement(origin, "signing", {"key": "this://" + key_name})
+    ET.SubElement(origin, "signing", {"key": (destination.resolve() / key_name).as_uri()})
     write_xml(ET.ElementTree(repository), destination / "repositories/aurora.xml")
     repo_dir = destination / "root/etc/yum.repos.d"
     repo_dir.mkdir(parents=True, exist_ok=True)
