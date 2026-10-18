@@ -111,6 +111,10 @@ class ConfigureTests(unittest.TestCase):
     def test_image_configuration_rejects_inactive_peripheral_presets(self):
         output = self.root / "peripheral-preset"
         self.prepare(output)
+        image_root = self.root / "peripheral-image-root"
+        config = output / "config.sh"
+        config.write_text(config.read_text().replace("/usr/lib/systemd/system", str(image_root / "usr/lib/systemd/system"))
+                          .replace("/usr/libexec/aurora", str(image_root / "usr/libexec/aurora")))
         commands = self.root / "mock-commands"
         commands.mkdir()
         systemctl = commands / "systemctl"
@@ -123,6 +127,44 @@ class ConfigureTests(unittest.TestCase):
                                              "AURORA_TEST_UNIT_STATE": state},
                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 self.assertEqual(result.returncode == 0, state == "enabled")
+
+    def test_kde_image_requires_both_setup_ordering_and_login_cleanup(self):
+        output = self.root / "plasma-setup-contract"
+        self.prepare(output)
+        image = self.root / "plasma-image-root"
+        units = image / "usr/lib/systemd/system"
+        units.mkdir(parents=True)
+        config = output / "config.sh"
+        config.write_text(config.read_text().replace("/usr/lib/systemd/system", str(units))
+                          .replace("/usr/libexec/aurora", str(image / "usr/libexec/aurora")))
+        commands = self.root / "plasma-commands"
+        commands.mkdir()
+        command = commands / "systemctl"
+        command.write_text("#!/bin/sh\nprintf 'enabled\\n'\n")
+        command.chmod(0o755)
+        env = {**os.environ, "PATH": str(commands) + ":" + os.environ["PATH"]}
+
+        def accepted():
+            return subprocess.run(["bash", str(config)], env=env, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE).returncode == 0
+
+        self.assertTrue(accepted())  # Minimal images have no Plasma Setup.
+        (units / "plasma-setup.service").touch()
+        self.assertFalse(accepted())
+        ordering = units / "plasma-setup.service.d/aurora-firstboot.conf"
+        ordering.parent.mkdir()
+        ordering.touch()
+        self.assertFalse(accepted())  # The earlier ordering-only RPM is insufficient.
+        cleanup = units / "display-manager.service.d/aurora-plasma-setup.conf"
+        cleanup.parent.mkdir()
+        cleanup.touch()
+        self.assertFalse(accepted())
+        helper = image / "usr/libexec/aurora/complete-plasma-setup"
+        helper.parent.mkdir(parents=True)
+        helper.touch()
+        self.assertFalse(accepted())
+        helper.chmod(0o755)
+        self.assertTrue(accepted())
 
     def test_output_cannot_recurse_into_the_upstream_checkout(self):
         with self.assertRaisesRegex(ValueError, "outside"):

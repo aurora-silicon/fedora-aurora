@@ -1,0 +1,24 @@
+#!/usr/bin/python3
+"""Retire only Plasma Setup's generated login after Aurora account creation."""
+from pathlib import Path
+
+GENERATED_AUTOLOGIN = b"[Autologin]\nUser=plasma-setup\nSession=plasma\n"
+
+
+def retire_setup_login(completion, configurations):
+    if completion.is_symlink() or not completion.is_file():
+        return
+    for configuration in configurations:
+        if configuration.is_symlink() or not configuration.is_file():
+            continue
+        if configuration.read_bytes() == GENERATED_AUTOLOGIN:
+            configuration.unlink()
+            print(f"Retired Plasma Setup automatic login: {configuration}")
+
+
+if __name__ == "__main__":
+    retire_setup_login(
+        Path("/var/lib/aurora/firstboot/complete"),
+        [Path("/etc/plasmalogin.conf.d/99-plasma-setup.conf"),
+         Path("/etc/sddm.conf.d/99-plasma-setup.conf")],
+    )

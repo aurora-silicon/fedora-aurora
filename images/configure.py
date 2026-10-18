@@ -161,7 +161,9 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
     # fail before exporting an image that will omit peripheral admission.
     text = text.replace("\nexit 0\n", '''
 if [[ -f /usr/lib/systemd/system/plasma-setup.service &&
-      ! -f /usr/lib/systemd/system/plasma-setup.service.d/aurora-firstboot.conf ]]; then
+      ( ! -f /usr/lib/systemd/system/plasma-setup.service.d/aurora-firstboot.conf ||
+        ! -f /usr/lib/systemd/system/display-manager.service.d/aurora-plasma-setup.conf ||
+        ! -x /usr/libexec/aurora/complete-plasma-setup ) ]]; then
     echo 'Plasma Setup must defer to Aurora owner setup in this image' >&2
     exit 1
 fi
