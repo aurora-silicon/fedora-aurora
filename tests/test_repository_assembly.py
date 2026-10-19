@@ -1,0 +1,64 @@
+"""Publishing a small build delta must preserve the rest of the hardware stack."""
+import importlib.util
+from pathlib import Path
+import tempfile
+import unittest
+from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+spec = importlib.util.spec_from_file_location('assembly', ROOT / 'scripts/assemble-repository.py')
+assembly = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(assembly)
+
+
+class RepositoryTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.base = self.root / 'base'
+        self.candidates = self.root / 'candidates'
+        self.base.mkdir()
+        self.candidates.mkdir()
+        self.rows = {}
+        self.addCleanup(patch.stopall)
+        patch.object(assembly, 'metadata', side_effect=lambda p: self.rows[p.name]).start()
+
+    def rpm(self, directory, filename, name, source):
+        (directory / filename).write_text(filename)
+        self.rows[filename] = (name, 'aarch64', source)
+
+    def test_incremental_snapshot_keeps_mesa_and_retires_all_old_kernel_outputs(self):
+        self.rpm(self.base, 'mesa.rpm', 'mesa-aurora', 'mesa-aurora-26.3-1.src.rpm')
+        self.rpm(self.base, 'kernel-old.rpm', 'kernel-aurora-core', 'kernel-aurora-7.2.10-1.src.rpm')
+        self.rpm(self.base, 'obsolete-old.rpm', 'kernel-obsolete', 'kernel-aurora-7.2.10-1.src.rpm')
+        self.rpm(self.candidates, 'kernel-new.rpm', 'kernel-aurora-core', 'kernel-aurora-7.2.10-2.src.rpm')
+        result = assembly.assemble(self.base, self.candidates, self.root / 'result',
+                                   {'mesa-aurora-26.3-1.src.rpm', 'kernel-aurora-7.2.10-2.src.rpm'})
+        self.assertEqual(result, ['kernel-new.rpm', 'mesa.rpm'])
+
+    def test_partial_first_snapshot_is_rejected_before_writing(self):
+        self.rpm(self.candidates, 'power.rpm', 'upower', 'upower-1.91.4-1.src.rpm')
+        output = self.root / 'result'
+        with self.assertRaisesRegex(ValueError, 'Incomplete or stale snapshot'):
+            assembly.assemble(None, self.candidates, output, {'upower-1.91.4-1.src.rpm', 'kernel-aurora-7.2.10-2.src.rpm'})
+        self.assertFalse(output.exists())
+
+    def test_stale_base_kernel_cannot_satisfy_the_current_recipe(self):
+        self.rpm(self.base, 'kernel-old.rpm', 'kernel-aurora-core', 'kernel-aurora-7.2.10-1.src.rpm')
+        self.rpm(self.candidates, 'power.rpm', 'upower', 'upower-1.91.4-1.src.rpm')
+        with self.assertRaisesRegex(ValueError, 'kernel-aurora-7.2.10-2'):
+            assembly.assemble(self.base, self.candidates, self.root / 'result',
+                              {'upower-1.91.4-1.src.rpm', 'kernel-aurora-7.2.10-2.src.rpm'})
+
+
+class SignatureTests(unittest.TestCase):
+    def test_digest_only_success_is_not_an_authenticated_signature(self):
+        with patch.object(assembly.subprocess, 'check_output', return_value='package.rpm: digests OK\n'):
+            with self.assertRaisesRegex(ValueError, 'no authenticated signature'):
+                assembly.verify_signature(Path('package.rpm'), Path('keydb'))
+
+    def test_imported_key_signature_is_required_in_rpmkeys_output(self):
+        output = '    Header OpenPGP V4 EdDSA/SHA512 signature, key fingerprint: abc: OK\n'
+        with patch.object(assembly.subprocess, 'check_output', return_value=output):
+            assembly.verify_signature(Path('package.rpm'), Path('keydb'))
