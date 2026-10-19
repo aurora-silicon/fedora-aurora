@@ -16,7 +16,10 @@ def fetch(name, destination):
     if not expected:
         raise ValueError(f"{name}: source archive has not been hash-pinned")
     destination.mkdir(parents=True, exist_ok=True)
-    target = destination / f"{name}-{record['commit']}.tar.gz"
+    filename = record.get("archive_file", f"{name}-{record['commit']}.tar.gz")
+    if not isinstance(filename, str) or Path(filename).name != filename or filename in ("", ".", "..") or "\\" in filename:
+        raise ValueError(f"{name}: unsafe source archive filename")
+    target = destination / filename
     cache = ROOT / "cache/sources" / target.name
     if not target.exists() and cache.exists() and cache != target:
         with cache.open("rb") as source:

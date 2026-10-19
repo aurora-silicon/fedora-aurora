@@ -118,5 +118,14 @@
     "source_url": "https://codeload.github.com/fastfetch-cli/fastfetch/tar.gz/1c1136ebd1e943d6d2ba7c204a11deee3e948dd8",
     "archive_root": "fastfetch-1c1136ebd1e943d6d2ba7c204a11deee3e948dd8",
     "sha256": "aaf759881615c9df0aae1c2872562001b58c9c81489579f787ceef65c2743c6c"
+  },
+  "kinfocenter": {
+    "repository": "https://invent.kde.org/plasma/kinfocenter",
+    "commit": "4431c74e026903760e5ea8c7253dcb9b89a6af00",
+    "version": "6.7.5",
+    "source_url": "https://download.kde.org/stable/plasma/6.7.5/kinfocenter-6.7.5.tar.xz",
+    "archive_root": "kinfocenter-6.7.5",
+    "archive_file": "kinfocenter-6.7.5.tar.xz",
+    "sha256": "e3aeb4b6f7237fddff4e68f4d7d715772cc47bd0ac376febe24ae3d717680416"
   }
 }
