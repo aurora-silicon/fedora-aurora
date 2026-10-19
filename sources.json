@@ -110,5 +110,13 @@
     "source_url": "https://gitlab.freedesktop.org/api/v4/projects/libfprint%2Flibfprint/repository/archive.tar.gz?sha=80a4b5ec612892c5c056c48dddaa561452cf37ec",
     "archive_root": "libfprint-80a4b5ec612892c5c056c48dddaa561452cf37ec-80a4b5ec612892c5c056c48dddaa561452cf37ec",
     "sha256": "94ff7f3689d14da28389a4d9cad5fb523065bbed3e6c8e3694522fde1316e780"
+  },
+  "fastfetch": {
+    "repository": "https://github.com/fastfetch-cli/fastfetch",
+    "commit": "1c1136ebd1e943d6d2ba7c204a11deee3e948dd8",
+    "version": "2.68.1",
+    "source_url": "https://codeload.github.com/fastfetch-cli/fastfetch/tar.gz/1c1136ebd1e943d6d2ba7c204a11deee3e948dd8",
+    "archive_root": "fastfetch-1c1136ebd1e943d6d2ba7c204a11deee3e948dd8",
+    "sha256": "aaf759881615c9df0aae1c2872562001b58c9c81489579f787ceef65c2743c6c"
   }
 }

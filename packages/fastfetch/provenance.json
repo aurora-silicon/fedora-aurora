@@ -1,0 +1,6 @@
+{
+  "fedora_spec_url": "https://src.fedoraproject.org/rpms/fastfetch/raw/f44/f/fastfetch.spec",
+  "fedora_spec_sha256": "9ad1879f887fce057c6842581592aef27c4ab057aa70982939559b529e86389f",
+  "upstream_mapping_reference": "https://github.com/fastfetch-cli/fastfetch/blob/2.69.0/src/detection/cpu/cpu.c",
+  "adaptations": "Immutable source pin; release bump; upstream two-line A18 Pro lookup backport. Fedora dependencies, feature configuration, tests and file layout retained."
+}

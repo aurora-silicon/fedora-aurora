@@ -1,12 +1,13 @@
 Name: aurora-platform
 Version: 44
-Release: 5%{?dist}
+Release: 6%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
 BuildArch: noarch
 Provides: asahi-platform-metapackage
 Conflicts: asahi-platform-metapackage
+Requires: fastfetch >= 2.68.1-2
 Requires: linux-firmware amd-gpu-firmware intel-gpu-firmware nvidia-gpu-firmware
 Requires: iwlwifi-dvm-firmware iwlwifi-mvm-firmware realtek-firmware
 Requires: aurora-sep libfprint(aurora-sep) = 4
