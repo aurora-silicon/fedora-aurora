@@ -3,7 +3,7 @@
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.2.10
-Release: 3%{?dist}.aurora
+Release: 4%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -11,6 +11,8 @@ Source0: kernel-aurora-%{commit}.tar.gz
 Source1: config
 Source2: common.config
 Source3: neo.config
+Source4: fedora.config
+Source5: validate-config.py
 # Merged upstream in omacom/linux-aurora#147; also needed by this 7.2 source pin.
 Patch0: 0001-arm64-apple-m4-wait-state.patch
 ExclusiveArch: aarch64
@@ -48,7 +50,7 @@ Matching modules for the Aurora kernel.
 %prep
 %autosetup -p1 -n linux-%{commit}
 cp %{SOURCE1} .config
-scripts/kconfig/merge_config.sh -m .config %{SOURCE2} %{SOURCE3}
+scripts/kconfig/merge_config.sh -m .config %{SOURCE2} %{SOURCE3} %{SOURCE4}
 scripts/config --set-str LOCALVERSION '' --disable LOCALVERSION_AUTO --set-str SYSTEM_TRUSTED_KEYS '' --set-str SYSTEM_REVOCATION_KEYS ''
 
 %build
@@ -58,6 +60,9 @@ export RUST_LIB_SRC=/usr/lib/rustlib/src/rust/library
 python3 tools/aurora-bindgen/build.py --output-dir "$PWD/private-bindgen"
 export BINDGEN="$PWD/private-bindgen/rust-bindgen-0.73.2/target/release/bindgen"
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" olddefconfig
+for fragment in %{SOURCE2} %{SOURCE3} %{SOURCE4}; do
+  python3 %{SOURCE5} "$fragment" .config
+done
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" rustavailable
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" %{?_smp_mflags} Image modules dtbs
 [ "$(make -s LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" kernelrelease)" = "%{krel}" ]
@@ -100,6 +105,10 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Mon Oct 19 2026 Aurora Silicon <hey@djdev.me> - 7.2.10-4
+- Enable SELinux for Fedora targeted policy on every supported Mac.
+- Reject requested platform capabilities silently dropped by Kconfig.
+
 * Mon Oct 19 2026 Aurora Silicon <hey@djdev.me> - 7.2.10-3
 - Include the MAX98360A codec needed to bind MacBook Neo audio.
 
