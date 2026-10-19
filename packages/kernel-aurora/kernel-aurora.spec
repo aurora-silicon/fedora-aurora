@@ -3,7 +3,7 @@
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.2.10
-Release: 2%{?dist}.aurora
+Release: 3%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -100,6 +100,9 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Mon Oct 19 2026 Aurora Silicon <hey@djdev.me> - 7.2.10-3
+- Include the MAX98360A codec needed to bind MacBook Neo audio.
+
 * Mon Oct 19 2026 Aurora Silicon <hey@djdev.me> - 7.2.10-2
 - Carry the merged Apple M4+ wait-state fix without requiring boot flags.
 
