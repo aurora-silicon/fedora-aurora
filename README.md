@@ -35,3 +35,16 @@ python3 images/test_configure.py
 Actions run source tests and all RPM builds on native AArch64 Fedora. The image description retains Fedora's GRUB/BLS, dracut, SELinux and first-boot setup. Aurora supplies the hardware stack and its own release identity; firmware/calibration comes from the target Mac.
 
 Software is covered by each upstream project's license. The image base is derived from the pinned Fedora Asahi KIWI description, whose GPL license is copied into each generated description. Aurora integration scripts are MIT-licensed. Branding assets retain their original attribution.
+
+The shared kernel enables the integrated microphone/camera/audio/haptics stack
+and common USB4/Thunderbolt PCIe networking, storage, USB audio and external GPU
+modules. Firmware for Intel Wi-Fi and AMD/Intel/NVIDIA GPUs is a hard platform
+dependency so minimal images do not silently omit it with weak dependencies
+disabled. Physical dock, storage and external GPU qualification remains pending.
+
+SEP initialization is supplied by `aurora-sep` and the Aurora `libfprint` build.
+The boot timer defers probing until persistent state is available, extracts local
+calibration where present and verifies trusted-key sealing and unsealing. No
+calibration is redistributed. The full reader driver set remains enabled; the
+native libfprint build runs all 130 upstream/patched tests. Password policy and
+power-button behavior are unchanged. Real SEP hardware qualification is pending.
