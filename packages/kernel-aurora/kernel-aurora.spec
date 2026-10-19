@@ -3,7 +3,7 @@
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.2.10
-Release: 1%{?dist}.aurora
+Release: 2%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -11,6 +11,8 @@ Source0: kernel-aurora-%{commit}.tar.gz
 Source1: config
 Source2: common.config
 Source3: neo.config
+# Merged upstream in omacom/linux-aurora#147; also needed by this 7.2 source pin.
+Patch0: 0001-arm64-apple-m4-wait-state.patch
 ExclusiveArch: aarch64
 BuildRequires: make gcc gcc-c++ clang llvm lld rust rust-src rustfmt cargo bindgen-cli
 BuildRequires: bc bison flex dtc openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
@@ -44,7 +46,7 @@ Provides: kernel-16k-modules-extra = %{version}-%{release}
 Matching modules for the Aurora kernel.
 
 %prep
-%autosetup -n linux-%{commit}
+%autosetup -p1 -n linux-%{commit}
 cp %{SOURCE1} .config
 scripts/kconfig/merge_config.sh -m .config %{SOURCE2} %{SOURCE3}
 scripts/config --set-str LOCALVERSION '' --disable LOCALVERSION_AUTO --set-str SYSTEM_TRUSTED_KEYS '' --set-str SYSTEM_REVOCATION_KEYS ''
@@ -98,5 +100,8 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Mon Oct 19 2026 Aurora Silicon <hey@djdev.me> - 7.2.10-2
+- Carry the merged Apple M4+ wait-state fix without requiring boot flags.
+
 * Sun Oct 18 2026 Aurora Silicon <hey@djdev.me> - 7.2.10-1
 - Initial Fedora Aurora package.
