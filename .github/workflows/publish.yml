@@ -48,7 +48,7 @@ jobs:
             gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" > "build-$run.json"
             gh run download "$run" --repo "$GITHUB_REPOSITORY" --pattern 'rpm-*' --dir "downloaded/$run"
             python3 scripts/import-rpm-build.py --metadata "build-$run.json" --artifacts "downloaded/$run" \
-              --repository "$GITHUB_REPOSITORY" --output input-build
+              --repository "$GITHUB_REPOSITORY" --output input-build --matching-only
           done
           if [[ -n $BASE_RELEASE ]]; then
             [[ $BASE_RELEASE =~ ^testing-[A-Za-z0-9._-]+$ ]]
@@ -82,7 +82,7 @@ jobs:
           import json,os
           from pathlib import Path
           runs=[json.loads(p.read_text()) for p in sorted(Path('.').glob('build-*.json'))]
-          receipts=[json.loads(p.read_text()) for p in sorted(Path('downloaded').glob('*/rpm-*/out/manifests/*.json'))]
+          receipts=[json.loads(p.read_text()) for p in sorted(Path('input-build/manifests').glob('*.json'))]
           record={'schema':1,'publishing_commit':os.environ['GITHUB_SHA'],'base_release':os.environ['BASE_RELEASE'],
                   'builds':[{k:run[k] for k in ('id','head_sha','path','event','conclusion')} for run in runs],
                   'receipts':receipts}

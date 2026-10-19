@@ -88,3 +88,49 @@ class BuildImportTests(unittest.TestCase):
         self.git('checkout', '--detach', 'HEAD~1')
         with self.assertRaisesRegex(ValueError, 'not been merged'):
             self.run_import()
+
+    def test_matching_only_imports_unchanged_packages_from_mixed_run(self):
+        import shutil
+        recipe = self.repo / 'packages/retained/retained.spec'
+        recipe.parent.mkdir(parents=True)
+        recipe.write_text('Name: retained\n')
+        out = self.artifacts / 'rpm-retained/out'
+        for kind, filename in [('rpms', 'retained-1-1.aarch64.rpm'), ('srpms', 'retained-1-1.src.rpm')]:
+            target = out / kind / filename
+            target.parent.mkdir(parents=True)
+            target.write_bytes(b'retained native fixture')
+        receipt = {'package': 'retained', 'succeeded': True, 'architecture': 'aarch64',
+                   'recipe_inputs': {'retained.spec': module.digest(recipe)}, 'artifacts': [
+                       {'filename': path.name, 'bytes': path.stat().st_size, 'sha256': module.digest(path)}
+                       for path in out.rglob('*.rpm')]}
+        (out / 'manifests').mkdir()
+        (out / 'manifests/retained.json').write_text(json.dumps(receipt))
+        self.commit('both native packages')
+        self.metadata['head_sha'] = self.git('rev-parse', 'HEAD')
+        self.recipe.write_text('Name: example\nRelease: 2\n')
+        self.commit('supersede one recipe')
+        output = self.root / 'output'
+        self.assertEqual(module.import_build(self.repo, self.metadata, self.artifacts, output,
+                                             'aurora-silicon/fedora-aurora', matching_only=True), 1)
+        self.assertEqual(sorted(path.name for path in output.rglob('*.rpm')),
+                         ['retained-1-1.aarch64.rpm', 'retained-1-1.src.rpm'])
+        self.assertEqual(json.loads((output/'manifests/retained.json').read_text()), receipt)
+        self.assertFalse((output/'manifests/example.json').exists())
+        shutil.rmtree(output)
+        (out/'rpms/retained-1-1.aarch64.rpm').write_bytes(b'corrupt selected artifact')
+        with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+            module.import_build(self.repo, self.metadata, self.artifacts, output,
+                                'aurora-silicon/fedora-aurora', matching_only=True)
+        self.assertFalse(output.exists())
+
+    def test_matching_only_never_accepts_all_stale_or_changed_build_tooling(self):
+        self.recipe.write_text('Name: example\nRelease: 2\n')
+        self.commit('superseded')
+        with self.assertRaisesRegex(ValueError, 'No native packages match'):
+            module.import_build(self.repo, self.metadata, self.artifacts, self.root/'output',
+                                'aurora-silicon/fedora-aurora', matching_only=True)
+        (self.repo/'scripts/build-rpm').write_text('changed builder')
+        self.commit('changed tooling')
+        with self.assertRaisesRegex(ValueError, 'build tooling changed'):
+            module.import_build(self.repo, self.metadata, self.artifacts, self.root/'output',
+                                'aurora-silicon/fedora-aurora', matching_only=True)

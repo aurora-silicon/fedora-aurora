@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import sys
 import subprocess
 
 SHARED = ('.github/workflows/rpms.yml', 'scripts/build-rpm',
@@ -21,7 +22,7 @@ def git(root, *args):
     return subprocess.check_output(['git', '-C', str(root), *args], text=True).strip()
 
 
-def import_build(root, metadata, artifacts, output, repository):
+def import_build(root, metadata, artifacts, output, repository, matching_only=False):
     commit = metadata.get('head_sha', '')
     if (metadata.get('conclusion') != 'success' or metadata.get('head_repository', {}).get('full_name') != repository
             or metadata.get('event') not in ('push', 'workflow_dispatch')
@@ -39,6 +40,7 @@ def import_build(root, metadata, artifacts, output, repository):
     if not manifests:
         raise ValueError('The build has no package receipts')
     selected = []
+    accepted_receipts = []
     for receipt in manifests:
         data = json.loads(receipt.read_text())
         name = data.get('package', '')
@@ -47,10 +49,16 @@ def import_build(root, metadata, artifacts, output, repository):
         if data.get('succeeded') is not True or data.get('architecture') != 'aarch64':
             raise ValueError('Package did not complete a native AArch64 build')
         directory = root / 'packages' / name
-        if git(root, 'rev-parse', f'{commit}:packages/{name}') != git(root, 'rev-parse', f'HEAD:packages/{name}'):
+        if not directory.is_dir() or git(root, 'rev-parse', f'{commit}:packages/{name}') != git(root, 'rev-parse', f'HEAD:packages/{name}'):
+            if matching_only:
+                print(f'Skipping superseded package recipe: {name}', file=sys.stderr)
+                continue
             raise ValueError(f'The package recipe changed: {name}')
         expected = {p.name: digest(p) for p in directory.iterdir() if p.is_file()}
         if data.get('recipe_inputs') != expected or previous.get(name) != current.get(name):
+            if matching_only:
+                print(f'Skipping superseded package inputs: {name}', file=sys.stderr)
+                continue
             raise ValueError(f'The package inputs changed: {name}')
         packaged = receipt.parents[1]
         inventory = data.get('artifacts', [])
@@ -68,6 +76,10 @@ def import_build(root, metadata, artifacts, output, repository):
         actual = {p.name for kind in ('rpms', 'srpms') for p in (packaged / kind).glob('*.rpm')}
         if recorded != actual or not any(not n.endswith('.src.rpm') for n in recorded) or not any(n.endswith('.src.rpm') for n in recorded):
             raise ValueError('Incomplete CI artifact inventory')
+        accepted_receipts.append(receipt)
+    if not accepted_receipts:
+        raise ValueError('No native packages match the current merged inputs')
+    selected.extend((receipt, output / 'manifests' / receipt.name) for receipt in accepted_receipts)
     for source, target in selected:
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists():
@@ -75,7 +87,7 @@ def import_build(root, metadata, artifacts, output, repository):
                 raise ValueError(f'Conflicting build artifacts: {target.name}')
         else:
             shutil.copyfile(source, target)
-    return len(manifests)
+    return len(accepted_receipts)
 
 
 def main():
@@ -84,9 +96,11 @@ def main():
     parser.add_argument('--artifacts', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--repository', required=True)
+    parser.add_argument('--matching-only', action='store_true',
+                        help='Import only unchanged merged recipes; full snapshot assembly still requires every current recipe')
     args = parser.parse_args()
     count = import_build(Path(__file__).resolve().parents[1], json.loads(args.metadata.read_text()),
-                         args.artifacts, args.output, args.repository)
+                         args.artifacts, args.output, args.repository, args.matching_only)
     print(f'Accepted {count} native package build(s) with unchanged merged inputs')
 
 
