@@ -102,8 +102,12 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
             for node in list(parent):
                 if node.tag == "package" and node.get("name") in REPLACED:
                     parent.remove(node)
-                if node.tag == "ignore" and node.get("name") in {"generic-release*", "generic-logos*"}:
-                    parent.remove(node)
+                if node.tag == "ignore":
+                    name = node.get("name", "")
+                    # The shared kernel supports dock and PCIe peripherals.
+                    # Upstream's firmware exclusions conflict with that stack.
+                    if name in {"generic-release*", "generic-logos*"} or name.endswith("-firmware"):
+                        parent.remove(node)
         write_xml(tree, path)
 
     tree = ET.parse(destination / "config.xml")

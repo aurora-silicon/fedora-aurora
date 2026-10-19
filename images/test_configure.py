@@ -31,7 +31,10 @@ class ConfigureTests(unittest.TestCase):
         for path, (profile, _) in configure.PACKAGES.items():
             (cls.source / path).write_text(
                 f'<image><packages type="image" profiles="{profile}"><package name="kernel-16k"/>'
-                '<package name="fedora-release-kde"/><package name="mesa-dri-drivers"/></packages></image>')
+                '<package name="fedora-release-kde"/><package name="mesa-dri-drivers"/>'
+                '<ignore name="amd-gpu-firmware"/><ignore name="intel-gpu-firmware"/>'
+                '<ignore name="nvidia-gpu-firmware"/><ignore name="iwlwifi-mvm-firmware"/>'
+                '<ignore name="qcom-firmware"/><ignore name="dracut-config-rescue"/></packages></image>')
         (cls.source / "repositories/asahi.xml").write_text("<image/>")
         for name in ("config.sh", "post_bootstrap.sh", "pre_disk_sync.sh"):
             (cls.source / name).write_text("#!/bin/bash\nset -euo pipefail\n# kernel-16k-core\nexit 0\n")
@@ -82,6 +85,10 @@ class ConfigureTests(unittest.TestCase):
                 self.assertFalse(configure.REPLACED & names)
                 self.assertIn("kernel-aurora", names)
                 self.assertIn("mesa-aurora-vulkan-drivers", names)
+                exclusions = {n.get("name") for p in out.rglob("*.xml")
+                              for n in ET.parse(p).getroot().iter("ignore")}
+                self.assertFalse(any(name.endswith("-firmware") for name in exclusions))
+                self.assertIn("dracut-config-rescue", exclusions)
                 self.assertFalse((out / "repositories/asahi.xml").exists())
                 self.assertIn("repo_gpgcheck=1", (out / "root/etc/yum.repos.d/aurora.repo").read_text())
                 self.assertEqual((out / "root/etc/pki/rpm-gpg/RPM-GPG-KEY-aurora").read_bytes(), self.key.read_bytes())
