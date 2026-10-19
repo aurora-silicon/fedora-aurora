@@ -1,12 +1,11 @@
 %global commit fbcbf053ba5c5fd9d18c62ed8abecc85b0ca795f
 Name: aurora-firstboot
 Version: 0.1.4
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-platform
 Source0: aurora-firstboot-%{commit}.tar.gz
-Source1: 90-aurora-selinux.conf
 BuildArch: noarch
 BuildRequires: make systemd-rpm-macros
 Requires: bash cryptsetup >= 2.8 btrfs-progs util-linux coreutils systemd python3 shadow-utils sudo kbd
@@ -24,7 +23,6 @@ markers; installing this package alone does not arm encryption or setup.
 
 %install
 make install-common install-dracut DESTDIR=%{buildroot} PREFIX=%{_prefix}
-install -Dm0644 %{SOURCE1} %{buildroot}/usr/lib/dracut/dracut.conf.d/90-aurora-selinux.conf
 install -Dm644 /dev/stdin %{buildroot}/usr/lib/systemd/system-preset/90-aurora-firstboot.preset <<'EOF'
 enable aurora-firstboot.service
 EOF
@@ -41,7 +39,6 @@ EOF
 %{_datadir}/doc/aurora-firstboot/
 /usr/lib/aurora/
 /usr/lib/dracut/modules.d/97aurora-root/
-/usr/lib/dracut/dracut.conf.d/90-aurora-selinux.conf
 %{_unitdir}/aurora-firstboot.service
 %{_unitdir}/display-manager.service.d/aurora-firstboot.conf
 %{_unitdir}/getty@.service.d/aurora-firstboot.conf
