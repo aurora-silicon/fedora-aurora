@@ -114,7 +114,11 @@ class ConfigureTests(unittest.TestCase):
         image_root = self.root / "peripheral-image-root"
         config = output / "config.sh"
         config.write_text(config.read_text().replace("/usr/lib/systemd/system", str(image_root / "usr/lib/systemd/system"))
-                          .replace("/usr/libexec/aurora", str(image_root / "usr/libexec/aurora")))
+                          .replace("/usr/libexec/aurora", str(image_root / "usr/libexec/aurora"))
+                          .replace("/usr/lib/modules/", str(image_root / "usr/lib/modules") + "/"))
+        kernel = image_root / "usr/lib/modules/fixture/config"
+        kernel.parent.mkdir(parents=True)
+        kernel.write_text("CONFIG_SECURITY_SELINUX=y\nCONFIG_SND_SOC_MAX98357A=m\n")
         commands = self.root / "mock-commands"
         commands.mkdir()
         systemctl = commands / "systemctl"
@@ -136,7 +140,11 @@ class ConfigureTests(unittest.TestCase):
         units.mkdir(parents=True)
         config = output / "config.sh"
         config.write_text(config.read_text().replace("/usr/lib/systemd/system", str(units))
-                          .replace("/usr/libexec/aurora", str(image / "usr/libexec/aurora")))
+                          .replace("/usr/libexec/aurora", str(image / "usr/libexec/aurora"))
+                          .replace("/usr/lib/modules/", str(image / "usr/lib/modules") + "/"))
+        kernel = image / "usr/lib/modules/fixture/config"
+        kernel.parent.mkdir(parents=True)
+        kernel.write_text("CONFIG_SECURITY_SELINUX=y\nCONFIG_SND_SOC_MAX98357A=m\n")
         commands = self.root / "plasma-commands"
         commands.mkdir()
         command = commands / "systemctl"
@@ -165,6 +173,36 @@ class ConfigureTests(unittest.TestCase):
         self.assertFalse(accepted())
         helper.chmod(0o755)
         self.assertTrue(accepted())
+
+    def test_image_rejects_a_stale_kernel_before_export(self):
+        output = self.root / "kernel-gate"
+        self.prepare(output)
+        image = self.root / "kernel-image-root"
+        config = output / "config.sh"
+        config.write_text(config.read_text().replace("/usr/lib/systemd/system", str(image / "usr/lib/systemd/system"))
+                          .replace("/usr/lib/modules/", str(image / "usr/lib/modules") + "/"))
+        kernel = image / "usr/lib/modules/fixture/config"
+        kernel.parent.mkdir(parents=True)
+        commands = self.root / "kernel-commands"
+        commands.mkdir()
+        systemctl = commands / "systemctl"
+        systemctl.write_text("#!/bin/sh\nprintf 'enabled\n'\n")
+        systemctl.chmod(0o755)
+        env = {**os.environ, "PATH": str(commands) + ":" + os.environ["PATH"]}
+        def accepted():
+            return subprocess.run(["bash", str(config)], env=env,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode == 0
+        self.assertFalse(accepted())
+        kernel.write_text("# CONFIG_SECURITY_SELINUX is not set\n# CONFIG_SND_SOC_MAX98357A is not set\n")
+        self.assertFalse(accepted())
+        kernel.write_text("CONFIG_SECURITY_SELINUX=y\n")
+        self.assertFalse(accepted())
+        kernel.write_text("CONFIG_SECURITY_SELINUX=y\nCONFIG_SND_SOC_MAX98357A=m\n")
+        self.assertTrue(accepted())
+        other = image / "usr/lib/modules/other/config"
+        other.parent.mkdir()
+        other.write_bytes(kernel.read_bytes())
+        self.assertFalse(accepted())
 
     def test_output_cannot_recurse_into_the_upstream_checkout(self):
         with self.assertRaisesRegex(ValueError, "outside"):

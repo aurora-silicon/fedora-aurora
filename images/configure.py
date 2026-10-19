@@ -168,6 +168,20 @@ if [[ -f /usr/lib/systemd/system/plasma-setup.service &&
     exit 1
 fi
 
+# Reject stale repository images before they can reach installation.
+shopt -s nullglob
+kernel_configs=(/usr/lib/modules/*/config)
+if (( ${#kernel_configs[@]} != 1 )); then
+    echo 'Expected exactly one Aurora kernel configuration' >&2
+    exit 1
+fi
+for capability in CONFIG_SECURITY_SELINUX=y CONFIG_SND_SOC_MAX98357A=m; do
+    if ! grep -qx "$capability" "${kernel_configs[0]}"; then
+        echo "Required Fedora kernel capability missing: $capability" >&2
+        exit 1
+    fi
+done
+
 if [[ "$(systemctl is-enabled aurora-peripherals.service)" != enabled ]]; then
     echo 'Aurora peripheral admission must be enabled in the image' >&2
     exit 1
