@@ -70,6 +70,8 @@ jobs:
               python3 scripts/sign-repository.py --rpms complete-rpms --output site \
                 --asset-base "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG"
             '
+      - name: Return signed artifacts to the runner user
+        run: sudo chown -R "$(id -u):$(id -g)" site
       - name: Upload immutable package assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -86,7 +88,7 @@ jobs:
                   'receipts':receipts}
           Path('site/builds.json').write_text(json.dumps(record,indent=2)+'\n')
           PY
-          gh release create "$RELEASE_TAG" site/44/testing/aarch64/*.rpm \
+          gh release create "$RELEASE_TAG" site/44/testing/aarch64/*.rpm --target "$GITHUB_SHA" \
             site/44/testing/aarch64/manifest.json site/RPM-GPG-KEY-aurora site/builds.json \
             --prerelease --title "Fedora Aurora $RELEASE_TAG" \
             --notes 'Signed development package set. Image installation qualification is recorded separately.'
