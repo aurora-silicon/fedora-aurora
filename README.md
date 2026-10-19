@@ -13,6 +13,8 @@ AURORA_INSTALL_BUILDDEPS=1 bash scripts/build-rpm aura
 
 `out/rpms/` contains the binary RPMs and `out/srpms/` their reproducible source inputs. Kernel, bootloaders and graphics are built natively; matching kernel modules and DTBs come from the same build. `AURORA_BUILD_JOBS` bounds local parallelism.
 
+The platform includes `avd-fw` from Aurora's firmware fork and `upower` from Aurora's battery-reporting fork. The latter retains Fedora's `upower`, `upower-libs` and `upower-devel` package names so desktop dependencies resolve normally. Its native build runs the macsmc battery-time regression tests. Firmware builds retain the linked symbols for all six decoder variants.
+
 ## Updates and distribution
 
 The initial update channel is `testing`. RPMs and repository metadata are signed with the public key in `keys/`; its full fingerprint is independently recorded in `keys/fingerprint.txt`. Private signing material is not stored in this repository. Versioned RPMs are served as immutable GitHub Release assets; static DNF metadata is served through GitHub Pages. Image and app release publication is separate from source CI and RPM candidate builds.

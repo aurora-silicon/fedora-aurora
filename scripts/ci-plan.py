@@ -25,10 +25,9 @@ else:
         current = json.loads((root / "sources.json").read_text())
         changed = {key for key in previous.keys() | current.keys()
                    if previous.get(key) != current.get(key)}
-        if changed <= {"aurora-firstboot"}:
+        if changed <= set(names):
             paths.remove("sources.json")
-            if changed:
-                paths.append("packages/aurora-firstboot/aurora-firstboot.spec")
+            paths.extend(f"packages/{name}/{name}.spec" for name in sorted(changed))
     if {"sources.json", "scripts/build-rpm", "scripts/fetch-sources.py"} & set(paths):
         result = names
     else:

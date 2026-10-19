@@ -27,7 +27,7 @@ PACKAGES = {
     "components/base.xml": ("Common", [
         "aurora-release", "aurora-logos", "aurora-platform", "aurora-remix-scripts",
         "aurora-firstboot", "mesa-aurora-dri-drivers", "mesa-aurora-vulkan-drivers",
-        "aurora-firmware", "alsa-ucm-conf-aurora", "aurora-audio", "speakerguardd",
+        "aurora-firmware", "avd-fw", "upower", "alsa-ucm-conf-aurora", "aurora-audio", "speakerguardd",
     ]),
 }
 REPLACED = {
