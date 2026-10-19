@@ -3,7 +3,7 @@
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.2.10
-Release: 4%{?dist}.aurora
+Release: 5%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -105,6 +105,10 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Mon Oct 19 2026 Aurora Silicon <hey@djdev.me> - 7.2.10-5
+- Keep integrated audio, camera, haptics and USB4 capabilities enabled.
+- Include common PCIe network, storage, audio and external GPU drivers.
+
 * Mon Oct 19 2026 Aurora Silicon <hey@djdev.me> - 7.2.10-4
 - Enable SELinux for Fedora targeted policy on every supported Mac.
 - Reject requested platform capabilities silently dropped by Kconfig.
