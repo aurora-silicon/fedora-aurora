@@ -23,3 +23,7 @@ biometric interface. This package does not edit PAM, replace password login or
 change the power-button action. Use the desktop's fingerprint enrollment flow
 once hardware qualification is complete. Module reload cannot repeat the secure
 enclave handoff; driver updates take effect after a full reboot.
+
+The Fedora SELinux module labels only `/dev/sep-bio` with a dedicated device type
+and permits fprintd to use it. Input event access is read-only for the lid
+monitor. Other generic device nodes receive no additional permissions.

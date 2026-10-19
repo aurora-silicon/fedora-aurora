@@ -1,0 +1,13 @@
+policy_module(aurora_sep, 1.0.0)
+
+gen_require(`
+    type fprintd_t;
+')
+
+type aurora_sep_device_t;
+dev_node(aurora_sep_device_t)
+
+allow fprintd_t aurora_sep_device_t:chr_file rw_chr_file_perms;
+
+# The lid monitor reads switch events while fingerprint authentication is active.
+dev_read_input(fprintd_t)
