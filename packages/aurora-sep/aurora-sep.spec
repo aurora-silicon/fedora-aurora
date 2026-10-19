@@ -1,6 +1,6 @@
 Name: aurora-sep
 Version: 1
-Release: 4%{?dist}
+Release: 5%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -85,5 +85,8 @@ echo 'enable aurora-sep.timer' >%{buildroot}%{_presetdir}/80-aurora-sep.preset
 %{_presetdir}/80-aurora-sep.preset
 
 %changelog
+* Mon Oct 19 2026 Aurora Silicon <hey@djdev.me> - 1-5
+- Wait for the modular running kernel during an upgrade
+
 * Mon Oct 19 2026 Aurora Silicon <hey@djdev.me> - 1-4
 - Initialize SEP from the mounted root and prepare local calibration
