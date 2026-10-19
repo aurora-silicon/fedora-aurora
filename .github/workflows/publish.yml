@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       build-run:
-        description: Successful Fedora RPM builds run ID from this repository
+        description: Successful native RPM run IDs; recipes must match merged main
         required: true
       base-release:
         description: Existing immutable testing snapshot to preserve unchanged packages
@@ -24,12 +24,15 @@ concurrency:
   cancel-in-progress: false
 jobs:
   repository:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04-arm
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Validate the candidate build
         env:
           GH_TOKEN: ${{ github.token }}
@@ -37,14 +40,16 @@ jobs:
           RELEASE_TAG: ${{ inputs.release-tag }}
           BASE_RELEASE: ${{ inputs.base-release }}
         run: |
-          [[ $RUN =~ ^[0-9]+$ && $RELEASE_TAG =~ ^testing-[A-Za-z0-9._-]+$ ]]
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN" > build.json
-          jq -e --arg repo "$GITHUB_REPOSITORY" '.conclusion == "success" and .head_branch == "main" and .head_repository.full_name == $repo and (.event == "push" or .event == "workflow_dispatch")' build.json
-          gh run download "$RUN" --repo "$GITHUB_REPOSITORY" --pattern 'rpm-*' --dir downloaded
-          mkdir -p input-rpms input-srpms
-          find downloaded -name '*.rpm' ! -name '*.src.rpm' -exec cp {} input-rpms/ \;
-          find downloaded -name '*.src.rpm' -exec cp {} input-srpms/ \;
-          test "$(find input-rpms -name '*.rpm' | wc -l)" -gt 0
+          [[ $RELEASE_TAG =~ ^testing-[A-Za-z0-9._-]+$ ]]
+          read -r -a runs <<< "$RUN"
+          ((${#runs[@]}))
+          for run in "${runs[@]}"; do
+            [[ $run =~ ^[0-9]+$ ]]
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" > "build-$run.json"
+            gh run download "$run" --repo "$GITHUB_REPOSITORY" --pattern 'rpm-*' --dir "downloaded/$run"
+            python3 scripts/import-rpm-build.py --metadata "build-$run.json" --artifacts "downloaded/$run" \
+              --repository "$GITHUB_REPOSITORY" --output input-build
+          done
           if [[ -n $BASE_RELEASE ]]; then
             [[ $BASE_RELEASE =~ ^testing-[A-Za-z0-9._-]+$ ]]
             gh release download "$BASE_RELEASE" --repo "$GITHUB_REPOSITORY" --pattern '*.rpm' --pattern manifest.json --dir base-rpms
@@ -61,7 +66,7 @@ jobs:
               dnf install -y rpm-build redhat-rpm-config rpm-sign gnupg2 createrepo_c python3
               options=()
               [[ ! -d base-rpms ]] || options=(--base base-rpms)
-              python3 scripts/assemble-repository.py "${options[@]}" --candidates input-rpms --output complete-rpms
+              python3 scripts/assemble-repository.py "${options[@]}" --candidates input-build/rpms --output complete-rpms
               python3 scripts/sign-repository.py --rpms complete-rpms --output site \
                 --asset-base "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG"
             '
@@ -69,12 +74,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release-tag }}
+          BASE_RELEASE: ${{ inputs.base-release }}
         run: |
+          python3 - <<'PY'
+          import json,os
+          from pathlib import Path
+          runs=[json.loads(p.read_text()) for p in sorted(Path('.').glob('build-*.json'))]
+          receipts=[json.loads(p.read_text()) for p in sorted(Path('downloaded').glob('*/rpm-*/out/manifests/*.json'))]
+          record={'schema':1,'publishing_commit':os.environ['GITHUB_SHA'],'base_release':os.environ['BASE_RELEASE'],
+                  'builds':[{k:run[k] for k in ('id','head_sha','path','event','conclusion')} for run in runs],
+                  'receipts':receipts}
+          Path('site/builds.json').write_text(json.dumps(record,indent=2)+'\n')
+          PY
           gh release create "$RELEASE_TAG" site/44/testing/aarch64/*.rpm \
-            site/44/testing/aarch64/manifest.json site/RPM-GPG-KEY-aurora \
+            site/44/testing/aarch64/manifest.json site/RPM-GPG-KEY-aurora site/builds.json \
             --prerelease --title "Fedora Aurora $RELEASE_TAG" \
             --notes 'Signed development package set. Image installation qualification is recorded separately.'
-          source_rpms=(input-srpms/*.src.rpm)
+          source_rpms=(input-build/srpms/*.src.rpm)
           [[ ! -e ${source_rpms[0]} ]] || gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" "${source_rpms[@]}"
           find site -name '*.rpm' -delete
           cp keys/fingerprint.txt site/fingerprint.txt
