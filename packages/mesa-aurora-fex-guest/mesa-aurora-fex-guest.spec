@@ -37,6 +37,14 @@ Source1: aurora-fex-mesa.service
 Source2: 80-aurora-fex-mesa.preset
 # The payload is x86 code for an aarch64 host: it is built on an x86_64 builder
 # (Fedora multilib for i686) and shipped as noarch with automatic dependencies off.
+#
+# The drivers link neither LLVM nor SPIRV-Tools, as in mesa-aurora. They load
+# inside the guest rootfs, whose LLVM is whatever its Fedora release ships (the
+# Neo's carries LLVM 23, Fedora 44 builds against LLVM 22): a driver linked to
+# the builder's libLLVM.so.N fails to load there, leaving the game without a GPU
+# driver. lm_sensors and libunwind are off for the same reason. LLVM is needed
+# only to precompile the CL shaders, so a first native build makes those
+# compilers and both driver builds use them; no i686 LLVM, clang or translator.
 BuildArch: noarch
 AutoReqProv: no
 Requires: mesa-dri-drivers = %{version}-%{release}
@@ -45,10 +53,8 @@ Requires: util-linux-core
 BuildRequires: gcc gcc-c++ meson ninja-build pkgconf-pkg-config bison flex glslang libclc
 BuildRequires: python3-mako python3-pyyaml python3-packaging python3-pycparser python3-ply
 BuildRequires: spirv-headers-devel wayland-protocols-devel systemd-rpm-macros file
-BuildRequires: llvm-devel(x86-64) llvm-devel(x86-32)
-BuildRequires: clang-devel(x86-64) clang-devel(x86-32)
-BuildRequires: spirv-llvm-translator-devel(x86-64) spirv-llvm-translator-devel(x86-32)
-BuildRequires: spirv-tools-devel(x86-64) spirv-tools-devel(x86-32)
+BuildRequires: llvm-devel(x86-64) clang-devel(x86-64)
+BuildRequires: spirv-llvm-translator-devel(x86-64) spirv-tools-devel(x86-64)
 BuildRequires: libdrm-devel(x86-64) libdrm-devel(x86-32)
 BuildRequires: wayland-devel(x86-64) wayland-devel(x86-32)
 BuildRequires: libX11-devel(x86-64) libX11-devel(x86-32)
@@ -63,9 +69,7 @@ BuildRequires: zlib-ng-compat-devel(x86-64) zlib-ng-compat-devel(x86-32)
 BuildRequires: libzstd-devel(x86-64) libzstd-devel(x86-32)
 BuildRequires: expat-devel(x86-64) expat-devel(x86-32)
 BuildRequires: elfutils-libelf-devel(x86-64) elfutils-libelf-devel(x86-32)
-BuildRequires: lm_sensors-devel(x86-64) lm_sensors-devel(x86-32)
 BuildRequires: libglvnd-devel(x86-64) libglvnd-devel(x86-32)
-BuildRequires: libunwind-devel(x86-64) libunwind-devel(x86-32)
 BuildRequires: libdisplay-info-devel(x86-64) libdisplay-info-devel(x86-32)
 BuildRequires: vulkan-loader-devel(x86-64) vulkan-loader-devel(x86-32)
 BuildRequires: glibc-devel(x86-64) glibc-devel(x86-32) libstdc++-devel(x86-64) libstdc++-devel(x86-32)
@@ -73,8 +77,7 @@ BuildRequires: libgcc(x86-32) libatomic(x86-64) libatomic(x86-32)
 # Indirect pkg-config requirements (wayland, llvm, xcb, libdrm), named per arch:
 # an unqualified pkgconfig() requirement may be satisfied by the i686 copy alone.
 BuildRequires: libffi-devel(x86-64) libffi-devel(x86-32)
-BuildRequires: libedit-devel(x86-64) libedit-devel(x86-32)
-BuildRequires: ncurses-devel(x86-64) ncurses-devel(x86-32)
+BuildRequires: libedit-devel(x86-64) ncurses-devel(x86-64)
 BuildRequires: libxcrypt-devel(x86-64) libxcrypt-devel(x86-32)
 BuildRequires: libXau-devel(x86-64) libXau-devel(x86-32)
 BuildRequires: libXrender-devel(x86-64) libXrender-devel(x86-32)
@@ -96,15 +99,23 @@ guest Mesa with no Apple G17P support and every GPU job they submit is rejected.
 unset PKG_CONFIG_PATH
 export MESA_GIT_SHA1_OVERRIDE=%{commit}
 common=(--prefix=/usr --buildtype=release -Db_ndebug=true --wrap-mode=nodownload
-  -Dplatforms=x11,wayland -Dgallium-drivers=asahi,zink,llvmpipe,softpipe -Dvulkan-drivers=asahi
+  -Dplatforms=x11,wayland -Dgallium-drivers=asahi,zink,softpipe -Dvulkan-drivers=asahi
   -Dvulkan-layers= -Dglx=dri -Degl=enabled -Dgbm=enabled -Dgles1=disabled -Dgles2=enabled -Dopengl=true
-  -Dglvnd=enabled -Dllvm=enabled -Dgallium-rusticl=false -Dtools= -Dbuild-tests=false
-  -Dvalgrind=disabled -Dvideo-codecs= -Dmicrosoft-clc=disabled)
-PKG_CONFIG_LIBDIR=/usr/lib64/pkgconfig:/usr/share/pkgconfig meson setup b64 "${common[@]}" --libdir=lib64
+  -Dglvnd=enabled -Dgallium-rusticl=false -Dtools= -Dbuild-tests=false
+  -Dvalgrind=disabled -Dvideo-codecs= -Dmicrosoft-clc=disabled -Dlibunwind=disabled -Dlmsensors=disabled)
+drivers=(-Dllvm=disabled -Dspirv-tools=disabled -Dmesa-clc=system -Dprecomp-compiler=system
+  --native-file tools.ini)
+# The CL compilers run on the build machine and need LLVM.
+PKG_CONFIG_LIBDIR=/usr/lib64/pkgconfig:/usr/share/pkgconfig meson setup tools "${common[@]}" --libdir=lib64 -Dllvm=enabled
+ninja -C tools %{?_smp_mflags} src/compiler/clc/mesa_clc src/compiler/spirv/vtn_bindgen2 src/asahi/clc/asahi_clc
+cat > tools.ini <<X
+[binaries]
+mesa_clc = '$PWD/tools/src/compiler/clc/mesa_clc'
+vtn_bindgen2 = '$PWD/tools/src/compiler/spirv/vtn_bindgen2'
+asahi_clc = '$PWD/tools/src/asahi/clc/asahi_clc'
+X
+PKG_CONFIG_LIBDIR=/usr/lib64/pkgconfig:/usr/share/pkgconfig meson setup b64 "${common[@]}" "${drivers[@]}" --libdir=lib64
 ninja -C b64 %{?_smp_mflags}
-# The i686 llvm-devel installs its llvm-config below /usr/lib/llvm<N>.
-llvm32=$(ls -d /usr/lib/llvm*/bin/llvm-config | head -1)
-file -L "$llvm32" | grep -q 'ELF 32-bit' || { echo "no i686 llvm-config: $llvm32" >&2; exit 1; }
 cat > i686.cross <<X
 [binaries]
 c = ['gcc', '-m32']
@@ -112,7 +123,6 @@ cpp = ['g++', '-m32']
 ar = 'ar'
 strip = 'strip'
 pkg-config = 'pkg-config'
-llvm-config = '$llvm32'
 [properties]
 pkg_config_libdir = '/usr/lib/pkgconfig:/usr/share/pkgconfig'
 [host_machine]
@@ -121,7 +131,7 @@ cpu_family = 'x86'
 cpu = 'i686'
 endian = 'little'
 X
-meson setup b32 "${common[@]}" --libdir=lib --cross-file i686.cross
+meson setup b32 "${common[@]}" "${drivers[@]}" --libdir=lib --cross-file i686.cross
 ninja -C b32 %{?_smp_mflags}
 
 %install
@@ -141,6 +151,12 @@ done
 for f in %{buildroot}%{layer}/usr/lib/libgallium-*.so %{buildroot}%{layer}/usr/lib/libvulkan_asahi.so; do
   file -L "$f" | grep -q 'ELF 32-bit LSB shared object, Intel'
 done
+# Nothing in the layer may need a runtime whose soname follows the guest's release.
+if find %{buildroot}%{layer} -name '*.so*' -type f -exec readelf -d {} + |
+    grep -E 'NEEDED.*(libLLVM|libSPIRV-Tools|libsensors|libunwind)'; then
+  echo 'guest driver needs a release-specific runtime' >&2
+  exit 1
+fi
 
 %post
 %systemd_post aurora-fex-mesa.service
