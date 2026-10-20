@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       packages: ${{ steps.plan.outputs.packages }}
+      x86_packages: ${{ steps.plan.outputs.x86_packages }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -74,6 +75,56 @@ jobs:
             build.log
           retention-days: 30
       # A failed attempt keeps its log under a name publication never reads.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: failed-rpm-${{ matrix.package }}-attempt-${{ github.run_attempt }}
+          path: build.log
+          retention-days: 14
+  rpm-x86:
+    # Recipes that ship x86 code for FEX guests (marked "# aurora-builder: x86_64").
+    needs: plan
+    if: needs.plan.outputs.x86_packages != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        package: ${{ fromJSON(needs.plan.outputs.x86_packages) }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Build Fedora 44 RPMs on x86_64
+        run: |
+          set -euo pipefail
+          docker run --rm --platform linux/amd64 -v "$PWD:/src" -w /src \
+            registry.fedoraproject.org/fedora:44 bash -euo pipefail -c '
+              dnf install -y rpm-build dnf5-plugins python3 git tar gzip coreutils findutils
+              AURORA_INSTALL_BUILDDEPS=1 AURORA_BUILD_JOBS=4 bash scripts/build-rpm "$1"
+            ' build '${{ matrix.package }}' 2>&1 | tee build.log
+      # Provenance for the exact RPM bytes; publication verifies it.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: success() && github.event_name != 'pull_request'
+        with:
+          subject-path: |
+            out/rpms/*.rpm
+            out/srpms/*.rpm
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: success()
+        with:
+          name: rpm-${{ matrix.package }}
+          path: |
+            out/rpms/*.rpm
+            out/srpms/*.rpm
+            out/manifests/*.json
+            build.log
+          retention-days: 30
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:

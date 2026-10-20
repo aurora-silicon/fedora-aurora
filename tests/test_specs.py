@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import re
 import unittest
@@ -13,4 +14,22 @@ class SpecTests(unittest.TestCase):
         for name in ['aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-release', 'aurora-logos']:
             text = (ROOT / 'packages' / name / (name + '.spec')).read_text()
             self.assertIn('BuildArch: noarch', text)
+    def test_fex_guest_mesa_moves_in_lockstep_with_the_host_mesa(self):
+        def fields(name):
+            text = (ROOT / 'packages' / name / (name + '.spec')).read_text()
+            commit = re.search(r'^%(?:\{!\?commit:)?%?global commit ([0-9a-f]{40})', text, re.M).group(1)
+            version = re.search(r'^Version:\s+(\S+)', text, re.M).group(1)
+            release = re.search(r'^Release:\s+(\S+)', text, re.M).group(1)
+            macros = dict(re.findall(r'^%\{!\?(\w+):%global \1 (\S+)\}', text, re.M))
+            expand = lambda value: re.sub(r'%\{(\w+)\}', lambda m: macros.get(m.group(1), m.group(0)), value)
+            return commit, expand(version), expand(release), text
+        host, guest = fields('mesa-aurora'), fields('mesa-aurora-fex-guest')
+        self.assertEqual(host[:3], guest[:3])
+        sources = json.loads((ROOT / 'sources.json').read_text())
+        self.assertEqual(sources['mesa-aurora-fex-guest'], sources['mesa-aurora'])
+        self.assertEqual(sources['mesa-aurora']['commit'], host[0])
+        self.assertIn('BuildArch: noarch', guest[3])
+        self.assertIn('# aurora-builder: x86_64', guest[3].splitlines())
+        self.assertIn('Requires: mesa-dri-drivers = %{version}-%{release}', guest[3])
+        self.assertIn('Requires: mesa-vulkan-drivers = %{version}-%{release}', guest[3])
 if __name__ == '__main__': unittest.main()

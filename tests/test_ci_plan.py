@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PlanTests(unittest.TestCase):
-    def plan(self, changed_sources, shared_tooling=False):
+    def plan(self, changed_sources, shared_tooling=False, split=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'scripts').mkdir()
@@ -20,7 +20,11 @@ class PlanTests(unittest.TestCase):
                 recipe = root / 'packages' / name / (name + '.spec')
                 recipe.parent.mkdir(parents=True)
                 recipe.write_text('Name: ' + name + '\n')
-            sources = {'kernel-aurora': {'commit': 'old'}, 'mesa-aurora': {'commit': 'old'}}
+            x86 = root / 'packages/mesa-aurora-fex-guest/mesa-aurora-fex-guest.spec'
+            x86.parent.mkdir(parents=True)
+            x86.write_text('# aurora-builder: x86_64\nName: mesa-aurora-fex-guest\n')
+            sources = {'kernel-aurora': {'commit': 'old'}, 'mesa-aurora': {'commit': 'old'},
+                       'mesa-aurora-fex-guest': {'commit': 'old'}}
             (root / 'sources.json').write_text(json.dumps(sources))
             def git(*args):
                 return subprocess.check_output(['git', '-C', str(root), *args], text=True).strip()
@@ -39,7 +43,9 @@ class PlanTests(unittest.TestCase):
             env = {**os.environ, 'GITHUB_EVENT_PATH': str(event), 'GITHUB_EVENT_NAME': 'push',
                    'GITHUB_SHA': git('rev-parse', 'HEAD')}
             output = subprocess.check_output(['python3', str(root / 'scripts/ci-plan.py')], env=env, text=True)
-            return json.loads(output.removeprefix('packages='))
+            plan = dict(line.split('=', 1) for line in output.splitlines())
+            plan = {key: json.loads(value) for key, value in plan.items()}
+            return plan if split else plan['packages'] + plan['x86_packages']
 
     def test_new_firmware_and_power_pins_leave_kernel_and_mesa_unbuilt(self):
         self.assertEqual(self.plan({'avd-fw': {'commit': 'new'}, 'upower-aurora': {'commit': 'new'}}),
@@ -50,4 +56,9 @@ class PlanTests(unittest.TestCase):
 
     def test_shared_builder_still_invalidates_every_package(self):
         self.assertEqual(self.plan({'avd-fw': {'commit': 'new'}}, shared_tooling=True),
-                         ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora'])
+                         ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])
+
+    def test_x86_payload_recipes_are_planned_for_the_x86_builder_only(self):
+        self.assertEqual(self.plan({'mesa-aurora': {'commit': 'new'}, 'mesa-aurora-fex-guest': {'commit': 'new'}},
+                                   split=True),
+                         {'packages': ['mesa-aurora'], 'x86_packages': ['mesa-aurora-fex-guest']})

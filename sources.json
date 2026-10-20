@@ -136,5 +136,13 @@
     "archive_root": "powerdevil-6.7.5",
     "archive_file": "powerdevil-6.7.5.tar.xz",
     "sha256": "6a738fccf01e4d1b10fea68ff8b404a406f95bc36fcb593bcc70fafb1c53258b"
+  },
+  "mesa-aurora-fex-guest": {
+    "repository": "https://github.com/aurora-silicon/mesa",
+    "commit": "af3d9c6fc84f6e5bc6ee23f1eb0b47a5ee466826",
+    "version": "26.3.0",
+    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/af3d9c6fc84f6e5bc6ee23f1eb0b47a5ee466826",
+    "archive_root": "mesa-af3d9c6fc84f6e5bc6ee23f1eb0b47a5ee466826",
+    "sha256": "ec40a280fbb7ad3792a867acc6904ae62fef5093fb29c76eb252badfcd14591a"
   }
 }
