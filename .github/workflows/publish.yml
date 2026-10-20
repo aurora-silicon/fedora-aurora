@@ -68,6 +68,7 @@ jobs:
               [[ ! -d base-rpms ]] || options=(--base base-rpms)
               python3 scripts/assemble-repository.py "${options[@]}" --candidates input-build/rpms --output complete-rpms
               python3 scripts/sign-repository.py --rpms complete-rpms --output site \
+                --snapshot "$RELEASE_TAG" \
                 --asset-base "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG"
             '
       - name: Return signed artifacts to the runner user
@@ -90,6 +91,7 @@ jobs:
           PY
           gh release create "$RELEASE_TAG" site/44/testing/aarch64/*.rpm --target "$GITHUB_SHA" \
             site/44/testing/aarch64/manifest.json site/RPM-GPG-KEY-aurora site/builds.json \
+            site/repository-metadata-*.tar.gz site/repository-metadata-*.tar.gz.asc \
             --prerelease --title "Fedora Aurora $RELEASE_TAG" \
             --notes 'Signed development package set. Image installation qualification is recorded separately.'
           source_rpms=(input-build/srpms/*.src.rpm)
