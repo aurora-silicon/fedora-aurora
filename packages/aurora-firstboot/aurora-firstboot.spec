@@ -1,7 +1,7 @@
-%global commit fbcbf053ba5c5fd9d18c62ed8abecc85b0ca795f
+%global commit b0749845fa3830e844d67e744d7dbb7c182d5a84
 Name: aurora-firstboot
 Version: 0.1.4
-Release: 3%{?dist}
+Release: 4%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-platform
