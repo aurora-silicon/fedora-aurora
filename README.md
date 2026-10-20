@@ -17,6 +17,8 @@ The platform includes `avd-fw` from Aurora's firmware fork and `upower` from Aur
 
 ## Updates and distribution
 
+See [the release procedure](RELEASING.md) for package publication, image and catalog pairing, native installer delivery, hardware qualification and snapshot restoration.
+
 The initial update channel is `testing`. RPMs and repository metadata are signed with the public key in `keys/`; its full fingerprint is independently recorded in `keys/fingerprint.txt`. Private signing material is not stored in this repository. Versioned RPMs are served as immutable GitHub Release assets; static DNF metadata is served through GitHub Pages. Image and app release publication is separate from source CI and RPM candidate builds. Publication accepts successful native CI runs whose commits are merged into `main`, with identical package recipes, source pins, build tooling and verified output receipts. Incremental publication takes an immutable `base-release`, authenticates its RPMs with the committed Aurora key, replaces every output of rebuilt source packages, and requires coverage at the current recipes' source versions before signing. A partial first snapshot or stale base kernel is rejected.
 
 Each new testing release retains `repository-metadata-<tag>.tar.gz` and its detached Aurora signature alongside the RPM assets. The archive preserves the signed metadata index, each checksum-verified referenced metadata file, package manifest and public key. `deploy-snapshot.yml` authenticates this archive and its signed index before restoring an update snapshot. The archive excludes RPM copies and has bounded, normalized paths and deterministic bytes.

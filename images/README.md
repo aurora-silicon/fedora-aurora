@@ -1,8 +1,8 @@
 # Fedora Aurora Remix
 
-This directory starts the Fedora image producer for the native Aurora installer. The base is Fedora 44 with a pinned Fedora Asahi KIWI description, Aurora's hardware packages and Aurora's own release identity. KDE Plasma is the initial default; GNOME and minimal use the same package and boot contracts.
+This directory contains the Fedora image producer for the native Aurora installer. The base is Fedora 44 with a pinned Fedora Asahi KIWI description, Aurora's hardware packages and Aurora's own release identity. KDE Plasma is the initial default; GNOME and minimal use the same package and boot contracts. Follow [the release procedure](../RELEASING.md) to qualify and promote a compatible package, image, catalog and application set.
 
-`configure.py` prepares the image description. It validates the source revision and repository signing key, replaces the upstream hardware and branding package selections, and keeps the Fedora partition layout. Image construction, Aurora RPM production and the native installer's Fedora layout adapter are subsequent steps; no installable Fedora payload is published here yet.
+`configure.py` prepares the image description. It validates the source revision and repository signing key, replaces the upstream hardware and branding package selections, and keeps the Fedora partition layout. Native image builds retain filesystem bundles and package/initramfs inventories. Signed installer payload publication is a separate workflow with its own resource compatibility and hardware qualification gates.
 
 ## Prepare a description
 
@@ -44,9 +44,9 @@ The native engine currently implements an Omarchy-specific full-OS payload contr
 
 Use the existing `aurora-silicon/aurora-installer` repository for native app source and release notes. The initial download can be a versioned native app ZIP/DMG on GitHub Releases. Public native builds use Developer ID signing and notarization; the current ad-hoc signed preview remains a development artifact. Signed per-profile catalogs should point to immutable, hashed OS payloads on object storage/CDN and to the corresponding native Recovery input. This keeps large desktop images independent of app updates and lets one app offer KDE, GNOME and minimal without downloading all three.
 
-The RPM repository is a separate update channel: publish signed RPMs and signed `repodata`, retain older kernel/bootloader versions for rollback, and promote a tested set together. Copr is an option for RPM builds; a static repository on our storage is an option for serving the tested set. Hosting endpoints, production signing identities and release keys remain deployment choices; the current `.invalid` installer endpoints are placeholders.
+The RPM repository is a separate update channel: publish signed RPMs and signed `repodata`, retain older kernel/bootloader versions for rollback, and promote a tested set together. Native package CI, immutable GitHub release assets and the signed static testing feed implement this path. Public keys are committed under `keys/`; private signing material is held in repository secrets. `deploy-snapshot.yml` restores a retained, authenticated metadata snapshot.
 
-For public branding, follow Fedora's [Remix guidance](https://fedoraproject.org/wiki/Remix), including replacing the Fedora release/logo packages. The final public name and artwork should also follow its naming guidance. This source work does not publish an app, repository or OS image.
+For public branding, follow Fedora's [Remix guidance](https://fedoraproject.org/wiki/Remix), including replacing the Fedora release/logo packages. Aurora's release and logo packages supply that identity. Package snapshots, candidate images and installer deliveries have separate publication gates; physical installation qualification remains required.
 
 ## Checks
 
