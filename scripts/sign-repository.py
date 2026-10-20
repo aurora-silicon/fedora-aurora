@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Sign a tested RPM set and prepare static DNF repository metadata."""
 import argparse
+import gzip
 import hashlib
 import json
 import os
@@ -9,8 +10,10 @@ import re
 import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 import urllib.parse
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -19,18 +22,75 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 
 
+def archive_metadata(site, snapshot):
+    """Retain the exact signed DNF metadata without duplicating package assets."""
+    if not re.fullmatch(r'testing-[A-Za-z0-9._-]+', snapshot):
+        raise ValueError('Invalid immutable snapshot tag')
+    repository = site / '44/testing/aarch64'
+    repodata = repository / 'repodata'
+    if any(path.is_symlink() for path in (site, site / '44', site / '44/testing', repository, repodata)):
+        raise ValueError('Metadata directories must not be links')
+    files = [site / 'RPM-GPG-KEY-aurora', repository / 'manifest.json',
+             repodata / 'repomd.xml', repodata / 'repomd.xml.asc']
+    ns = {'r': 'http://linux.duke.edu/metadata/repo'}
+    repomd = repodata / 'repomd.xml'
+    if repomd.is_symlink() or not repomd.is_file() or repomd.stat().st_size > 2 * 1024**2:
+        raise ValueError('Invalid repository metadata index')
+    records = ET.fromstring(repomd.read_bytes()).findall('r:data', ns)
+    if not 1 <= len(records) <= 128:
+        raise ValueError('Unexpected repository metadata inventory')
+    for record in records:
+        location = record.find('r:location', ns)
+        checksum = record.find('r:checksum', ns)
+        size = record.find('r:size', ns)
+        relative = '' if location is None else location.get('href', '')
+        if (not re.fullmatch(r'repodata/[A-Za-z0-9_.+-]+', relative)
+                or checksum is None or checksum.get('type') != 'sha256'
+                or not re.fullmatch(r'[a-f0-9]{64}', checksum.text or '')
+                or size is None or not (size.text or '').isdigit()):
+            raise ValueError('Unsafe repository metadata record')
+        path = repository / relative
+        if path in files or path.is_symlink() or not path.is_file():
+            raise ValueError('Missing or duplicate repository metadata')
+        if not 0 < path.stat().st_size == int(size.text) <= 32 * 1024**2:
+            raise ValueError('Repository metadata exceeds its budget')
+        with path.open('rb') as stream:
+            if hashlib.file_digest(stream, 'sha256').hexdigest() != checksum.text:
+                raise ValueError('Repository metadata checksum mismatch')
+        files.append(path)
+    if (any(path.is_symlink() or not path.is_file() or not 0 < path.stat().st_size <= 32 * 1024**2
+            for path in files) or sum(path.stat().st_size for path in files) > 64 * 1024**2):
+        raise ValueError('Unsafe metadata snapshot')
+    archive = site / f'repository-metadata-{snapshot}.tar.gz'
+    with archive.open('xb') as output, gzip.GzipFile(fileobj=output, filename='', mtime=0, mode='wb') as compressed:
+        with tarfile.open(fileobj=compressed, mode='w') as bundle:
+            for path in sorted(files):
+                entry = tarfile.TarInfo(path.relative_to(site).as_posix())
+                entry.size = path.stat().st_size
+                entry.mode = 0o644
+                entry.mtime = 0
+                with path.open('rb') as source:
+                    bundle.addfile(entry, source)
+    return archive
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rpms", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--asset-base", required=True)
+    parser.add_argument("--snapshot", help="Immutable testing tag whose signed metadata should be retained")
     parser.add_argument("--credentials-stdin", action="store_true")
     args = parser.parse_args()
     if args.output.exists():
         parser.error("output exists; use a fresh repository snapshot")
+    if args.snapshot and not re.fullmatch(r'testing-[A-Za-z0-9._-]+', args.snapshot):
+        parser.error('invalid immutable snapshot tag')
     url = urllib.parse.urlsplit(args.asset_base)
     if url.scheme != "https" or not url.hostname or url.query or url.fragment:
         parser.error("asset base must be an immutable HTTPS release directory")
+    if args.snapshot and url.path.rstrip('/').rsplit('/', 1)[-1] != args.snapshot:
+        parser.error('snapshot tag does not match the immutable asset base')
     packages = sorted(args.rpms.glob("*.rpm"))
     if not packages:
         parser.error("no RPMs supplied")
@@ -75,12 +135,16 @@ def main():
         repomd = destination / "repodata/repomd.xml"
         run(*gpg, "--local-user", expected, "--armor", "--detach-sign", str(repomd))
         run(*gpg, "--verify", str(repomd) + ".asc", str(repomd))
+        shutil.copyfile(ROOT / "keys/RPM-GPG-KEY-aurora", args.output / "RPM-GPG-KEY-aurora")
+        (destination / "manifest.json").write_text(json.dumps({
+            "schema": 1, "channel": "testing", "fedora": 44, "architecture": "aarch64",
+            "signing_key": expected, "asset_base": args.asset_base, "packages": manifest,
+        }, indent=2) + "\n")
+        if args.snapshot:
+            archive = archive_metadata(args.output, args.snapshot)
+            run(*gpg, "--local-user", expected, "--armor", "--detach-sign", str(archive))
+            run(*gpg, "--verify", str(archive) + ".asc", str(archive))
         run("gpgconf", "--homedir", str(home), "--kill", "gpg-agent")
-    shutil.copyfile(ROOT / "keys/RPM-GPG-KEY-aurora", args.output / "RPM-GPG-KEY-aurora")
-    (destination / "manifest.json").write_text(json.dumps({
-        "schema": 1, "channel": "testing", "fedora": 44, "architecture": "aarch64",
-        "signing_key": expected, "asset_base": args.asset_base, "packages": manifest,
-    }, indent=2) + "\n")
     print(f"Prepared {len(manifest)} signed RPMs and verified repository metadata")
 
 
