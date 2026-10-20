@@ -33,4 +33,8 @@ else:
     else:
         result = sorted({p.split("/")[1] for p in paths
                          if p.startswith("packages/") and p.split("/")[1] in names})
-print("packages=" + json.dumps(result))
+# Recipes that ship x86 code (for FEX guests) declare an x86_64 builder.
+x86 = {n for n in names
+       if "# aurora-builder: x86_64" in (root / "packages" / n / (n + ".spec")).read_text().splitlines()}
+print("packages=" + json.dumps([n for n in result if n not in x86]))
+print("x86_packages=" + json.dumps([n for n in result if n in x86]))

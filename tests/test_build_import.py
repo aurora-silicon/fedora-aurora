@@ -64,6 +64,19 @@ class BuildImportTests(unittest.TestCase):
         self.assertEqual(self.run_import(), 1)
         self.assertEqual(len(list((self.root / 'output').rglob('*.rpm'))), 2)
 
+    def test_x86_receipt_is_accepted_only_for_a_declared_x86_recipe(self):
+        receipt = next(self.artifacts.rglob('manifests/example.json'))
+        data = json.loads(receipt.read_text())
+        receipt.write_text(json.dumps({**data, 'architecture': 'x86_64'}))
+        with self.assertRaisesRegex(ValueError, 'native aarch64 build'):
+            self.run_import()
+        self.recipe.write_text('# aurora-builder: x86_64\nName: example\n')
+        self.commit('x86 recipe')
+        self.metadata['head_sha'] = self.git('rev-parse', 'HEAD')
+        receipt.write_text(json.dumps({**data, 'architecture': 'x86_64',
+                                       'recipe_inputs': {'example.spec': module.digest(self.recipe)}}))
+        self.assertEqual(self.run_import(), 1)
+
     def test_changed_recipe_is_not_reused(self):
         self.recipe.write_text('Name: example\nRelease: 2\n')
         self.commit('new recipe')

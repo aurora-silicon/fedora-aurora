@@ -127,5 +127,13 @@
     "archive_root": "kinfocenter-6.7.5",
     "archive_file": "kinfocenter-6.7.5.tar.xz",
     "sha256": "e3aeb4b6f7237fddff4e68f4d7d715772cc47bd0ac376febe24ae3d717680416"
+  },
+  "mesa-aurora-fex-guest": {
+    "repository": "https://github.com/aurora-silicon/mesa",
+    "commit": "af3d9c6fc84f6e5bc6ee23f1eb0b47a5ee466826",
+    "version": "26.3.0",
+    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/af3d9c6fc84f6e5bc6ee23f1eb0b47a5ee466826",
+    "archive_root": "mesa-af3d9c6fc84f6e5bc6ee23f1eb0b47a5ee466826",
+    "sha256": "ec40a280fbb7ad3792a867acc6904ae62fef5093fb29c76eb252badfcd14591a"
   }
 }
