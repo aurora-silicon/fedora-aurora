@@ -1,13 +1,12 @@
-%global commit af3d9c6fc84f6e5bc6ee23f1eb0b47a5ee466826
+%global commit 2305fd923cac881985ec67ec3f1f4284e4170fab
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 2%{?dist}.aurora
+Release: 3%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
 Source0: mesa-aurora-%{commit}.tar.gz
-Patch0: 0001-hk-preserve-library-assertion-mode-in-test.patch
 ExclusiveArch: aarch64
 BuildRequires: gcc gcc-c++ clang clang-devel systemd-devel llvm-devel lld rust cargo bindgen-cli cbindgen
 BuildRequires: meson ninja-build python3-mako python3-pyyaml python3-packaging
@@ -92,5 +91,9 @@ grep -vE 'libvulkan_asahi\.so|vulkan/icd.d/.*asahi.*json' all.files > dri.files
 %files -n mesa-aurora-vulkan-drivers -f vulkan.files
 
 %changelog
+* Tue Oct 20 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-3
+- Pair the current Aurora userspace with the integration kernel.
+- Use the merged sampler-bias test fix.
+
 * Sun Oct 18 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-1.aurora
 - Initial native Fedora Aurora graphics stack.

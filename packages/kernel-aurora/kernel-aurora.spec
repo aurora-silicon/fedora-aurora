@@ -1,20 +1,18 @@
-%global commit e0fa50d863ee7747de0af16525dfd974cdd826f8
+%global commit 1b4997bbab620051e01fb807c6561a483c0f06f6
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.2.10
-Release: 5%{?dist}.aurora
+Release: 6%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
-URL: https://github.com/aurora-silicon/linux
+URL: https://github.com/omacom/linux-aurora
 Source0: kernel-aurora-%{commit}.tar.gz
 Source1: config
 Source2: common.config
 Source3: neo.config
 Source4: fedora.config
 Source5: validate-config.py
-# Merged upstream in omacom/linux-aurora#147; also needed by this 7.2 source pin.
-Patch0: 0001-arm64-apple-m4-wait-state.patch
 ExclusiveArch: aarch64
 BuildRequires: make gcc gcc-c++ clang llvm lld rust rust-src rustfmt cargo bindgen-cli
 BuildRequires: bc bison flex dtc openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
@@ -48,9 +46,9 @@ Provides: kernel-16k-modules-extra = %{version}-%{release}
 Matching modules for the Aurora kernel.
 
 %prep
-%autosetup -p1 -n linux-%{commit}
+%autosetup -p1 -n linux-aurora-%{commit}
 cp %{SOURCE1} .config
-scripts/kconfig/merge_config.sh -m .config %{SOURCE2} %{SOURCE3} %{SOURCE4}
+scripts/kconfig/merge_config.sh -m .config arch/arm64/configs/asahi.config %{SOURCE2} %{SOURCE3} %{SOURCE4}
 scripts/config --set-str LOCALVERSION '' --disable LOCALVERSION_AUTO --set-str SYSTEM_TRUSTED_KEYS '' --set-str SYSTEM_REVOCATION_KEYS ''
 
 %build
@@ -105,6 +103,10 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Tue Oct 20 2026 Aurora Silicon <hey@djdev.me> - 7.2.10-6
+- Track integration/aurora with its shared Asahi hardware configuration.
+- Use the upstream M4+ wait-state implementation.
+
 * Mon Oct 19 2026 Aurora Silicon <hey@djdev.me> - 7.2.10-5
 - Keep integrated audio, camera, haptics and USB4 capabilities enabled.
 - Include common PCIe network, storage, audio and external GPU drivers.
