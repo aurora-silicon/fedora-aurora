@@ -1,6 +1,6 @@
 Name: aurora-sep
 Version: 1
-Release: 6%{?dist}
+Release: 7%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -19,6 +19,7 @@ Source11: aurora-sep.timer
 Source12: aurora-sep-load.conf
 Source13: aurora_sep.te
 Source14: aurora_sep.fc
+Source15: sensor-present
 BuildArch: noarch
 BuildRequires: systemd-rpm-macros fprintd
 BuildRequires: selinux-policy-devel make bzip2
@@ -59,6 +60,7 @@ install -Dpm0644 %{SOURCE11} %{buildroot}%{_unitdir}/aurora-sep.timer
 install -Dpm0644 %{SOURCE12} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep-load.conf
 install -Dpm0755 %{SOURCE8} %{buildroot}%{_libexecdir}/aurora/prepare-sep-calibration
 install -Dpm0755 %{SOURCE9} %{buildroot}%{_libexecdir}/aurora/extract-mesa-calibration
+install -Dpm0755 %{SOURCE15} %{buildroot}%{_libexecdir}/aurora-sep-sensor-present
 install -Dpm0644 %{SOURCE10} %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-sep.conf
 install -Dpm0644 %{SOURCE2} %{buildroot}%{_unitdir}/fprintd.service.d/aurora-sep.conf
 grep -qx 'ExecStart=%{_libexecdir}/fprintd' %{_unitdir}/fprintd.service
@@ -94,6 +96,7 @@ fi
 %{_libexecdir}/aurora-sep-ready
 %{_libexecdir}/aurora/prepare-sep-calibration
 %{_libexecdir}/aurora/extract-mesa-calibration
+%{_libexecdir}/aurora-sep-sensor-present
 %{_prefix}/lib/dracut/dracut.conf.d/90-aurora-sep.conf
 %{_prefix}/lib/modprobe.d/aurora-sep-load.conf
 %{_unitdir}/aurora-sep.service
