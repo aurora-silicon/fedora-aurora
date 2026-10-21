@@ -127,5 +127,14 @@
     "archive_root": "kinfocenter-6.7.5",
     "archive_file": "kinfocenter-6.7.5.tar.xz",
     "sha256": "e3aeb4b6f7237fddff4e68f4d7d715772cc47bd0ac376febe24ae3d717680416"
+  },
+  "powerdevil": {
+    "repository": "https://invent.kde.org/plasma/powerdevil",
+    "commit": "5627bacf05394a737f1dd50295b187748150ffb1",
+    "version": "6.7.5",
+    "source_url": "https://download.kde.org/stable/plasma/6.7.5/powerdevil-6.7.5.tar.xz",
+    "archive_root": "powerdevil-6.7.5",
+    "archive_file": "powerdevil-6.7.5.tar.xz",
+    "sha256": "6a738fccf01e4d1b10fea68ff8b404a406f95bc36fcb593bcc70fafb1c53258b"
   }
 }
