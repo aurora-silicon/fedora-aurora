@@ -1,8 +1,8 @@
 %global debug_package %{nil}
-%global commit 8f4ee8808f593802d825bb8fbc6b99b90f46c402
+%global commit 22bab6087083880ca8544b211b1e222f9ee64094
 Name: aura
 Version: 0.1.0
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -17,7 +17,7 @@ Requires: update-m1n1 uboot-aurora
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-8f4ee8808f593802d825bb8fbc6b99b90f46c402
+%autosetup -n aura-22bab6087083880ca8544b211b1e222f9ee64094
 
 %build
 export RUSTC_BOOTSTRAP=1
@@ -41,6 +41,12 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Thu Oct 22 2026 Aurora Silicon <hey@djdev.me> - 0.1.0-3
+- Track aura main at 22bab60.
+- Start the display on the 13-inch M1 MacBook Pro instead of timing out.
+- Accept empty successful replies to display power, mode and surface requests.
+- Keep display firmware memory mapped when the firmware does not stop.
+
 * Thu Oct 22 2026 Aurora Silicon <hey@djdev.me> - 0.1.0-2
 - Track aura main at 8f4ee88.
 - Keep booting when the power table names a parent it does not list.
