@@ -1,8 +1,8 @@
 %global debug_package %{nil}
-%global commit c4331a90ef324eab33d34d1515d7e42748a293ab
+%global commit 8f4ee8808f593802d825bb8fbc6b99b90f46c402
 Name: aura
 Version: 0.1.0
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -17,7 +17,7 @@ Requires: update-m1n1 uboot-aurora
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-c4331a90ef324eab33d34d1515d7e42748a293ab
+%autosetup -n aura-8f4ee8808f593802d825bb8fbc6b99b90f46c402
 
 %build
 export RUSTC_BOOTSTRAP=1
@@ -41,5 +41,12 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Thu Oct 22 2026 Aurora Silicon <hey@djdev.me> - 0.1.0-2
+- Track aura main at 8f4ee88.
+- Keep booting when the power table names a parent it does not list.
+- Hand the M3 MacBook Air internal display over to the kernel when requested.
+- Run an M1-M3 Stage 2 from above the chainloaded image.
+- Restore secondary CPU start on older CPUs with locked reset vectors.
+
 * Sun Oct 18 2026 Aurora Silicon <hey@djdev.me> - 1
 - Initial Fedora Aurora package.
