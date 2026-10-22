@@ -1,9 +1,9 @@
-%global commit 1b4997bbab620051e01fb807c6561a483c0f06f6
+%global commit 70d5dcedfa7fb7a3e7bd0cdb33d8315d99250142
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.2.10
-Release: 6%{?dist}.aurora
+Release: 7%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/omacom/linux-aurora
@@ -103,6 +103,12 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Thu Oct 22 2026 Aurora Silicon <hey@djdev.me> - 7.2.10-7
+- Track integration/aurora at 70d5dce.
+- Build the Apple watchdog driver in, fixing early resets on MacBook Neo first boot.
+- Fix very dim internal panels at first boot on Macs with 13.x system firmware.
+- Add MT7932 WPA3-SAE and OWE station offload and a world regulatory fallback.
+
 * Tue Oct 20 2026 Aurora Silicon <hey@djdev.me> - 7.2.10-6
 - Track integration/aurora with its shared Asahi hardware configuration.
 - Use the upstream M4+ wait-state implementation.
