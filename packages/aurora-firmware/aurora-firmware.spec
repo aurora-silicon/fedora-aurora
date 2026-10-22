@@ -1,6 +1,6 @@
 Name: aurora-firmware
 Version: 44
-Release: 3%{?dist}
+Release: 4%{?dist}
 Summary: Aurora device firmware and peripheral ordering
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -47,6 +47,9 @@ install -Dm644 %{_sourcedir}/90-aurora-peripherals.preset %{buildroot}/usr/lib/s
 /usr/lib/systemd/system-preset/90-aurora-peripherals.preset
 
 %changelog
+* Thu Oct 22 2026 Aurora Silicon <hey@djdev.me> - 44-4
+- Load the dockchannel keyboard and trackpad driver after firmware admission.
+
 * Sun Oct 18 2026 Aurora Silicon <hey@djdev.me> - 44-3
 - Apply systemd service presets and lifecycle hooks for peripheral firmware admission.
 
