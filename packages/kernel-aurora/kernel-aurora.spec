@@ -1,9 +1,9 @@
-%global commit 8c2774e57ff499fe5c7e6b23ba0c8ba526a868f3
+%global commit d7fc14ef832de514815a5fadf7afee35797ef681
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 1%{?dist}.aurora
+Release: 2%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -103,6 +103,12 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-2
+- Track integration/aurora at d7fc14e.
+- Fail large G17 buffer population without direct reclaim, and report the GPU memory limits.
+- Keep BCM4388 receive DMA buffers readable.
+- Add the M4 Pro MacBook Pro (J616s) device tree.
+
 * Thu Oct 22 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-1
 - Move to Linux 7.3 from aurora-silicon/linux integration/aurora at 8c2774e.
 - Keep the CIO reset controller built in so it exists before the USB4 routers probe.
