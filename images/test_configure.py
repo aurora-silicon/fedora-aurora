@@ -196,6 +196,44 @@ class ConfigureTests(unittest.TestCase):
         helper.chmod(0o755)
         self.assertTrue(accepted())
 
+    def test_desktop_images_require_their_own_account_setup(self):
+        output = self.root / "desktop-setup-contract"
+        self.prepare(output, profile="fedora-gnome")
+        image = self.root / "gnome-image-root"
+        units = image / "usr/lib/systemd/system"
+        units.mkdir(parents=True)
+        sessions = image / "usr/share/gnome-session/sessions"
+        config = output / "config.sh"
+        config.write_text(config.read_text().replace("/usr/lib/systemd/system", str(units))
+                          .replace("/usr/share/gnome-session/sessions", str(sessions))
+                          .replace("/usr/lib/modules/", str(image / "usr/lib/modules") + "/"))
+        kernel = image / "usr/lib/modules/fixture/config"
+        kernel.parent.mkdir(parents=True)
+        kernel.write_text("CONFIG_SECURITY_SELINUX=y\nCONFIG_SND_SOC_MAX98357A=m\n")
+        commands = self.root / "gnome-commands"
+        commands.mkdir()
+        command = commands / "systemctl"
+        command.write_text("#!/bin/sh\nprintf 'enabled\\n'\n")
+        command.chmod(0o755)
+        env = {**os.environ, "PATH": str(commands) + ":" + os.environ["PATH"]}
+
+        def accepted():
+            return subprocess.run(["bash", str(config)], env=env, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE).returncode == 0
+
+        self.assertTrue(accepted())
+        (units / "gdm.service").touch()
+        self.assertFalse(accepted())
+        sessions.mkdir(parents=True)
+        (sessions / "gnome-initial-setup.session").touch()
+        self.assertTrue(accepted())
+        (units / "plymouth-quit.service").touch()
+        self.assertFalse(accepted())
+        dropin = units / "plymouth-quit.service.d/aurora-firstboot.conf"
+        dropin.parent.mkdir()
+        dropin.touch()
+        self.assertTrue(accepted())
+
     def test_image_rejects_a_stale_kernel_before_export(self):
         output = self.root / "kernel-gate"
         self.prepare(output)

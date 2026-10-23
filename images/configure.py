@@ -170,11 +170,24 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
     # Check the RPM's preset result inside the assembled image. A build must
     # fail before exporting an image that will omit peripheral admission.
     text = text.replace("\nexit 0\n", '''
+# Desktop images create the owner with the desktop's own setup, after Aurora
+# has protected the disk on the boot splash.
 if [[ -f /usr/lib/systemd/system/plasma-setup.service &&
       ( ! -f /usr/lib/systemd/system/plasma-setup.service.d/aurora-firstboot.conf ||
         ! -f /usr/lib/systemd/system/display-manager.service.d/aurora-plasma-setup.conf ||
-        ! -x /usr/libexec/aurora/complete-plasma-setup ) ]]; then
-    echo 'Plasma Setup must defer to Aurora owner setup in this image' >&2
+        ! -x /usr/libexec/aurora/complete-plasma-setup ||
+        "$(systemctl is-enabled plasma-setup.service)" != enabled ) ]]; then
+    echo 'Plasma Setup must be enabled and wait for Aurora owner setup in this image' >&2
+    exit 1
+fi
+if [[ -f /usr/lib/systemd/system/gdm.service &&
+      ! -f /usr/share/gnome-session/sessions/gnome-initial-setup.session ]]; then
+    echo 'GNOME images must create the owner with GNOME Initial Setup' >&2
+    exit 1
+fi
+if [[ -f /usr/lib/systemd/system/plymouth-quit.service &&
+      ! -f /usr/lib/systemd/system/plymouth-quit.service.d/aurora-firstboot.conf ]]; then
+    echo 'The boot splash must stay up for the first-boot disk-password prompt' >&2
     exit 1
 fi
 

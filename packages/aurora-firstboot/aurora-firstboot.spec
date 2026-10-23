@@ -1,7 +1,7 @@
-%global commit 5eefa3a93dcebcfb0fe1c3015de2bdaa57e8efe2
+%global commit a46cb0eda71081331b6d0f636cffec4e0561a8b9
 %global selinuxtype targeted
 Name: aurora-firstboot
-Version: 0.1.7
+Version: 0.1.8
 Release: 1%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
@@ -13,6 +13,8 @@ Requires: bash cryptsetup >= 2.8 btrfs-progs util-linux coreutils systemd python
 Requires: dracut policycoreutils selinux-policy-targeted
 %{?selinux_requires_min}
 Requires(posttrans): policycoreutils libselinux-utils
+# The Plasma Setup drop-in moved here from aurora-remix-scripts.
+Conflicts: aurora-remix-scripts < 44-5
 
 %description
 Shared first-boot account setup and per-install Btrfs encryption. The image
@@ -66,10 +68,19 @@ fi
 %{_unitdir}/display-manager.service.d/aurora-firstboot.conf
 %{_unitdir}/getty@.service.d/aurora-firstboot.conf
 %{_unitdir}/serial-getty@.service.d/aurora-firstboot.conf
+%{_unitdir}/plasma-setup.service.d/aurora-firstboot.conf
+%{_unitdir}/plymouth-quit.service.d/aurora-firstboot.conf
 /usr/lib/systemd/system-preset/90-aurora-firstboot.preset
 %{_datadir}/selinux/packages/%{selinuxtype}/aurora_firstboot.pp
 
 %changelog
+* Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 0.1.8-1
+- Create the owner with Plasma Setup or GNOME Initial Setup on desktop images.
+  First boot now only protects the disk, with a password chosen on the boot
+  splash, and destroys the temporary key before the greeter starts.
+- Keep the splash until setup is done, and never take tty1 from Plymouth.
+- aurora.firstboot=text starts the text wizard for recovery.
+
 * Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 0.1.7-1
 - Run the first-boot programs in unconfined_service_t under SELinux through a
   shipped policy module, and label every file setup creates.
