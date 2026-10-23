@@ -54,7 +54,7 @@ class FedoraSpecTests(unittest.TestCase):
 
     def test_mismatched_unpack_directory_needs_review(self):
         item = self.item('kernel-aurora', version=self.pins['kernel-aurora']['version'])
-        item['archive_root'] = 'linux-' + NEW
+        item['archive_root'] = 'unexpected-root-' + NEW
         module.update_recipe(self.root, item, TODAY)
         self.assertTrue(item.get('needs_review'))
 
