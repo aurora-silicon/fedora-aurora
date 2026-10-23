@@ -10,7 +10,7 @@
 #            --define 'host_release 0.12.aurora.borealis.<12-hex>%%{?dist}' ...
 # Both lines provide mesa-dri-drivers and mesa-vulkan-drivers at their own
 # version-release, which is what this package requires.
-%{!?commit:%global commit 76155824118a5880a8ac717ab007e8d9da289b57}
+%{!?commit:%global commit 2e0bdb2326f7b1657c183f2ece24243165c5144c}
 %{!?host_version:%global host_version 26.3.0}
 %{!?host_release:%global host_release 6%{?dist}.aurora}
 %global debug_package %{nil}

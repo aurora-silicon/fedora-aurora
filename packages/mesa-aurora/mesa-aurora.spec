@@ -1,4 +1,4 @@
-%global commit 76155824118a5880a8ac717ab007e8d9da289b57
+%global commit 2e0bdb2326f7b1657c183f2ece24243165c5144c
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
@@ -92,7 +92,7 @@ grep -vE 'libvulkan_asahi\.so|vulkan/icd.d/.*asahi.*json' all.files > dri.files
 
 %changelog
 * Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-6
-- Track aurora-silicon/mesa aurora-wip at 7615582.
+- Track aurora-silicon/mesa aurora-wip at 2e0bdb2.
 - Upstream head: Merge pull request #54 from aurora-silicon/perf/agx2-refmac-parity-20261023
 
 * Thu Oct 22 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-4
