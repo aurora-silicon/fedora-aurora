@@ -160,6 +160,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BASE_RELEASE: ${{ needs.plan.outputs.base-release }}
           ALLOW_DOWNGRADE: ${{ inputs.allow-downgrade || false }}
+          BUILD_RUN: ${{ inputs.build-run }}
         run: |
           set -euo pipefail
           options=()
@@ -175,7 +176,7 @@ jobs:
               python3 scripts/assemble-repository.py "$@" --candidates input-build/rpms --output complete-rpms \
                 --missing-output missing-packages.txt
             ' assemble "${options[@]}"; then
-            echo 'status=complete' >> "$GITHUB_OUTPUT"
+            status=complete
           elif [[ -s missing-packages.txt ]]; then
             echo 'status=missing' >> "$GITHUB_OUTPUT"
             echo "rebuild=$(cat missing-packages.txt)" >> "$GITHUB_OUTPUT"
@@ -188,9 +189,15 @@ jobs:
           if [[ -d base-rpms ]]; then
             docker run --rm -v "$PWD:/src" -w /src "$FEDORA_IMAGE" bash -euo pipefail -c '
                 dnf install -y rpm python3 >/dev/null
-                python3 scripts/check-feed-versions.py "$@"
+                python3 scripts/check-feed-versions.py "$@" --changes-output changes.txt
               ' check "${check[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+            # The same package versions as the base snapshot: nothing to publish.
+            if [[ $(cat changes.txt) == 0 && -z $BUILD_RUN ]]; then
+              echo "Every package matches $BASE_RELEASE; no new snapshot." >> "$GITHUB_STEP_SUMMARY"
+              status=unchanged
+            fi
           fi
+          echo "status=$status" >> "$GITHUB_OUTPUT"
       - id: bundle
         if: steps.assemble.outputs.status == 'complete'
         run: |

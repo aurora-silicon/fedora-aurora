@@ -63,6 +63,13 @@ class FedoraSpecTests(unittest.TestCase):
         module.update_recipe(self.root, item, TODAY)
         self.assertEqual(module.tl.spec_field(self.spec('mesa-aurora'), 'Version'), '26.3.0')
 
+    def test_changelog_history_is_never_rewritten(self):
+        spec = self.root / 'packages/aura/aura.spec'
+        old = self.pins['aura']['commit']
+        spec.write_text(spec.read_text() + f'- Earlier entry naming {old[:7]}.\n')
+        module.update_recipe(self.root, self.item('aura'), TODAY)
+        self.assertIn(f'- Earlier entry naming {old[:7]}.\n', spec.read_text())
+
     def test_a_lower_version_is_refused(self):
         with self.assertRaisesRegex(ValueError, 'would not upgrade'):
             module.update_recipe(self.root, self.item('kernel-aurora', version='1.0.0'), TODAY)

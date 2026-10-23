@@ -29,7 +29,9 @@ def update_recipe(root, item, today):
     spec = root / 'packages' / RECIPES[key] / f'{RECIPES[key]}.spec'
     original = spec.read_text()
     previous = (tl.spec_field(original, 'Version'), tl.spec_field(original, 'Release').split('%')[0])
-    text = tl.replace_commit(original, item['old'], item['new'])
+    # Earlier %changelog entries are history: never rewrite them.
+    head, marker, history = original.partition('\n%changelog\n')
+    text = tl.replace_commit(head, item['old'], item['new']) + marker + history
     if not re.search(rf'^%global commit {item["new"]}$', text, re.M):
         raise ValueError(f'{key}: the spec does not pin %global commit to the new commit')
     notes = []

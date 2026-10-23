@@ -84,6 +84,8 @@ def main():
     parser.add_argument('--old', required=True)
     parser.add_argument('--new', required=True)
     parser.add_argument('--allow-downgrade', action='store_true')
+    parser.add_argument('--changes-output', type=Path,
+                        help='write the number of changed, added and removed packages here')
     args = parser.parse_args()
     old, new = versions(args.old), versions(args.new)
     downgraded, removed, added = lib.regressions(old, new, lib.rpm_evr_compare)
@@ -94,6 +96,8 @@ def main():
         print(f'{key}: new at {label(new[key])}')
     for key in removed:
         print(f'{key}: removed (was {label(old[key])})')
+    if args.changes_output:
+        args.changes_output.write_text(f'{len(changed) + len(added) + len(removed)}\n')
     if downgraded:
         for key, before, after in downgraded:
             print(f'DOWNGRADE {key}: {label(before)} -> {label(after)}', file=sys.stderr)
