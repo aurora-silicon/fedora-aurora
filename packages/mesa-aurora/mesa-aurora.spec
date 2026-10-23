@@ -1,8 +1,8 @@
-%global commit 2305fd923cac881985ec67ec3f1f4284e4170fab
+%global commit c4e30953f4ae962c68b0c08354eb1432911cbc0d
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 3%{?dist}.aurora
+Release: 4%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -91,6 +91,10 @@ grep -vE 'libvulkan_asahi\.so|vulkan/icd.d/.*asahi.*json' all.files > dri.files
 %files -n mesa-aurora-vulkan-drivers -f vulkan.files
 
 %changelog
+* Thu Oct 22 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-4
+- Track aurora-silicon/mesa aurora-wip at c4e3095, matched to the Linux 7.3 kernel.
+- Link the driver tests that replace functions with --wrap without LTO.
+
 * Tue Oct 20 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-3
 - Pair the current Aurora userspace with the integration kernel.
 - Use the merged sampler-bias test fix.
