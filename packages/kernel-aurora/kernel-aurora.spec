@@ -1,4 +1,4 @@
-%global commit fb0e3ec10ab8c368a71e4ed32abb0a933845ed1e
+%global commit 66b295939c7aa4d5f9baf65c46e2d45bffc14af1
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
@@ -104,12 +104,13 @@ fi
 
 %changelog
 * Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-2
-- Track integration/aurora at fb0e3ec.
+- Track integration/aurora at 66b2959.
 - Fail large G17 buffer population without direct reclaim, and report the GPU memory limits.
 - Allow HIGH GPU queue priority for privileged clients on G15 and later.
 - Fix G17 recovery blame, torn render snapshots and already-signalled input fences.
 - Keep BCM4388 receive DMA buffers readable.
 - Add the M4 Pro MacBook Pro (J616s) device tree with T6040 NVMe, ISP, PMC, CLPC and SLC support.
+- Add MacBook Air M4 (J713) display, GPU and thermal support to the shared configuration.
 
 * Thu Oct 22 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-1
 - Move to Linux 7.3 from aurora-silicon/linux integration/aurora at 8c2774e.
