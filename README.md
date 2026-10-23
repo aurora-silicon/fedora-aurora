@@ -33,6 +33,8 @@ An image must consume an exact tested package set. Building RPMs, resolving an i
 
 `aurora-remix-scripts` 44-5 retires Plasma Setup's generated automatic login once Aurora's text wizard has created the owner.
 
+Image builds run `scripts/check-basics` on the finished filesystems after `finalize-image`. The root is mounted read-only from `root.img`; the EFI files and `boot.img` are read as the installer writes them. The build fails unless the image has a generated UTF-8 default locale, its desktop's terminal (Ptyxis, Console or gnome-terminal; Konsole) with a launcher, GNOME's backgrounds with an existing default picture or Plasma's wallpapers, NetworkManager enabled with the desktop's network settings, logind's lid-close suspend left in place, and a GRUB stub that finds /boot by its UUID marker on the startup disk with hinted lookups only.
+
 ## Checks
 
 ```sh

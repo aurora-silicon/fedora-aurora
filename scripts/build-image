@@ -32,5 +32,19 @@ source_archive=("$root/out/finalizer-source/"aurora-firstboot-*.tar.gz)
 mkdir -p "$root/out/finalizer"
 tar -xzf "${source_archive[0]}" --strip-components=1 -C "$root/out/finalizer"
 bash "$root/out/finalizer/images/finalize-image" "${images[0]}" "$profile" "$root/out/$profile-installer"
+# Every image ships the basics (locale, terminal, wallpapers, network, lid
+# policy, GRUB finding /boot by UUID on the startup disk); a build that lacks
+# one fails here instead of on a Mac. The finished filesystems are checked
+# exactly as the installer writes them.
+installer=$root/out/$profile-installer
+read -r boot_uuid root_subvolume < <(python3 -c 'import json,sys; j=json.load(open(sys.argv[1])); print(j["boot_uuid"], j.get("root_subvolume", "root"))' "$installer/image.json")
+basics_root=$(mktemp -d)
+mount -o ro,loop,subvol="$root_subvolume" "$installer/root.img" "$basics_root"
+basics=0
+python3 "$root/scripts/check-basics" --profile "${profile#fedora-}" --root "$basics_root" \
+  --esp "$installer/esp" --boot-image "$installer/boot.img" --boot-uuid "$boot_uuid" --grub-flavor fedora || basics=$?
+umount "$basics_root"
+rmdir "$basics_root"
+(( basics == 0 ))
 tar --sparse -C "$root/out/$profile-installer" -cf - . | zstd -T"${AURORA_BUILD_JOBS:-4}" -3 -o "$root/out/$profile-filesystems.tar.zst"
 sha256sum "$root/out/$profile-filesystems.tar.zst" > "$root/out/$profile-filesystems.tar.zst.sha256"
