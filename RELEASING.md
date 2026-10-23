@@ -19,13 +19,13 @@ Retain the successful run ID, exact commit and package receipts. Merge the candi
 Publish from `main`, using the previous immutable snapshot for unchanged packages:
 
 ```sh
-gh workflow run publish.yml --ref main \
-  -f build-run='<successful-native-run-id>' \
-  -f base-release='<previous-testing-tag>' \
-  -f release-tag='<new-testing-tag>'
+gh workflow run publish.yml --ref main -f deploy=yes
 ```
 
-Tags start with `testing-` and are never reused. The workflow authenticates the base RPMs, replaces every output of rebuilt source packages, signs the resulting RPMs and repository index, and uploads the packages, manifest, source RPMs and build provenance. The committed public key and `keys/fingerprint.txt` identify the signing authority. Private signing credentials remain in repository secrets.
+With no `build-run`, the workflow picks the newest qualifying build of every package and the newest
+snapshot as the base; the explicit `build-run`, `base-release` and `release-tag` inputs still work.
+Without `deploy=yes` (or the `AUTO_DEPLOY_TESTING` variable) it publishes the release but leaves the live
+feed alone; `deploy-snapshot.yml` deploys it later. Tags start with `testing-` and are never reused. The workflow authenticates the base RPMs, replaces every output of rebuilt source packages, signs the resulting RPMs and repository index, and uploads the packages, manifest, source RPMs and build provenance. The committed public key and `keys/fingerprint.txt` identify the signing authority. Private signing credentials remain in repository secrets.
 
 Check that the deployed [testing feed](https://aurorasilicon.org/fedora-aurora/44/testing/aarch64/) has the new manifest and a valid repository signature before building images. Compare its manifest bytes to the immutable release asset. Retain previous kernel packages and release assets.
 
