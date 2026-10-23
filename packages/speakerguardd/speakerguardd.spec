@@ -1,7 +1,7 @@
 %global commit e03febfe52a540e9255036a01e18030e0a5135f9
 Name: speakerguardd
 Version: 0.1.0
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Feed-forward speaker protection for Apple J700
 License: MIT
 URL: https://github.com/aurora-silicon/speakerguardd
@@ -31,7 +31,7 @@ install -Dm644 speakerguardd.service %{buildroot}%{_unitdir}/speakerguardd.servi
 sed -i 's@ExecStart=/usr/bin/speakerguardd -c /usr/share/speakerguardd@ExecStart=/usr/bin/speakerguardd -c /usr/share/speakerguardd -C AppleJ700@' %{buildroot}%{_unitdir}/speakerguardd.service
 sed -i '/^StartLimitInterval=60$/d; /^StartLimitBurst=10$/d; /Description=Speaker Protection Daemon (feed-forward)/a StartLimitIntervalSec=60\nStartLimitBurst=10' %{buildroot}%{_unitdir}/speakerguardd.service
 install -Dm644 95-speakerguardd.rules %{buildroot}%{_udevrulesdir}/95-speakerguardd.rules
-install -Dm755 %{SOURCE1} %{buildroot}/usr/lib/speakerguardd/use-feedback-guard
+install -Dm755 %{SOURCE1} %{buildroot}%{_libexecdir}/speakerguardd/use-feedback-guard
 install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/speakersafetyd.service.d/50-j700-guard.conf
 
 %post
@@ -48,8 +48,11 @@ install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/speakersafetyd.service.d/50-j7
 %{_unitdir}/speakerguardd.service
 %{_unitdir}/speakersafetyd.service.d/50-j700-guard.conf
 %{_udevrulesdir}/95-speakerguardd.rules
-/usr/lib/speakerguardd/
+%{_libexecdir}/speakerguardd/
 
 %changelog
+* Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 0.1.0-3
+- Install the J700 guard condition under libexec, so systemd runs it as an
+  ordinary service program under SELinux instead of in its own init domain.
 * Sun Oct 18 2026 Aurora Silicon <hey@djdev.me> - 1
 - Initial Fedora Aurora package.

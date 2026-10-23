@@ -29,7 +29,9 @@ An image must consume an exact tested package set. Building RPMs, resolving an i
 
 `aurora-firmware` 44-3 applies the peripheral service preset on first installation. Image builds reject a disabled peripheral admission service. Package updates preserve an administrator's disabled or masked service settings. Existing development images containing 44-2 need `sudo systemctl preset --now aurora-peripherals.service` after updating to adopt the default; this command is an explicit choice to apply that preset.
 
-`aurora-remix-scripts` 44-3 orders Plasma Setup after Aurora account creation and skips its separate wizard once the Aurora Linux owner exists. Before the display manager starts, it also removes an unchanged upstream-generated automatic-login file for the temporary `plasma-setup` user. Other automatic-login settings and administrator edits are preserved. It preserves the normal Plasma Login greeter and leaves Apple Recovery accounts untouched.
+`aurora-firstboot` 0.1.7 ships an SELinux policy module that labels Aurora's first-boot programs as ordinary executables, so systemd runs them in `unconfined_service_t` with SELinux enforcing; earlier images ran them in `init_t`, where `chpasswd` is denied. The package also keeps GRUB's lookups on the startup disk and reapplies that after GRUB updates. Images boot with `quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto`.
+
+`aurora-remix-scripts` 44-4 orders Plasma Setup after Aurora account creation and skips, never fails, its separate wizard while Aurora setup is pending and once the Aurora Linux owner exists. Before the display manager starts, it also removes an unchanged upstream-generated automatic-login file for the temporary `plasma-setup` user. Other automatic-login settings and administrator edits are preserved. It preserves the normal Plasma Login greeter and leaves Apple Recovery accounts untouched.
 
 ## Checks
 

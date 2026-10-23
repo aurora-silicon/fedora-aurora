@@ -1,6 +1,6 @@
 Name: aurora-remix-scripts
 Version: 44
-Release: 3%{?dist}
+Release: 4%{?dist}
 Summary: Fedora Aurora first-boot integration
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -11,7 +11,7 @@ Source2: asahi-extras-firstboot.service
 Source3: aurora-plasma-setup.conf
 Source4: complete-plasma-setup
 Source5: aurora-display-manager-setup.conf
-Requires: bash systemd util-linux coreutils python3 aurora-firstboot >= 0.1.2
+Requires: bash systemd util-linux coreutils python3 aurora-firstboot >= 0.1.7
 BuildRequires: systemd-rpm-macros
 Provides: fedora-asahi-remix-scripts
 Conflicts: fedora-asahi-remix-scripts
@@ -38,6 +38,9 @@ install -Dm644 %{SOURCE5} %{buildroot}%{_unitdir}/display-manager.service.d/auro
 %{_unitdir}/display-manager.service.d/aurora-plasma-setup.conf
 
 %changelog
+* Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 44-4
+- Skip Plasma Setup while Aurora setup is pending instead of requiring it, so a
+  failed or interrupted setup no longer cascades into dependency failures.
 * Sun Oct 18 2026 Aurora Silicon <hey@djdev.me> - 44-3
 - Retire the generated Plasma Setup autologin before starting the greeter.
 * Sun Oct 18 2026 Aurora Silicon <hey@djdev.me> - 44-2

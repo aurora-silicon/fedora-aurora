@@ -36,6 +36,10 @@ class ConfigureTests(unittest.TestCase):
                 '<ignore name="nvidia-gpu-firmware"/><ignore name="iwlwifi-mvm-firmware"/>'
                 '<ignore name="qcom-firmware"/><ignore name="dracut-config-rescue"/></packages></image>')
         (cls.source / "repositories/asahi.xml").write_text("<image/>")
+        for name, arguments in (("workstation", "rhgb quiet"), ("minimal", "")):
+            (cls.source / f"platforms/{name}.xml").write_text(
+                f'<image><preferences><type image="oem" kernelcmdline="{arguments}" '
+                'rootfs_label="fedora"/></preferences></image>')
         for name in ("config.sh", "post_bootstrap.sh", "pre_disk_sync.sh"):
             (cls.source / name).write_text("#!/bin/bash\nset -euo pipefail\n# kernel-16k-core\nexit 0\n")
         (cls.source / "COPYING").write_text("upstream license fixture\n")
@@ -95,6 +99,17 @@ class ConfigureTests(unittest.TestCase):
                 self.assertEqual((out / "COPYING").read_text(), "upstream license fixture\n")
                 self.assertEqual(json.loads((out / "aurora-image.json").read_text()), receipt)
         self.assertEqual(configure.git(self.source, "status", "--porcelain"), "")
+
+    def test_boot_is_quiet_by_default(self):
+        out = self.root / "quiet"
+        self.prepare(out)
+        types = {path.stem: ET.parse(path).getroot().find("preferences/type")
+                 for path in (out / "platforms").glob("*.xml")}
+        self.assertEqual(types["workstation"].get("kernelcmdline"),
+                         "rhgb quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto")
+        self.assertEqual(types["minimal"].get("kernelcmdline"),
+                         "quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto")
+        self.assertEqual(types["minimal"].get("rootfs_label"), "AURORA_ROOT")
 
     def test_rejects_wrong_source_key_profile_and_unsafe_repository(self):
         cases = [dict(lock={**self.lock, "commit": "0" * 40}),
