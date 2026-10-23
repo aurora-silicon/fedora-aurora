@@ -1,7 +1,7 @@
-%global commit a46cb0eda71081331b6d0f636cffec4e0561a8b9
+%global commit 9d4d132de35a98a8756e15fda0e7f58ba29a5578
 %global selinuxtype targeted
 Name: aurora-firstboot
-Version: 0.1.8
+Version: 0.1.9
 Release: 1%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
@@ -74,6 +74,11 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/aurora_firstboot.pp
 
 %changelog
+* Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 0.1.9-1
+- Wait for the root's Btrfs UUID and label devices as long as the unlock
+  prompt, so a passphrase typed after 90 seconds no longer fails /sysroot
+  into emergency mode.
+
 * Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 0.1.8-1
 - Create the owner with Plasma Setup or GNOME Initial Setup on desktop images.
   First boot now only protects the disk, with a password chosen on the boot
