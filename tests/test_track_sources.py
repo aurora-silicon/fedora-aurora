@@ -63,6 +63,10 @@ class FedoraSpecTests(unittest.TestCase):
         module.update_recipe(self.root, item, TODAY)
         self.assertEqual(module.tl.spec_field(self.spec('mesa-aurora'), 'Version'), '26.3.0')
 
+    def test_a_lower_version_is_refused(self):
+        with self.assertRaisesRegex(ValueError, 'would not upgrade'):
+            module.update_recipe(self.root, self.item('kernel-aurora', version='1.0.0'), TODAY)
+
     def test_tracked_sources_have_specs(self):
         tracking = json.loads((ROOT / 'tracking.json').read_text())
         self.assertEqual(set(tracking['sources']), set(module.RECIPES))

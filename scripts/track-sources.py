@@ -27,7 +27,9 @@ def update_recipe(root, item, today):
     """Apply one source update to its spec. Returns review notes."""
     key = item['key']
     spec = root / 'packages' / RECIPES[key] / f'{RECIPES[key]}.spec'
-    text = tl.replace_commit(spec.read_text(), item['old'], item['new'])
+    original = spec.read_text()
+    previous = (tl.spec_field(original, 'Version'), tl.spec_field(original, 'Release').split('%')[0])
+    text = tl.replace_commit(original, item['old'], item['new'])
     if not re.search(rf'^%global commit {item["new"]}$', text, re.M):
         raise ValueError(f'{key}: the spec does not pin %global commit to the new commit')
     notes = []
@@ -48,6 +50,8 @@ def update_recipe(root, item, today):
     spec.write_text(text)
     dist = tl.spec_field(text, 'Release')
     item['package_version'] = f'{new_version}-{dist.replace("%{?dist}", ".fc44")}'
+    if lib.rpm_evr_compare(('0', new_version, str(release)), ('0', *previous)) <= 0:
+        raise ValueError(f'{key}: {new_version}-{release} would not upgrade {"-".join(previous)}')
     return notes
 
 
