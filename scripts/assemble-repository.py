@@ -56,6 +56,12 @@ def verify_base(directory, key, fingerprint):
             verify_signature(path, temporary)
 
 
+class IncompleteSnapshot(ValueError):
+    def __init__(self, missing, unexpected):
+        super().__init__(f'Incomplete or stale snapshot; missing={sorted(missing)}, unexpected={sorted(unexpected)}')
+        self.missing = missing
+
+
 def assemble(base, candidates, output, expected):
     fresh = {}
     for path in sorted(candidates.glob('*.rpm')):
@@ -82,7 +88,7 @@ def assemble(base, candidates, output, expected):
     selected.update(fresh)
     actual = {source for _, source in selected.values()}
     if actual != expected:
-        raise ValueError(f'Incomplete or stale snapshot; missing={sorted(expected - actual)}, unexpected={sorted(actual - expected)}')
+        raise IncompleteSnapshot(expected - actual, actual - expected)
     output.mkdir()
     for path, _ in selected.values():
         shutil.copyfile(path, output / path.name)
@@ -94,10 +100,17 @@ def main():
     parser.add_argument('--base', type=Path)
     parser.add_argument('--candidates', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--missing-output', type=Path,
+                        help='on an incomplete set, write the package names that need a native build')
     args = parser.parse_args()
     if args.base:
         verify_base(args.base, ROOT / 'keys/RPM-GPG-KEY-aurora', (ROOT / 'keys/fingerprint.txt').read_text().strip())
-    names = assemble(args.base, args.candidates, args.output, expected_sources())
+    try:
+        names = assemble(args.base, args.candidates, args.output, expected_sources())
+    except IncompleteSnapshot as error:
+        if args.missing_output:
+            args.missing_output.write_text(' '.join(sorted(n.rsplit('-', 2)[0] for n in error.missing)) + '\n')
+        raise
     print(f'Assembled {len(names)} RPMs covering every current source recipe')
 
 

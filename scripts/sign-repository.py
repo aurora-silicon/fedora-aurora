@@ -81,6 +81,8 @@ def main():
     parser.add_argument("--asset-base", required=True)
     parser.add_argument("--snapshot", help="Immutable testing tag whose signed metadata should be retained")
     parser.add_argument("--credentials-stdin", action="store_true")
+    parser.add_argument("--dry-run-public-key", type=Path,
+                        help="sign with a throwaway key whose public half is given here (dry runs only)")
     args = parser.parse_args()
     if args.output.exists():
         parser.error("output exists; use a fresh repository snapshot")
@@ -101,7 +103,15 @@ def main():
         "key": os.environ["FEDORA_RPM_SIGNING_KEY"],
         "passphrase": os.environ["FEDORA_RPM_SIGNING_PASSPHRASE"],
     })
+    public_key = ROOT / "keys/RPM-GPG-KEY-aurora"
     expected = (ROOT / "keys/fingerprint.txt").read_text().strip()
+    if args.dry_run_public_key:
+        # Proves the pipeline without the release key; deployment verifies
+        # against keys/fingerprint.txt and rejects this output.
+        public_key = args.dry_run_public_key
+        expected = subprocess.check_output(
+            ["gpg", "--batch", "--with-colons", "--import-options", "show-only", "--import", str(public_key)],
+            text=True).split("fpr:::::::::", 1)[1].split(":", 1)[0]
     args.output.mkdir(parents=True)
     destination = args.output / "44/testing/aarch64"
     destination.mkdir(parents=True)
@@ -117,7 +127,7 @@ def main():
         fingerprints = [line.split(":")[9] for line in listing.splitlines() if line.startswith("fpr:")]
         if expected not in fingerprints:
             raise ValueError("signing key differs from the committed public key")
-        run("rpmkeys", "--import", str(ROOT / "keys/RPM-GPG-KEY-aurora"))
+        run("rpmkeys", "--import", str(public_key))
         manifest = []
         for package in packages:
             target = destination / package.name
@@ -135,10 +145,11 @@ def main():
         repomd = destination / "repodata/repomd.xml"
         run(*gpg, "--local-user", expected, "--armor", "--detach-sign", str(repomd))
         run(*gpg, "--verify", str(repomd) + ".asc", str(repomd))
-        shutil.copyfile(ROOT / "keys/RPM-GPG-KEY-aurora", args.output / "RPM-GPG-KEY-aurora")
+        shutil.copyfile(public_key, args.output / "RPM-GPG-KEY-aurora")
         (destination / "manifest.json").write_text(json.dumps({
             "schema": 1, "channel": "testing", "fedora": 44, "architecture": "aarch64",
-            "signing_key": expected, "asset_base": args.asset_base, "packages": manifest,
+            "signing_key": expected, "asset_base": args.asset_base, "dry_run": bool(args.dry_run_public_key),
+            "packages": manifest,
         }, indent=2) + "\n")
         if args.snapshot:
             archive = archive_metadata(args.output, args.snapshot)
