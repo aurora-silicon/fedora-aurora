@@ -3,11 +3,20 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
-import urllib.request
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(ROOT / "scripts"))
+import updatelib  # noqa: E402
+
+# Verified copies of pinned archives (track-sources.yml keeps it complete).
+# Every byte is still checked against sources.json; the mirror only avoids
+# codeload rate limits. Set AURORA_SOURCE_MIRROR= (empty) to skip it.
+MIRROR = "https://github.com/aurora-silicon/fedora-aurora/releases/download/source-cache"
 
 
 def fetch(name, destination):
@@ -27,13 +36,12 @@ def fetch(name, destination):
                 raise ValueError(f"{name}: source cache checksum mismatch")
         shutil.copyfile(cache, target)
     if not target.exists():
-        pending = target.with_suffix(".download")
-        with urllib.request.urlopen(record["source_url"], timeout=120) as source, pending.open("wb") as output:
-            shutil.copyfileobj(source, output)
-        with pending.open("rb") as source:
-            if hashlib.file_digest(source, "sha256").hexdigest() != expected:
-                raise ValueError(f"{name}: downloaded archive checksum mismatch")
-        pending.rename(target)
+        mirror = os.environ.get("AURORA_SOURCE_MIRROR", MIRROR)
+        urls = ([f"{mirror.rstrip('/')}/{filename}"] if mirror else []) + [record["source_url"]]
+        try:
+            updatelib.download(urls, target, sha256=expected, token=os.environ.get("GH_TOKEN"))
+        except RuntimeError as error:
+            raise ValueError(f"{name}: downloaded archive checksum mismatch or source unavailable: {error}") from error
     with target.open("rb") as source:
         if hashlib.file_digest(source, "sha256").hexdigest() != expected:
             raise ValueError(f"{name}: cached archive checksum mismatch")

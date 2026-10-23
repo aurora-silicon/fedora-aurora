@@ -22,7 +22,7 @@ def git(root, *args):
     return subprocess.check_output(['git', '-C', str(root), *args], text=True).strip()
 
 
-def import_build(root, metadata, artifacts, output, repository, matching_only=False):
+def import_build(root, metadata, artifacts, output, repository, matching_only=False, packages=None):
     commit = metadata.get('head_sha', '')
     if (metadata.get('conclusion') != 'success' or metadata.get('head_repository', {}).get('full_name') != repository
             or metadata.get('event') not in ('push', 'workflow_dispatch')
@@ -46,6 +46,8 @@ def import_build(root, metadata, artifacts, output, repository, matching_only=Fa
         name = data.get('package', '')
         if not re.fullmatch('[a-z0-9][a-z0-9-]*', name) or receipt.parents[2].name != 'rpm-' + name:
             raise ValueError('Unexpected package receipt location')
+        if packages is not None and name not in packages:
+            continue
         if data.get('succeeded') is not True or data.get('architecture') != 'aarch64':
             raise ValueError('Package did not complete a native AArch64 build')
         directory = root / 'packages' / name
@@ -98,9 +100,12 @@ def main():
     parser.add_argument('--repository', required=True)
     parser.add_argument('--matching-only', action='store_true',
                         help='Import only unchanged merged recipes; full snapshot assembly still requires every current recipe')
+    parser.add_argument('--packages', nargs='+',
+                        help='Import only these packages from the run (another run supplies the rest)')
     args = parser.parse_args()
     count = import_build(Path(__file__).resolve().parents[1], json.loads(args.metadata.read_text()),
-                         args.artifacts, args.output, args.repository, args.matching_only)
+                         args.artifacts, args.output, args.repository, args.matching_only,
+                         set(args.packages) if args.packages else None)
     print(f'Accepted {count} native package build(s) with unchanged merged inputs')
 
 
