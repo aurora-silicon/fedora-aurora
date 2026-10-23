@@ -1,12 +1,12 @@
-%global commit 70d5dcedfa7fb7a3e7bd0cdb33d8315d99250142
+%global commit 8c2774e57ff499fe5c7e6b23ba0c8ba526a868f3
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
-Version: 7.2.10
-Release: 7%{?dist}.aurora
+Version: 7.3.0
+Release: 1%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
-URL: https://github.com/omacom/linux-aurora
+URL: https://github.com/aurora-silicon/linux
 Source0: kernel-aurora-%{commit}.tar.gz
 Source1: config
 Source2: common.config
@@ -46,7 +46,7 @@ Provides: kernel-16k-modules-extra = %{version}-%{release}
 Matching modules for the Aurora kernel.
 
 %prep
-%autosetup -p1 -n linux-aurora-%{commit}
+%autosetup -p1 -n linux-%{commit}
 cp %{SOURCE1} .config
 scripts/kconfig/merge_config.sh -m .config arch/arm64/configs/asahi.config %{SOURCE2} %{SOURCE3} %{SOURCE4}
 scripts/config --set-str LOCALVERSION '' --disable LOCALVERSION_AUTO --set-str SYSTEM_TRUSTED_KEYS '' --set-str SYSTEM_REVOCATION_KEYS ''
@@ -103,6 +103,14 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Thu Oct 22 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-1
+- Move to Linux 7.3 from aurora-silicon/linux integration/aurora at 8c2774e.
+- Keep the CIO reset controller built in so it exists before the USB4 routers probe.
+- Add bounded acceleration-structure build execution for the Aurora Mesa.
+- Carry the G17 scheduler and queue stability fixes for MacBook Neo graphics.
+- Select the MT7932 country regulatory package with a world fallback.
+- Carry Apple SMC, pinctrl, Type-C, DMA, Bluetooth and Wi-Fi fixes from the M4 Pro work.
+
 * Thu Oct 22 2026 Aurora Silicon <hey@djdev.me> - 7.2.10-7
 - Track integration/aurora at 70d5dce.
 - Build the Apple watchdog driver in, fixing early resets on MacBook Neo first boot.
