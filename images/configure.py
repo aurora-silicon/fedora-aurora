@@ -30,6 +30,9 @@ PACKAGES = {
         "aurora-firmware", "avd-fw", "upower", "alsa-ucm-conf-aurora", "aurora-audio", "speakerguardd",
     ]),
 }
+# Quiet by default: the splash (desktops) or a clean console, with failures
+# still reported. systemd shows status only when a unit fails or stalls.
+QUIET_BOOT = ["quiet", "loglevel=3", "rd.udev.log_level=3", "systemd.show_status=auto"]
 REPLACED = {
     "kernel-16k", "kernel-16k-modules-extra", "uboot-images-armv8",
     "asahi-platform-metapackage", "asahi-repos", "fedora-asahi-remix-scripts",
@@ -97,6 +100,9 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
         for parent in tree.iter():
             if parent.tag == "type" and parent.get("image") == "oem":
                 parent.set("rootfs_label", "AURORA_ROOT")
+                arguments = parent.get("kernelcmdline", "").split()
+                arguments += [argument for argument in QUIET_BOOT if argument not in arguments]
+                parent.set("kernelcmdline", " ".join(arguments))
             if parent.tag == "systemdisk":
                 parent.set("name", "aurora")
             for node in list(parent):
