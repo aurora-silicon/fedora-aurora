@@ -1,8 +1,8 @@
 %global debug_package %{nil}
-%global commit 22bab6087083880ca8544b211b1e222f9ee64094
+%global commit b9ad403a5504fa0f7b3936baa5d72366964f412f
 Name: aura
 Version: 0.1.0
-Release: 3%{?dist}
+Release: 4%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -17,7 +17,7 @@ Requires: update-m1n1 uboot-aurora
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-22bab6087083880ca8544b211b1e222f9ee64094
+%autosetup -n aura-b9ad403a5504fa0f7b3936baa5d72366964f412f
 
 %build
 export RUSTC_BOOTSTRAP=1
@@ -41,6 +41,11 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Thu Oct 22 2026 Aurora Silicon <hey@djdev.me> - 0.1.0-4
+- Track aura main at b9ad403.
+- Include all of omacom m1n1 integration/aurora, integration/neo included.
+- Chainload a combined MacBook Neo Stage 2 that reaches firmware RO.
+
 * Thu Oct 22 2026 Aurora Silicon <hey@djdev.me> - 0.1.0-3
 - Track aura main at 22bab60.
 - Start the display on the 13-inch M1 MacBook Pro instead of timing out.
