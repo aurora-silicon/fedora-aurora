@@ -207,7 +207,7 @@ jobs:
           mkdir -p candidate/srpms candidate/manifests candidate/builds
           cp input-build/srpms/*.src.rpm candidate/srpms/ 2>/dev/null || true
           cp input-build/manifests/*.json candidate/manifests/
-          cp build-*.json candidate/builds/
+          cp build-[0-9]*.json candidate/builds/
           tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf candidate.tar -C candidate .
           echo "digest=$(sha256sum candidate.tar | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -376,7 +376,7 @@ jobs:
           python3 - <<'PY'
           import json,os
           from pathlib import Path
-          runs=[json.loads(p.read_text()) for p in sorted(Path('candidate/builds').glob('build-*.json'))]
+          runs=[json.loads(p.read_text()) for p in sorted(Path('candidate/builds').glob('build-[0-9]*.json'))]
           receipts=[json.loads(p.read_text()) for p in sorted(Path('candidate/manifests').glob('*.json'))]
           record={'schema':1,'publishing_commit':os.environ['GITHUB_SHA'],'base_release':os.environ['BASE_RELEASE'],
                   'builds':[{k:run[k] for k in ('id','head_sha','path','event','conclusion')} for run in runs],
