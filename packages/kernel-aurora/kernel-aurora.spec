@@ -1,9 +1,9 @@
-%global commit 8c2774e57ff499fe5c7e6b23ba0c8ba526a868f3
+%global commit 311471f73e9919764bfb24acfe7eeb7c5230795a
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 1%{?dist}.aurora
+Release: 2%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -103,6 +103,10 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-2
+- Track aurora-silicon/linux integration/aurora at 311471f.
+- Upstream head: Merge pull request #402 from aurora-silicon/j616s/pmp-ep7-20261024
+
 * Thu Oct 22 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-1
 - Move to Linux 7.3 from aurora-silicon/linux integration/aurora at 8c2774e.
 - Keep the CIO reset controller built in so it exists before the USB4 routers probe.

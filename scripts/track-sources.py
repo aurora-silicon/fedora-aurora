@@ -20,7 +20,9 @@ RECIPES = {'kernel-aurora': 'kernel-aurora', 'aura': 'aura', 'mesa-aurora': 'mes
 KINDS = {'kernel-aurora': 'kernel', 'mesa-aurora': 'mesa'}
 CI_WORKFLOWS = ['rpms.yml', 'checks.yml']
 # The only files a tracker proposal may change.
-PATCH_PATHS = [r'sources\.json', r'packages/(kernel-aurora|aura|mesa-aurora)/[^/]+\.spec']
+PATCH_PATHS = [r'sources\.json', r'packages/(kernel-aurora|aura|mesa-aurora|mesa-aurora-fex-guest)/[^/]+\.spec']
+# The FEX guest Mesa moves in lockstep with the host Mesa (tests/test_specs.py).
+GUEST = 'mesa-aurora-fex-guest'
 
 
 def update_recipe(root, item, today):
@@ -54,7 +56,26 @@ def update_recipe(root, item, today):
     item['package_version'] = f'{new_version}-{dist.replace("%{?dist}", ".fc44")}'
     if lib.rpm_evr_compare(('0', new_version, str(release)), ('0', *previous)) <= 0:
         raise ValueError(f'{key}: {new_version}-{release} would not upgrade {"-".join(previous)}')
+    if key == 'mesa-aurora':
+        sync_fex_guest(root, item['new'], new_version, dist)
     return notes
+
+
+def sync_fex_guest(root, commit, version, release):
+    """Give the FEX guest Mesa the host Mesa's commit, Version, Release and pin."""
+    spec = root / 'packages' / GUEST / f'{GUEST}.spec'
+    if not spec.exists():
+        return
+    text = spec.read_text()
+    for macro, value in (('commit', commit), ('host_version', version), ('host_release', release)):
+        text, count = re.subn(rf'^%\{{!\?{macro}:%global {macro} \S+\}}$',
+                              lambda _: f'%{{!?{macro}:%global {macro} {value}}}', text, flags=re.M)
+        if count != 1:
+            raise ValueError(f'{GUEST}: %{{{macro}}} is not pinned exactly once')
+    spec.write_text(text)
+    pins = tl.load_pins(root)
+    pins[GUEST] = dict(pins['mesa-aurora'])
+    tl.write_pins(root, pins)
 
 
 def run_checks(root):
