@@ -1,8 +1,8 @@
 %global debug_package %{nil}
-%global commit b9ad403a5504fa0f7b3936baa5d72366964f412f
+%global commit 553b566f69275ff4e46ee6542a7236fb80a333a2
 Name: aura
 Version: 0.1.0
-Release: 4%{?dist}
+Release: 5%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -17,7 +17,7 @@ Requires: update-m1n1 uboot-aurora
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-b9ad403a5504fa0f7b3936baa5d72366964f412f
+%autosetup -n aura-553b566f69275ff4e46ee6542a7236fb80a333a2
 
 %build
 export RUSTC_BOOTSTRAP=1
@@ -41,6 +41,11 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 0.1.0-5
+- Track aura main at 553b566.
+- Keep the load header's relocation inside the relocation padding, so
+  Stage 1 and Stage 2 no longer grow by a stray 64 KiB.
+
 * Thu Oct 22 2026 Aurora Silicon <hey@djdev.me> - 0.1.0-4
 - Track aura main at b9ad403.
 - Include all of omacom m1n1 integration/aurora, integration/neo included.
