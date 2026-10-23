@@ -1,4 +1,4 @@
-%global commit 58c0770f59f411e8056f2fb53384ed2665ec8e55
+%global commit a2dc5c112b92c1ce597095d38ffff147f404c3ef
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
@@ -92,11 +92,14 @@ grep -vE 'libvulkan_asahi\.so|vulkan/icd.d/.*asahi.*json' all.files > dri.files
 
 %changelog
 * Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-5
-- Track aurora-silicon/mesa aurora-wip at 58c0770.
+- Track aurora-silicon/mesa aurora-wip at a2dc5c1.
 - Advertise FP32 round-to-even and drop TCS output-only barriers on M1 and M2 again.
 - Match G17P sparse image capabilities to the slice layout.
 - Keep G17P acceleration structures where Vulkan places them.
 - Compile G17P geometry and evaluation shaders alike on every device.
+- Order G17P transfers before passes that access their writes.
+- Honour custom primitive restart indices on every draw path.
+- Report memory budget usage for the whole process.
 
 * Thu Oct 22 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-4
 - Track aurora-silicon/mesa aurora-wip at c4e3095, matched to the Linux 7.3 kernel.
