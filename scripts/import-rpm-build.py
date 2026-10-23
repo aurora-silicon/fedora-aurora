@@ -11,6 +11,8 @@ import subprocess
 
 SHARED = ('.github/workflows/rpms.yml', 'scripts/build-rpm',
           'scripts/fetch-sources.py', 'scripts/build-receipt.py')
+# Recipes whose payload is x86 code for FEX guests are built on x86_64.
+X86_BUILDER = '# aurora-builder: x86_64'
 
 
 def digest(path):
@@ -48,9 +50,11 @@ def import_build(root, metadata, artifacts, output, repository, matching_only=Fa
             raise ValueError('Unexpected package receipt location')
         if packages is not None and name not in packages:
             continue
-        if data.get('succeeded') is not True or data.get('architecture') != 'aarch64':
-            raise ValueError('Package did not complete a native AArch64 build')
         directory = root / 'packages' / name
+        recipe = directory / (name + '.spec')
+        builder = 'x86_64' if recipe.is_file() and X86_BUILDER in recipe.read_text().splitlines() else 'aarch64'
+        if data.get('succeeded') is not True or data.get('architecture') != builder:
+            raise ValueError(f'Package did not complete a native {builder} build')
         if not directory.is_dir() or git(root, 'rev-parse', f'{commit}:packages/{name}') != git(root, 'rev-parse', f'HEAD:packages/{name}'):
             if matching_only:
                 print(f'Skipping superseded package recipe: {name}', file=sys.stderr)
