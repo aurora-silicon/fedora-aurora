@@ -41,7 +41,7 @@ read -r boot_uuid root_subvolume < <(python3 -c 'import json,sys; j=json.load(op
 basics_root=$(mktemp -d)
 mount -o ro,loop,subvol="$root_subvolume" "$installer/root.img" "$basics_root"
 basics=0
-python3 "$root/scripts/check-basics" --profile "${profile#fedora-}" --root "$basics_root" \
+python3 "$root/scripts/check-basics.py" --profile "${profile#fedora-}" --root "$basics_root" \
   --esp "$installer/esp" --boot-image "$installer/boot.img" --boot-uuid "$boot_uuid" --grub-flavor fedora || basics=$?
 umount "$basics_root"
 rmdir "$basics_root"
