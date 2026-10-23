@@ -1,7 +1,7 @@
-%global commit a46cb0eda71081331b6d0f636cffec4e0561a8b9
+%global commit 9132f0b820fbd56ece1a9d1402a37ba94197d4cf
 %global selinuxtype targeted
 Name: aurora-firstboot
-Version: 0.1.8
+Version: 0.1.10
 Release: 1%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
@@ -74,6 +74,15 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/aurora_firstboot.pp
 
 %changelog
+* Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 0.1.10-1
+- Keep systemd status output off the text wizard under show_status=auto, so
+  "A start job is running" no longer covers its prompts.
+
+* Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 0.1.9-1
+- Wait for the root's Btrfs UUID and label devices as long as the unlock
+  prompt, so a passphrase typed after 90 seconds no longer fails /sysroot
+  into emergency mode.
+
 * Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 0.1.8-1
 - Create the owner with Plasma Setup or GNOME Initial Setup on desktop images.
   First boot now only protects the disk, with a password chosen on the boot
