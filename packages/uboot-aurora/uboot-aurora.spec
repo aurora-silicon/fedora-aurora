@@ -1,5 +1,5 @@
 %global debug_package %{nil}
-%global commit 38b39feacc5e636766b2cc69963c0b4b9242ad19
+%global commit 7680260272f3612a13f0c9a6c7bfbc5e9ba7ce8c
 Name: uboot-aurora
 Version: 2026.07
 Release: 3%{?dist}
@@ -16,7 +16,7 @@ BuildRequires: gcc make bc bison flex dtc python3 python3-pyelftools swig openss
 Aurora U-Boot for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n u-boot-38b39feacc5e636766b2cc69963c0b4b9242ad19
+%autosetup -n u-boot-7680260272f3612a13f0c9a6c7bfbc5e9ba7ce8c
 
 %build
 make O=build-aurora apple_m1_defconfig
@@ -33,12 +33,14 @@ install -Dm644 build-aurora/u-boot-nodtb.bin %{buildroot}/usr/lib/asahi-boot/u-b
 
 %changelog
 * Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 2026.07-3
-- Track U-Boot aurora-wip at 38b39fe.
+- Track U-Boot aurora-wip at 7680260.
 - MacBook Neo: answer the firmware of the adopted NVMe session, expose only
   the main namespace, and reset the controller when a command never
   completes, so that GRUB searching every disk no longer wedges the queue.
 - Start the console with the 16x32 font on HiDPI panels, for U-Boot and
   GRUB's text menu.
+- MacBook Air M4 (J713) boot support; other Macs keep booting if its
+  handoff step fails.
 
 * Sun Oct 18 2026 Aurora Silicon <hey@djdev.me> - 1
 - Initial Fedora Aurora package.
