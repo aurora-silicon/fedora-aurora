@@ -1,7 +1,7 @@
-%global commit e55107ad9ba220a2772dbe4d55438cd1ec669288
+%global commit 777d7048c444bf20b11830380cfd846cd2744ee0
 Name: alsa-ucm-conf-aurora
 Version: 10
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Aurora ALSA use-case profiles
 License: BSD-3-Clause
 URL: https://github.com/aurora-silicon/alsa-ucm-conf-asahi
@@ -15,7 +15,7 @@ Requires: alsa-ucm
 Aurora ALSA use-case profiles. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n alsa-ucm-conf-asahi-e55107ad9ba220a2772dbe4d55438cd1ec669288
+%autosetup -n alsa-ucm-conf-asahi-777d7048c444bf20b11830380cfd846cd2744ee0
 
 %build
 
@@ -28,5 +28,10 @@ cp -a ucm2 %{buildroot}%{_datadir}/alsa/
 %{_datadir}/alsa/ucm2/*
 
 %changelog
+* Sat Oct 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 10-2
+- Move to alsa-ucm-conf-asahi 777d704: the J616s speaker and headphone jack
+  cards (aurora-silicon/alsa-ucm-conf-asahi#5) and the J700 internal
+  microphone following its jack (#4).
+
 * Sun Oct 18 2026 Aurora Silicon <hey@djdev.me> - 1
 - Initial Fedora Aurora package.

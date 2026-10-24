@@ -28,6 +28,7 @@ PACKAGES = {
         "aurora-release", "aurora-logos", "aurora-platform", "aurora-remix-scripts",
         "aurora-firstboot", "aurora-sep", "libfprint", "mesa-aurora-dri-drivers", "mesa-aurora-vulkan-drivers",
         "aurora-firmware", "avd-fw", "upower", "alsa-ucm-conf-aurora", "aurora-audio", "speakerguardd",
+        "speakersafetyd-aurora-profiles",
     ]),
 }
 # Quiet by default: the splash (desktops) or a clean console, with failures
