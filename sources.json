@@ -144,5 +144,14 @@
     "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/2e0bdb2326f7b1657c183f2ece24243165c5144c",
     "archive_root": "mesa-2e0bdb2326f7b1657c183f2ece24243165c5144c",
     "sha256": "1d7ee8b3bd7e883d23863c9c4f07822be870036ef96a6a55c9ed61db68ccafe2"
+  },
+  "lsp-plugins": {
+    "repository": "https://github.com/lsp-plugins/lsp-plugins",
+    "commit": "4c5da8224af1abc279adcb959d9e932130024333",
+    "version": "1.2.29",
+    "source_url": "https://github.com/lsp-plugins/lsp-plugins/releases/download/1.2.29/lsp-plugins-src-1.2.29.tar.gz",
+    "archive_root": "lsp-plugins",
+    "archive_file": "lsp-plugins-src-1.2.29.tar.gz",
+    "sha256": "404297c3add879c508db06d5119e11efc1d0473527d2a69ed39ec77c1d1972f2"
   }
 }
