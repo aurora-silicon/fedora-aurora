@@ -144,5 +144,14 @@
     "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/2e0bdb2326f7b1657c183f2ece24243165c5144c",
     "archive_root": "mesa-2e0bdb2326f7b1657c183f2ece24243165c5144c",
     "sha256": "1d7ee8b3bd7e883d23863c9c4f07822be870036ef96a6a55c9ed61db68ccafe2"
+  },
+  "pipewire": {
+    "repository": "https://gitlab.freedesktop.org/pipewire/pipewire",
+    "commit": "8fa27cabdc6c0c1350c69c026af5850ef0af1e26",
+    "version": "1.6.9",
+    "source_url": "https://gitlab.freedesktop.org/pipewire/pipewire/-/archive/1.6.9/pipewire-1.6.9.tar.gz",
+    "archive_root": "pipewire-1.6.9",
+    "archive_file": "pipewire-1.6.9.tar.gz",
+    "sha256": "dbc3624cf71215c26a22fc98f6f71f7b8599f5f6b415eab4a5c90ca96c170c7c"
   }
 }
