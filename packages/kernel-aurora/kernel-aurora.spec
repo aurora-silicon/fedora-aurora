@@ -14,7 +14,7 @@ Source4: fedora.config
 Source5: validate-config.py
 ExclusiveArch: aarch64
 BuildRequires: make gcc gcc-c++ clang llvm lld rust rust-src rustfmt cargo bindgen-cli
-BuildRequires: bc bison flex dtc openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
+BuildRequires: bc bison flex dtc openssl openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
 Requires: kernel-aurora-core = %{version}-%{release}
 Requires: kernel-aurora-modules-extra = %{version}-%{release}
 Provides: kernel-16k = %{version}-%{release}
