@@ -1,4 +1,4 @@
-%global commit 916dcbf7d546f21eb8059d84a21ce5530fb79194
+%global commit f026ac59a4ec3056bd0de3259117d048724b2059
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
@@ -54,13 +54,12 @@ scripts/config --set-str LOCALVERSION '' --disable LOCALVERSION_AUTO --set-str S
 export ARCH=arm64 RUSTC_BOOTSTRAP=1
 export RUST_LIB_SRC=/usr/lib/rustlib/src/rust/library
 # Build the pinned, corrected generator. It independently compiles its fixtures.
-python3 tools/aurora-bindgen/build.py --output-dir "$PWD/private-bindgen"
-export BINDGEN="$PWD/private-bindgen/rust-bindgen-0.73.2/target/release/bindgen"
-make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" olddefconfig
+python3 tools/aurora-bindgen/build.py
+make LLVM=1 LOCALVERSION=-%{release}.aarch64 olddefconfig
 python3 %{SOURCE5} arch/arm64/configs/asahi.config %{SOURCE2} %{SOURCE4} .config
-make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" rustavailable
-make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" %{?_smp_mflags} Image modules dtbs
-[ "$(make -s LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" kernelrelease)" = "%{krel}" ]
+make LLVM=1 LOCALVERSION=-%{release}.aarch64 rustavailable
+make LLVM=1 LOCALVERSION=-%{release}.aarch64 %{?_smp_mflags} Image modules dtbs
+[ "$(make -s LLVM=1 LOCALVERSION=-%{release}.aarch64 kernelrelease)" = "%{krel}" ]
 
 %install
 export ARCH=arm64 RUSTC_BOOTSTRAP=1

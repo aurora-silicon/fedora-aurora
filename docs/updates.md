@@ -51,3 +51,13 @@ gh workflow run promote.yml -R aurora-silicon/fedora-aurora --ref main
   it); every byte is checked against `sources.json` either way.
 - Images still build against the live testing feed rather than a frozen snapshot; freeze publication
   while building a release set.
+
+The kernel prepares the pinned, corrected bindgen at
+`tools/aurora-bindgen/build/bin/bindgen` before configuration. Kbuild selects it
+automatically, including out-of-tree builds. No `BINDGEN=` make argument or
+export is required. Fedora and ALARM build and compile-test the generator from
+the kernel's checked source manifest; Nix uses the matching patched derivation
+and links its executable into that entry point. ALARM retains its exact
+compiler-lint adapter there. Every emitted layout assertion remains mandatory.
+Stock bindgen 0.73.2 loses alignment on empty C records such as
+`sched_statistics` with `SCHEDSTATS=n`; enabling statistics is not the fix.
