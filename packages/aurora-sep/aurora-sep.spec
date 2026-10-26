@@ -1,6 +1,6 @@
 Name: aurora-sep
 Version: 1
-Release: 7%{?dist}
+Release: 8%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -20,6 +20,7 @@ Source12: aurora-sep-load.conf
 Source13: aurora_sep.te
 Source14: aurora_sep.fc
 Source15: sensor-present
+Source16: calibration-ready
 BuildArch: noarch
 BuildRequires: systemd-rpm-macros fprintd
 BuildRequires: selinux-policy-devel make bzip2
@@ -61,6 +62,7 @@ install -Dpm0644 %{SOURCE12} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep-lo
 install -Dpm0755 %{SOURCE8} %{buildroot}%{_libexecdir}/aurora/prepare-sep-calibration
 install -Dpm0755 %{SOURCE9} %{buildroot}%{_libexecdir}/aurora/extract-mesa-calibration
 install -Dpm0755 %{SOURCE15} %{buildroot}%{_libexecdir}/aurora-sep-sensor-present
+install -Dpm0755 %{SOURCE16} %{buildroot}%{_libexecdir}/aurora-sep-calibration-ready
 install -Dpm0644 %{SOURCE10} %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-sep.conf
 install -Dpm0644 %{SOURCE2} %{buildroot}%{_unitdir}/fprintd.service.d/aurora-sep.conf
 grep -qx 'ExecStart=%{_libexecdir}/fprintd' %{_unitdir}/fprintd.service
@@ -97,6 +99,7 @@ fi
 %{_libexecdir}/aurora/prepare-sep-calibration
 %{_libexecdir}/aurora/extract-mesa-calibration
 %{_libexecdir}/aurora-sep-sensor-present
+%{_libexecdir}/aurora-sep-calibration-ready
 %{_prefix}/lib/dracut/dracut.conf.d/90-aurora-sep.conf
 %{_prefix}/lib/modprobe.d/aurora-sep-load.conf
 %{_unitdir}/aurora-sep.service
@@ -109,6 +112,13 @@ fi
 %{_datadir}/selinux/packages/targeted/aurora_sep.pp.bz2
 
 %changelog
+* Mon Oct 26 2026 Erik Bourget <erik@ebourget.net> - 1-8
+- Rebuild the sealed Touch ID calibration from this Mac's factory records on
+  the Hardware volume at every start and install it only when it differs; never
+  install the bare FSC2 image
+- Keep replaced and refused records as private evidence, and gate fprintd and
+  the reader activation on a per-boot readiness marker
+
 * Mon Oct 19 2026 Aurora Silicon <hey@djdev.me> - 1-6
 - Label the SEP biometric device and permit fprintd access under SELinux
 

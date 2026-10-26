@@ -1,19 +1,21 @@
-"""Exercise the shipped calibration cache and filesystem safety with raw fixtures."""
-import hashlib
+"""The shipped helper and extractor together, on raw synthetic containers."""
+import contextlib
+import io
 from pathlib import Path
+import subprocess
 import tempfile
 import types
 import unittest
 from unittest.mock import patch
-import subprocess
 
-from test_sep_calibration import synthetic_fsc2_image
+from test_sep_calibration import synthetic_fsc2_image, synthetic_record
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / 'packages/aurora-sep/prepare-sep-calibration'
 EXTRACTOR = ROOT / 'packages/aurora-sep/extract-mesa-calibration'
 helper = types.ModuleType('prepare_sep_calibration')
 exec(compile(HELPER.read_text(), str(HELPER), 'exec'), helper.__dict__)
+IDENTITY = (0x8132, 0x0011223344556677, b'TESTSERIAL1')
 
 
 class PreparationTests(unittest.TestCase):
@@ -22,48 +24,59 @@ class PreparationTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.device = self.root / 'readonly-isc'
-        self.original = b'prefix' + synthetic_fsc2_image() + b'padding'
+        self.state = self.root / 'state'
+        self.run = self.root / 'run'
+        self.firmware = self.root / 'firmware'
+        self.target = self.firmware / 'apple/mesacal-j700.bin'
+
+    def container(self, record):
+        self.original = b'prefix' + record + b'padding'
         self.device.write_bytes(self.original)
         self.device.chmod(0o400)
-        self.state = self.root / 'state'
-        self.firmware = self.root / 'firmware'
 
-    def prepare(self, uuid='fixture-partuuid'):
-        helper.prepare(self.device, uuid, self.state, self.firmware,
-                       'apple/mesacal-j700.bin', EXTRACTOR)
+    def prepare(self):
+        data = self.device.read_bytes()
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            ready = helper.prepare(lambda offset, length: data[offset:offset + length], self.device,
+                                   self.state, self.run, self.firmware, 'apple/mesacal-j700.bin',
+                                   EXTRACTOR, IDENTITY)
+        self.output = out.getvalue()
+        return ready
 
-    def test_extract_and_reuse_machine_bound_private_cache(self):
-        self.prepare()
-        output = self.firmware / 'apple/mesacal-j700.bin'
-        self.assertEqual(output.read_bytes(), synthetic_fsc2_image())
-        self.assertEqual(output.stat().st_mode & 0o777, 0o600)
-        self.assertEqual(self.state.stat().st_mode & 0o777, 0o700)
-        with patch.object(helper.subprocess, 'run', side_effect=AssertionError('cache miss')):
-            self.prepare()
-        self.assertEqual(self.device.read_bytes(), self.original)
-
-    def test_corrupt_cache_and_different_partition_are_reextracted(self):
-        self.prepare()
-        (self.state / 'mesa-calibration.bin').write_bytes(b'corrupt')
+    def test_every_preparation_reads_the_container_again(self):
+        self.container(synthetic_record())
         real_run = subprocess.run
         with patch.object(helper.subprocess, 'run', wraps=real_run) as run:
-            self.prepare()
-            self.assertEqual(run.call_count, 1)
-            self.prepare('different-partition')
+            self.assertTrue(self.prepare())
+            self.assertTrue(self.prepare())
             self.assertEqual(run.call_count, 2)
-        self.assertEqual((self.state / 'mesa-calibration.bin').read_bytes(), synthetic_fsc2_image())
+        self.assertEqual(self.target.read_bytes(), synthetic_record())
+        self.assertEqual(self.target.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.state.stat().st_mode & 0o777, 0o700)
+        self.assertFalse((self.state / 'mesa-calibration.bin').exists())
+        self.assertEqual(self.device.read_bytes(), self.original)
 
-    def test_failed_refresh_does_not_replace_cached_or_live_firmware(self):
-        self.prepare()
-        before = (self.firmware / 'apple/mesacal-j700.bin').read_bytes()
+    def test_a_standalone_image_without_factory_records_is_never_installed(self):
+        self.container(synthetic_fsc2_image())
+        self.assertFalse(self.prepare())
+        self.assertFalse(self.target.exists())
+        self.assertFalse((self.run / helper.READY).exists())
+        self.assertIn('needs a calibration refresh', self.output)
+        self.assertEqual(self.device.read_bytes(), self.original)
+
+    def test_a_failed_extraction_leaves_live_firmware_and_no_readiness(self):
+        self.container(synthetic_record())
+        self.assertTrue(self.prepare())
+        before = self.target.read_bytes()
         self.device.chmod(0o600)
         self.device.write_bytes(b'no calibration')
         with self.assertRaises(subprocess.CalledProcessError):
-            self.prepare('replacement-isc')
-        self.assertEqual((self.firmware / 'apple/mesacal-j700.bin').read_bytes(), before)
-        self.assertEqual((self.state / 'mesa-calibration.bin').read_bytes(), before)
+            self.prepare()
+        self.assertEqual(self.target.read_bytes(), before)
+        self.assertFalse((self.run / helper.READY).exists())
 
     def test_symlink_state_and_firmware_directory_rejected(self):
+        self.container(synthetic_record())
         target = self.root / 'target'
         target.mkdir()
         self.state.symlink_to(target, target_is_directory=True)
