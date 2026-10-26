@@ -1,4 +1,4 @@
-%global commit e824700f9e38a4c21d2876742340de57f38d5402
+%global commit 46f3db55fae62d13b34efd4a0851869a759b3297
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
