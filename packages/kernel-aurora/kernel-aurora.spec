@@ -1,21 +1,20 @@
-%global commit 9cbdd0734d9e186c5f5f5949a21b909d10c2571b
+%global commit 26f2474183fcb287e0f7e8e180c53ed639b6a353
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 3%{?dist}.aurora
+Release: 4%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
 Source0: kernel-aurora-%{commit}.tar.gz
 Source1: config
 Source2: common.config
-Source3: neo.config
 Source4: fedora.config
 Source5: validate-config.py
 ExclusiveArch: aarch64
 BuildRequires: make gcc gcc-c++ clang llvm lld rust rust-src rustfmt cargo bindgen-cli
-BuildRequires: bc bison flex dtc openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
+BuildRequires: bc bison flex dtc openssl openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
 Requires: kernel-aurora-core = %{version}-%{release}
 Requires: kernel-aurora-modules-extra = %{version}-%{release}
 Provides: kernel-16k = %{version}-%{release}
@@ -48,22 +47,19 @@ Matching modules for the Aurora kernel.
 %prep
 %autosetup -p1 -n linux-%{commit}
 cp %{SOURCE1} .config
-scripts/kconfig/merge_config.sh -m .config arch/arm64/configs/asahi.config %{SOURCE2} %{SOURCE3} %{SOURCE4}
+scripts/kconfig/merge_config.sh -m .config arch/arm64/configs/asahi.config %{SOURCE2} %{SOURCE4}
 scripts/config --set-str LOCALVERSION '' --disable LOCALVERSION_AUTO --set-str SYSTEM_TRUSTED_KEYS '' --set-str SYSTEM_REVOCATION_KEYS ''
 
 %build
 export ARCH=arm64 RUSTC_BOOTSTRAP=1
 export RUST_LIB_SRC=/usr/lib/rustlib/src/rust/library
 # Build the pinned, corrected generator. It independently compiles its fixtures.
-python3 tools/aurora-bindgen/build.py --output-dir "$PWD/private-bindgen"
-export BINDGEN="$PWD/private-bindgen/rust-bindgen-0.73.2/target/release/bindgen"
-make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" olddefconfig
-for fragment in %{SOURCE2} %{SOURCE3} %{SOURCE4}; do
-  python3 %{SOURCE5} "$fragment" .config
-done
-make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" rustavailable
-make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" %{?_smp_mflags} Image modules dtbs
-[ "$(make -s LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" kernelrelease)" = "%{krel}" ]
+python3 tools/aurora-bindgen/build.py
+make LLVM=1 LOCALVERSION=-%{release}.aarch64 olddefconfig
+python3 %{SOURCE5} arch/arm64/configs/asahi.config %{SOURCE2} %{SOURCE4} .config
+make LLVM=1 LOCALVERSION=-%{release}.aarch64 rustavailable
+make LLVM=1 LOCALVERSION=-%{release}.aarch64 %{?_smp_mflags} Image modules dtbs
+[ "$(make -s LLVM=1 LOCALVERSION=-%{release}.aarch64 kernelrelease)" = "%{krel}" ]
 
 %install
 export ARCH=arm64 RUSTC_BOOTSTRAP=1
@@ -103,6 +99,10 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Mon Oct 26 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-4.aurora
+- Use the consistency kernel and its shared hardware fragment.
+- Retire the duplicate Neo fragment and validate ordered shared requirements.
+
 * Mon Oct 26 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-3
 - Track aurora-silicon/linux integration/aurora at 9cbdd07.
 - Upstream head: Merge pull request #423 from aurora-silicon/perf/g17-submit-completion-20261024
