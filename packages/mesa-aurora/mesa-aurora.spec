@@ -1,8 +1,8 @@
-%global commit 2e0bdb2326f7b1657c183f2ece24243165c5144c
+%global commit f2c9dc3fb59c81fdaf51f19884175c856e3d1889
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 6%{?dist}.aurora
+Release: 7%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -91,6 +91,10 @@ grep -vE 'libvulkan_asahi\.so|vulkan/icd.d/.*asahi.*json' all.files > dri.files
 %files -n mesa-aurora-vulkan-drivers -f vulkan.files
 
 %changelog
+* Mon Oct 26 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-7
+- Track aurora-silicon/mesa aurora-wip at f2c9dc3.
+- Upstream head: Merge pull request #62 from aurora-silicon/perf/g17-finalized-submit-20261024
+
 * Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-6
 - Track aurora-silicon/mesa aurora-wip at 2e0bdb2.
 - Upstream head: Merge pull request #54 from aurora-silicon/perf/agx2-refmac-parity-20261023
