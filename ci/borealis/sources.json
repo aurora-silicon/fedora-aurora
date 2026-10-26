@@ -1,0 +1,37 @@
+[
+  {
+    "file": "paste-1.0.15.tar.gz",
+    "sha256": "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a",
+    "url": "https://crates.io/api/v1/crates/paste/1.0.15/download"
+  },
+  {
+    "file": "proc-macro2-1.0.107.tar.gz",
+    "sha256": "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9",
+    "url": "https://crates.io/api/v1/crates/proc-macro2/1.0.107/download"
+  },
+  {
+    "file": "quote-1.0.47.tar.gz",
+    "sha256": "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001",
+    "url": "https://crates.io/api/v1/crates/quote/1.0.47/download"
+  },
+  {
+    "file": "rustc-hash-2.1.3.tar.gz",
+    "sha256": "6b1e7f9a428571be2dc5bc0505c13fb6bf936822b894ec87abf8a08a4e51742d",
+    "url": "https://crates.io/api/v1/crates/rustc-hash/2.1.3/download"
+  },
+  {
+    "file": "syn-2.0.119.tar.gz",
+    "sha256": "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297",
+    "url": "https://crates.io/api/v1/crates/syn/2.0.119/download"
+  },
+  {
+    "file": "unicode-ident-1.0.26.tar.gz",
+    "sha256": "d245f478577f809a851594d02313b640fb437e0bb33866753cff937863096954",
+    "url": "https://crates.io/api/v1/crates/unicode-ident/1.0.26/download"
+  },
+  {
+    "file": "venus-protocol-v1.1.3.tar.gz",
+    "sha256": "c5a362ca28e0a35042db1baeadaf9183500b216841e49d72714b80bae50b4445",
+    "url": "https://gitlab.freedesktop.org/virgl/venus-protocol/-/archive/v1.1.3/venus-protocol-v1.1.3.tar.gz"
+  }
+]

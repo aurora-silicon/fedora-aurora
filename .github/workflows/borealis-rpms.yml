@@ -1,0 +1,79 @@
+name: Borealis system RPM candidates
+on:
+  push:
+    branches: [build/borealis-tip-rpms]
+    paths: [ci/borealis/**, .github/workflows/borealis-rpms.yml]
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Public aurora-silicon/mesa commit
+        required: true
+        default: f2c9dc3fb59c81fdaf51f19884175c856e3d1889
+      source_sha256:
+        description: SHA256 of the public codeload archive
+        required: true
+        default: fc377579824a6f0e97947492009ba16f8173898a6966b83f906b5e5781e8e7c2
+      rpm_release:
+        description: Candidate release prefix
+        required: true
+        default: '0.15'
+permissions:
+  contents: read
+concurrency:
+  group: borealis-rpms-${{ github.ref }}-${{ inputs.source_commit || 'f2c9dc3fb59c81fdaf51f19884175c856e3d1889' }}
+  cancel-in-progress: false
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - name: fedora44-aarch64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            kind: native
+            image: registry.fedoraproject.org/fedora@sha256:6ad1739ac6fb30f72ecc7b62a7ca94871d1cab215e4f5174113941047e0b4ed4
+          - name: fedora45-aarch64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            kind: native
+            image: registry.fedoraproject.org/fedora@sha256:e0f7c9b6ed4f631ac8d0261f7543c3646d148be46a94d60b9465b73c7d4e1500
+          - name: fedora45-fex
+            runner: ubuntu-24.04
+            platform: linux/amd64
+            kind: fex
+            image: registry.fedoraproject.org/fedora@sha256:e0f7c9b6ed4f631ac8d0261f7543c3646d148be46a94d60b9465b73c7d4e1500
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    env:
+      SOURCE_COMMIT: ${{ inputs.source_commit || 'f2c9dc3fb59c81fdaf51f19884175c856e3d1889' }}
+      SOURCE_SHA256: ${{ inputs.source_sha256 || 'fc377579824a6f0e97947492009ba16f8173898a6966b83f906b5e5781e8e7c2' }}
+      RPM_RELEASE: ${{ inputs.rpm_release || '0.15' }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Prepare isolated build capacity
+        run: |
+          # These are unused tools in this disposable hosted job image.
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet
+          df -B1 "$RUNNER_TEMP"
+          free -b
+          test "$(df --output=avail -B1 "$RUNNER_TEMP" | tail -1)" -ge 21474836480
+          test "$(awk '/MemAvailable/{print $2}' /proc/meminfo)" -ge 10485760
+      - name: Prepare public inputs
+        run: python3 ci/borealis/prepare.py "$SOURCE_COMMIT" "$SOURCE_SHA256" "$RPM_RELEASE" '${{ matrix.kind }}' "$RUNNER_TEMP/rpm"
+      - name: Build on the native architecture
+        run: |
+          set -euo pipefail
+          docker run --rm --platform '${{ matrix.platform }}' --cpus 4 --memory 12g --memory-swap 12g \
+            -v "$RUNNER_TEMP/rpm:/r" -v "$PWD/ci/borealis:/recipe:ro" \
+            '${{ matrix.image }}' nice -n 10 bash /recipe/build.sh '${{ matrix.kind }}' "$SOURCE_COMMIT" "$RPM_RELEASE" \
+            2>&1 | tee "$RUNNER_TEMP/rpm/out/driver.log"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: borealis-${{ matrix.name }}
+          path: ${{ runner.temp }}/rpm/out/
+          retention-days: 30
