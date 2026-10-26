@@ -3,7 +3,7 @@
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 3%{?dist}.aurora
+Release: 4%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -99,9 +99,13 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
-* Mon Oct 26 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-3.aurora
+* Mon Oct 26 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-4.aurora
 - Use the consistency kernel and its shared hardware fragment.
 - Retire the duplicate Neo fragment and validate ordered shared requirements.
+
+* Mon Oct 26 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-3
+- Track aurora-silicon/linux integration/aurora at 9cbdd07.
+- Upstream head: Merge pull request #423 from aurora-silicon/perf/g17-submit-completion-20261024
 
 * Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-2
 - Track aurora-silicon/linux integration/aurora at 311471f.

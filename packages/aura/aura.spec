@@ -1,8 +1,8 @@
 %global debug_package %{nil}
-%global commit 553b566f69275ff4e46ee6542a7236fb80a333a2
+%global commit ec4a6ab8b4252079e78196515577d73ef0a86135
 Name: aura
 Version: 0.1.0
-Release: 5%{?dist}
+Release: 6%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -17,7 +17,7 @@ Requires: update-m1n1 uboot-aurora
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-553b566f69275ff4e46ee6542a7236fb80a333a2
+%autosetup -n aura-ec4a6ab8b4252079e78196515577d73ef0a86135
 
 %build
 export RUSTC_BOOTSTRAP=1
@@ -41,6 +41,10 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Mon Oct 26 2026 Aurora Silicon <hey@djdev.me> - 0.1.0-6
+- Track aurora-silicon/aura main at ec4a6ab.
+- Upstream head: Merge pull request #8 from AxxzyWasTaken/t6041-ans-reserve
+
 * Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 0.1.0-5
 - Track aura main at 553b566.
 - Keep the load header's relocation inside the relocation padding, so
