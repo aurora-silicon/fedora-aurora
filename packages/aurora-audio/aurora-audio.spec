@@ -1,11 +1,12 @@
 %global commit f513878c9c5144d2ab582b314081227a208777e3
 Name: aurora-audio
 Version: 4.1
-Release: 5%{?dist}
+Release: 6%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
 Source0: aurora-audio-%{commit}.tar.gz
+Source1: module-setup.sh
 BuildArch: noarch
 BuildRequires: make
 # Fedora Asahi installs carry asahi-audio, which ships the same files.
@@ -23,14 +24,20 @@ Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source r
 
 %install
 make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
+install -Dm755 %{SOURCE1} %{buildroot}%{_prefix}/lib/dracut/modules.d/90aurora-audio/module-setup.sh
 
 %files
 %license LICENSE
 %{_datadir}/asahi-audio/
 %{_datadir}/wireplumber/
 %{_datadir}/pipewire/
+%{_prefix}/lib/dracut/modules.d/90aurora-audio/
 
 %changelog
+* Wed Oct 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-6
+- Carry snd-seq in the initramfs. appledrm brings snd-pcm there, and
+  Fedora's dist-alsa.conf loads snd-seq with it, which failed at every boot.
+
 * Wed Oct 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-5
 - Move to asahi-audio f513878: the J616 and J700 microphone graphs boost
   to match the M1 and M2 graphs (aurora-silicon/asahi-audio#12), and every
