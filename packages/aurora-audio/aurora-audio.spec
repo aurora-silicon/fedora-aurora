@@ -1,7 +1,7 @@
-%global commit 78803e1122a4f4a943b0e490eeb869db2537cd66
+%global commit f513878c9c5144d2ab582b314081227a208777e3
 Name: aurora-audio
 Version: 4.1
-Release: 4%{?dist}
+Release: 5%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
@@ -17,7 +17,7 @@ Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplu
 Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n asahi-audio-78803e1122a4f4a943b0e490eeb869db2537cd66
+%autosetup -n asahi-audio-f513878c9c5144d2ab582b314081227a208777e3
 
 %build
 
@@ -31,6 +31,12 @@ make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
 %{_datadir}/pipewire/
 
 %changelog
+* Wed Oct 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-5
+- Move to asahi-audio f513878: the J616 and J700 microphone graphs boost
+  to match the M1 and M2 graphs (aurora-silicon/asahi-audio#12), and every
+  microphone graph presents its processed channel as MONO, so stereo
+  clients hear it in both ears (#13).
+
 * Sat Oct 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-4
 - Move to asahi-audio 78803e1: the J616s speaker graph and headphone jack
   priorities (aurora-silicon/asahi-audio#8), and the J700 speaker graph's
