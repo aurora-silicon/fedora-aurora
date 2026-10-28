@@ -1,6 +1,7 @@
 import datetime
 import importlib.util
 import json
+import re
 from pathlib import Path
 import shutil
 import sys
@@ -62,6 +63,19 @@ class FedoraSpecTests(unittest.TestCase):
         item = self.item('mesa-aurora', version='26.3.0', upstream_version='26.3.0-devel')
         module.update_recipe(self.root, item, TODAY)
         self.assertEqual(module.tl.spec_field(self.spec('mesa-aurora'), 'Version'), '26.3.0')
+
+    def test_mesa_moves_the_flatpak_gl_package_with_it(self):
+        name = module.FLATPAK_GL
+        shutil.copytree(ROOT / 'packages' / name, self.root / 'packages' / name)
+        module.update_recipe(self.root, self.item('mesa-aurora', version='26.3.0'), TODAY)
+        host, gl = self.spec('mesa-aurora'), self.spec(name)
+        self.assertIn(f'%{{!?commit:%global commit {NEW}}}\n', gl)
+        self.assertIn('%{!?host_version:%global host_version '
+                      + module.tl.spec_field(host, 'Version') + '}\n', gl)
+        self.assertIn('%{!?host_release:%global host_release '
+                      + module.tl.spec_field(host, 'Release') + '}\n', gl)
+        self.assertTrue(any(re.fullmatch(pattern, f'packages/{name}/{name}.spec')
+                            for pattern in module.PATCH_PATHS))
 
     def test_changelog_history_is_never_rewritten(self):
         spec = self.root / 'packages/aura/aura.spec'

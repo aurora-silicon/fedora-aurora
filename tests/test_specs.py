@@ -41,6 +41,20 @@ class SpecTests(unittest.TestCase):
                 continue
             with self.subTest(package=name):
                 self.assertEqual(sources[name]['commit'], match.group(1))
+    def test_flatpak_gl_moves_in_lockstep_with_the_host_mesa(self):
+        def fields(name):
+            text = (ROOT / 'packages' / name / (name + '.spec')).read_text()
+            commit = re.search(r'^%(?:\{!\?commit:)?%?global commit ([0-9a-f]{40})', text, re.M).group(1)
+            macros = dict(re.findall(r'^%\{!\?(\w+):%global \1 (\S+)\}', text, re.M))
+            expand = lambda value: re.sub(r'%\{(\w+)\}', lambda m: macros.get(m.group(1), m.group(0)), value)
+            version = expand(re.search(r'^Version:\s+(\S+)', text, re.M).group(1))
+            release = expand(re.search(r'^Release:\s+(\S+)', text, re.M).group(1))
+            return commit, version, release, text
+        host, gl = fields('mesa-aurora'), fields('aurora-flatpak-gl')
+        self.assertEqual(host[:3], gl[:3])
+        self.assertEqual(json.loads((ROOT / 'sources.json').read_text())['mesa-aurora']['commit'], gl[0])
+        self.assertIn('aurora-mesa-commit.', gl[3])
+        self.assertIn('aurora-mesa-commit.', (ROOT / 'packages' / 'aurora-flatpak-gl' / 'build-extension.sh').read_text())
     def test_flatpak_gl_settings_name_the_files_the_extension_ships(self):
         d = ROOT / 'packages' / 'aurora-flatpak-gl'
         helper = (d / 'aurora-flatpak-gl').read_text()

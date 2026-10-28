@@ -48,4 +48,6 @@ PY
 flatpak build-export --arch=aarch64 \
   --subject="Aurora Mesa $commit for $branch" "$repo" "$work/build" "$branch"
 flatpak build-update-repo "$repo"
+# aurora-flatpak-gl.spec checks these against its Mesa commit.
+echo "$commit" > "$repo/aurora-mesa-commit.$branch"
 echo "exported org.freedesktop.Platform.GL.aurora/aarch64/$branch from $commit"
