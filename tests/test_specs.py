@@ -41,4 +41,20 @@ class SpecTests(unittest.TestCase):
                 continue
             with self.subTest(package=name):
                 self.assertEqual(sources[name]['commit'], match.group(1))
+    def test_flatpak_gl_settings_name_the_files_the_extension_ships(self):
+        d = ROOT / 'packages' / 'aurora-flatpak-gl'
+        helper = (d / 'aurora-flatpak-gl').read_text()
+        manifest = (d / 'org.freedesktop.Platform.GL.aurora.yml.in').read_text()
+        build = (d / 'build-extension.sh').read_text()
+        # The override points at the merged GL directories; the extension must
+        # ship files under the same names, at the merge-dirs locations.
+        for name in ['vulkan/icd.d/asahi_icd.aarch64.json', 'vulkan/icd.d/lvp_icd.aarch64.json',
+                     'glvnd/egl_vendor.d/50_mesa.json', 'lib/dri']:
+            self.assertIn('$gl/' + name, helper)
+        self.assertIn('-Dvulkan-drivers=asahi,swrast', manifest)
+        self.assertIn('mv ${FLATPAK_DEST}/share/vulkan/icd.d ${FLATPAK_DEST}/vulkan/icd.d', manifest)
+        self.assertIn('mv ${FLATPAK_DEST}/share/glvnd/egl_vendor.d ${FLATPAK_DEST}/glvnd/egl_vendor.d', manifest)
+        self.assertIn("prefix: /usr/lib/aarch64-linux-gnu/GL/aurora", manifest)
+        self.assertIn('priority=10', build)
+        self.assertIn("['mesa-aurora']", build)
 if __name__ == '__main__': unittest.main()
