@@ -8,19 +8,30 @@
 # GL.default. Removing the package removes the extension and the settings, and
 # apps go back to GL.default.
 #
+# Keep commit, Version and Release identical to packages/mesa-aurora, as for
+# mesa-aurora-fex-guest: the tracker moves all three together and
+# tests/test_specs.py checks it. A host Mesa built from another recipe can be
+# matched without editing this file, e.g. for the fleet's mesa.spec line:
+#   rpmbuild --define 'commit <40-hex>' --define 'host_version 26.3.0~devel' \
+#            --define 'host_release 0.17.aurora.borealis.<12-hex>%%{?dist}' ...
+#
 # The repository is not built here: build it with build-extension.sh (next to
-# this file) for each runtime branch, tar it as Source10 and build with --with repo.
-# Without it the package carries only the settings, which change nothing until
-# GL.aurora is installed.
+# this file) for each runtime branch, tar it as Source10 and build with
+# --with repo. build-extension.sh stamps each branch with its Mesa commit and
+# the build refuses a repository from another commit. Without the repository
+# the package carries only the settings, which change nothing until GL.aurora
+# is installed.
 %bcond repo 0
-%global mesa_commit 473e325b4f50d01d9716fe276bfdce57d0a76ca7
-%global mesa_short 473e325b4f50
+%{!?commit:%global commit f2c9dc3fb59c81fdaf51f19884175c856e3d1889}
+%{!?host_version:%global host_version 26.3.0}
+%{!?host_release:%global host_release 7%{?dist}.aurora}
+%global shortcommit %{sub %{commit} 1 12}
 %global debug_package %{nil}
 %global __requires_exclude_from ^%{_datadir}/aurora-flatpak-gl/
 %global __provides_exclude_from ^%{_datadir}/aurora-flatpak-gl/
 Name: aurora-flatpak-gl
-Version: 26.3.0
-Release: 0.1.%{mesa_short}%{?dist}
+Version: %{host_version}
+Release: %{host_release}
 Summary: Aurora Mesa for Flatpak apps
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -28,7 +39,7 @@ Source0: aurora-flatpak-gl
 Source1: 60-aurora-flatpak-gl.conf
 Source2: aurora-flatpak-gl.sh
 %if %{with repo}
-Source10: aurora-flatpak-gl-repo-%{mesa_short}.tar
+Source10: aurora-flatpak-gl-repo-%{shortcommit}.tar
 %endif
 ExclusiveArch: aarch64
 Requires: flatpak
@@ -51,7 +62,12 @@ install -Dm644 %{SOURCE2} %{buildroot}%{_sysconfdir}/profile.d/aurora-flatpak-gl
 install -d %{buildroot}%{_datadir}/aurora-flatpak-gl
 %if %{with repo}
 tar -xf %{SOURCE10} -C %{buildroot}%{_datadir}/aurora-flatpak-gl
-test -d %{buildroot}%{_datadir}/aurora-flatpak-gl/repo/objects
+repo=%{buildroot}%{_datadir}/aurora-flatpak-gl/repo
+test -d $repo/objects
+stamps=$(ls $repo/aurora-mesa-commit.* 2>/dev/null) || { echo 'repository has no Mesa commit stamp' >&2; exit 1; }
+for s in $stamps; do
+    [ "$(cat $s)" = %{commit} ] || { echo "$s is $(cat $s), not %{commit}" >&2; exit 1; }
+done
 %endif
 
 %posttrans
@@ -69,6 +85,9 @@ fi
 %{_datadir}/aurora-flatpak-gl/
 
 %changelog
+* Thu Oct 29 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-7.aurora
+- Move in lockstep with mesa-aurora: commit, Version and Release follow its
+  pin, and the build checks the repository's Mesa commit stamps.
 * Thu Oct 29 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-0.1.473e325b4f50
 - Initial package: GL.aurora for the 25.08 and 26.08 runtimes from Mesa
   473e325b4f50.
