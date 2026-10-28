@@ -1,9 +1,9 @@
-%global commit 9cbdd0734d9e186c5f5f5949a21b909d10c2571b
+%global commit d266c703c13f099068284d622d397292241a0224
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 3%{?dist}.aurora
+Release: 4%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -103,6 +103,10 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Wed Oct 28 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-4
+- Track aurora-silicon/linux integration/aurora at d266c70.
+- Upstream head: drm/asahi: g17: drop the completion thread's frequency boost while the GPU is the bottleneck
+
 * Mon Oct 26 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-3
 - Track aurora-silicon/linux integration/aurora at 9cbdd07.
 - Upstream head: Merge pull request #423 from aurora-silicon/perf/g17-submit-completion-20261024
