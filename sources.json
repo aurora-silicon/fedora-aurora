@@ -144,5 +144,14 @@
     "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/f2c9dc3fb59c81fdaf51f19884175c856e3d1889",
     "archive_root": "mesa-f2c9dc3fb59c81fdaf51f19884175c856e3d1889",
     "sha256": "fc377579824a6f0e97947492009ba16f8173898a6966b83f906b5e5781e8e7c2"
+  },
+  "alsa-utils": {
+    "repository": "https://github.com/alsa-project/alsa-utils",
+    "commit": "9feb22ba45b48729729c8d194aaf1bc082a6842a",
+    "version": "1.2.16",
+    "source_url": "https://www.alsa-project.org/files/pub/utils/alsa-utils-1.2.16.tar.bz2",
+    "archive_file": "alsa-utils-1.2.16.tar.bz2",
+    "archive_root": "alsa-utils-1.2.16",
+    "sha256": "092399d5e8749a1d5e188e393157521cec4b75693b60ebb79bbce728cff2232c"
   }
 }
