@@ -1,11 +1,12 @@
 Name: aurora-release
 Version: 44
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Fedora Aurora Remix release identity
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
 BuildArch: noarch
 BuildRequires: fedora-release-common
+BuildRequires: systemd-rpm-macros
 Provides: system-release = 44
 Provides: system-release(44)
 Provides: fedora-release = 44
@@ -22,6 +23,8 @@ Source101: os-release
 Source102: system-release
 Source103: system-release-cpe
 Source104: macros.dist
+Source105: malcontent-signal.conf
+Source106: malcontent-webd-update-signal.conf
 
 %description
 Fedora Aurora Remix release identity.
@@ -44,6 +47,10 @@ install -Dm644 %{_sourcedir}/system-release %{buildroot}/etc/fedora-release
 ln -s fedora-release %{buildroot}/etc/redhat-release
 ln -s fedora-release %{buildroot}/etc/system-release
 install -Dm644 %{_sourcedir}/system-release-cpe %{buildroot}/etc/system-release-cpe
+for unit in malcontent-timerd malcontent-timer-extension-agent malcontent-webd; do
+  install -Dm644 %{SOURCE105} %{buildroot}%{_unitdir}/$unit.service.d/50-aurora-signal.conf
+done
+install -Dm644 %{SOURCE106} %{buildroot}%{_unitdir}/malcontent-webd-update.service.d/50-aurora-signal.conf
 
 
 %files
@@ -58,7 +65,13 @@ install -Dm644 %{_sourcedir}/system-release-cpe %{buildroot}/etc/system-release-
 /etc/redhat-release
 /etc/system-release
 /etc/system-release-cpe
+%dir %{_unitdir}/malcontent-*.service.d
+%{_unitdir}/malcontent-*.service.d/50-aurora-signal.conf
 
 %changelog
+* Thu Oct 29 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-3
+- Let the malcontent daemons stop on SIGTERM (upstream af8226a7d3c3), so a
+  reboot soon after login no longer waits 30 s for malcontent-timerd
+
 * Sun Oct 18 2026 Aurora Silicon <hey@djdev.me> - 1
 - Initial Fedora Aurora package.
