@@ -1,6 +1,6 @@
 Name: aurora-release
 Version: 44
-Release: 3%{?dist}
+Release: 4%{?dist}
 Summary: Fedora Aurora Remix release identity
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -18,6 +18,7 @@ Provides: fedora-release-workstation = 44
 Provides: fedora-release-kde = 44
 Conflicts: fedora-release-common fedora-release-identity-basic fedora-release-identity-workstation fedora-release-identity-kde
 Requires: fedora-repos(44) fedora-gpg-keys
+Requires: aurora-system-fixes = %{version}-%{release}
 
 Source101: os-release
 Source102: system-release
@@ -28,6 +29,16 @@ Source106: malcontent-webd-update-signal.conf
 
 %description
 Fedora Aurora Remix release identity.
+
+%package -n aurora-system-fixes
+Summary: Aurora drop-ins for system services awaiting upstream fixes
+Requires: systemd
+
+%description -n aurora-system-fixes
+systemd unit drop-ins that carry fixes for Fedora system services until the
+upstream release ships them. Each drop-in names the upstream change that
+retires it. It does not change the distribution identity, so it can be
+installed on any Fedora release Aurora supports.
 
 %prep
 
@@ -65,10 +76,17 @@ install -Dm644 %{SOURCE106} %{buildroot}%{_unitdir}/malcontent-webd-update.servi
 /etc/redhat-release
 /etc/system-release
 /etc/system-release-cpe
+
+%files -n aurora-system-fixes
 %dir %{_unitdir}/malcontent-*.service.d
 %{_unitdir}/malcontent-*.service.d/50-aurora-signal.conf
 
 %changelog
+* Thu Oct 29 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-4
+- Move the malcontent unit drop-ins to a new aurora-system-fixes subpackage,
+  so machines that keep their own release package can get them too;
+  aurora-release requires it
+
 * Thu Oct 29 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-3
 - Let the malcontent daemons stop on SIGTERM (upstream af8226a7d3c3), so a
   reboot soon after login no longer waits 30 s for malcontent-timerd
