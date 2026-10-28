@@ -32,4 +32,13 @@ class SpecTests(unittest.TestCase):
         self.assertIn('# aurora-builder: x86_64', guest[3].splitlines())
         self.assertIn('Requires: mesa-dri-drivers = %{version}-%{release}', guest[3])
         self.assertIn('Requires: mesa-vulkan-drivers = %{version}-%{release}', guest[3])
+    def test_spec_commit_matches_its_source_pin(self):
+        sources = json.loads((ROOT / 'sources.json').read_text())
+        for spec in (ROOT / 'packages').glob('*/*.spec'):
+            name = spec.parent.name
+            match = re.search(r'^%(?:\{!\?commit:)?%?global commit ([0-9a-f]{40})', spec.read_text(), re.M)
+            if name not in sources or not match:
+                continue
+            with self.subTest(package=name):
+                self.assertEqual(sources[name]['commit'], match.group(1))
 if __name__ == '__main__': unittest.main()
