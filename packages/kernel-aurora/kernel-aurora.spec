@@ -1,9 +1,9 @@
-%global commit 9cbdd0734d9e186c5f5f5949a21b909d10c2571b
+%global commit 87e3a4d597af1f31164b77009a80738978e6b26e
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 3%{?dist}.aurora
+Release: 4%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -103,6 +103,10 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Wed Oct 28 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-4
+- Track aurora-silicon/linux integration/aurora at 87e3a4d.
+- Upstream head: soc: apple: clpc: count how often the GPU floor is released and comes back
+
 * Mon Oct 26 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-3
 - Track aurora-silicon/linux integration/aurora at 9cbdd07.
 - Upstream head: Merge pull request #423 from aurora-silicon/perf/g17-submit-completion-20261024
