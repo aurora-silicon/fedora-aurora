@@ -1,34 +1,36 @@
-%global lcms2_version 2.6
-%global colord_version 1.4.5
 %global glib_version 2.81.1
 %global gobject_introspection_version 1.41.4
 %global gtk3_version 3.19.8
 %global gtk4_version 4.14.0
-%global gsettings_desktop_schemas_version 51~alpha
-%global pixman_version 0.42
-%global libei_version 1.3.901
-%global wayland_server_version 1.24
-%global wayland_protocols_version 1.48
-%global libinput_version 1.31.0
+%global gsettings_desktop_schemas_version 47~beta
 %global libdrm_version 2.4.118
-%global pipewire_version 1.6.0
+%global libinput_version 1.27.0
+%global pixman_version 0.42
+%global pipewire_version 1.2.7
+%global lcms2_version 2.6
+%global colord_version 1.4.5
+%global libei_version 1.3.901
+%global mutter_api_version 18
+%global wayland_protocols_version 1.45
+%global wayland_server_version 1.24
 
-%global mutter_api_version 51
+%global major_version %%(echo %{version} | cut -d '.' -f1 | cut -d '~' -f 1)
+%global tarball_version %%(echo %{version} | tr '~' '.')
 
 Name:          mutter
-Version:       51.1
-Release:       1%{?dist}.aurora
+Version:       50.6
+Release:       2%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
 License:       GPL-2.0-or-later
 URL:           http://www.gnome.org
-Source0:       http://download.gnome.org/sources/%{name}/%{gnome_major_version}/%{name}-%{gnome_tarball_version}.tar.xz
+Source0:       http://download.gnome.org/sources/%{name}/%{major_version}/%{name}-%{tarball_version}.tar.xz
+Patch:         0001-wayland-touch-Do-not-crash-on-empty-focus-surface.patch
 
 # Aurora: displays that support variable refresh rate default to it
-Patch0:        0001-native-output-kms-Prefer-variable-refresh-rate-on-VRR-capable-outputs.patch
+Patch:         0001-native-output-kms-Prefer-variable-refresh-rate-on-VRR-capable-outputs.patch
 
-%gnome_check_version
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -160,10 +162,10 @@ Requires: %{name}%{?_isa} = %{version}-%{release}
 Viewer for nested mutter instances.
 
 %prep
-%autosetup -S git -n %{name}-%{gnome_tarball_version}
+%autosetup -S git -n %{name}-%{tarball_version}
 
 %build
-%meson
+%meson -Degl_device=true
 %meson_build
 
 %install
@@ -191,7 +193,6 @@ Viewer for nested mutter instances.
 %files common
 %{_datadir}/GConf/gsettings/mutter-schemas.convert
 %{_datadir}/glib-2.0/schemas/org.gnome.mutter.gschema.xml
-%{_datadir}/glib-2.0/schemas/org.gnome.mutter.experimental.gschema.xml
 %{_datadir}/glib-2.0/schemas/org.gnome.mutter.wayland.gschema.xml
 %{_datadir}/gnome-control-center/keybindings/50-mutter-*.xml
 %{_udevrulesdir}/61-mutter.rules
@@ -214,7 +215,7 @@ Viewer for nested mutter instances.
 %{_libexecdir}/mutter-devkit
 
 %changelog
-* Thu Oct 29 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-1.aurora
-- Fedora's mutter 51.1 with one Aurora patch: an output that supports
-  variable refresh rate prefers its variable variant of the preferred
-  mode, so new monitor configurations use variable refresh rate
+* Thu Oct 29 2026 Ryan Murray <ryan@aurorasilicon.org> - 50.6-2.aurora
+- Fedora 44's mutter 50.6-2 with one Aurora patch: an output that
+  supports variable refresh rate prefers its variable variant of the
+  preferred mode, so new monitor configurations use variable refresh rate

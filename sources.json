@@ -156,11 +156,11 @@
   },
   "mutter": {
     "repository": "https://gitlab.gnome.org/GNOME/mutter",
-    "commit": "9134e3a5869ce232bf95b77519005865747ba603",
-    "version": "51.1",
-    "source_url": "https://download.gnome.org/sources/mutter/51/mutter-51.1.tar.xz",
-    "archive_root": "mutter-51.1",
-    "archive_file": "mutter-51.1.tar.xz",
-    "sha256": "0d311d87901dbcb94518fb89304febe30852ce5d8a4befa9f87e85c68eceefde"
+    "commit": "1aff888481eda3c4a987332c466bf229a5561c7d",
+    "version": "50.6",
+    "source_url": "https://download.gnome.org/sources/mutter/50/mutter-50.6.tar.xz",
+    "archive_root": "mutter-50.6",
+    "archive_file": "mutter-50.6.tar.xz",
+    "sha256": "abed98ed9c46934a0f761ba8c28a055305b99b4855e44c8273f881da7189bc9c"
   }
 }
