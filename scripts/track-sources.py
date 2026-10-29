@@ -36,6 +36,8 @@ def update_recipe(root, item, today):
     # Earlier %changelog entries are history: never rewrite them.
     head, marker, history = original.partition('\n%changelog\n')
     text = tl.replace_commit(head, item['old'], item['new']) + marker + history
+    # A release label belongs to the commit it was tagged on, not to the next one.
+    text = re.sub(r'^(#.*\n)*%global release_tag \S+\n', '', text, flags=re.M)
     if not re.search(rf'^%global commit {item["new"]}$', text, re.M):
         raise ValueError(f'{key}: the spec does not pin %global commit to the new commit')
     notes = []
