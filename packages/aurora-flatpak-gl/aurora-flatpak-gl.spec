@@ -22,9 +22,9 @@
 # the package carries only the settings, which change nothing until GL.aurora
 # is installed.
 %bcond repo 0
-%{!?commit:%global commit f2c9dc3fb59c81fdaf51f19884175c856e3d1889}
+%{!?commit:%global commit 108c7218bbb6cddcb91c29680ff0770d29afcecc}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 7%{?dist}.aurora}
+%{!?host_release:%global host_release 8%{?dist}.aurora}
 %global shortcommit %{sub %{commit} 1 12}
 %global debug_package %{nil}
 %global __requires_exclude_from ^%{_datadir}/aurora-flatpak-gl/
