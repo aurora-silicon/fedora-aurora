@@ -1,7 +1,7 @@
-%global commit 777d7048c444bf20b11830380cfd846cd2744ee0
+%global commit a270b2e2d705ed521b07d008aac45283c75fb986
 Name: alsa-ucm-conf-aurora
 Version: 10
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Aurora ALSA use-case profiles
 License: BSD-3-Clause
 URL: https://github.com/aurora-silicon/alsa-ucm-conf-asahi
@@ -15,7 +15,7 @@ Requires: alsa-ucm
 Aurora ALSA use-case profiles. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n alsa-ucm-conf-asahi-777d7048c444bf20b11830380cfd846cd2744ee0
+%autosetup -n alsa-ucm-conf-asahi-a270b2e2d705ed521b07d008aac45283c75fb986
 
 %build
 
@@ -28,6 +28,12 @@ cp -a ucm2 %{buildroot}%{_datadir}/alsa/
 %{_datadir}/alsa/ucm2/*
 
 %changelog
+* Thu Oct 29 2026 Ryan Murray <ryan@aurorasilicon.org> - 10-3
+- Move to alsa-ucm-conf-asahi a270b2e: the 3-channel AOP microphone follows
+  the lid's "Internal Mic Jack" (aurora-silicon/alsa-ucm-conf-asahi#8), so
+  the M1 Pro and M2 hide the internal microphones while the lid is closed.
+  Also brings the J616s high-quality microphone card (#7).
+
 * Sat Oct 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 10-2
 - Move to alsa-ucm-conf-asahi 777d704: the J616s speaker and headphone jack
   cards (aurora-silicon/alsa-ucm-conf-asahi#5) and the J700 internal
