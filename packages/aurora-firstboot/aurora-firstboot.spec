@@ -1,7 +1,7 @@
-%global commit 9132f0b820fbd56ece1a9d1402a37ba94197d4cf
+%global commit fe6ee0de5b17b7b4abd521780c6b4dc393e2c255
 %global selinuxtype targeted
 Name: aurora-firstboot
-Version: 0.1.10
+Version: 0.1.11
 Release: 1%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
@@ -65,6 +65,7 @@ fi
 /usr/lib/aurora/
 /usr/lib/dracut/modules.d/97aurora-root/
 %{_unitdir}/aurora-firstboot.service
+%{_unitdir}/aurora-disk-rekey.service
 %{_unitdir}/display-manager.service.d/aurora-firstboot.conf
 %{_unitdir}/getty@.service.d/aurora-firstboot.conf
 %{_unitdir}/serial-getty@.service.d/aurora-firstboot.conf
@@ -74,6 +75,12 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/aurora_firstboot.pp
 
 %changelog
+* Thu Oct 29 2026 Aurora Silicon <hey@djdev.me> - 0.1.11-1
+- Ask nothing at first boot on desktop images: the owner's account password,
+  at its first sign-in, becomes the disk password (aurora-password-hook,
+  aurora-disk-rekey.service). On the MacBook Neo the splash stops updating
+  once the installed system starts, so a splash prompt was never seen.
+
 * Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 0.1.10-1
 - Keep systemd status output off the text wizard under show_status=auto, so
   "A start job is running" no longer covers its prompts.
