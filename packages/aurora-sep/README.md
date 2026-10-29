@@ -15,7 +15,12 @@ units then run only where `apple_sep` is a loadable module.
 
 Calibration extraction reads the local boot container without modifying it. A
 private cache is bound to its partition identity and SHA-256. The device-tree
-firmware name is respected. No calibration data is distributed or reused across
+firmware name is respected. The helper installs only a comb record, the form the
+enclave loads as found, and only over a file it installed itself. A standalone
+FSC2 image (MacBook Neo, M4 Air) is cached but not installed, since the enclave
+refuses it until it is resealed with the Mac's factory records, and a file at
+the firmware path that the helper did not write, such as the installer's sealed
+record, is kept. No calibration data is distributed or reused across
 machines. Models without a fingerprint reader can still initialize SEP trusted
 keys; missing calibration is reported without suppressing the cryptographic
 services. Read XART-SAFETY.md for persistent identity ownership constraints and
