@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 13%{?dist}
+Release: 14%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -159,7 +159,7 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
-* Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-13
+* Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-14
 - Replace the every-boot prepare-sep-calibration with aurora-touchid-setup,
   which runs only when a Touch ID file is missing, when the enclave refused
   one this boot (once per boot, started by aurora-sep-ready), or by hand,
@@ -167,7 +167,13 @@ fi
 - Rebuild the sealed calibration and the sensor's signed root key from the
   Mac's factory records on the Hardware volume (Erik Bourget's reader), and
   install a carved comb record as it is on M1 and M2
-- Read the fingerprint firmware-name as a string list, as the driver does
+- Read the fingerprint firmware-name list as the driver does: the first
+  entry is the calibration and the second the sensor's root key
+
+* Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-13
+- prepare-sep-calibration reads the fingerprint firmware-name as a list and
+  takes the calibration entry, so the J616s, which also names its MSRk
+  record, gets its calibration again
 
 * Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-12
 - Wait for the enclave bring-up before the trusted-key probe, so the probe no
