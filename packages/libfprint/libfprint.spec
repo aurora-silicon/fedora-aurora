@@ -148,8 +148,9 @@ fi
 
 %ldconfig_scriptlets
 
-# TODO: The test can't run with the recent pygobject3.52.
-# So, skip the test until the issue of pygobject is fixed.
+%check
+python3 %{SOURCE1003} libfprint/drivers/aurora/aurora.c %{SOURCE1000}
+%meson_test
 
 %files
 %license COPYING
