@@ -163,7 +163,8 @@ fi
 # is mounted. Unmount for the upgrade and mount the new layer afterwards.
 %pre
 if [ $1 -gt 1 ] && [ -d /run/systemd/system ] && systemctl -q is-active aurora-fex-mesa.service; then
-  systemctl stop aurora-fex-mesa.service >/dev/null 2>&1 || :
+  # Abort before unpacking if an in-use overlay cannot be unmounted.
+  systemctl stop aurora-fex-mesa.service || exit 1
   touch /run/aurora-fex-mesa.upgrade
 fi
 %post
@@ -177,8 +178,9 @@ fi
 %systemd_postun_with_restart aurora-fex-mesa.service
 %posttrans
 if [ -e /run/aurora-fex-mesa.upgrade ]; then
+  # Keep the marker on failure so a failed remount remains visible.
+  systemctl start aurora-fex-mesa.service || exit 1
   rm -f /run/aurora-fex-mesa.upgrade
-  systemctl start aurora-fex-mesa.service >/dev/null 2>&1 || :
 fi
 
 %files

@@ -1,0 +1,49 @@
+#!/bin/bash
+# Disposable Fedora CI container booted with systemd; never a fleet installer.
+set -euo pipefail
+[[ -e /.dockerenv && -d /run/systemd/system && $(uname -m) == aarch64 ]]
+old=${1:?baseline RPM directory}
+new=${2:?candidate RPM repository}
+proof=${3:?evidence directory}
+mkdir -p "$proof" /usr/share/guestos/fex-mesa/usr
+exec > >(tee "$proof/fex-overlay.log") 2>&1
+printf 'stock guest\n' > /usr/share/guestos/fex-mesa/usr/stock-marker
+cat > /etc/yum.repos.d/aurora-overlay-test.repo <<REPO
+[aurora-overlay-test]
+name=Disposable unsigned CI candidates
+baseurl=file://$new
+enabled=0
+gpgcheck=0
+REPO
+dnf -y --setopt=install_weak_deps=False install "$old"/*.rpm
+rpm -qa | sort > "$proof/before.txt"
+systemctl start aurora-fex-mesa.service
+systemctl is-active aurora-fex-mesa.service
+mountpoint -q /usr/share/guestos/aurora-fex-mesa
+! touch /usr/share/guestos/aurora-fex-mesa/read-only-probe
+findmnt /usr/share/guestos/aurora-fex-mesa > "$proof/mount-before.txt"
+# A real DNF transaction executes the incoming %pre before relabel/unpack.
+dnf -y --enable-repo=aurora-overlay-test --setopt=install_weak_deps=False upgrade 'mesa*' aurora-flatpak-gl
+[[ $(rpm -q --qf '%{VERSION}-%{RELEASE}' mesa-aurora-fex-guest) == 26.3.0-13.fc44.aurora ]]
+systemctl is-active aurora-fex-mesa.service
+mountpoint -q /usr/share/guestos/aurora-fex-mesa
+cmp /usr/share/guestos/aurora-fex-mesa/.aurora-mesa-commit /usr/share/guestos/aurora-fex-mesa-layer/.aurora-mesa-commit
+! touch /usr/share/guestos/aurora-fex-mesa/read-only-probe
+[[ ! -e /run/aurora-fex-mesa.upgrade ]]
+rpm -V mesa-aurora-fex-guest
+rpm -qa | sort > "$proof/after.txt"
+findmnt /usr/share/guestos/aurora-fex-mesa > "$proof/mount-after.txt"
+# Reinstalling an upgrade while inactive must leave the service inactive.
+systemctl stop aurora-fex-mesa.service
+dnf -y --enable-repo=aurora-overlay-test reinstall mesa-aurora-fex-guest
+! systemctl is-active aurora-fex-mesa.service
+! mountpoint -q /usr/share/guestos/aurora-fex-mesa
+# The incoming old baseline has no fix: stop explicitly around rollback.
+dnf -y --setopt=install_weak_deps=False do \
+  --action=remove mesa-aurora-vulkan-lavapipe mesa-aurora-devel mesa-aurora-libOpenCL mesa-aurora-libOpenCL-devel \
+  --action=install --allow-downgrade "$old"/*.rpm
+systemctl start aurora-fex-mesa.service
+systemctl is-active aurora-fex-mesa.service
+rpm -qa | sort > "$proof/rollback.txt"
+cmp "$proof/before.txt" "$proof/rollback.txt"
+echo FEX-OVERLAY-UPGRADE-ROLLBACK-PASS

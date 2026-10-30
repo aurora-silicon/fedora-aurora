@@ -24,7 +24,7 @@ jobs:
           python3 images/test_configure.py
           python3 -m compileall -q scripts images
           for script in scripts/build-rpm scripts/build-flatpak-gl-repo \
-            packages/aurora-flatpak-gl/build-extension.sh scripts/test-graphics-upgrade scripts/fleet-kit/*.sh; do
+            packages/aurora-flatpak-gl/build-extension.sh scripts/test-graphics-upgrade scripts/test-fex-overlay-upgrade scripts/fleet-kit/*.sh; do
             bash -n "$script"
           done
           git diff --check
@@ -102,6 +102,24 @@ jobs:
                 bash /src/scripts/test-graphics-upgrade "$old" /candidates /proof
               ' validation "$baseline" 2>&1 | tee "$RUNNER_TEMP/proof/validation-$baseline.log"
           done
+      - name: Upgrade FEX with its read-only overlay running under systemd
+        run: |
+          set -euo pipefail
+          docker build -t aurora-fex-systemd - <<'DOCKER'
+          FROM registry.fedoraproject.org/fedora:44
+          RUN dnf install -y systemd util-linux dnf5-plugins && dnf clean all
+          CMD ["/sbin/init"]
+          DOCKER
+          docker run -d --name fex-overlay --privileged --cgroupns=host \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /tmp \
+            -v "$PWD:/src:ro" -v "$RUNNER_TEMP/candidates/rpms:/candidates:ro" \
+            -v "$RUNNER_TEMP/baselines:/baselines:ro" -v "$RUNNER_TEMP/proof:/proof" aurora-fex-systemd
+          trap 'docker logs fex-overlay > "$RUNNER_TEMP/proof/systemd.log" 2>&1; docker rm -f fex-overlay' EXIT
+          for attempt in {1..30}; do
+            if docker exec fex-overlay systemctl is-active multi-user.target; then break; fi
+            sleep 1
+          done
+          docker exec fex-overlay bash /src/scripts/test-fex-overlay-upgrade /baselines/10 /candidates /proof/fex-overlay
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -109,4 +127,6 @@ jobs:
           path: |
             ${{ runner.temp }}/proof/validation-*.log
             ${{ runner.temp }}/proof/result-*/
+            ${{ runner.temp }}/proof/fex-overlay/
+            ${{ runner.temp }}/proof/systemd.log
           retention-days: 30

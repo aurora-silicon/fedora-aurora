@@ -30,7 +30,7 @@ mapfile -t old < state/rollback-rpms
 remove=()
 # Different names require an atomic rename reversal; same-name packages use
 # install's --allow-downgrade. Never run a separate erase transaction.
-for name in mesa-aurora-dri-drivers mesa-aurora-vulkan-drivers mesa-aurora-devel mesa-aurora-libOpenCL mesa-aurora-libOpenCL-devel aurora-flatpak-gl; do
+for name in mesa-aurora-dri-drivers mesa-aurora-vulkan-drivers mesa-aurora-vulkan-lavapipe mesa-aurora-devel mesa-aurora-libOpenCL mesa-aurora-libOpenCL-devel aurora-flatpak-gl; do
   if rpm -q "$name" >/dev/null 2>&1 && ! grep -q "^$name-[0-9]" state/before-rpm-filenames; then
     remove+=("$name")
   fi
