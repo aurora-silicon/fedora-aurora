@@ -100,6 +100,10 @@ class ConfigureTests(unittest.TestCase):
                 self.assertEqual(receipt["layout"]["boot_manager"], "grub2")
                 image = ET.parse(out / "config.xml").getroot()
                 self.assertEqual(image.get("name"), "Fedora-Aurora-Remix")
+                self.assertEqual(image.get("displayname"), "Aurora Fedora Remix")
+                self.assertEqual(image.find("description/specification").text,
+                                 "Aurora Fedora Remix for Apple Silicon")
+                self.assertEqual(receipt["distribution"], "Aurora Fedora Remix")
                 self.assertEqual(image.find("preferences/rpm-check-signatures").text, "true")
                 names = {n.get("name") for p in out.rglob("*.xml")
                          for n in ET.parse(p).getroot().iter("package")}

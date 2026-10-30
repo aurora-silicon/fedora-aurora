@@ -1,4 +1,4 @@
-# Fedora Aurora Remix
+# Aurora Fedora Remix
 
 Fedora-native packaging, image builds and the signed update repository for Aurora on Apple Silicon. The native macOS application lives in [aurora-installer](https://github.com/aurora-silicon/aurora-installer); [alarm-aurora](https://github.com/aurora-silicon/alarm-aurora) and [nixos-aurora](https://github.com/aurora-silicon/nixos-aurora) implement the other distribution choices.
 

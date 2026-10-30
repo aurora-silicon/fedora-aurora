@@ -14,6 +14,14 @@ class SpecTests(unittest.TestCase):
         for name in ['aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-release', 'aurora-logos', 'speakersafetyd-aurora-profiles']:
             text = (ROOT / 'packages' / name / (name + '.spec')).read_text()
             self.assertIn('BuildArch: noarch', text)
+    def test_release_identity_is_named_aurora_fedora_remix(self):
+        # The standard Fedora Remix naming; the Fedora-compatible IDs stay.
+        d = ROOT / 'packages' / 'aurora-release'
+        fields = dict(line.split('=', 1) for line in (d / 'os-release').read_text().splitlines() if '=' in line)
+        self.assertEqual(fields['NAME'], '"Aurora Fedora Remix"')
+        self.assertEqual(fields['PRETTY_NAME'], '"Aurora Fedora Remix 44"')
+        self.assertEqual((fields['ID'], fields['VARIANT_ID'], fields['LOGO']), ('fedora', 'aurora', 'aurora-logo-icon'))
+        self.assertEqual((d / 'system-release').read_text(), 'Aurora Fedora Remix release 44\n')
     def test_release_presets_sshd_off_ahead_of_fedora_default(self):
         # Fedora's 90-default.preset enables sshd.service; the desktop
         # identities that turned it off are replaced by aurora-release.

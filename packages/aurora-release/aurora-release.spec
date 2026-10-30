@@ -1,7 +1,7 @@
 Name: aurora-release
 Version: 44
-Release: 5%{?dist}
-Summary: Fedora Aurora Remix release identity
+Release: 6%{?dist}
+Summary: Aurora Fedora Remix release identity
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
 BuildArch: noarch
@@ -29,7 +29,7 @@ Source106: malcontent-webd-update-signal.conf
 Source107: 80-aurora-sshd.preset
 
 %description
-Fedora Aurora Remix release identity.
+Aurora Fedora Remix release identity.
 
 %package -n aurora-system-fixes
 Summary: Aurora drop-ins for system services awaiting upstream fixes
@@ -85,6 +85,11 @@ install -Dm644 %{SOURCE106} %{buildroot}%{_unitdir}/malcontent-webd-update.servi
 %{_unitdir}/malcontent-*.service.d/50-aurora-signal.conf
 
 %changelog
+* Fri Oct 30 2026 Aurora Silicon <hey@djdev.me> - 44-6
+- Rename the distribution to Aurora Fedora Remix, the standard Fedora Remix
+  naming, in os-release NAME and PRETTY_NAME and in /etc/fedora-release.
+  ID, VARIANT_ID and LOGO are unchanged.
+
 * Fri Oct 30 2026 Aurora Silicon <hey@djdev.me> - 44-5
 - Preset sshd.service and sshd.socket off. Fedora's desktop identities did
   that in 81-desktop.preset, which this package does not carry, so images

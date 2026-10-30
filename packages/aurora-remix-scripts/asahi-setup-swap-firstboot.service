@@ -1,5 +1,5 @@
 [Unit]
-Description=Fedora Aurora first-boot swap setup
+Description=Aurora Fedora Remix first-boot swap setup
 After=local-fs.target
 [Service]
 Type=oneshot
