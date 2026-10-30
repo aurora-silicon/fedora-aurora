@@ -103,6 +103,28 @@ class MetadataSnapshotTests(unittest.TestCase):
         self.assertIn('snapshot tag does not match', result.stderr)
         self.assertFalse((self.root / 'output').exists())
 
+    def test_packages_are_published_under_the_name_github_stores(self):
+        # GitHub stored aura-1.0.0~b1-1.fc44.aarch64.rpm as aura-1.0.0.b1-...,
+        # so testing-20261030.5's repository pointed at a missing asset.
+        self.assertEqual(signing.asset_name('aura-1.0.0~b1-1.fc44.aarch64.rpm'),
+                         'aura-1.0.0.b1-1.fc44.aarch64.rpm')
+        for name in ['kernel-aurora-core-7.3.0-5.fc44.aurora.aarch64.rpm', 'mesa_x-1.0-1.noarch.rpm']:
+            self.assertEqual(signing.asset_name(name), name)
+
+    def test_signer_refuses_two_rpms_with_one_asset_name_before_signing(self):
+        rpms = self.root / 'rpms'
+        rpms.mkdir()
+        for name in ['tool-1.0~b1-1.noarch.rpm', 'tool-1.0.b1-1.noarch.rpm']:
+            (rpms / name).write_bytes(b'rpm')
+        result = subprocess.run([
+            sys.executable, str(Path(signing.__file__)), '--rpms', str(rpms),
+            '--output', str(self.root / 'output'), '--snapshot', 'testing-fixture.1',
+            '--asset-base', 'https://example.com/releases/testing-fixture.1',
+        ], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('share one release asset name', result.stderr)
+        self.assertFalse((self.root / 'output').exists())
+
 
 if __name__ == '__main__':
     unittest.main()

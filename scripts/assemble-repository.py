@@ -17,6 +17,13 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
+def asset_name(filename):
+    """The name GitHub stored a release asset under: other characters
+    become '.'. A snapshot signed before sign-repository.py used these
+    names lists aura-1.0.0~b1-... while its asset is aura-1.0.0.b1-...."""
+    return re.sub(r'[^A-Za-z0-9._-]', '.', filename)
+
+
 def metadata(path):
     row = subprocess.check_output(['rpm', '-qp', '--qf', '%{NAME}\t%{ARCH}\t%{SOURCERPM}\n', str(path)],
                                   text=True).strip().split('\t')
@@ -44,13 +51,13 @@ def verify_base(directory, key, fingerprint):
     if manifest.get('signing_key') != fingerprint:
         raise ValueError('The base snapshot names another signing key')
     entries = manifest['packages']
-    names = {row['filename'] for row in entries}
+    names = {asset_name(row['filename']) for row in entries}
     if len(names) != len(entries) or names != {path.name for path in directory.glob('*.rpm') if not path.name.endswith('.src.rpm')}:
         raise ValueError('The base RPM inventory differs from its manifest')
     with tempfile.TemporaryDirectory(prefix='aurora-base-rpm-keys-') as temporary:
         subprocess.run(['rpmkeys', '--dbpath', temporary, '--import', str(key)], check=True)
         for entry in entries:
-            path = directory / entry['filename']
+            path = directory / asset_name(entry['filename'])
             if path.is_symlink() or path.parent != directory or path.stat().st_size != entry['bytes'] or digest(path) != entry['sha256']:
                 raise ValueError(f'Base package checksum mismatch: {path.name}')
             verify_signature(path, temporary)

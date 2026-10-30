@@ -386,7 +386,13 @@ jobs:
           mkdir assets
           cp site/44/testing/aarch64/*.rpm site/44/testing/aarch64/manifest.json site/RPM-GPG-KEY-aurora \
             site/builds.json site/repository-metadata-*.tar.gz site/repository-metadata-*.tar.gz.asc assets/
-          cp candidate/srpms/*.src.rpm assets/ 2>/dev/null || true
+          # Source RPMs keep the release asset names GitHub stores (see
+          # asset_name in scripts/sign-repository.py), so SHA256SUMS names them.
+          for srpm in candidate/srpms/*.src.rpm; do
+            [[ -e $srpm ]] || continue
+            name=${srpm##*/}
+            cp "$srpm" "assets/${name//[^A-Za-z0-9._-]/.}"
+          done
           (cd assets && sha256sum -- * > ../SHA256SUMS) && mv SHA256SUMS assets/
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
