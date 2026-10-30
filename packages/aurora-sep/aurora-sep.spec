@@ -1,6 +1,6 @@
 Name: aurora-sep
 Version: 1
-Release: 7%{?dist}
+Release: 8%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -109,6 +109,10 @@ fi
 %{_datadir}/selinux/packages/targeted/aurora_sep.pp.bz2
 
 %changelog
+* Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-8
+- Wait for the enclave bring-up before the trusted-key probe, so the probe no
+  longer holds the kernel key lock and stalls every service start at boot
+
 * Mon Oct 19 2026 Aurora Silicon <hey@djdev.me> - 1-6
 - Label the SEP biometric device and permit fprintd access under SELinux
 
