@@ -33,6 +33,28 @@ else
   (( ${#old_rpms[@]} ))
   dnf -y --disable-repo=aurora-packaging-test --setopt=install_weak_deps=False install "${old_rpms[@]}"
 fi
+if [[ $old == fedora ]]; then
+  # Model the desktop application's direct lavapipe dependency. The stock
+  # provider must be replaced without dropping its installed consumer.
+  mkdir -p /var/tmp/lavapipe-consumer
+  cat > /var/tmp/lavapipe-consumer/consumer.spec <<'SPEC'
+Name: aurora-lavapipe-consumer-test
+Version: 1
+Release: 1
+Summary: Disposable direct lavapipe dependency
+License: MIT
+Requires: libvulkan_lvp.so()(64bit)
+%description
+Exercise preservation of applications requiring the CPU Vulkan library.
+%install
+mkdir -p %{buildroot}/usr/share/aurora-lavapipe-consumer-test
+printf 'consumer\n' > %{buildroot}/usr/share/aurora-lavapipe-consumer-test/marker
+%files
+/usr/share/aurora-lavapipe-consumer-test/marker
+SPEC
+  rpmbuild -bb --define '_topdir /var/tmp/lavapipe-consumer' /var/tmp/lavapipe-consumer/consumer.spec
+  dnf -y --disable-repo=aurora-packaging-test install /var/tmp/lavapipe-consumer/RPMS/aarch64/*.rpm
+fi
 dnf check
 rpm -qa --qf '%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > "$out/before.tsv"
 # Retain exact old bytes for a real package-rename rollback test.
@@ -46,6 +68,9 @@ else
 fi
 # Real repository upgrade, not a header comparison or an erasing solver.
 dnf -y --setopt=install_weak_deps=False upgrade 'mesa*' aurora-flatpak-gl
+# Older Aurora baselines never installed CPU Vulkan; also prove the optional
+# split package can be selected there without replacing the native driver.
+dnf -y --setopt=install_weak_deps=False install mesa-aurora-vulkan-lavapipe
 dnf check
 rpm -qa --qf '%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > "$out/after.tsv"
 for name in mesa-aurora-dri-drivers mesa-aurora-vulkan-drivers mesa-aurora-vulkan-lavapipe aurora-flatpak-gl; do
