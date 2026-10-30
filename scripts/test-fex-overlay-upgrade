@@ -17,6 +17,7 @@ gpgcheck=0
 REPO
 dnf -y --setopt=install_weak_deps=False install "$old"/*.rpm
 rpm -qa | sort > "$proof/before.txt"
+rpm -qa --qf '%{NAME}\n' | sort > "$proof/before-names.txt"
 systemctl start aurora-fex-mesa.service
 systemctl is-active aurora-fex-mesa.service
 mountpoint -q /usr/share/guestos/aurora-fex-mesa
@@ -39,12 +40,9 @@ dnf -y --enable-repo=aurora-overlay-test reinstall mesa-aurora-fex-guest
 ! systemctl is-active aurora-fex-mesa.service
 ! mountpoint -q /usr/share/guestos/aurora-fex-mesa
 # The incoming old baseline has no fix: stop explicitly around rollback.
-remove=()
-for name in mesa-aurora-vulkan-lavapipe mesa-aurora-devel mesa-aurora-libOpenCL mesa-aurora-libOpenCL-devel; do
-  if rpm -q "$name" >/dev/null 2>&1 && ! grep -q "^$name-[0-9]" "$proof/before.txt"; then
-    remove+=("$name")
-  fi
-done
+# This is an isolated container: remove exactly the transaction's additions
+# in the same rollback solve, including any newly needed compiler runtime.
+mapfile -t remove < <(comm -13 "$proof/before-names.txt" <(rpm -qa --qf '%{NAME}\n' | sort))
 rollback=(do)
 if (( ${#remove[@]} )); then rollback+=(--action=remove "${remove[@]}"); fi
 rollback+=(--action=install --allow-downgrade "$old"/*.rpm)
