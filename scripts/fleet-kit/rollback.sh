@@ -42,9 +42,9 @@ touch state/rollback-started
 dnf "${args[@]}" 2>&1 | tee state/rollback.log
 # Exact old package versions must all be back, including renamed devel/OpenCL.
 for path in "${old[@]}"; do
-  expected=$(rpm -qp --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}' "$path")
+  expected=$(rpm -qp --qf '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}' "$path")
   name=$(rpm -qp --qf '%{NAME}' "$path")
-  [[ $(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}' "$name") == "$expected" ]]
+  [[ $(rpm -q --qf '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}' "$name") == "$expected" ]]
 done
 touch state/rollback-completed
 echo 'Package rollback complete. Restore reviewed versionlocks from the pre-check backup and verify old driverInfo.'

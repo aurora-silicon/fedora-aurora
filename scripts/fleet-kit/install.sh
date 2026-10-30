@@ -39,6 +39,15 @@ while IFS= read -r name; do
   if filename=$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}.rpm' "$name" 2>/dev/null); then
     path=$(find "$D/rollback/rpms" -type f -name "$filename" -print -quit)
     [[ -n $path ]] || { echo "Missing exact rollback: $filename" >&2; exit 78; }
+    # Filenames omit Epoch and can be reused by local rebuilds. Match the
+    # installed header and payload identity as well as NVR/architecture.
+    format='%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH} %{PAYLOADDIGEST}'
+    installed=$(rpm -q --qf "$format" "$name")
+    staged=$(rpm -qp --qf "$format" "$path")
+    digest=$(rpm -q --qf '%{PAYLOADDIGEST}' "$name")
+    [[ $digest =~ ^[0-9a-f]+$ && $installed == "$staged" ]] || {
+      echo "Rollback RPM does not match the installed header/payload: $filename" >&2; exit 78;
+    }
     printf '%s\n' "$path" >> state/rollback-rpms
   fi
 done < "$D/AFFECTED-NAMES.txt"
