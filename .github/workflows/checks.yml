@@ -69,37 +69,32 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/proof"
-          docker run --rm --platform linux/arm64 \
-            -v "$PWD:/src:ro" -v "$RUNNER_TEMP/candidates:/candidates" \
-            -v "$RUNNER_TEMP/baselines:/baselines:ro" -v "$RUNNER_TEMP/proof:/proof" \
+          docker run --rm --platform linux/arm64 -v "$RUNNER_TEMP/candidates:/candidates" \
             registry.fedoraproject.org/fedora:44 bash -euxo pipefail -c '
-              dnf install -y createrepo_c rpm-build ostree python3 binutils dnf5-plugins
-              rpm --import /src/keys/RPM-GPG-KEY-aurora
-              for rpm in /baselines/{9,10}/*.rpm; do rpmkeys --checksig "$rpm"; done
+              dnf install -y createrepo_c
               createrepo_c /candidates/rpms
-              for baseline in 9 10 fedora; do
-                # Each baseline gets an independent installroot and RPM database.
-                mkdir -p /proof/root-$baseline
-                dnf -y --releasever=44 --installroot=/proof/root-$baseline \
-                  --setopt=install_weak_deps=False install fedora-release dnf5 python3 ostree binutils
-                mkdir -p /proof/root-$baseline/{src,baselines,candidates,proof}
-                cp -a /src/packages /src/scripts /proof/root-$baseline/src/
-                cp -a /baselines/. /proof/root-$baseline/baselines/
-                cp -a /candidates/rpms/. /proof/root-$baseline/candidates/
-                cp /etc/resolv.conf /proof/root-$baseline/etc/resolv.conf
-                touch /proof/root-$baseline/.dockerenv
-                old=/baselines/$baseline
-                [[ $baseline == fedora ]] && old=fedora
-                chroot /proof/root-$baseline bash /src/scripts/test-graphics-upgrade \
-                  "$old" /candidates /proof
-                cp -a /proof/root-$baseline/proof /proof/result-$baseline
-              done
-            ' 2>&1 | tee "$RUNNER_TEMP/proof/validation.log"
+            '
+          for baseline in 9 10 fedora; do
+            mkdir -p "$RUNNER_TEMP/proof/result-$baseline"
+            # Independent disposable container/RPM database for every baseline.
+            docker run --rm --platform linux/arm64 \
+              -v "$PWD:/src:ro" -v "$RUNNER_TEMP/candidates/rpms:/candidates:ro" \
+              -v "$RUNNER_TEMP/baselines:/baselines:ro" \
+              -v "$RUNNER_TEMP/proof/result-$baseline:/proof" \
+              registry.fedoraproject.org/fedora:44 bash -euxo pipefail -c '
+                dnf install -y rpm-build ostree python3 binutils dnf5-plugins
+                rpm --import /src/keys/RPM-GPG-KEY-aurora
+                for rpm in /baselines/{9,10}/*.rpm; do rpmkeys --checksig "$rpm"; done
+                old=/baselines/$1
+                [[ $1 == fedora ]] && old=fedora
+                bash /src/scripts/test-graphics-upgrade "$old" /candidates /proof
+              ' validation "$baseline" 2>&1 | tee "$RUNNER_TEMP/proof/validation-$baseline.log"
+          done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: graphics-validation
           path: |
-            ${{ runner.temp }}/proof/validation.log
+            ${{ runner.temp }}/proof/validation-*.log
             ${{ runner.temp }}/proof/result-*/
           retention-days: 30
