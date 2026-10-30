@@ -11,7 +11,10 @@ ExclusiveArch: aarch64
 BuildRequires: gcc gcc-c++ clang clang-devel systemd-devel llvm-devel lld rust cargo bindgen-cli cbindgen
 BuildRequires: meson ninja-build python3-mako python3-pyyaml python3-packaging
 BuildRequires: bison flex binutils elfutils-libelf-devel opencl-headers
-BuildRequires: libclc-devel spirv-llvm-translator-devel spirv-tools-devel glslang-devel
+# Fedora 45 ships the LLVM 23 libclc without pkg-config data; the LLVM 22
+# libclc22-devel still provides it there, and Rusticl needs the same libclc.
+BuildRequires: pkgconfig(libclc)
+BuildRequires: spirv-llvm-translator-devel spirv-tools-devel glslang-devel
 BuildRequires: libdrm-devel expat-devel libglvnd-devel libX11-devel libxcb-devel
 BuildRequires: libXext-devel libXfixes-devel libXrandr-devel libxshmfence-devel libXxf86vm-devel
 BuildRequires: wayland-devel wayland-protocols-devel vulkan-headers vulkan-loader-devel
@@ -92,7 +95,12 @@ Headers, pkg-config files and GBM linker interface for the matching Aurora Mesa.
 Summary: Aurora Mesa Rusticl OpenCL driver
 Requires: mesa-aurora-dri-drivers%{?_isa} = %{version}-%{release}
 Requires: (ocl-icd%{?_isa} or OpenCL-ICD-Loader%{?_isa})
-Requires: opencl-filesystem libclc%{?_isa}
+Requires: opencl-filesystem
+%if 0%{?fedora} >= 45
+Requires: libclc22%{?_isa}
+%else
+Requires: libclc%{?_isa}
+%endif
 Provides: mesa-libOpenCL = %{version}-%{release}
 Provides: mesa-libOpenCL%{?_isa} = %{version}-%{release}
 Obsoletes: mesa-libOpenCL < %{version}-%{release}
@@ -179,6 +187,7 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 - Ship lavapipe as mesa-aurora-vulkan-lavapipe. The replaced
   mesa-vulkan-drivers carried libvulkan_lvp.so and installed applications
   require it, so the migration otherwise removes them.
+- Build on Fedora 45, where libclc pkg-config data comes from libclc22-devel.
 
 * Sat Oct 31 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-11
 - Embed the pinned Mesa commit in native driverInfo.
