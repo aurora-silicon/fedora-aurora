@@ -49,6 +49,12 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+      - name: Prepare graphics build capacity
+        if: matrix.package == 'aurora-flatpak-gl' || matrix.package == 'mesa-aurora'
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet
+          df -h "$RUNNER_TEMP"
+          test "$(df --output=avail -B1 "$RUNNER_TEMP" | tail -1)" -ge 21474836480
       - name: Build Fedora 44 RPMs natively
         run: |
           set -euo pipefail
@@ -61,9 +67,10 @@ jobs:
               if [[ $1 == aurora-flatpak-gl ]]; then
                 dnf install -y flatpak flatpak-builder ostree
                 useradd -m glbuilder
-                chown -R glbuilder /src
-                runuser -u glbuilder -- bash scripts/build-flatpak-gl-repo /src/out-gl-repo.tar
-                export AURORA_FLATPAK_GL_REPO_TAR=/src/out-gl-repo.tar
+                mkdir -p /src/out/flatpak-gl
+                chown glbuilder /src/out/flatpak-gl
+                runuser -u glbuilder -- bash scripts/build-flatpak-gl-repo /src/out/flatpak-gl/repo.tar
+                export AURORA_FLATPAK_GL_REPO_TAR=/src/out/flatpak-gl/repo.tar
               fi
               AURORA_INSTALL_BUILDDEPS=1 AURORA_BUILD_JOBS=4 bash scripts/build-rpm "$1"
             ' build '${{ matrix.package }}' 2>&1 | tee build.log

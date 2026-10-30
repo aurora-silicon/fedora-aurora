@@ -5,7 +5,7 @@ package=${1:?package name required}
 [[ $package =~ ^[a-z0-9][a-z0-9-]*$ && -f $root/packages/$package/$package.spec ]] || { echo 'Unknown package' >&2; exit 2; }
 top=$root/out/build/$package
 mkdir -p "$top"/{SOURCES,SPECS,SRPMS,RPMS,BUILD,BUILDROOT}
-cp "$root/packages/$package/"* "$top/SOURCES/"
+find "$root/packages/$package" -maxdepth 1 -type f -exec cp {} "$top/SOURCES/" \;
 cp "$root/packages/$package/$package.spec" "$top/SPECS/"
 if python3 - "$root/sources.json" "$package" <<'PY'
 import json,sys
