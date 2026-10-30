@@ -1,6 +1,6 @@
 Name: aurora-remix-scripts
 Version: 44
-Release: 5%{?dist}
+Release: 6%{?dist}
 Summary: Fedora Aurora first-boot integration
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -35,6 +35,9 @@ install -Dm644 %{SOURCE5} %{buildroot}%{_unitdir}/display-manager.service.d/auro
 %{_unitdir}/display-manager.service.d/aurora-plasma-setup.conf
 
 %changelog
+* Fri Oct 30 2026 Aurora Silicon <hey@djdev.me> - 44-6
+- Disable the two first-boot units without a daemon reload. Their reloads
+  raced and aborted systemd 259, which froze the first boot at the splash.
 * Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 44-5
 - Leave the Plasma Setup ordering to aurora-firstboot, which now lets Plasma
   Setup create the owner after the disk is protected.

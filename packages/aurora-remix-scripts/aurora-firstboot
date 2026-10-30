@@ -1,14 +1,18 @@
 #!/bin/bash
 set -euo pipefail
+# Both first-boot units start together after basic.target. A plain
+# `systemctl disable` asks PID 1 to reload; two reloads at the same moment
+# abort systemd 259 (dbus-manager.c method_reload asserts that no reload is
+# pending) and PID 1 freezes. Removing the symlinks needs no reload.
 case ${1:?mode required} in
   swap)
     # Fedora's zram-generator-defaults creates size-appropriate compressed swap.
-    systemctl disable asahi-setup-swap-firstboot.service
+    systemctl disable --no-reload asahi-setup-swap-firstboot.service
     ;;
   extras)
     # Never execute or download unverified installer-provided programs as root.
     # Fedora's normal repositories supply codecs and applications after setup.
-    systemctl disable asahi-extras-firstboot.service
+    systemctl disable --no-reload asahi-extras-firstboot.service
     ;;
   *) exit 2 ;;
 esac
