@@ -158,6 +158,14 @@ if find %{buildroot}%{layer} -name '*.so*' -type f -exec readelf -d {} + |
   exit 1
 fi
 
+# The service mounts a read-only overlay on the packaged mount point, and RPM
+# cannot relabel a directory on a read-only mount, so an upgrade fails while it
+# is mounted. Unmount for the upgrade and mount the new layer afterwards.
+%pre
+if [ $1 -gt 1 ] && [ -d /run/systemd/system ] && systemctl -q is-active aurora-fex-mesa.service; then
+  systemctl stop aurora-fex-mesa.service >/dev/null 2>&1 || :
+  touch /run/aurora-fex-mesa.upgrade
+fi
 %post
 %systemd_post aurora-fex-mesa.service
 if [ $1 -eq 1 ] && [ -d /run/systemd/system ]; then
@@ -167,6 +175,11 @@ fi
 %systemd_preun aurora-fex-mesa.service
 %postun
 %systemd_postun_with_restart aurora-fex-mesa.service
+%posttrans
+if [ -e /run/aurora-fex-mesa.upgrade ]; then
+  rm -f /run/aurora-fex-mesa.upgrade
+  systemctl start aurora-fex-mesa.service >/dev/null 2>&1 || :
+fi
 
 %files
 %{layer}
@@ -177,6 +190,7 @@ fi
 %changelog
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-12.aurora
 - Move in lockstep with mesa-aurora 26.3.0-12.
+- Unmount the guest overlay during upgrades; RPM cannot relabel its mount point.
 
 * Tue Oct 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-2.aurora
 - x86_64/i686 guest graphics provider for FEX, in lockstep with mesa-aurora.
