@@ -34,7 +34,7 @@ BuildRequires: systemd-rpm-macros fprintd
 BuildRequires: selinux-policy-devel make bzip2
 Requires: coreutils fprintd keyutils kmod python3 util-linux grep
 Requires: libfprint(aurora-sep) = 5
-Requires: fprintd >= 1.94.5-99
+Requires: fprintd(aurora-sep) = 1
 # Holds the packaged kernel to one with the module-based SEP driver, and
 # leaves a kernel installed outside RPM alone; the units skip a kernel
 # without a loadable apple_sep.
