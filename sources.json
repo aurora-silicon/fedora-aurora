@@ -162,5 +162,13 @@
     "archive_root": "mutter-50.6",
     "archive_file": "mutter-50.6.tar.xz",
     "sha256": "abed98ed9c46934a0f761ba8c28a055305b99b4855e44c8273f881da7189bc9c"
+  },
+  "omarchy-ane-tools": {
+    "repository": "https://github.com/joshuaswarren/omarchy-ane",
+    "commit": "68e92712bbffa08f5002dcc542434fe1393f0578",
+    "version": "0.5.7",
+    "source_url": "https://codeload.github.com/joshuaswarren/omarchy-ane/tar.gz/68e92712bbffa08f5002dcc542434fe1393f0578",
+    "archive_root": "omarchy-ane-68e92712bbffa08f5002dcc542434fe1393f0578",
+    "sha256": "09fee8d386728939d4752acb21a3ff99192809bf608f8d1bca6cd426b460aea6"
   }
 }
