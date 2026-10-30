@@ -147,3 +147,9 @@ class BuildImportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'build tooling changed'):
             module.import_build(self.repo, self.metadata, self.artifacts, self.root/'output',
                                 'aurora-silicon/fedora-aurora', matching_only=True)
+
+    def test_changed_flatpak_repository_builder_is_not_reused(self):
+        (self.repo / 'scripts/build-flatpak-gl-repo').write_text('changed GL payload builder\n')
+        self.commit('changed Flatpak builder')
+        with self.assertRaisesRegex(ValueError, 'build tooling changed'):
+            self.run_import()

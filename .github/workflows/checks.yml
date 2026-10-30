@@ -1,5 +1,12 @@
 name: Source checks
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      graphics_runs:
+        description: Space-separated successful RPM build run IDs to validate
+        default: ''
 permissions:
   contents: read
 jobs:
@@ -16,5 +23,90 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_*.py'
           python3 images/test_configure.py
           python3 -m compileall -q scripts images
-          bash -n scripts/build-rpm
+          for script in scripts/build-rpm scripts/build-flatpak-gl-repo \
+            packages/aurora-flatpak-gl/build-extension.sh scripts/test-graphics-upgrade scripts/fleet-kit/*.sh; do
+            bash -n "$script"
+          done
           git diff --check
+  graphics:
+    if: github.event_name == 'workflow_dispatch' && inputs.graphics_runs != ''
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GRAPHICS_RUNS: ${{ inputs.graphics_runs }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download and authenticate candidate inputs
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/candidates"
+          for run in $GRAPHICS_RUNS; do
+            [[ $run =~ ^[0-9]+$ ]]
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" > "$RUNNER_TEMP/run-$run.json"
+            artifacts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" --jq '.artifacts[].name')
+            for package in mesa-aurora mesa-aurora-fex-guest aurora-flatpak-gl; do
+              artifact=rpm-$package
+              if grep -Fx "$artifact" <<< "$artifacts" >/dev/null; then
+                # Explicit destinations preserve the importer's layout even
+                # when a run contains just one artifact.
+                gh run download "$run" --repo "$GITHUB_REPOSITORY" --name "$artifact" \
+                  --dir "$RUNNER_TEMP/run-$run/$artifact"
+              fi
+            done
+            python3 scripts/import-rpm-build.py --metadata "$RUNNER_TEMP/run-$run.json" \
+              --artifacts "$RUNNER_TEMP/run-$run" --output "$RUNNER_TEMP/candidates" \
+              --repository "$GITHUB_REPOSITORY" \
+              --packages mesa-aurora mesa-aurora-fex-guest aurora-flatpak-gl
+          done
+          for package in mesa-aurora mesa-aurora-fex-guest aurora-flatpak-gl; do
+            test -f "$RUNNER_TEMP/candidates/manifests/$package.json"
+          done
+          for pair in 9:testing-20261030.10 10:testing-20261030.11; do
+            number=${pair%%:*}; tag=${pair#*:}
+            mkdir -p "$RUNNER_TEMP/baselines/$number"
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+              --pattern 'mesa-aurora-*.aarch64.rpm' --pattern 'mesa-aurora-*.noarch.rpm' \
+              --pattern 'aurora-flatpak-gl-*.aarch64.rpm' \
+              --pattern SHA256SUMS --dir "$RUNNER_TEMP/baselines/$number"
+            (cd "$RUNNER_TEMP/baselines/$number" && sha256sum --check --ignore-missing SHA256SUMS)
+          done
+      - name: Check built payloads and perform clean DNF upgrades
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/proof"
+          docker run --rm --platform linux/arm64 -v "$RUNNER_TEMP/candidates:/candidates" \
+            registry.fedoraproject.org/fedora:44 bash -euxo pipefail -c '
+              dnf install -y createrepo_c
+              createrepo_c /candidates/rpms
+            '
+          for baseline in 9 10 fedora; do
+            mkdir -p "$RUNNER_TEMP/proof/result-$baseline"
+            # Independent disposable container/RPM database for every baseline.
+            docker run --rm --platform linux/arm64 \
+              -v "$PWD:/src:ro" -v "$RUNNER_TEMP/candidates/rpms:/candidates:ro" \
+              -v "$RUNNER_TEMP/baselines:/baselines:ro" \
+              -v "$RUNNER_TEMP/proof/result-$baseline:/proof" \
+              registry.fedoraproject.org/fedora:44 bash -euxo pipefail -c '
+                dnf install -y rpm-build ostree python3 binutils dnf5-plugins
+                rpm --import /src/keys/RPM-GPG-KEY-aurora
+                for rpm in /baselines/{9,10}/*.rpm; do rpmkeys --checksig "$rpm"; done
+                old=/baselines/$1
+                [[ $1 == fedora ]] && old=fedora
+                bash /src/scripts/test-graphics-upgrade "$old" /candidates /proof
+              ' validation "$baseline" 2>&1 | tee "$RUNNER_TEMP/proof/validation-$baseline.log"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: graphics-validation
+          path: |
+            ${{ runner.temp }}/proof/validation-*.log
+            ${{ runner.temp }}/proof/result-*/
+          retention-days: 30
