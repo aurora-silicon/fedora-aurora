@@ -50,7 +50,16 @@ jobs:
           for run in $GRAPHICS_RUNS; do
             [[ $run =~ ^[0-9]+$ ]]
             gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" > "$RUNNER_TEMP/run-$run.json"
-            gh run download "$run" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/run-$run"
+            artifacts=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts" --jq '.artifacts[].name')
+            for package in mesa-aurora mesa-aurora-fex-guest aurora-flatpak-gl; do
+              artifact=rpm-$package
+              if grep -Fx "$artifact" <<< "$artifacts" >/dev/null; then
+                # Explicit destinations preserve the importer's layout even
+                # when a run contains just one artifact.
+                gh run download "$run" --repo "$GITHUB_REPOSITORY" --name "$artifact" \
+                  --dir "$RUNNER_TEMP/run-$run/$artifact"
+              fi
+            done
             python3 scripts/import-rpm-build.py --metadata "$RUNNER_TEMP/run-$run.json" \
               --artifacts "$RUNNER_TEMP/run-$run" --output "$RUNNER_TEMP/candidates" \
               --repository "$GITHUB_REPOSITORY" \
