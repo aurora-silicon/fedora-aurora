@@ -1,9 +1,9 @@
-%global commit 695d9745c2118afb03d998602abe36e0464a15d0
+%global commit 5d7c3e74019d0a04a22e0c6e5cec5a297e245fd6
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 5%{?dist}.aurora
+Release: 6%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -103,6 +103,10 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Fri Oct 30 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-6
+- Track aurora-silicon/linux integration/aurora at 5d7c3e7.
+- Upstream head: Merge pull request #624 from aurora-silicon/ci/host-tests-integ
+
 * Fri Oct 30 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-5
 - Track aurora-silicon/linux integration/aurora at 695d974.
 - Upstream head: Merge pull request #575 from aurora-silicon/fix/t8140-j700-no-ave
