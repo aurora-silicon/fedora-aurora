@@ -1,4 +1,4 @@
-# Fedora Aurora Remix
+# Aurora Fedora Remix
 
 This directory contains the Fedora image producer for the native Aurora installer. The base is Fedora 44 with a pinned Fedora Asahi KIWI description, Aurora's hardware packages and Aurora's own release identity. KDE Plasma is the initial default; GNOME and minimal use the same package and boot contracts. Follow [the release procedure](../RELEASING.md) to qualify and promote a compatible package, image, catalog and application set.
 

@@ -136,10 +136,10 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
     tree = ET.parse(destination / "config.xml")
     image = tree.getroot()
     image.set("name", "Fedora-Aurora-Remix")
-    image.set("displayname", "Fedora Aurora Remix")
+    image.set("displayname", "Aurora Fedora Remix")
     image.find("description/author").text = "Aurora Silicon"
     image.find("description/contact").text = "https://github.com/aurora-silicon/aurora-installer"
-    image.find("description/specification").text = "Fedora Aurora Remix for Apple Silicon"
+    image.find("description/specification").text = "Aurora Fedora Remix for Apple Silicon"
     image.find("preferences/release-version").text = lock["fedora_release"]
     for node in image.findall("include"):
         if node.get("from") == "this://./repositories/asahi.xml":
@@ -246,7 +246,7 @@ exit 0
 ''')
     config.write_text(text)
     receipt = {
-        "schema": 1, "distribution": "Fedora Aurora Remix",
+        "schema": 1, "distribution": "Aurora Fedora Remix",
         "fedora_release": lock["fedora_release"], "architecture": "aarch64",
         "installation_profile": profile, "kiwi_profile": PROFILES[profile],
         "upstream": lock, "repository_url": repository_url.rstrip("/"),
