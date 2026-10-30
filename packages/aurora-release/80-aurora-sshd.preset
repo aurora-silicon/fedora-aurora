@@ -1,0 +1,8 @@
+# Aurora installs the OpenSSH server on every image and leaves remote login
+# off until the owner turns it on (systemctl enable --now sshd.service).
+# Fedora's 90-default.preset enables sshd.service; Fedora's desktop identity
+# packages, which aurora-release replaces, turn it off again in
+# 81-desktop.preset. This file sorts before 90-default.preset, so it decides
+# for every profile.
+disable sshd.service
+disable sshd.socket
