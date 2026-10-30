@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 12%{?dist}
+Release: 13%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -15,7 +15,7 @@ Source4: XART-SAFETY.md
 Source5: aurora-sep-ready
 Source6: aurora-sep-ready.service
 Source7: fprintd-no-timeout.conf.in
-Source8: prepare-sep-calibration
+Source8: aurora-touchid-setup
 Source9: extract-mesa-calibration
 Source10: 90-aurora-sep.conf
 Source11: aurora-sep.timer
@@ -27,6 +27,8 @@ Source16: aurora-sep-greeter-fingerprint
 Source17: aurora-sep-greeter-fingerprint.service
 Source18: logind-aurora-sep.conf
 Source19: OS-IDENTITY.md
+Source20: aurora-touchid-setup.service
+Source21: touchid-setup-needed
 BuildArch: noarch
 BuildRequires: systemd-rpm-macros fprintd
 BuildRequires: selinux-policy-devel make bzip2
@@ -85,7 +87,10 @@ unit %{SOURCE5} %{SOURCE6} aurora-sep-ready
 unit %{SOURCE16} %{SOURCE17} aurora-sep-greeter-fingerprint
 install -Dpm0644 %{SOURCE11} %{buildroot}%{_unitdir}/aurora-sep.timer
 install -Dpm0644 %{SOURCE12} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep-load.conf
-install -Dpm0755 %{SOURCE8} %{buildroot}%{_libexecdir}/aurora/prepare-sep-calibration
+install -Dpm0755 %{SOURCE8} %{buildroot}%{_sbindir}/aurora-touchid-setup
+install -Dpm0755 %{SOURCE21} %{buildroot}%{_libexecdir}/aurora/touchid-setup-needed
+install -Dpm0644 %{SOURCE20} %{buildroot}%{_unitdir}/aurora-touchid-setup.service
+sed -i 's|^ExecStart=/usr/sbin/|ExecStart=%{_sbindir}/|' %{buildroot}%{_unitdir}/aurora-touchid-setup.service
 install -Dpm0755 %{SOURCE9} %{buildroot}%{_libexecdir}/aurora/extract-mesa-calibration
 install -Dpm0755 %{SOURCE15} %{buildroot}%{_libexecdir}/aurora-sep-sensor-present
 install -Dpm0644 %{SOURCE10} %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-sep.conf
@@ -100,14 +105,14 @@ install -Dpm0644 %{modulename}.pp.bz2 \
     %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2
 
 %post
-%systemd_post aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-sep-greeter-fingerprint.service
+%systemd_post aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service
 
 %preun
-%systemd_preun aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-sep-greeter-fingerprint.service
+%systemd_preun aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service
 
 %postun
 # The handoff is once per boot, so do not restart the loader on upgrade.
-%systemd_postun aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-sep-greeter-fingerprint.service
+%systemd_postun aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service
 
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
@@ -133,13 +138,15 @@ fi
 %{_libexecdir}/aurora-sep-load
 %{_libexecdir}/aurora-sep-ready
 %{_libexecdir}/aurora-sep-greeter-fingerprint
-%{_libexecdir}/aurora/prepare-sep-calibration
+%{_sbindir}/aurora-touchid-setup
+%{_libexecdir}/aurora/touchid-setup-needed
 %{_libexecdir}/aurora/extract-mesa-calibration
 %{_libexecdir}/aurora-sep-sensor-present
 %{_prefix}/lib/dracut/dracut.conf.d/90-aurora-sep.conf
 %{_prefix}/lib/modprobe.d/aurora-sep-load.conf
 %{_unitdir}/aurora-sep.service
 %{_unitdir}/aurora-sep-ready.service
+%{_unitdir}/aurora-touchid-setup.service
 %{_unitdir}/aurora-sep-greeter-fingerprint.service
 %{_unitdir}/aurora-sep.timer
 %dir %{_unitdir}/fprintd.service.d
@@ -152,6 +159,16 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-13
+- Replace the every-boot prepare-sep-calibration with aurora-touchid-setup,
+  which runs only when a Touch ID file is missing, when the enclave refused
+  one this boot (once per boot, started by aurora-sep-ready), or by hand,
+  with --check and --force-rebuild
+- Rebuild the sealed calibration and the sensor's signed root key from the
+  Mac's factory records on the Hardware volume (Erik Bourget's reader), and
+  install a carved comb record as it is on M1 and M2
+- Read the fingerprint firmware-name as a string list, as the driver does
+
 * Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-12
 - Wait for the enclave bring-up before the trusted-key probe, so the probe no
   longer holds the kernel key lock and stalls every service start at boot
