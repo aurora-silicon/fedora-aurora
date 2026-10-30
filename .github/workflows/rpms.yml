@@ -52,9 +52,19 @@ jobs:
       - name: Build Fedora 44 RPMs natively
         run: |
           set -euo pipefail
-          docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src \
+          # bubblewrap needs namespaces/mounts for the unprivileged GL builder.
+          sandbox=()
+          if [[ '${{ matrix.package }}' == aurora-flatpak-gl ]]; then sandbox=(--privileged); fi
+          docker run --rm "${sandbox[@]}" --platform linux/arm64 -v "$PWD:/src" -w /src \
             registry.fedoraproject.org/fedora:44 bash -euo pipefail -c '
               dnf install -y rpm-build dnf5-plugins python3 git tar gzip coreutils findutils
+              if [[ $1 == aurora-flatpak-gl ]]; then
+                dnf install -y flatpak flatpak-builder ostree
+                useradd -m glbuilder
+                chown -R glbuilder /src
+                runuser -u glbuilder -- bash scripts/build-flatpak-gl-repo /src/out-gl-repo.tar
+                export AURORA_FLATPAK_GL_REPO_TAR=/src/out-gl-repo.tar
+              fi
               AURORA_INSTALL_BUILDDEPS=1 AURORA_BUILD_JOBS=4 bash scripts/build-rpm "$1"
             ' build '${{ matrix.package }}' 2>&1 | tee build.log
       # Provenance for the exact RPM bytes; publication verifies it.

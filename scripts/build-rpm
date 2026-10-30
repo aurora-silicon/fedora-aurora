@@ -17,6 +17,15 @@ fi
 if [[ ${AURORA_INSTALL_BUILDDEPS:-0} == 1 ]]; then
   dnf builddep -y "$top/SPECS/$package.spec"
 fi
+if [[ $package == aurora-flatpak-gl ]]; then
+  commit=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["mesa-aurora"]["commit"])' "$root/sources.json")
+  archive=$top/SOURCES/aurora-flatpak-gl-repo-${commit:0:12}.tar
+  if [[ -n ${AURORA_FLATPAK_GL_REPO_TAR:-} ]]; then
+    cp "$AURORA_FLATPAK_GL_REPO_TAR" "$archive"
+  else
+    bash "$root/scripts/build-flatpak-gl-repo" "$archive"
+  fi
+fi
 rpmbuild -ba --define "_topdir $top" --define "_smp_mflags -j${AURORA_BUILD_JOBS:-6}" "$top/SPECS/$package.spec"
 mkdir -p "$root/out/rpms" "$root/out/srpms"
 find "$top/RPMS" -type f -name '*.rpm' -exec cp -p {} "$root/out/rpms/" \;

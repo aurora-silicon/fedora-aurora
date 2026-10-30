@@ -45,9 +45,14 @@ for l in lines:
         out.append('priority=10')
 open(path, 'w').write('\n'.join(out) + '\n')
 PY
-flatpak build-export --arch=aarch64 \
+# Extension builds install into files/, even though the ref is a runtime.
+# Validate actual libraries before export, and validate the committed tree too.
+echo "$commit" > "$work/build/files/.aurora-mesa-commit"
+python3 "$here/validate-repo.py" --payload "$work/build/files" "$commit"
+flatpak build-export --runtime --files=files --arch=aarch64 \
   --subject="Aurora Mesa $commit for $branch" "$repo" "$work/build" "$branch"
 flatpak build-update-repo "$repo"
 # aurora-flatpak-gl.spec checks these against its Mesa commit.
 echo "$commit" > "$repo/aurora-mesa-commit.$branch"
+python3 "$here/validate-repo.py" "$repo" "$commit" "$branch"
 echo "exported org.freedesktop.Platform.GL.aurora/aarch64/$branch from $commit"

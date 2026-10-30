@@ -12,7 +12,7 @@
 # version-release, which is what this package requires.
 %{!?commit:%global commit cf4e08105dfa526b8874318b6a52b3ce948f6297}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 10%{?dist}.aurora}
+%{!?host_release:%global host_release 11%{?dist}.aurora}
 %global debug_package %{nil}
 # Fedora's x86_64 build flags carry -m64 and would turn the i686 build into a
 # second x86_64 one; meson's release buildtype sets the optimisation instead.
