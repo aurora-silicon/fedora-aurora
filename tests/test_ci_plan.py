@@ -35,7 +35,7 @@ class PlanTests(unittest.TestCase):
             sources.update(changed_sources)
             (root / 'sources.json').write_text(json.dumps(sources))
             if shared_tooling:
-                (root / 'scripts/build-rpm').write_text('changed shared builder\n')
+                (root / ('scripts/' + (shared_tooling if isinstance(shared_tooling, str) else 'build-rpm'))).write_text('changed shared builder\n')
             git('add', '.')
             git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'update')
             event = root / 'event.json'
@@ -62,3 +62,7 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(self.plan({'mesa-aurora': {'commit': 'new'}, 'mesa-aurora-fex-guest': {'commit': 'new'}},
                                    split=True),
                          {'packages': ['mesa-aurora'], 'x86_packages': ['mesa-aurora-fex-guest']})
+
+    def test_flatpak_repository_builder_invalidates_native_build_receipts(self):
+        self.assertEqual(self.plan({'avd-fw': {'commit': 'new'}}, shared_tooling='build-flatpak-gl-repo'),
+                         ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])

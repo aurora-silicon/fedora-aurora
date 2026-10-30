@@ -10,7 +10,7 @@ import sys
 import subprocess
 
 SHARED = ('.github/workflows/rpms.yml', 'scripts/build-rpm',
-          'scripts/fetch-sources.py', 'scripts/build-receipt.py')
+          'scripts/fetch-sources.py', 'scripts/build-receipt.py', 'scripts/build-flatpak-gl-repo')
 # Recipes whose payload is x86 code for FEX guests are built on x86_64.
 X86_BUILDER = '# aurora-builder: x86_64'
 
