@@ -1,5 +1,7 @@
 """Publishing a small build delta must preserve the rest of the hardware stack."""
+import hashlib
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -50,6 +52,42 @@ class RepositoryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'kernel-aurora-7.2.10-2'):
             assembly.assemble(self.base, self.candidates, self.root / 'result',
                               {'upower-1.91.4-1.src.rpm', 'kernel-aurora-7.2.10-2.src.rpm'})
+
+
+class BaseSnapshotNameTests(unittest.TestCase):
+    """testing-20261030.5's manifest lists aura-1.0.0~b1-..., but GitHub
+    stored and downloads that asset as aura-1.0.0.b1-...."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name)
+        self.addCleanup(patch.stopall)
+        patch.object(assembly, 'verify_signature').start()
+        patch.object(assembly.subprocess, 'run').start()
+
+    def snapshot(self, listed, stored):
+        content = b'signed aura'
+        (self.base / stored).write_bytes(content)
+        (self.base / 'manifest.json').write_text(json.dumps({'signing_key': 'F' * 40, 'packages': [
+            {'filename': listed, 'sha256': hashlib.sha256(content).hexdigest(), 'bytes': len(content)}]}))
+
+    def test_a_base_listing_a_tilde_name_matches_the_stored_asset(self):
+        self.snapshot('aura-1.0.0~b1-1.fc44.aarch64.rpm', 'aura-1.0.0.b1-1.fc44.aarch64.rpm')
+        assembly.verify_base(self.base, Path('key'), 'F' * 40)
+        assembly.verify_signature.assert_called_once()
+
+    def test_a_base_asset_under_another_name_is_still_refused(self):
+        self.snapshot('aura-1.0.0~b1-1.fc44.aarch64.rpm', 'aura-1.0.0-1.fc44.aarch64.rpm')
+        with self.assertRaisesRegex(ValueError, 'inventory differs'):
+            assembly.verify_base(self.base, Path('key'), 'F' * 40)
+
+    def test_signer_and_assembler_name_assets_alike(self):
+        signing_spec = importlib.util.spec_from_file_location('signing', ROOT / 'scripts/sign-repository.py')
+        signing = importlib.util.module_from_spec(signing_spec)
+        signing_spec.loader.exec_module(signing)
+        for name in ['aura-1.0.0~b1-1.fc44.aarch64.rpm', 'a+b-1-1.noarch.rpm', 'plain-1-1.noarch.rpm']:
+            self.assertEqual(assembly.asset_name(name), signing.asset_name(name))
 
 
 class SignatureTests(unittest.TestCase):
