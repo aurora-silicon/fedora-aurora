@@ -19,5 +19,5 @@
     "aurora_sep.te": "f157109691e902ef238a1cc2ad22d56e562b632ad94760f64ba5897d0c234694",
     "aurora_sep.fc": "9651a93f4add7194d2fc2bfdef05a803752436723b516900ef117e459efae469"
   },
-  "adaptations": "Late root-filesystem loading, timer, optional per-device calibration, trusted-key-only success without a reader, reader-presence gate on the readiness unit and fprintd; the login screen fingerprint unit ships disabled and the logind power-button snippet ships as documentation; no PAM or power-button policy changes. README.md is the package's own; XART-SAFETY.md, OS-IDENTITY.md, aurora-sep-ready, aurora_sep.te and aurora_sep.fc are unmodified."
+  "adaptations": "Late root-filesystem loading, timer, optional per-device calibration, trusted-key-only success without a reader, reader-presence gate on the readiness unit and fprintd; the login screen fingerprint unit ships disabled and the logind power-button snippet ships as documentation; no PAM or power-button policy changes. The calibration is set up on demand by aurora-touchid-setup (when a file is missing, when the enclave refused one, or by hand) instead of at every start, and aurora-sep-ready starts it once per boot after a refusal. README.md is the package's own; XART-SAFETY.md, OS-IDENTITY.md, aurora_sep.te and aurora_sep.fc are unmodified."
 }
