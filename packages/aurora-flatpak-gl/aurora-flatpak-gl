@@ -5,7 +5,11 @@
 #          packaged OSTree repository (system installation, pinned so
 #          "flatpak uninstall --unused" keeps it), and set the system-wide
 #          Flatpak override that points the Vulkan loader, glvnd and the DRI
-#          loader at the merged GL driver files.
+#          loader at the merged GL driver files. A GL.aurora branch the
+#          repository no longer carries is removed. A package built without
+#          the repository carries no Mesa, so enable then works like disable:
+#          a GL.aurora left by an earlier package, built from an older Mesa
+#          commit, must not keep running beside the new host Mesa.
 # disable: undo all of that. Override keys an administrator has changed are
 #          left alone.
 #
@@ -14,11 +18,11 @@
 # owns those file names whenever it is installed for the app's runtime; for a
 # runtime branch it was not built for, the same paths fall back to GL.default.
 set -u
-repo=/usr/share/aurora-flatpak-gl/repo
+repo=${AURORA_FLATPAK_GL_REPO:-/usr/share/aurora-flatpak-gl/repo}
 remote=aurora-gl
 id=org.freedesktop.Platform.GL.aurora
 gl=/usr/lib/aarch64-linux-gnu/GL
-overrides=/var/lib/flatpak/overrides/global
+overrides=${AURORA_FLATPAK_GL_OVERRIDES:-/var/lib/flatpak/overrides/global}
 env_vk="VK_DRIVER_FILES=$gl/vulkan/icd.d/asahi_icd.aarch64.json:$gl/vulkan/icd.d/lvp_icd.aarch64.json"
 env_egl="__EGL_VENDOR_LIBRARY_FILENAMES=$gl/glvnd/egl_vendor.d/50_mesa.json"
 env_dri="LIBGL_DRIVERS_PATH=$gl/lib/dri"
@@ -32,16 +36,29 @@ installed_refs() {
   flatpak list --system --runtime --columns=ref 2>/dev/null | grep "^$id/" | sed 's|^|runtime/|'
 }
 
+remove_ref() {
+  flatpak pin --system --remove "$1" >/dev/null 2>&1 || true
+  flatpak uninstall --system --noninteractive -y "$1" || true
+}
+
 enable() {
-  [ -d "$repo/objects" ] || { echo "aurora-flatpak-gl: no repository at $repo" >&2; return 1; }
+  if [ ! -d "$repo/objects" ]; then
+    echo "aurora-flatpak-gl: no repository at $repo; Flatpak apps keep GL.default" >&2
+    disable
+    return 0
+  fi
   if flatpak remotes --system --columns=name | grep -qx "$remote"; then
     flatpak remote-modify --system --url="file://$repo" "$remote"
   else
     flatpak remote-add --system --no-gpg-verify --no-enumerate --no-use-for-deps \
       --title="Aurora Mesa (local)" "$remote" "file://$repo"
   fi
-  local rc=0 ref
-  for ref in $(repo_refs); do
+  local rc=0 ref offered
+  offered=$(repo_refs)
+  for ref in $(installed_refs); do
+    printf '%s\n' "$offered" | grep -qxF "$ref" || remove_ref "$ref"
+  done
+  for ref in $offered; do
     flatpak install --system --noninteractive -y --or-update "$remote" "$ref" || rc=1
     flatpak pin --system "$ref" >/dev/null 2>&1 || true
   done
@@ -62,8 +79,7 @@ disable() {
     grep -qvE '^(\[.*\]|[[:space:]]*)$' "$overrides" || rm -f "$overrides"
   fi
   for ref in $(installed_refs); do
-    flatpak pin --system --remove "$ref" >/dev/null 2>&1 || true
-    flatpak uninstall --system --noninteractive -y "$ref" || true
+    remove_ref "$ref"
   done
   if flatpak remotes --system --columns=name | grep -qx "$remote"; then
     flatpak remote-delete --system --force "$remote" || true
