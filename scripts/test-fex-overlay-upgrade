@@ -15,6 +15,32 @@ baseurl=file://$new
 enabled=0
 gpgcheck=0
 REPO
+# A transaction trigger observes the interval after the new guest's %post
+# and before %posttrans. This proves unmounting even on non-SELinux CI hosts.
+mkdir -p /var/tmp/fex-overlay-witness
+cat > /var/tmp/fex-overlay-witness/witness.spec <<'SPEC'
+Name: aurora-fex-overlay-witness-test
+Version: 1
+Release: 1
+Summary: Disposable FEX transaction lifecycle observer
+License: MIT
+Requires: util-linux-core
+%description
+Verify that the guest overlay is unmounted until transaction completion.
+%install
+mkdir -p %{buildroot}/usr/share/aurora-fex-overlay-witness-test
+printf 'observer\n' > %{buildroot}/usr/share/aurora-fex-overlay-witness-test/marker
+%triggerin -- mesa-aurora-fex-guest >= 26.3.0-13
+if mountpoint -q /usr/share/guestos/aurora-fex-mesa; then
+  echo 'FEX overlay was still mounted while replacing the guest' >&2
+  exit 1
+fi
+printf 'overlay unmounted before posttrans\n' > /run/aurora-fex-overlay-witness
+%files
+/usr/share/aurora-fex-overlay-witness-test/marker
+SPEC
+rpmbuild -bb --define '_topdir /var/tmp/fex-overlay-witness' /var/tmp/fex-overlay-witness/witness.spec
+dnf -y install /var/tmp/fex-overlay-witness/RPMS/aarch64/*.rpm
 dnf -y --setopt=install_weak_deps=False install "$old"/*.rpm
 rpm -qa | sort > "$proof/before.txt"
 rpm -qa --qf '%{NAME}\n' | sort > "$proof/before-names.txt"
@@ -25,6 +51,7 @@ mountpoint -q /usr/share/guestos/aurora-fex-mesa
 findmnt /usr/share/guestos/aurora-fex-mesa > "$proof/mount-before.txt"
 # A real DNF transaction executes the incoming %pre before relabel/unpack.
 dnf -y --enable-repo=aurora-overlay-test --setopt=install_weak_deps=False upgrade 'mesa*' aurora-flatpak-gl
+cat /run/aurora-fex-overlay-witness | tee "$proof/unmounted-before-posttrans.txt"
 [[ $(rpm -q --qf '%{VERSION}-%{RELEASE}' mesa-aurora-fex-guest) == 26.3.0-13.fc44.aurora ]]
 systemctl is-active aurora-fex-mesa.service
 mountpoint -q /usr/share/guestos/aurora-fex-mesa

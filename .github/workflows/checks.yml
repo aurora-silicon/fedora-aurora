@@ -107,7 +107,7 @@ jobs:
           set -euo pipefail
           docker build -t aurora-fex-systemd - <<'DOCKER'
           FROM registry.fedoraproject.org/fedora:44
-          RUN dnf install -y systemd util-linux dnf5-plugins && dnf clean all
+          RUN dnf install -y systemd util-linux dnf5-plugins rpm-build && dnf clean all
           CMD ["/sbin/init"]
           DOCKER
           docker run -d --name fex-overlay --privileged --cgroupns=host \
