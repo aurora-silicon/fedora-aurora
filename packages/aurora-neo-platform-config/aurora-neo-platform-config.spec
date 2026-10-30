@@ -30,7 +30,7 @@ sh tests/run.sh
 %{_datadir}/libinput/60-aurora-neo-j700.quirks
 
 %changelog
-* Thu Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-2
+* Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-2
 - Track main at 8f18039: the J700 trackpad libinput quirk. The kernel
   reports palms as MT_TOOL_PALM, so size-based palm detection is turned off
   for this trackpad and flat thumbs are no longer rejected.

@@ -54,7 +54,7 @@ install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/speakersafetyd.service.d/50-j7
 %{_libexecdir}/speakerguardd/
 
 %changelog
-* Thu Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.12-1
+* Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.12-1
 - Move to speakerguardd 0.1.12 (main 34aeed9), the build the Neo has run
   since 25 October: it fails closed on control errors, lost sense time and
   stale state, waits for the card before taking the interlock, and runs at
