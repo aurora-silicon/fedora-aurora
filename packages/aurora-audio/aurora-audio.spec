@@ -1,7 +1,7 @@
-%global commit f513878c9c5144d2ab582b314081227a208777e3
+%global commit d957fabbacbe7dd67b39f052b2ff21edea7ee038
 Name: aurora-audio
 Version: 4.1
-Release: 6%{?dist}
+Release: 7%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
@@ -12,13 +12,13 @@ BuildRequires: make
 # Fedora Asahi installs carry asahi-audio, which ships the same files.
 Provides: asahi-audio = %{version}-%{release}
 Conflicts: asahi-audio
-Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplumber bankstown lv2-triforce lsp-plugins-lv2 speakersafetyd speakerguardd
+Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplumber >= 0.5.16 bankstown lv2-triforce lsp-plugins-lv2 speakersafetyd speakerguardd
 
 %description
 Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n asahi-audio-f513878c9c5144d2ab582b314081227a208777e3
+%autosetup -n asahi-audio-d957fabbacbe7dd67b39f052b2ff21edea7ee038
 
 %build
 
@@ -34,6 +34,13 @@ install -Dm755 %{SOURCE1} %{buildroot}%{_prefix}/lib/dracut/modules.d/90aurora-a
 %{_prefix}/lib/dracut/modules.d/90aurora-audio/
 
 %changelog
+* Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-7
+- Move to asahi-audio d957fab: the built-in headphone sink of every Mac
+  keeps the volume and mute the user set on it across boots, also with
+  nothing plugged in (aurora-silicon/asahi-audio#15).
+- Require WirePlumber 0.5.16 or later. Older versions lose the stored mute
+  of the speaker filter sink at every boot.
+
 * Wed Oct 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-6
 - Carry snd-seq in the initramfs. appledrm brings snd-pcm there, and
   Fedora's dist-alsa.conf loads snd-seq with it, which failed at every boot.
