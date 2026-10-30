@@ -39,9 +39,16 @@ dnf -y --enable-repo=aurora-overlay-test reinstall mesa-aurora-fex-guest
 ! systemctl is-active aurora-fex-mesa.service
 ! mountpoint -q /usr/share/guestos/aurora-fex-mesa
 # The incoming old baseline has no fix: stop explicitly around rollback.
-dnf -y --setopt=install_weak_deps=False do \
-  --action=remove mesa-aurora-vulkan-lavapipe mesa-aurora-devel mesa-aurora-libOpenCL mesa-aurora-libOpenCL-devel \
-  --action=install --allow-downgrade "$old"/*.rpm
+remove=()
+for name in mesa-aurora-vulkan-lavapipe mesa-aurora-devel mesa-aurora-libOpenCL mesa-aurora-libOpenCL-devel; do
+  if rpm -q "$name" >/dev/null 2>&1 && ! grep -q "^$name-[0-9]" "$proof/before.txt"; then
+    remove+=("$name")
+  fi
+done
+rollback=(do)
+if (( ${#remove[@]} )); then rollback+=(--action=remove "${remove[@]}"); fi
+rollback+=(--action=install --allow-downgrade "$old"/*.rpm)
+dnf -y --setopt=install_weak_deps=False "${rollback[@]}"
 systemctl start aurora-fex-mesa.service
 systemctl is-active aurora-fex-mesa.service
 rpm -qa | sort > "$proof/rollback.txt"
