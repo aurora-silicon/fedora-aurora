@@ -35,7 +35,10 @@ class PlanTests(unittest.TestCase):
             sources.update(changed_sources)
             (root / 'sources.json').write_text(json.dumps(sources))
             if shared_tooling:
-                (root / ('scripts/' + (shared_tooling if isinstance(shared_tooling, str) else 'build-rpm'))).write_text('changed shared builder\n')
+                name = shared_tooling if isinstance(shared_tooling, str) else 'build-rpm'
+                path = root / (name if '/' in name else 'scripts/' + name)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('changed shared builder\n')
             git('add', '.')
             git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'update')
             event = root / 'event.json'
@@ -73,5 +76,15 @@ class PlanTests(unittest.TestCase):
 
     def test_pr_shared_builder_change_still_invalidates_all_recipes(self):
         self.assertEqual(self.plan({'avd-fw': {'commit': 'new'}}, shared_tooling=True,
+                                   event_name='pull_request'),
+                         ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])
+
+    def test_pr_workflow_change_invalidates_every_build(self):
+        self.assertEqual(self.plan({}, shared_tooling='.github/workflows/rpms.yml',
+                                   event_name='pull_request'),
+                         ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])
+
+    def test_pr_receipt_builder_change_invalidates_every_build(self):
+        self.assertEqual(self.plan({}, shared_tooling='build-receipt.py',
                                    event_name='pull_request'),
                          ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])

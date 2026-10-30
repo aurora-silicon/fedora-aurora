@@ -34,7 +34,7 @@ else:
         if changed <= set(names):
             paths.remove("sources.json")
             paths.extend(f"packages/{name}/{name}.spec" for name in sorted(changed))
-    if {"sources.json", "scripts/build-rpm", "scripts/fetch-sources.py", "scripts/build-flatpak-gl-repo"} & set(paths):
+    if {"sources.json", ".github/workflows/rpms.yml", "scripts/build-rpm", "scripts/build-receipt.py", "scripts/fetch-sources.py", "scripts/build-flatpak-gl-repo"} & set(paths):
         result = names
     else:
         result = sorted({p.split("/")[1] for p in paths
