@@ -29,6 +29,8 @@ PACKAGES = {
         "aurora-firstboot", "aurora-sep", "libfprint", "mesa-aurora-dri-drivers", "mesa-aurora-vulkan-drivers",
         "aurora-firmware", "avd-fw", "upower", "alsa-ucm-conf-aurora", "aurora-audio", "speakerguardd",
         "speakersafetyd-aurora-profiles",
+        # Fedora's SSH server, on every profile; aurora-release presets it off.
+        "openssh-server",
     ]),
 }
 # Quiet by default: the splash (desktops) or a clean console, with failures
@@ -224,6 +226,21 @@ if [[ "$(systemctl is-enabled aurora-peripherals.service)" != enabled ]]; then
     echo 'Aurora peripheral admission must be enabled in the image' >&2
     exit 1
 fi
+
+# Every profile ships the SSH server with remote login off. Re-apply the
+# presets now that every package is installed, so install order cannot
+# leave it on, and refuse an image that would still start it.
+if ! rpm -q openssh-server >/dev/null; then
+    echo 'Every Aurora image must ship openssh-server' >&2
+    exit 1
+fi
+systemctl preset sshd.service sshd.socket
+for unit in sshd.service sshd.socket; do
+    if [[ "$(systemctl is-enabled "$unit" || true)" != disabled ]]; then
+        echo "$unit must be off by default in the image" >&2
+        exit 1
+    fi
+done
 
 exit 0
 ''')

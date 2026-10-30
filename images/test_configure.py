@@ -76,6 +76,18 @@ class ConfigureTests(unittest.TestCase):
         args.update(kwargs)
         return configure.prepare(**args)
 
+    @staticmethod
+    def mock_image_commands(commands, systemctl):
+        """Stand-ins for the image's systemctl and rpm. `systemctl` is the
+        script body for every unit but sshd, which is installed and off."""
+        commands.mkdir()
+        (commands / "systemctl").write_text(
+            '#!/bin/bash\ncase "$*" in is-enabled*sshd*) echo disabled; exit 1 ;; *sshd*) exit 0 ;; esac\n'
+            + systemctl)
+        (commands / "rpm").write_text("#!/bin/sh\nexit 0\n")
+        for name in ("systemctl", "rpm"):
+            (commands / name).chmod(0o755)
+
     def test_all_profiles_keep_fedora_layout_and_aurora_packages(self):
         for profile, kiwi in configure.PROFILES.items():
             with self.subTest(profile=profile):
@@ -139,6 +151,37 @@ class ConfigureTests(unittest.TestCase):
         ])
         self.assertEqual(configure.git(self.source, "status", "--porcelain"), "")
 
+    def test_every_profile_ships_sshd_off(self):
+        for profile in configure.PROFILES:
+            with self.subTest(profile=profile):
+                out = self.root / f"sshd-{profile}"
+                self.prepare(out, profile=profile)
+                names = {n.get("name") for p in out.rglob("*.xml")
+                         for n in ET.parse(p).getroot().iter("package")}
+                self.assertIn("openssh-server", names)
+        # Run the image's SSH check against stand-in rpm and systemctl.
+        script = (self.root / "sshd-fedora-kde/config.sh").read_text()
+        check = script[script.index("# Every profile ships the SSH server"):script.rindex("\nexit 0\n")]
+        bindir = self.root / "sshd-bin"
+        bindir.mkdir()
+        (bindir / "rpm").write_text('#!/bin/sh\n[ "$FAKE_SSHD_INSTALLED" = 1 ]\n')
+        (bindir / "systemctl").write_text(
+            '#!/bin/sh\necho "$@" >> "$FAKE_SYSTEMCTL_LOG"\n'
+            'case $1 in is-enabled) echo "$FAKE_SSHD_STATE"; [ "$FAKE_SSHD_STATE" = enabled ] ;; esac\n')
+        for tool in ("rpm", "systemctl"):
+            (bindir / tool).chmod(0o755)
+        for installed, state, passes in (("1", "disabled", True), ("1", "enabled", False),
+                                         ("0", "disabled", False)):
+            with self.subTest(installed=installed, state=state):
+                log = self.root / f"sshd-systemctl-{installed}-{state}.log"
+                env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", FAKE_SSHD_INSTALLED=installed,
+                           FAKE_SSHD_STATE=state, FAKE_SYSTEMCTL_LOG=str(log))
+                result = subprocess.run(["bash", "-euo", "pipefail", "-c", check], env=env,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, passes, result.stderr)
+                if installed == "1":
+                    self.assertEqual(log.read_text().splitlines()[0], "preset sshd.service sshd.socket")
+
     def test_rejects_wrong_source_key_profile_and_unsafe_repository(self):
         cases = [dict(lock={**self.lock, "commit": "0" * 40}),
                  dict(fingerprint="0" * 40), dict(profile="not-fedora"),
@@ -170,10 +213,7 @@ class ConfigureTests(unittest.TestCase):
         kernel.parent.mkdir(parents=True)
         kernel.write_text("CONFIG_SECURITY_SELINUX=y\nCONFIG_SND_SOC_MAX98357A=m\n")
         commands = self.root / "mock-commands"
-        commands.mkdir()
-        systemctl = commands / "systemctl"
-        systemctl.write_text('#!/bin/bash\nprintf "%s\\n" "$AURORA_TEST_UNIT_STATE"\n')
-        systemctl.chmod(0o755)
+        self.mock_image_commands(commands, 'printf "%s\\n" "$AURORA_TEST_UNIT_STATE"\n')
         for state in ("enabled", "disabled", "masked", "static"):
             with self.subTest(state=state):
                 result = subprocess.run(["bash", str(output / "config.sh")],
@@ -196,10 +236,7 @@ class ConfigureTests(unittest.TestCase):
         kernel.parent.mkdir(parents=True)
         kernel.write_text("CONFIG_SECURITY_SELINUX=y\nCONFIG_SND_SOC_MAX98357A=m\n")
         commands = self.root / "plasma-commands"
-        commands.mkdir()
-        command = commands / "systemctl"
-        command.write_text("#!/bin/sh\nprintf 'enabled\\n'\n")
-        command.chmod(0o755)
+        self.mock_image_commands(commands, "printf 'enabled\\n'\n")
         env = {**os.environ, "PATH": str(commands) + ":" + os.environ["PATH"]}
 
         def accepted():
@@ -239,10 +276,7 @@ class ConfigureTests(unittest.TestCase):
         kernel.parent.mkdir(parents=True)
         kernel.write_text("CONFIG_SECURITY_SELINUX=y\nCONFIG_SND_SOC_MAX98357A=m\n")
         commands = self.root / "gnome-commands"
-        commands.mkdir()
-        command = commands / "systemctl"
-        command.write_text("#!/bin/sh\nprintf 'enabled\\n'\n")
-        command.chmod(0o755)
+        self.mock_image_commands(commands, "printf 'enabled\\n'\n")
         env = {**os.environ, "PATH": str(commands) + ":" + os.environ["PATH"]}
 
         def accepted():
@@ -272,10 +306,7 @@ class ConfigureTests(unittest.TestCase):
         kernel = image / "usr/lib/modules/fixture/config"
         kernel.parent.mkdir(parents=True)
         commands = self.root / "kernel-commands"
-        commands.mkdir()
-        systemctl = commands / "systemctl"
-        systemctl.write_text("#!/bin/sh\nprintf 'enabled\n'\n")
-        systemctl.chmod(0o755)
+        self.mock_image_commands(commands, "printf 'enabled\\n'\n")
         env = {**os.environ, "PATH": str(commands) + ":" + os.environ["PATH"]}
         def accepted():
             return subprocess.run(["bash", str(config)], env=env,

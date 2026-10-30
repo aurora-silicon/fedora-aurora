@@ -14,6 +14,18 @@ class SpecTests(unittest.TestCase):
         for name in ['aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-release', 'aurora-logos', 'speakersafetyd-aurora-profiles']:
             text = (ROOT / 'packages' / name / (name + '.spec')).read_text()
             self.assertIn('BuildArch: noarch', text)
+    def test_release_presets_sshd_off_ahead_of_fedora_default(self):
+        # Fedora's 90-default.preset enables sshd.service; the desktop
+        # identities that turned it off are replaced by aurora-release.
+        d = ROOT / 'packages' / 'aurora-release'
+        preset = d / '80-aurora-sshd.preset'
+        rules = [line for line in preset.read_text().splitlines() if line.strip() and not line.startswith('#')]
+        self.assertEqual(rules, ['disable sshd.service', 'disable sshd.socket'])
+        self.assertLess(preset.name, '90-default.preset')
+        text = (d / 'aurora-release.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: 80-aurora-sshd\.preset$')
+        self.assertIn('%{buildroot}/usr/lib/systemd/system-preset/80-aurora-sshd.preset', text)
+        self.assertIn('/usr/lib/systemd/system-preset/*.preset', text.split('%files', 1)[1])
     def test_fex_guest_mesa_moves_in_lockstep_with_the_host_mesa(self):
         def fields(name):
             text = (ROOT / 'packages' / name / (name + '.spec')).read_text()
