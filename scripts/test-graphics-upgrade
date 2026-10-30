@@ -35,6 +35,15 @@ else
 fi
 dnf check
 rpm -qa --qf '%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > "$out/before.tsv"
+# Retain exact old bytes for a real package-rename rollback test.
+mkdir -p /var/tmp/aurora-graphics-rollback
+if [[ $old == fedora ]]; then
+  mapfile -t old_mesa < <(rpm -qa --qf '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | grep '^mesa-')
+  dnf --disable-repo=aurora-packaging-test download --destdir=/var/tmp/aurora-graphics-rollback "${old_mesa[@]}"
+  cp /baselines/10/aurora-flatpak-gl-*.aarch64.rpm /var/tmp/aurora-graphics-rollback/
+else
+  cp "${old_rpms[@]}" /var/tmp/aurora-graphics-rollback/
+fi
 # Real repository upgrade, not a header comparison or an erasing solver.
 dnf -y --setopt=install_weak_deps=False upgrade 'mesa*' aurora-flatpak-gl
 dnf check
@@ -68,3 +77,30 @@ assert set(old) - set(new) <= allowed, sorted(set(old) - set(new) - allowed)
 print('No unrelated installed package was removed')
 PY
 echo GRAPHICS-UPGRADE-PASS
+# Undo a rename in one transaction, preserving the post-upgrade evidence above.
+remove=()
+for name in mesa-aurora-dri-drivers mesa-aurora-vulkan-drivers mesa-aurora-devel mesa-aurora-libOpenCL mesa-aurora-libOpenCL-devel; do
+  if rpm -q "$name" >/dev/null 2>&1 && ! awk -v n="$name" '$1==n {found=1} END {exit !found}' "$out/before.tsv"; then
+    remove+=("$name")
+  fi
+done
+rollback=(do)
+if (( ${#remove[@]} )); then rollback+=(--action=remove "${remove[@]}"); fi
+rollback+=(--action=install --allow-downgrade /var/tmp/aurora-graphics-rollback/*.rpm)
+dnf -y --setopt=install_weak_deps=False "${rollback[@]}"
+dnf check
+rpm -qa --qf '%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > "$out/rollback.tsv"
+python3 - "$out" <<'PYROLL'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+before = dict(line.rstrip().split('\t') for line in (p/'before.tsv').read_text().splitlines())
+after = dict(line.rstrip().split('\t') for line in (p/'rollback.tsv').read_text().splitlines())
+for name, evr in before.items():
+    if name.startswith(('mesa-', 'aurora-flatpak-gl')):
+        assert after.get(name) == evr, (name, evr, after.get(name))
+assert not (set(after) - set(before)) & {'mesa-aurora-dri-drivers','mesa-aurora-vulkan-drivers',
+                                      'mesa-aurora-devel','mesa-aurora-libOpenCL','mesa-aurora-libOpenCL-devel'}
+print('Exact old Mesa/Flatpak graph restored')
+PYROLL
+echo GRAPHICS-ROLLBACK-PASS
