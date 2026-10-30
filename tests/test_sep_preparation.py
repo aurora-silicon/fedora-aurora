@@ -148,3 +148,28 @@ class PreparationTests(unittest.TestCase):
         (sensor / 'firmware-name').write_bytes(b'apple/../../escape.bin\0')
         with self.assertRaises(ValueError):
             helper.firmware_name(self.root / 'dt')
+
+    def test_dt_firmware_name_list_picks_the_calibration(self):
+        sensor = self.root / 'dt/spi@429108000/fingerprint@0'
+        sensor.mkdir(parents=True)
+        (sensor / 'compatible').write_bytes(b'apple,mesa-fingerprint\0')
+        # The J616s node as the kernel exposes it.
+        (sensor / 'firmware-name').write_bytes(
+            b'apple/mesacal-j616s.bin\0apple/msrk-j616s.bin\0')
+        self.assertEqual(helper.firmware_name(self.root / 'dt'), 'apple/mesacal-j616s.bin')
+        (sensor / 'firmware-name').write_bytes(
+            b'apple/msrk-j616s.bin\0apple/mesacal-j616s.bin\0')
+        self.assertEqual(helper.firmware_name(self.root / 'dt'), 'apple/mesacal-j616s.bin')
+        (sensor / 'firmware-name').write_bytes(b'apple/cal-j999.bin\0apple/other.bin\0')
+        self.assertEqual(helper.firmware_name(self.root / 'dt'), 'apple/cal-j999.bin')
+        for unsafe in (b'apple/mesacal-j616s.bin\0apple/../../escape.bin\0',
+                       b'apple/mesacal-j616s.bin\0/etc/shadow\0', b'\0', b''):
+            (sensor / 'firmware-name').write_bytes(unsafe)
+            with self.assertRaises(ValueError):
+                helper.firmware_name(self.root / 'dt')
+
+    def test_dt_without_firmware_name_uses_the_default(self):
+        sensor = self.root / 'dt/spi/fingerprint@0'
+        sensor.mkdir(parents=True)
+        (sensor / 'compatible').write_bytes(b'apple,mesa-fingerprint\0')
+        self.assertEqual(helper.firmware_name(self.root / 'dt'), 'apple/mesa_calibration.bin')

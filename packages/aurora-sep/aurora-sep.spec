@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 12%{?dist}
+Release: 13%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -152,6 +152,11 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-13
+- prepare-sep-calibration reads the fingerprint firmware-name as a list and
+  takes the calibration entry, so the J616s, which also names its MSRk
+  record, gets its calibration again
+
 * Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-12
 - Wait for the enclave bring-up before the trusted-key probe, so the probe no
   longer holds the kernel key lock and stalls every service start at boot
