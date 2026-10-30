@@ -103,4 +103,22 @@ assert not (set(after) - set(before)) & {'mesa-aurora-dri-drivers','mesa-aurora-
                                       'mesa-aurora-devel','mesa-aurora-libOpenCL','mesa-aurora-libOpenCL-devel'}
 print('Exact old Mesa/Flatpak graph restored')
 PYROLL
+# Validate the installed database retains the same payload identity as the
+# original archives; this is also the kit's exact-rollback availability gate.
+payload_tags=$(rpm --querytags)
+if grep -Fx PAYLOADSHA256 <<< "$payload_tags" >/dev/null; then
+  payload_tag=PAYLOADSHA256
+else
+  payload_tag=PAYLOADDIGEST
+fi
+format="%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH} %{${payload_tag}}"
+: > "$out/rollback-payload-identities.txt"
+for path in /var/tmp/aurora-graphics-rollback/*.rpm; do
+  name=$(rpm -qp --qf '%{NAME}' "$path")
+  staged=$(rpm -qp --qf "$format" "$path")
+  installed=$(rpm -q --qf "$format" "$name")
+  digest=$(rpm -q --qf "%{${payload_tag}}" "$name")
+  [[ $digest =~ ^[0-9a-f]+$ && $installed == "$staged" ]]
+  printf '%s\n' "$installed" >> "$out/rollback-payload-identities.txt"
+done
 echo GRAPHICS-ROLLBACK-PASS

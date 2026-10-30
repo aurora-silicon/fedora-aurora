@@ -34,6 +34,15 @@ sha256sum --check SHA256SUMS
 # Keep all evidence, including a refused transaction.
 rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}.rpm\n' | sort > state/before-rpm-filenames
 # Every installed package this migration may replace needs an exact rollback RPM.
+payload_tags=$(rpm --querytags)
+if grep -Fx PAYLOADSHA256 <<< "$payload_tags" >/dev/null; then
+  payload_tag=PAYLOADSHA256
+elif grep -Fx PAYLOADDIGEST <<< "$payload_tags" >/dev/null; then
+  payload_tag=PAYLOADDIGEST
+else
+  echo 'RPM has no supported payload identity query tag' >&2; exit 78
+fi
+format="%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH} %{${payload_tag}}"
 : > state/rollback-rpms
 while IFS= read -r name; do
   if filename=$(rpm -q --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}.rpm' "$name" 2>/dev/null); then
@@ -41,10 +50,9 @@ while IFS= read -r name; do
     [[ -n $path ]] || { echo "Missing exact rollback: $filename" >&2; exit 78; }
     # Filenames omit Epoch and can be reused by local rebuilds. Match the
     # installed header and payload identity as well as NVR/architecture.
-    format='%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH} %{PAYLOADDIGEST}'
     installed=$(rpm -q --qf "$format" "$name")
     staged=$(rpm -qp --qf "$format" "$path")
-    digest=$(rpm -q --qf '%{PAYLOADDIGEST}' "$name")
+    digest=$(rpm -q --qf "%{${payload_tag}}" "$name")
     [[ $digest =~ ^[0-9a-f]+$ && $installed == "$staged" ]] || {
       echo "Rollback RPM does not match the installed header/payload: $filename" >&2; exit 78;
     }
