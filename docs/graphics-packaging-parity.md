@@ -9,7 +9,8 @@ change driver source. These are text-only proposals for the other distributions.
 Reviewed public main `80de98bdcf362ecd7fffcd4a14f4ded1b457ae92`.
 
 - `packages/mesa-aurora/PKGBUILD`: export
-  `MESA_GIT_SHA1_OVERRIDE=$_commit` before both Meson configurations and check
+  `MESA_GIT_SHA1_OVERRIDE=$_commit` before both Meson configurations and in
+  `check()` (Meson may regenerate its always-stale Git header), and check
   `libvulkan_asahi.so` for `(git-cf4e08105d), Borealis`. This recipe uses a Git
   source, so it can currently discover the commit, but the explicit override
   also covers archived sources and prevents an unrelated checkout's identity.
@@ -73,3 +74,23 @@ J616s upower Fedora 45 rebase; publication/signing; fleet installation and GPU
 runtime qualification. Fedora 45 kits remain blocked on matching builds and
 exact rollback inventory. A Fedora 44 container solve does not qualify a
 Fedora 45 desktop or prove GPU behavior on any machine.
+
+## Fedora 44 artifact proof
+
+- [Flatpak and FEX build](https://github.com/aurora-silicon/fedora-aurora/actions/runs/41086858578):
+  both 25.08/26.08 committed payloads validated during export and RPM construction;
+  x86_64/i686 guest ELF identities match the same source pin.
+- [Native build](https://github.com/aurora-silicon/fedora-aurora/actions/runs/41094374085):
+  121 Mesa tests passed; the installed Vulkan library contains
+  `Mesa 26.3.0-devel (git-cf4e08105d), Borealis, derived from Honeykrisp`.
+- [Upgrade and rollback proof](https://github.com/aurora-silicon/fedora-aurora/actions/runs/41098056195):
+  independent native AArch64 Fedora 44 containers upgraded the signed -9 and
+  testing-20261030.11 graphics sets and Fedora's OpenCL/devel layout without
+  force-erasing or skip flags. All three restored their original Mesa/Flatpak
+  NEVRAs and payload identities in a single rollback transaction. Source checks
+  passed 201 tests (one skip), 11 image tests and all graphics script syntax checks.
+
+These are unsigned CI candidates for review. The test repository's unsigned
+candidate policy is confined to disposable containers; owner-run kits retain
+configured DNF trust and versionlock policy. No target or GPU runtime result is
+claimed. Other userspace candidates remain separate references in the staged kits.
