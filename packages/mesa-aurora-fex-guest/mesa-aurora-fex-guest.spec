@@ -12,7 +12,7 @@
 # version-release, which is what this package requires.
 %{!?commit:%global commit cf4e08105dfa526b8874318b6a52b3ce948f6297}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 12%{?dist}.aurora}
+%{!?host_release:%global host_release 13%{?dist}.aurora}
 %global debug_package %{nil}
 # Fedora's x86_64 build flags carry -m64 and would turn the i686 build into a
 # second x86_64 one; meson's release buildtype sets the optimisation instead.
@@ -188,9 +188,11 @@ fi
 %{_presetdir}/80-aurora-fex-mesa.preset
 
 %changelog
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-13.aurora
+- Unmount the guest overlay during upgrades; RPM cannot relabel its mount point.
+
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-12.aurora
 - Move in lockstep with mesa-aurora 26.3.0-12.
-- Unmount the guest overlay during upgrades; RPM cannot relabel its mount point.
 
 * Tue Oct 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-2.aurora
 - x86_64/i686 guest graphics provider for FEX, in lockstep with mesa-aurora.
