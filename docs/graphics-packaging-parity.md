@@ -63,7 +63,8 @@ The original Flatpak failure was the default `%bcond repo 0` combined with
 settings-only RPM contained no OSTree objects. A separate extension build can
 finish successfully without its result being used by the RPM job. Source10 is
 now unconditional, the normal builder constructs or consumes it, and the spec
-checks the committed payload. Explicit `--files=files` follows Flatpak's
+checks the committed payload. Native `%check` also exports the commit because Meson
+regenerates its always-stale Git header when tests rebuild. Explicit `--files=files` follows Flatpak's
 extension build layout rather than relying on export defaults; see the
 [upstream command reference](https://flatpak-docs.readthedocs.io/en/latest/flatpak-command-reference.html).
 

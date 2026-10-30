@@ -119,6 +119,9 @@ meson setup build "${options[@]}" --native-file tools.ini -Dgallium-rusticl=fals
 ninja -C build %{?_smp_mflags}
 
 %check
+# RPM phases use separate shells. meson test rebuilds the always-stale Git
+# header, so retain the archive identity here as well as in the build phase.
+export MESA_GIT_SHA1_OVERRIDE=%{commit}
 meson test -C build --print-errorlogs --num-processes 4
 
 %install
