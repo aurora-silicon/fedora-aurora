@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 11%{?dist}.aurora
+Release: 12%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -11,7 +11,10 @@ ExclusiveArch: aarch64
 BuildRequires: gcc gcc-c++ clang clang-devel systemd-devel llvm-devel lld rust cargo bindgen-cli cbindgen
 BuildRequires: meson ninja-build python3-mako python3-pyyaml python3-packaging
 BuildRequires: bison flex binutils elfutils-libelf-devel opencl-headers
-BuildRequires: libclc-devel spirv-llvm-translator-devel spirv-tools-devel glslang-devel
+# Fedora 45 ships the LLVM 23 libclc without pkg-config data; the LLVM 22
+# libclc22-devel still provides it there, and Rusticl needs the same libclc.
+BuildRequires: pkgconfig(libclc)
+BuildRequires: spirv-llvm-translator-devel spirv-tools-devel glslang-devel
 BuildRequires: libdrm-devel expat-devel libglvnd-devel libX11-devel libxcb-devel
 BuildRequires: libXext-devel libXfixes-devel libXrandr-devel libxshmfence-devel libXxf86vm-devel
 BuildRequires: wayland-devel wayland-protocols-devel vulkan-headers vulkan-loader-devel
@@ -57,6 +60,17 @@ Requires: vulkan-loader
 %description -n mesa-aurora-vulkan-drivers
 Native Honeykrisp Vulkan driver for Aurora Apple Silicon kernels.
 
+# The replaced mesa-vulkan-drivers also shipped lavapipe, and applications
+# link it directly (libvulkan_lvp.so). It needs LLVM, so it is split out to
+# keep the native Vulkan driver free of the compiler runtime.
+%package -n mesa-aurora-vulkan-lavapipe
+Summary: Aurora Mesa lavapipe software Vulkan driver
+Requires: vulkan-loader
+Obsoletes: mesa-vulkan-drivers < %{version}-%{release}
+
+%description -n mesa-aurora-vulkan-lavapipe
+CPU-based Vulkan driver built from the same source as the native drivers.
+
 # Development files used to be swept into dri-drivers, leaving Fedora's
 # devel packages installed with exact Requires on the replaced runtime EVR.
 %package -n mesa-aurora-devel
@@ -81,7 +95,12 @@ Headers, pkg-config files and GBM linker interface for the matching Aurora Mesa.
 Summary: Aurora Mesa Rusticl OpenCL driver
 Requires: mesa-aurora-dri-drivers%{?_isa} = %{version}-%{release}
 Requires: (ocl-icd%{?_isa} or OpenCL-ICD-Loader%{?_isa})
-Requires: opencl-filesystem libclc%{?_isa}
+Requires: opencl-filesystem
+%if 0%{?fedora} >= 45
+Requires: libclc22%{?_isa}
+%else
+Requires: libclc%{?_isa}
+%endif
 Provides: mesa-libOpenCL = %{version}-%{release}
 Provides: mesa-libOpenCL%{?_isa} = %{version}-%{release}
 Obsoletes: mesa-libOpenCL < %{version}-%{release}
@@ -111,8 +130,9 @@ options=(--prefix=/usr --libdir=lib64 --libexecdir=libexec --buildtype=release -
   -Degl=enabled -Dgbm=enabled -Dglx=dri -Dgles1=enabled -Dgles2=enabled
   -Dglvnd=enabled -Dvideo-codecs=all -Dvulkan-layers=
   -Dexpat=enabled -Dzstd=enabled -Dlmsensors=enabled -Dlibunwind=disabled -Dvalgrind=disabled)
-meson setup tools "${options[@]}" -Dllvm=enabled -Dgallium-rusticl=true -Dbuild-tests=false
-ninja -C tools %{?_smp_mflags} src/compiler/clc/mesa_clc src/compiler/spirv/vtn_bindgen2 src/asahi/clc/asahi_clc src/gallium/targets/rusticl/libRusticlOpenCL.so.1.0.0
+meson setup tools "${options[@]/#-Dvulkan-drivers=asahi/-Dvulkan-drivers=asahi,swrast}" -Dllvm=enabled -Dgallium-rusticl=true -Dbuild-tests=false
+ninja -C tools %{?_smp_mflags} src/compiler/clc/mesa_clc src/compiler/spirv/vtn_bindgen2 src/asahi/clc/asahi_clc src/gallium/targets/rusticl/libRusticlOpenCL.so.1.0.0 \
+  src/gallium/targets/lavapipe/libvulkan_lvp.so src/gallium/targets/lavapipe/lvp_icd.aarch64.json
 printf "[binaries]\nmesa_clc = '%s'\nvtn_bindgen2 = '%s'\nasahi_clc = '%s'\n" \
   "$PWD/tools/src/compiler/clc/mesa_clc" "$PWD/tools/src/compiler/spirv/vtn_bindgen2" "$PWD/tools/src/asahi/clc/asahi_clc" > tools.ini
 meson setup build "${options[@]}" --native-file tools.ini -Dgallium-rusticl=false -Dllvm=disabled -Dspirv-tools=disabled -Dmesa-clc=system -Dprecomp-compiler=system -Dbuild-tests=true
@@ -130,10 +150,14 @@ DESTDIR=%{buildroot} meson install -C build --no-rebuild
 install -Dm755 tools/src/gallium/targets/rusticl/libRusticlOpenCL.so.1.0.0 %{buildroot}%{_libdir}/libRusticlOpenCL.so.1.0.0
 ln -s libRusticlOpenCL.so.1.0.0 %{buildroot}%{_libdir}/libRusticlOpenCL.so.1
 ln -s libRusticlOpenCL.so.1 %{buildroot}%{_libdir}/libRusticlOpenCL.so
+install -Dm755 tools/src/gallium/targets/lavapipe/libvulkan_lvp.so %{buildroot}%{_libdir}/libvulkan_lvp.so
+install -Dm644 tools/src/gallium/targets/lavapipe/lvp_icd.aarch64.json %{buildroot}%{_datadir}/vulkan/icd.d/lvp_icd.aarch64.json
+grep -F '"library_path": "%{_libdir}/libvulkan_lvp.so"' %{buildroot}%{_datadir}/vulkan/icd.d/lvp_icd.aarch64.json
 install -Dm644 tools/src/gallium/targets/rusticl/rusticl.icd %{buildroot}%{_sysconfdir}/OpenCL/vendors/rusticl.icd
 while IFS= read -r binary; do
-  # Rusticl compiles OpenCL programs at runtime and legitimately needs LLVM.
-  case "$binary" in */libRusticlOpenCL.so*) continue ;; esac
+  # Rusticl compiles OpenCL programs and lavapipe JIT-compiles shaders at
+  # runtime; both legitimately need LLVM.
+  case "$binary" in */libRusticlOpenCL.so*|*/libvulkan_lvp.so) continue ;; esac
   readelf -d "$binary" > dependencies.txt
   if grep -Eq 'NEEDED.*(libLLVM|libSPIRV-Tools)' dependencies.txt; then
     echo "Compiler runtime dependency in $binary" >&2; exit 1
@@ -142,12 +166,15 @@ done < <(find %{buildroot} -type f -name '*.so*')
 find %{buildroot} -type f -o -type l | sed 's@%{buildroot}@@' > all.files
 grep -E 'libvulkan_asahi\.so|vulkan/icd.d/.*asahi.*json' all.files > vulkan.files
 grep -E '^/usr/include/|/pkgconfig/|^/usr/lib64/libgbm\.so$' all.files > devel.files
-grep -vE 'libvulkan_asahi\.so|vulkan/icd.d/.*asahi.*json|libRusticlOpenCL|/OpenCL/vendors/' all.files | grep -vxF -f devel.files > dri.files
+grep -vE 'libvulkan_asahi\.so|vulkan/icd.d/.*asahi.*json|libvulkan_lvp\.so|vulkan/icd.d/lvp_icd|libRusticlOpenCL|/OpenCL/vendors/' all.files | grep -vxF -f devel.files > dri.files
 # Check the installed driverInfo, not just the build environment variable.
 strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(git-$(echo %{commit} | cut -c1-10)), Borealis"
 
 %files -n mesa-aurora-dri-drivers -f dri.files
 %files -n mesa-aurora-vulkan-drivers -f vulkan.files
+%files -n mesa-aurora-vulkan-lavapipe
+%{_libdir}/libvulkan_lvp.so
+%{_datadir}/vulkan/icd.d/lvp_icd.aarch64.json
 %files -n mesa-aurora-devel -f devel.files
 %files -n mesa-aurora-libOpenCL
 %{_libdir}/libRusticlOpenCL.so.1*
@@ -156,6 +183,12 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-12
+- Ship lavapipe as mesa-aurora-vulkan-lavapipe. The replaced
+  mesa-vulkan-drivers carried libvulkan_lvp.so and installed applications
+  require it, so the migration otherwise removes them.
+- Build on Fedora 45, where libclc pkg-config data comes from libclc22-devel.
+
 * Sat Oct 31 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-11
 - Embed the pinned Mesa commit in native driverInfo.
 - Replace legacy OpenCL/devel packages with matching functional subpackages.
