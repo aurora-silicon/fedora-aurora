@@ -1,7 +1,7 @@
-%global commit fe6ee0de5b17b7b4abd521780c6b4dc393e2c255
+%global commit 7bf3ce28ba4533b78333d3d849e7b50a4a8505ac
 %global selinuxtype targeted
 Name: aurora-firstboot
-Version: 0.1.11
+Version: 0.1.12
 Release: 1%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
@@ -31,15 +31,16 @@ make selinux/aurora_firstboot.pp
 make install-common install-dracut install-selinux DESTDIR=%{buildroot} PREFIX=%{_prefix}
 install -Dm644 /dev/stdin %{buildroot}/usr/lib/systemd/system-preset/90-aurora-firstboot.preset <<'EOF'
 enable aurora-firstboot.service
+enable aurora-initrd-keymap.path
 EOF
 
 %post
 # Label the setup programs as ordinary executables so systemd runs them in
 # unconfined_service_t, not in its own init_t domain.
 %selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/%{selinuxtype}/aurora_firstboot.pp
-%systemd_post aurora-firstboot.service
+%systemd_post aurora-firstboot.service aurora-initrd-keymap.path
 %preun
-%systemd_preun aurora-firstboot.service
+%systemd_preun aurora-firstboot.service aurora-initrd-keymap.path
 %postun
 # Never restart the account wizard (and its greeter) on upgrade.
 %systemd_postun aurora-firstboot.service
@@ -66,6 +67,8 @@ fi
 /usr/lib/dracut/modules.d/97aurora-root/
 %{_unitdir}/aurora-firstboot.service
 %{_unitdir}/aurora-disk-rekey.service
+%{_unitdir}/aurora-initrd-keymap.path
+%{_unitdir}/aurora-initrd-keymap.service
 %{_unitdir}/display-manager.service.d/aurora-firstboot.conf
 %{_unitdir}/getty@.service.d/aurora-firstboot.conf
 %{_unitdir}/serial-getty@.service.d/aurora-firstboot.conf
@@ -75,6 +78,16 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/aurora_firstboot.pp
 
 %changelog
+* Fri Oct 30 2026 Aurora Silicon <hey@djdev.me> - 0.1.12-1
+- Give the disk password prompt the system keymap: a console keymap still at
+  the image default follows the desktop layout before the password is
+  enrolled, a remaining difference is logged, and aurora-initrd-keymap.path
+  rebuilds the initrds whenever /etc/vconsole.conf changes.
+- Remove the temporary keyslot only on the new password's authority, and
+  overwrite every copy of the temporary key and the pre-recovery header
+  backup on /boot.
+- The PAM hooks do nothing once the disk is rekeyed.
+
 * Thu Oct 29 2026 Aurora Silicon <hey@djdev.me> - 0.1.11-1
 - Ask nothing at first boot on desktop images: the owner's account password,
   at its first sign-in, becomes the disk password (aurora-password-hook,
