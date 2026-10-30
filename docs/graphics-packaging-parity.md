@@ -94,3 +94,25 @@ These are unsigned CI candidates for review. The test repository's unsigned
 candidate policy is confined to disposable containers; owner-run kits retain
 configured DNF trust and versionlock policy. No target or GPU runtime result is
 claimed. Other userspace candidates remain separate references in the staged kits.
+
+## Lavapipe (Fedora 26.3.0-12)
+
+Fedora's old `mesa-vulkan-drivers` carried lavapipe (`libvulkan_lvp.so`), and
+installed applications link it directly (the ChatGPT desktop app on the fleet
+does). 26.3.0-12 builds it in the LLVM-enabled tools tree next to Rusticl and
+ships it as `mesa-aurora-vulkan-lavapipe`, so the native Vulkan package keeps
+no compiler runtime dependency. Fedora 45 builds against `pkgconfig(libclc)`,
+which `libclc22-devel` provides there, and Rusticl requires `libclc22`.
+
+- alarm-aurora (reviewed main `266655ede65b6b24e2376b3c097a0bf8de5831f7`):
+  `mesa-aurora` builds only `-Dvulkan-drivers=asahi`, so lavapipe comes from
+  Arch's stock `vulkan-swrast` (26.2.6), which still installs beside it.
+  For one Mesa source, add a `vulkan-swrast-aurora` split package built in the
+  LLVM-enabled tools tree with `provides=('vulkan-swrast')`,
+  `conflicts=('vulkan-swrast')` and `replaces=('vulkan-swrast')`.
+- nixos-aurora (reviewed main `afa9b4c734f426000b0a017d60dc9a6394258b8b`):
+  `mesa.nix` sets `-Dvulkan-drivers=asahi`, so the system has no lavapipe at
+  all, unlike stock nixpkgs Mesa. Build `src/gallium/targets/lavapipe` in the
+  `tools` tree (which already has `-Dllvm=enabled`) and install
+  `libvulkan_lvp.so` with its ICD into a separate output, keeping LLVM out of
+  the native driver closure.
