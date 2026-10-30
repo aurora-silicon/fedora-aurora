@@ -162,5 +162,14 @@
     "archive_root": "mutter-50.6",
     "archive_file": "mutter-50.6.tar.xz",
     "sha256": "abed98ed9c46934a0f761ba8c28a055305b99b4855e44c8273f881da7189bc9c"
+  },
+  "fprintd": {
+    "repository": "https://gitlab.freedesktop.org/libfprint/fprintd",
+    "commit": "b54a007ccf58ac0ae074c7151b223f35cbd17306",
+    "version": "1.94.5",
+    "source_url": "https://gitlab.freedesktop.org/libfprint/fprintd/-/archive/v1.94.5/fprintd-v1.94.5.tar.gz",
+    "archive_file": "fprintd-v1.94.5.tar.gz",
+    "archive_root": "fprintd-v1.94.5",
+    "sha256": "a026ef34c31b25975275cc29a5e4eba2b54524769672095a5228098a08acd82c"
   }
 }
