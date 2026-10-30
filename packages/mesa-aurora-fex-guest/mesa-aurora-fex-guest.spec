@@ -162,10 +162,19 @@ fi
 # cannot relabel a directory on a read-only mount, so an upgrade fails while it
 # is mounted. Unmount for the upgrade and mount the new layer afterwards.
 %pre
-if [ $1 -gt 1 ] && [ -d /run/systemd/system ] && systemctl -q is-active aurora-fex-mesa.service; then
-  # Abort before unpacking if an in-use overlay cannot be unmounted.
-  systemctl stop aurora-fex-mesa.service || exit 1
-  touch /run/aurora-fex-mesa.upgrade
+if [ $1 -gt 1 ] && [ -d /run/systemd/system ]; then
+  if systemctl -q is-active aurora-fex-mesa.service; then
+    # Abort before unpacking if an in-use overlay cannot be unmounted.
+    systemctl stop aurora-fex-mesa.service || exit 1
+    if mountpoint -q /usr/share/guestos/aurora-fex-mesa; then
+      echo 'FEX overlay remains mounted after stopping its service' >&2
+      exit 1
+    fi
+    touch /run/aurora-fex-mesa.upgrade
+  elif mountpoint -q /usr/share/guestos/aurora-fex-mesa; then
+    echo 'FEX overlay is mounted without an active service; unmount it before upgrading' >&2
+    exit 1
+  fi
 fi
 %post
 %systemd_post aurora-fex-mesa.service

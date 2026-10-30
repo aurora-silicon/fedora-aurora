@@ -62,7 +62,7 @@ jobs:
             done
             python3 scripts/import-rpm-build.py --metadata "$RUNNER_TEMP/run-$run.json" \
               --artifacts "$RUNNER_TEMP/run-$run" --output "$RUNNER_TEMP/candidates" \
-              --repository "$GITHUB_REPOSITORY" \
+              --repository "$GITHUB_REPOSITORY" --matching-only \
               --packages mesa-aurora mesa-aurora-fex-guest aurora-flatpak-gl
           done
           for package in mesa-aurora mesa-aurora-fex-guest aurora-flatpak-gl; do

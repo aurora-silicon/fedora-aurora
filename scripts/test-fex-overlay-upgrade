@@ -61,6 +61,20 @@ cmp /usr/share/guestos/aurora-fex-mesa/.aurora-mesa-commit /usr/share/guestos/au
 rpm -V mesa-aurora-fex-guest
 rpm -qa | sort > "$proof/after.txt"
 findmnt /usr/share/guestos/aurora-fex-mesa > "$proof/mount-after.txt"
+# An inactive unit with a stale mount must fail in %pre before unpacking.
+mkdir -p /run/systemd/system/aurora-fex-mesa.service.d
+printf '[Service]\nExecStop=\nExecStop=/usr/bin/true\n' > /run/systemd/system/aurora-fex-mesa.service.d/stale-test.conf
+systemctl daemon-reload
+systemctl stop aurora-fex-mesa.service
+mountpoint -q /usr/share/guestos/aurora-fex-mesa
+if dnf -y --enable-repo=aurora-overlay-test reinstall mesa-aurora-fex-guest; then
+  echo 'Expected the stale overlay to abort the transaction' >&2; exit 1
+fi
+rpm -V mesa-aurora-fex-guest
+rm /run/systemd/system/aurora-fex-mesa.service.d/stale-test.conf
+systemctl daemon-reload
+umount /usr/share/guestos/aurora-fex-mesa
+systemctl start aurora-fex-mesa.service
 # Reinstalling an upgrade while inactive must leave the service inactive.
 systemctl stop aurora-fex-mesa.service
 dnf -y --enable-repo=aurora-overlay-test reinstall mesa-aurora-fex-guest
