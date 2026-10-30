@@ -1,8 +1,11 @@
 %global debug_package %{nil}
-%global commit ec4a6ab8b4252079e78196515577d73ef0a86135
+%global commit 0ca7bf85c9946a7ec90a5701c126b70ed144bd34
+# This commit is the v1.0.0b1 tag, so the image carries that release label
+# instead of 1.0.0b1-g<commit>. track-sources.py drops it when aura moves on.
+%global release_tag 1.0.0b1
 Name: aura
-Version: 0.1.0
-Release: 6%{?dist}
+Version: 1.0.0~b1
+Release: 1%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -17,16 +20,16 @@ Requires: update-m1n1 uboot-aurora
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-ec4a6ab8b4252079e78196515577d73ef0a86135
+%autosetup -n aura-0ca7bf85c9946a7ec90a5701c126b70ed144bd34
 
 %build
 export RUSTC_BOOTSTRAP=1
-make %{?_smp_mflags} BUILDSTD=1 RELEASE=1 CHAINLOADING=1 USE_CLANG=1 BUILTIN_LOGO=aurora
+make %{?_smp_mflags} BUILDSTD=1 RELEASE=1 CHAINLOADING=1 USE_CLANG=1 BUILTIN_LOGO=aurora %{?release_tag:AURA_VERSION_TAG=%{release_tag}}
 mkdir -p ../aurora-stage1
 cp build/aura.bin ../aurora-stage1/aura-raw.bin
 cp build/aura.macho ../aurora-stage1/aura.macho
 make clean
-make %{?_smp_mflags} BUILDSTD=1 RELEASE=1 CHAINLOADING=1 ESP_STAGE2=1 USE_CLANG=1 BUILTIN_LOGO=aurora
+make %{?_smp_mflags} BUILDSTD=1 RELEASE=1 CHAINLOADING=1 ESP_STAGE2=1 USE_CLANG=1 BUILTIN_LOGO=aurora %{?release_tag:AURA_VERSION_TAG=%{release_tag}}
 
 %install
 install -Dm644 build/aura.bin %{buildroot}%{_libdir}/m1n1/m1n1.bin
@@ -41,6 +44,11 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Fri Oct 30 2026 Aurora Silicon <hey@djdev.me> - 1.0.0~b1-1
+- Update to aura 1.0.0b1 (tag v1.0.0b1, 0ca7bf8).
+- aura is the shipping Stage 1 and Stage 2. Its version marker is
+  ##aura_ver##; it still accepts payload records made for m1n1.
+
 * Mon Oct 26 2026 Aurora Silicon <hey@djdev.me> - 0.1.0-6
 - Track aurora-silicon/aura main at ec4a6ab.
 - Upstream head: Merge pull request #8 from AxxzyWasTaken/t6041-ans-reserve
