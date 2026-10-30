@@ -71,4 +71,21 @@ class SpecTests(unittest.TestCase):
         self.assertIn("prefix: /usr/lib/aarch64-linux-gnu/GL/aurora", manifest)
         self.assertIn('priority=10', build)
         self.assertIn("['mesa-aurora']", build)
+    def test_platform_core_carries_no_kernel_or_boot_chain(self):
+        d = ROOT / 'packages' / 'aurora-platform'
+        text = (d / 'aurora-platform.spec').read_text()
+        core = text.split('%package core', 1)[1].split('%description core', 1)[0]
+        requires = ' '.join(re.findall(r'^Requires:\s+(.+)$', core, re.M)).split()
+        for name in ['update-m1n1', 'dracut-asahi', 'asahi-fwupdate', 'speakersafetyd',
+                     'speakerguardd', 'aurora-audio', 'alsa-ucm-conf-aurora']:
+            self.assertIn(name, requires)
+        for name in requires:
+            self.assertFalse(name.startswith(('kernel', 'uboot', 'm1n1')) or name == 'aura', name)
+        self.assertNotIn('aurora-release', requires)
+        self.assertNotIn('aurora-bless', requires)
+        for name in ['asahi-platform-metapackage', 'asahi-platform-metapackage-core']:
+            self.assertRegex(core, r'(?m)^Obsoletes: ' + name + r' < 1$')
+        self.assertEqual((d / 'aurora-platform-core.conf').read_text().split(), ['aurora-platform-core'])
+        self.assertIn('protected.d/aurora-platform-core.conf', text.split('%files core', 1)[1])
+        self.assertRegex(text, r'(?m)^Requires: aurora-platform-core = %\{version\}-%\{release\}$')
 if __name__ == '__main__': unittest.main()
