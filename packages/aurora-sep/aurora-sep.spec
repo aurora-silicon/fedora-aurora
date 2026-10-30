@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 9%{?dist}
+Release: 11%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -152,6 +152,12 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Oct 30 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1-11
+- prepare-sep-calibration installs only a comb record and only over a file
+  it installed: a standalone FSC2 image is no longer written over the sealed
+  calibration on the MacBook Neo, where the enclave refused it (0x1c)
+- Release 11 stays above the linux tree's kit spec at 1-10
+
 * Thu Oct 29 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1-9
 - Update to tools/aurora-sep from aurora-silicon/linux integration/aurora:
   Touch ID is ready only once the sensor attached, the fingerprints were
