@@ -23,9 +23,16 @@ enabled=1
 gpgcheck=0
 EOF
 # Keep fixes disabled until the old graph is installed and checked.
-mapfile -d '' old_rpms < <(find "$old" -maxdepth 1 -name '*.rpm' ! -name '*.src.rpm' -print0 | sort -z)
-(( ${#old_rpms[@]} ))
-dnf -y --disable-repo=aurora-packaging-test --setopt=install_weak_deps=False install "${old_rpms[@]}"
+if [[ $old == fedora ]]; then
+  dnf -y --disable-repo=aurora-packaging-test --setopt=install_weak_deps=False install \
+    mesa-dri-drivers mesa-vulkan-drivers mesa-libEGL mesa-libGL mesa-libgbm \
+    mesa-libEGL-devel mesa-libGL-devel mesa-libgbm-devel mesa-libOpenCL mesa-libOpenCL-devel \
+    /baselines/10/aurora-flatpak-gl-*.aarch64.rpm
+else
+  mapfile -d '' old_rpms < <(find "$old" -maxdepth 1 -name '*.rpm' ! -name '*.src.rpm' -print0 | sort -z)
+  (( ${#old_rpms[@]} ))
+  dnf -y --disable-repo=aurora-packaging-test --setopt=install_weak_deps=False install "${old_rpms[@]}"
+fi
 dnf check
 rpm -qa --qf '%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > "$out/before.tsv"
 # Real repository upgrade, not a header comparison or an erasing solver.

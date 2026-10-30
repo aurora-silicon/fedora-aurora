@@ -1,5 +1,12 @@
 name: Source checks
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      graphics_runs:
+        description: Space-separated successful RPM build run IDs to validate
+        default: ''
 permissions:
   contents: read
 jobs:
@@ -18,3 +25,81 @@ jobs:
           python3 -m compileall -q scripts images
           bash -n scripts/build-rpm
           git diff --check
+  graphics:
+    if: github.event_name == 'workflow_dispatch' && inputs.graphics_runs != ''
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GRAPHICS_RUNS: ${{ inputs.graphics_runs }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download and authenticate candidate inputs
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/candidates"
+          for run in $GRAPHICS_RUNS; do
+            [[ $run =~ ^[0-9]+$ ]]
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" > "$RUNNER_TEMP/run-$run.json"
+            gh run download "$run" --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/run-$run"
+            python3 scripts/import-rpm-build.py --metadata "$RUNNER_TEMP/run-$run.json" \
+              --artifacts "$RUNNER_TEMP/run-$run" --output "$RUNNER_TEMP/candidates" \
+              --repository "$GITHUB_REPOSITORY" \
+              --packages mesa-aurora mesa-aurora-fex-guest aurora-flatpak-gl
+          done
+          for package in mesa-aurora mesa-aurora-fex-guest aurora-flatpak-gl; do
+            test -f "$RUNNER_TEMP/candidates/manifests/$package.json"
+          done
+          for pair in 9:testing-20261030.10 10:testing-20261030.11; do
+            number=${pair%%:*}; tag=${pair#*:}
+            mkdir -p "$RUNNER_TEMP/baselines/$number"
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+              --pattern 'mesa-aurora-*.aarch64.rpm' --pattern 'mesa-aurora-*.noarch.rpm' \
+              --pattern 'aurora-flatpak-gl-*.aarch64.rpm' \
+              --pattern SHA256SUMS --dir "$RUNNER_TEMP/baselines/$number"
+            (cd "$RUNNER_TEMP/baselines/$number" && sha256sum --check --ignore-missing SHA256SUMS)
+          done
+      - name: Check built payloads and perform clean DNF upgrades
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/proof"
+          docker run --rm --platform linux/arm64 \
+            -v "$PWD:/src:ro" -v "$RUNNER_TEMP/candidates:/candidates" \
+            -v "$RUNNER_TEMP/baselines:/baselines:ro" -v "$RUNNER_TEMP/proof:/proof" \
+            registry.fedoraproject.org/fedora:44 bash -euxo pipefail -c '
+              dnf install -y createrepo_c rpm-build ostree python3 binutils dnf5-plugins
+              rpm --import /src/keys/RPM-GPG-KEY-aurora
+              for rpm in /baselines/{9,10}/*.rpm; do rpmkeys --checksig "$rpm"; done
+              createrepo_c /candidates/rpms
+              for baseline in 9 10 fedora; do
+                # Each baseline gets an independent installroot and RPM database.
+                mkdir -p /proof/root-$baseline
+                dnf -y --releasever=44 --installroot=/proof/root-$baseline \
+                  --setopt=install_weak_deps=False install fedora-release dnf5 python3 ostree binutils
+                mkdir -p /proof/root-$baseline/{src,baselines,candidates,proof}
+                cp -a /src/packages /src/scripts /proof/root-$baseline/src/
+                cp -a /baselines/. /proof/root-$baseline/baselines/
+                cp -a /candidates/rpms/. /proof/root-$baseline/candidates/
+                cp /etc/resolv.conf /proof/root-$baseline/etc/resolv.conf
+                touch /proof/root-$baseline/.dockerenv
+                old=/baselines/$baseline
+                [[ $baseline == fedora ]] && old=fedora
+                chroot /proof/root-$baseline bash /src/scripts/test-graphics-upgrade \
+                  "$old" /candidates /proof
+                cp -a /proof/root-$baseline/proof /proof/result-$baseline
+              done
+            ' 2>&1 | tee "$RUNNER_TEMP/proof/validation.log"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: graphics-validation
+          path: |
+            ${{ runner.temp }}/proof/validation.log
+            ${{ runner.temp }}/proof/result-*/
+          retention-days: 30
