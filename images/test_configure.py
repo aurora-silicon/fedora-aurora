@@ -36,6 +36,11 @@ class ConfigureTests(unittest.TestCase):
                 '<ignore name="nvidia-gpu-firmware"/><ignore name="iwlwifi-mvm-firmware"/>'
                 '<ignore name="qcom-firmware"/><ignore name="dracut-config-rescue"/></packages></image>')
         (cls.source / "repositories/asahi.xml").write_text("<image/>")
+        (cls.source / "root/etc").mkdir()
+        (cls.source / "root/etc/fstab.script").write_text(
+            "#!/bin/sh\n"
+            "gawk -i inplace '$2 == \"/boot/efi\" { $4 = $4\",umask=0077,shortname=winnt\" } "
+            "{ print $0 }' /etc/fstab\n")
         for name, arguments in (("workstation", "rhgb quiet"), ("minimal", "")):
             (cls.source / f"platforms/{name}.xml").write_text(
                 f'<image><preferences><type image="oem" kernelcmdline="{arguments}" '
@@ -110,6 +115,29 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual(types["minimal"].get("kernelcmdline"),
                          "quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto")
         self.assertEqual(types["minimal"].get("rootfs_label"), "AURORA_ROOT")
+
+    def test_esp_is_checked_at_boot(self):
+        out = self.root / "esp-fsck"
+        self.prepare(out)
+        script = (out / "root/etc/fstab.script").read_text()
+        fstab = ("UUID=r / btrfs x-systemd.growfs,compress=zstd:1,defaults,subvol=root 0 1\n"
+                 "UUID=b /boot ext4 defaults 0 0\n"
+                 "UUID=e /boot/efi vfat defaults 0 0\n"
+                 "UUID=r /home btrfs subvol=home 0 0\n")
+        # Run each in-place edit as a filter, in order, on a KIWI-style fstab.
+        programs = [line.split("'")[1] for line in script.splitlines()
+                    if line.startswith("gawk -i inplace ")]
+        self.assertEqual(len(programs), 2)
+        for program in programs:
+            fstab = subprocess.run(["awk", program], input=fstab, text=True,
+                                   check=True, capture_output=True).stdout
+        self.assertEqual(fstab.splitlines(), [
+            "UUID=r / btrfs x-systemd.growfs,compress=zstd:1,defaults,subvol=root 0 1",
+            "UUID=b /boot ext4 defaults 0 0",
+            "UUID=e /boot/efi vfat defaults,umask=0077,shortname=winnt 0 2",
+            "UUID=r /home btrfs subvol=home 0 0",
+        ])
+        self.assertEqual(configure.git(self.source, "status", "--porcelain"), "")
 
     def test_rejects_wrong_source_key_profile_and_unsafe_repository(self):
         cases = [dict(lock={**self.lock, "commit": "0" * 40}),

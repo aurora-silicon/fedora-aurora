@@ -34,6 +34,10 @@ PACKAGES = {
 # Quiet by default: the splash (desktops) or a clean console, with failures
 # still reported. systemd shows status only when a unit fails or stalls.
 QUIET_BOOT = ["quiet", "loglevel=3", "rd.udev.log_level=3", "systemd.show_status=auto"]
+ESP_FSCK = '''
+# Check the ESP at boot (fsck pass 2), like Fedora's installer.
+gawk -i inplace '$2 == "/boot/efi" && $3 == "vfat" { if ($5 == "") $5 = 0; $6 = 2 } { print $0 }' /etc/fstab
+'''
 REPLACED = {
     "kernel-16k", "kernel-16k-modules-extra", "uboot-images-armv8",
     "asahi-platform-metapackage", "asahi-repos", "fedora-asahi-remix-scripts",
@@ -93,6 +97,16 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
         shutil.copytree(source / name, destination / name)
     for name in ("config.xml", "config.sh", "post_bootstrap.sh", "pre_disk_sync.sh", "COPYING"):
         shutil.copy2(source / name, destination / name)
+
+    # KIWI writes the ESP with fsck pass 0, so nothing ever checks it. Linux
+    # never clears a FAT dirty bit by itself, so one unclean shutdown leaves the
+    # ESP dirty on every later boot, and macOS then refuses to mount it. Pass 2
+    # lets systemd-fsck repair it before the mount, as Fedora's own installer does.
+    fstab_script = destination / "root/etc/fstab.script"
+    if '$2 == "/boot/efi"' not in fstab_script.read_text():
+        raise ValueError("upstream ESP fstab handling changed; review the integration")
+    with fstab_script.open("a") as script:
+        script.write(ESP_FSCK)
 
     # No Asahi kernel, bootloader or branding repository can replace Aurora RPMs.
     (destination / "repositories/asahi.xml").unlink()
