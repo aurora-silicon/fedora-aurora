@@ -23,7 +23,10 @@ jobs:
           python3 -m unittest discover -s tests -p 'test_*.py'
           python3 images/test_configure.py
           python3 -m compileall -q scripts images
-          bash -n scripts/build-rpm
+          for script in scripts/build-rpm scripts/build-flatpak-gl-repo \
+            packages/aurora-flatpak-gl/build-extension.sh scripts/test-graphics-upgrade scripts/fleet-kit/*.sh; do
+            bash -n "$script"
+          done
           git diff --check
   graphics:
     if: github.event_name == 'workflow_dispatch' && inputs.graphics_runs != ''
