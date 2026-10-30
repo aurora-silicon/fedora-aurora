@@ -55,14 +55,14 @@ jobs:
           sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet
           df -h "$RUNNER_TEMP"
           test "$(df --output=avail -B1 "$RUNNER_TEMP" | tail -1)" -ge 21474836480
-      - name: Build Fedora 44 RPMs natively
+      - name: Build Fedora 45 RPMs natively
         run: |
           set -euo pipefail
           # bubblewrap needs namespaces/mounts for the unprivileged GL builder.
           sandbox=()
           if [[ '${{ matrix.package }}' == aurora-flatpak-gl ]]; then sandbox=(--privileged); fi
           docker run --rm "${sandbox[@]}" --platform linux/arm64 -v "$PWD:/src" -w /src \
-            registry.fedoraproject.org/fedora:44 bash -euo pipefail -c '
+            registry.fedoraproject.org/fedora:45 bash -euo pipefail -c '
               dnf install -y rpm-build dnf5-plugins python3 git tar gzip coreutils findutils
               if [[ $1 == aurora-flatpak-gl ]]; then
                 dnf install -y flatpak flatpak-builder ostree
@@ -117,11 +117,11 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - name: Build Fedora 44 RPMs on x86_64
+      - name: Build Fedora 45 RPMs on x86_64
         run: |
           set -euo pipefail
           docker run --rm --platform linux/amd64 -v "$PWD:/src" -w /src \
-            registry.fedoraproject.org/fedora:44 bash -euo pipefail -c '
+            registry.fedoraproject.org/fedora:45 bash -euo pipefail -c '
               dnf install -y rpm-build dnf5-plugins python3 git tar gzip coreutils findutils
               AURORA_INSTALL_BUILDDEPS=1 AURORA_BUILD_JOBS=4 bash scripts/build-rpm "$1"
             ' build '${{ matrix.package }}' 2>&1 | tee build.log
