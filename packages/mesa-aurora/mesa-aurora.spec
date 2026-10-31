@@ -1,8 +1,8 @@
-%global commit cf4e08105dfa526b8874318b6a52b3ce948f6297
+%global commit c208afc352e9d4c10ee71c883a369a9079dd7d84
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 13%{?dist}.aurora
+Release: 14%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -183,6 +183,11 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-14
+- Track aurora-silicon/mesa aurora-wip at c208afc.
+- Upstream head: Merge pull request #126 from aurora-silicon/aurora/kernel-identity
+- Accept the "aurora" kernel DRM name next to "asahi" and ship aurora_dri.so.
+
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-13
 - Rebuild in lockstep with the mesa-aurora-fex-guest upgrade fix.
 
