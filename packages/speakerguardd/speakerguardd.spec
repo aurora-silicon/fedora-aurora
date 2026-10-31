@@ -1,4 +1,4 @@
-%global commit c1de6aa10eb42719fae9a756cfa91e7c24f4c98c
+%global commit 526790d8db34a823d9ffc6c36b642d0caf4a22ed
 Name: speakerguardd
 Version: 0.1.13~rc2
 Release: 1%{?dist}
@@ -23,7 +23,7 @@ Summary: Optional speaker excursion and peak limiter
 Optional LADSPA excursion limiter. Installing it does not enable an audio graph.
 
 %prep
-%autosetup -n speakerguardd-c1de6aa10eb42719fae9a756cfa91e7c24f4c98c
+%autosetup -n speakerguardd-526790d8db34a823d9ffc6c36b642d0caf4a22ed
 
 %build
 # The binary names its source in -V and the journal.
@@ -54,7 +54,9 @@ install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/speakersafetyd.service.d/50-j7
 %preun
 %systemd_preun speakerguardd.service
 %postun
-%systemd_postun_with_restart speakerguardd.service
+# Keep the running protection until an orderly reboot. Mixing a pre-marker
+# owner and the evidence-start binary in one boot cannot prove history.
+%systemd_postun speakerguardd.service
 
 %files
 %license LICENSE
