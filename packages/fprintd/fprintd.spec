@@ -1,5 +1,7 @@
 Name:		fprintd
 Version:	1.94.5
+# Keep the Aurora driver/account gate ahead of stock Fedora updates.
+Epoch:          1
 Release:	99%{?dist}.aurora1
 Summary:	D-Bus service for Fingerprint reader access
 
@@ -35,10 +37,10 @@ D-Bus service to access fingerprint readers.
 
 %package pam
 Summary:	PAM module for fingerprint authentication
-Requires:	%{name} = %{version}-%{release}
+Requires:	%{name} = %{epoch}:%{version}-%{release}
 # Note that we obsolete pam_fprint, but as the configuration
 # is different, it will be mentioned in the release notes
-Provides:	pam_fprint = %{version}-%{release}
+Provides:	pam_fprint = %{epoch}:%{version}-%{release}
 Obsoletes:	pam_fprint < 0.2-3
 Requires(postun): authselect >= 0.3
 
@@ -50,7 +52,7 @@ authentication.
 
 %package devel
 Summary:	Development files for %{name}
-Requires:	%{name} = %{version}-%{release}
+Requires:	%{name} = %{epoch}:%{version}-%{release}
 # dbus interfaces are GPL-2.0-or-later
 # documentation is GFDL-1.1-or-later
 License:	GPL-2.0-or-later AND GFDL-1.1-or-later
@@ -105,5 +107,9 @@ fi
 %{_datadir}/dbus-1/interfaces/net.reactivated.Fprint.Manager.xml
 
 %changelog
+* Sat Oct 31 2026 Aurora Silicon contributors - 1:1.94.5-99.aurora1
+- Build natively for Fedora 45 and upgrade stock and fc44 Aurora packages
+- Qualify matching subpackage dependencies with the epoch
+
 * Tue Oct 27 2026 Aurora Silicon contributors - 1.94.5-99.aurora1
 - Keep local fingerprint records when deletion from the device fails
