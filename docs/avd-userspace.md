@@ -174,9 +174,10 @@ change Chromium's device broker:
 
 ```sh
 avd-vaapi chromium --user-data-dir="$PWD/chromium-avd-profile" \
-  --mute-audio --enable-features=VaapiVideoDecoder about:gpu "file://$PWD/video-test.html"
+  --mute-audio about:gpu "file://$PWD/video-test.html"
 ```
 
+Record the browser version and its existing graphics-acceleration setting.
 Record Video Acceleration Information from `about:gpu` and the selected video
 decoder from `chrome://media-internals` during the same muted local clip. Retain
 broker denials. Do not use `--no-sandbox` or `--disable-gpu-sandbox`. If Chromium
