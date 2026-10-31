@@ -35,7 +35,8 @@ for package in "${packages[@]}"; do
   test "$(rpm -q --qf '%{EPOCHNUM}:%{VERSION}' "$package")" = 1:1.91.5
 done
 sha256sum --check /tmp/upower-state.sha256
-upower --version
+# The CLI version query requires a running system bus and daemon.
+# Runtime D-Bus behavior is covered by the full umockdev suite in %check.
 # Restrict the transaction to Fedora repositories so Aurora's epoch cannot win.
 dnf --repo=fedora --repo=updates distro-sync -y "${packages[@]}"
 rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' "${packages[@]}" > /tmp/upower-rollback.txt
