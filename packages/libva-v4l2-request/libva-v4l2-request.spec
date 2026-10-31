@@ -8,6 +8,7 @@ URL: https://github.com/omacom/libva-v4l2_request
 Source0: https://github.com/omacom/libva-v4l2_request/archive/%{commit}.tar.gz#/%{name}-%{commit}.tar.gz
 Source1: avd-vaapi.in
 ExclusiveArch: aarch64
+BuildRequires: libtsan
 BuildRequires: gcc meson ninja-build pkgconf-pkg-config python3
 BuildRequires: kernel-headers >= 6.5
 BuildRequires: pkgconfig(libva) pkgconfig(libdrm)
