@@ -17,10 +17,11 @@ Source2: gnustep-make-d0349cc83a23367acdc53df364f73504c281b26c.tar.gz
 Source3: gnustep-base-3d7013e144b153abcd6c088dc8d6c64ebd43bc4b.tar.gz
 Source4: build-runtime.sh
 Source5: install-runtime.sh
+Patch0: gnustep-base-block-ivar.patch
 ExclusiveArch: aarch64
 BuildRequires: clang lld cmake ninja-build make pkgconf-pkg-config
 BuildRequires: libffi-devel libxml2-devel libicu-devel openssl-devel zlib-devel robin-map-devel
-BuildRequires: gcc-c++ python3 patchelf
+BuildRequires: gcc-c++ python3 patchelf patch
 # Libraries are private, not ABI-compatible with the system GNUstep runtime.
 Provides: bundled(libobjc2)
 Provides: bundled(gnustep-base)
@@ -31,10 +32,11 @@ GNUstep runtime (MIT / LGPL-2.1-or-later). Compiles open MIL input without
 Apple frameworks, firmware, models or a device. Does not install a driver.
 
 %prep
-%autosetup -n mil-hwx-compiler-%{commit}
+%autosetup -N -n mil-hwx-compiler-%{commit}
 tar -xzf %{SOURCE1} -C ..
 tar -xzf %{SOURCE2} -C ..
 tar -xzf %{SOURCE3} -C ..
+patch -d ../libs-base-3d7013e144b153abcd6c088dc8d6c64ebd43bc4b -p1 < %{PATCH0}
 
 %build
 JOBS=8 bash %{SOURCE4} ..
