@@ -17,6 +17,14 @@ a.output.mkdir(parents=True, exist_ok=True)
 for name in a.sources:
     pin = pins[name]
     target = a.output / (name + '-' + pin['commit'] + '.tar.gz')
+    if pin.get('local_archive'):
+        local = ROOT / 'demos' / pin['local_archive']
+        with local.open('rb') as src:
+            if hashlib.file_digest(src, 'sha256').hexdigest() != pin['sha256']:
+                raise SystemExit(name + ': source-only archive SHA-256 mismatch')
+        if not target.exists():
+            import shutil
+            shutil.copyfile(local, target)
     if not target.exists():
         with tempfile.NamedTemporaryFile(dir=a.output) as temp:
             with urllib.request.urlopen(pin['source_url'], timeout=120) as src:

@@ -61,4 +61,4 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_userpresetdir}/80-aurora-camera-denoise
 
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-1
 - Initial Fedora Aurora package of camera-denoise 0.1.0 (846646456ee1),
-  with the CPU backend. The user service is available but disabled by default.
+  with the CPU backend. The user service is preset on.
