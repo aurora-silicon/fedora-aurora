@@ -1,0 +1,11 @@
+{
+  "mutter": {
+    "repository": "https://gitlab.gnome.org/GNOME/mutter",
+    "commit": "9134e3a5869ce232bf95b77519005865747ba603",
+    "version": "51.1",
+    "source_url": "https://download.gnome.org/sources/mutter/51/mutter-51.1.tar.xz",
+    "archive_root": "mutter-51.1",
+    "archive_file": "mutter-51.1.tar.xz",
+    "sha256": "0d311d87901dbcb94518fb89304febe30852ce5d8a4befa9f87e85c68eceefde"
+  }
+}
