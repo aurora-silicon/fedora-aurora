@@ -53,10 +53,16 @@ restore_fex() {
   exit "$rc"
 }
 trap restore_fex EXIT
+fex_was_active=no
 if rpm -q mesa-aurora-fex-guest >/dev/null 2>&1 && systemctl -q is-active aurora-fex-mesa.service; then
   systemctl stop aurora-fex-mesa.service
-  touch state/fex-rollback-restart-needed
+  fex_was_active=yes
 fi
+if mountpoint -q /usr/share/guestos/aurora-fex-mesa; then
+  echo 'FEX overlay remains mounted; refusing rollback to older RPM scriptlets' >&2
+  exit 1
+fi
+if [[ $fex_was_active == yes ]]; then touch state/fex-rollback-restart-needed; fi
 touch state/rollback-started
 dnf "${args[@]}" 2>&1 | tee state/rollback.log
 # Exact old package versions must all be back, including renamed devel/OpenCL.
