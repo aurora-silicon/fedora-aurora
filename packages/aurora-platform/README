@@ -1,7 +1,8 @@
 Aurora hardware stack metapackage. Per-device firmware is extracted on the target Mac.
 
 aurora-platform-core carries only the hardware services (update-m1n1,
-dracut-asahi, asahi-fwupdate, speakersafetyd, speakerguardd, aurora-audio and
-alsa-ucm-conf-aurora). It installs no kernel or boot chain, replaces the
-Fedora Asahi metapackages and is protected from removal by dnf.
+dracut-asahi, asahi-fwupdate, speakersafetyd, speakerguardd, aurora-audio,
+alsa-ucm-conf-aurora and aurora-camera-denoise). It installs no kernel or
+boot chain, replaces the Fedora Asahi metapackages and is protected from
+removal by dnf.
 aurora-platform adds the Aurora kernel, boot chain and release identity.

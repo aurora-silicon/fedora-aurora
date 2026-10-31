@@ -171,5 +171,13 @@
     "archive_file": "fprintd-v1.94.5.tar.gz",
     "archive_root": "fprintd-v1.94.5",
     "sha256": "a026ef34c31b25975275cc29a5e4eba2b54524769672095a5228098a08acd82c"
+  },
+  "aurora-camera-denoise": {
+    "repository": "https://github.com/aurora-silicon/camera-denoise",
+    "commit": "846646456ee17ba1fb60be169abcd0727bed36f4",
+    "version": "0.1.0",
+    "source_url": "https://codeload.github.com/aurora-silicon/camera-denoise/tar.gz/846646456ee17ba1fb60be169abcd0727bed36f4",
+    "archive_root": "camera-denoise-846646456ee17ba1fb60be169abcd0727bed36f4",
+    "sha256": "a2f560eb1c864bb70eabed85c36be8ecaaa89d48c0917e6c94abb5a47161ae63"
   }
 }

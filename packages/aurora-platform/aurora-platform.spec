@@ -1,6 +1,6 @@
 Name: aurora-platform
 Version: 44
-Release: 7%{?dist}
+Release: 8%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -33,16 +33,19 @@ Conflicts: asahi-platform-metapackage < 1
 Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
 Requires: speakersafetyd speakerguardd
 Requires: aurora-audio alsa-ucm-conf-aurora
+Requires: aurora-camera-denoise
 
 %description core
 The Apple Silicon hardware services that every Aurora system needs: the
 boot.bin assembler (update-m1n1), vendor firmware in the initramfs
 (dracut-asahi), firmware refresh (asahi-fwupdate), speaker protection
-(speakersafetyd and speakerguardd), and the Aurora audio graphs and UCM
-profiles. It installs no kernel, bootloader or release identity, so it fits
-a Fedora Asahi Remix install whose kernel and boot chain are managed
-separately. It replaces asahi-platform-metapackage, whose -core subpackage
-requires the stock kernel-16k, and is protected from removal in the same way.
+(speakersafetyd and speakerguardd), the Aurora audio graphs and UCM
+profiles, and the low-light filter for the built-in camera
+(aurora-camera-denoise). It installs no kernel, bootloader or release
+identity, so it fits a Fedora Asahi Remix install whose kernel and boot
+chain are managed separately. It replaces asahi-platform-metapackage, whose
+-core subpackage requires the stock kernel-16k, and is protected from removal
+in the same way.
 
 %prep
 
@@ -59,6 +62,10 @@ install -Dm644 %{SOURCE101} %{buildroot}%{_sysconfdir}/dnf/protected.d/aurora-pl
 %config(noreplace) %{_sysconfdir}/dnf/protected.d/aurora-platform-core.conf
 
 %changelog
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-8
+- Pull in aurora-camera-denoise, the low-light filter for the built-in
+  camera, from aurora-platform-core.
+
 * Fri Oct 30 2026 Aurora Silicon <ryan@aurorasilicon.org> - 44-7
 - Split the hardware services into aurora-platform-core. It replaces the
   Fedora Asahi metapackages without pulling the stock kernel, and dnf
