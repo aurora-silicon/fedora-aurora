@@ -30,12 +30,13 @@ fi
 case $package in
   aurora-capture-ns) demo_sources=(aurora-capture-ns libane rnnoise libdf) ;;
   whisper-cpp-aurora) demo_sources=(whisper.cpp-aurora libane) ;;
+  mil-hwx-compiler) demo_sources=(mil-hwx-compiler libobjc2 tools-make libs-base libane) ;;
   *) demo_sources=() ;;
 esac
 if (( ${#demo_sources[@]} )); then
   python3 "$root/scripts/fetch-demo-sources.py" "${demo_sources[@]}" --output "$top/SOURCES"
 fi
-if [[ $package == aurora-models || $package == aurora-capture-ns || $package == whisper-cpp-aurora ]]; then
+if [[ $package == aurora-models || $package == aurora-capture-ns || $package == whisper-cpp-aurora || $package == mil-hwx-compiler ]]; then
   find "$root/demos" -maxdepth 1 -type f -exec cp {} "$top/SOURCES/" \;
 fi
 rpmbuild -ba --define "_topdir $top" --define "_smp_mflags -j${AURORA_BUILD_JOBS:-6}" "$top/SPECS/$package.spec"
