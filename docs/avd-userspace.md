@@ -119,22 +119,30 @@ hashes against software decode before claiming correctness. CPU load alone does
 not prove hardware use. For an 8-bit clip, compare normalized output bytes:
 
 ```sh
-ffmpeg-avd -nostdin -hwaccel v4l2request -hwaccel_output_format drm_prime   -i "$CLIP" -an -frames:v 120 -vf 'hwdownload,format=nv12' -f framemd5 "$RUN_DIR/hw.md5"
-ffmpeg-avd -nostdin -hwaccel none -i "$CLIP" -an -frames:v 120   -vf format=nv12 -f framemd5 "$RUN_DIR/sw.md5"
+RUN_DIR=$(mktemp -d "$PWD/avd-hash-run.XXXXXX")
+ffmpeg-avd -nostdin -hwaccel v4l2request -hwaccel_output_format drm_prime \
+  -i "$CLIP" -an -frames:v 120 -vf 'hwdownload,format=nv12' \
+  -f framemd5 "$RUN_DIR/hw.md5" 2> "$RUN_DIR/hw-decode.log"
+ffmpeg-avd -nostdin -hwaccel none -i "$CLIP" -an -frames:v 120 \
+  -vf format=nv12 -f framemd5 "$RUN_DIR/sw.md5" 2> "$RUN_DIR/sw-decode.log"
 awk '!/^#/ {print $NF}' "$RUN_DIR/hw.md5" > "$RUN_DIR/hw.hashes"
 awk '!/^#/ {print $NF}' "$RUN_DIR/sw.md5" > "$RUN_DIR/sw.hashes"
-diff -u "$RUN_DIR/sw.hashes" "$RUN_DIR/hw.hashes"
+diff -u "$RUN_DIR/sw.hashes" "$RUN_DIR/hw.hashes" | tee "$RUN_DIR/hash-comparison.diff"
 ```
 
 For 10-bit capture use the negotiated software transfer format (for example
 `p010le`) in both filters and record it. A rejected download/import is a failure,
-not a reason to substitute a software decode and call it hardware. M1 Pro and M2 have no AV1 hardware; record AV1 as expected
+not a reason to substitute a software decode and call it hardware. M1 Pro and
+M2 have no AV1 hardware; record AV1 as expected
 unsupported hardware there and use `--hwdec=no` for their software baseline.
 HEVC depends on the kernel exposing S265; record unsupported if it is absent.
 
 ## VA-API and browsers
 
 ```sh
+set -o pipefail
+RUN_DIR=$(mktemp -d "$PWD/avd-vaapi-run.XXXXXX")
+CLIP=demo-h264-4k30.mp4
 avd-vaapi vainfo --display drm --device "$RENDER" 2>&1 | tee "$RUN_DIR/vainfo-avd.log"
 avd-vaapi mpv --no-config --no-audio --hwdec=vaapi --length=4 \
   --msg-level=vd=debug --log-file="$RUN_DIR/mpv-vaapi.log" "$CLIP"
@@ -148,16 +156,33 @@ command with the host's render node. visl produces synthetic frames, so it
 cannot validate real decoder output or AVD performance. A buildbox without visl
 or a render node cannot supply this check.
 
+Before each browser launch, choose the clip and make a new evidence directory
+and muted test page. This setup also works when testing Chromium alone:
+
+```sh
+set -o pipefail
+RUN_DIR=$(mktemp -d "$PWD/avd-browser-run.XXXXXX")
+CLIP=demo-h264-4k30.mp4
+python3 - "$CLIP" "$RUN_DIR/video-test.html" <<'PYTHON'
+import html, sys
+from pathlib import Path
+source = html.escape(Path(sys.argv[1]).resolve().as_uri(), quote=True)
+Path(sys.argv[2]).write_text(
+    '<!doctype html><meta charset="utf-8"><video controls muted src="' + source + '"></video>')
+PYTHON
+sha256sum "$CLIP" > "$RUN_DIR/clip.sha256"
+```
+
 Firefox requires the proposal in [firefox/README.md](firefox/README.md) to be
 reviewed and built with V4L2 enabled. Stock Firefox is a useful denial baseline.
 Do not disable the RDD sandbox. Start a separate empty test profile:
 
 ```sh
-printf '%s\n' '<!doctype html><meta charset="utf-8"><video controls muted src="demo-h264-4k30.mp4"></video>' > video-test.html
-FIREFOX_PROFILE=$(mktemp -d "$PWD/firefox-avd-profile.XXXXXX")
+FIREFOX_PROFILE="$RUN_DIR/firefox-profile"
+mkdir -p "$FIREFOX_PROFILE"
 MOZ_LOG_FILE="$RUN_DIR/firefox" MOZ_LOG='PlatformDecoderModule:5,FFmpegVideo:5' \
   avd-vaapi firefox --no-remote --profile "$FIREFOX_PROFILE" \
-  about:support "file://$PWD/video-test.html"
+  about:support "file://$RUN_DIR/video-test.html" 2>&1 | tee "$RUN_DIR/firefox-launch.log"
 ```
 
 Use the existing `media.ffmpeg.vaapi.enabled` preference if the Fedora build
@@ -174,9 +199,10 @@ Chromium is a separate qualification path, because this Firefox patch does not
 change Chromium's device broker:
 
 ```sh
-CHROMIUM_PROFILE=$(mktemp -d "$PWD/chromium-avd-profile.XXXXXX")
+CHROMIUM_PROFILE="$RUN_DIR/chromium-profile"
+mkdir -p "$CHROMIUM_PROFILE"
 avd-vaapi chromium --user-data-dir="$CHROMIUM_PROFILE" \
-  --mute-audio about:gpu "file://$PWD/video-test.html"
+  --mute-audio about:gpu "file://$RUN_DIR/video-test.html" 2>&1 | tee "$RUN_DIR/chromium-launch.log"
 ```
 
 Record the browser version and its existing graphics-acceleration setting.
