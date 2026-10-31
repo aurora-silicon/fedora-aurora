@@ -71,7 +71,7 @@ int main(int argc, char **argv) {
     mark_unprocessed_dump_dirs_not_reportable(argv[1]);
     assert(opened == 3); /* complete, incomplete, previously marked */
     assert(marked == 1); /* only the published incomplete report */
-    assert(unfinished == 2); /* active producer and interrupted producer */
+    assert(unfinished == 3); /* active, interrupted and vanished producers */
     assert(errors == 0);
 
     char *staging = g_build_filename(argv[1], "live.new", NULL);
@@ -80,7 +80,7 @@ int main(int argc, char **argv) {
     g_free(staging); g_free(published);
     opened = marked = unfinished = errors = 0;
     mark_unprocessed_dump_dirs_not_reportable(argv[1]);
-    assert(opened == 4 && marked == 1 && unfinished == 1 && errors == 0);
+    assert(opened == 4 && marked == 1 && unfinished == 2 && errors == 0);
 
     /* An invalid published directory must still be diagnosed. */
     char *invalid = g_build_filename(argv[1], "invalid", NULL);
@@ -88,7 +88,7 @@ int main(int argc, char **argv) {
     g_free(invalid);
     opened = marked = unfinished = errors = 0;
     mark_unprocessed_dump_dirs_not_reportable(argv[1]);
-    assert(opened == 5 && marked == 0 && unfinished == 1 && errors == 1);
+    assert(opened == 5 && marked == 0 && unfinished == 2 && errors == 1);
     puts("ABRT staging scan: PASS (preservation, publication, complete/incomplete and invalid reports)");
     return 0;
 }
@@ -109,6 +109,8 @@ with tempfile.TemporaryDirectory() as directory:
         for item, data in items.items():
             (spool / name / item).write_bytes(data)
     (spool / "auxiliary-file").write_text("not a report")
+    # A vanished producer must not make the scanner stat an unpublished name.
+    (spool / "vanished.new").symlink_to("missing-staging-directory")
     harness = root / "scan.c"
     harness.write_text(prefix + scanner + suffix)
     flags = shlex.split(subprocess.check_output(
@@ -124,3 +126,4 @@ with tempfile.TemporaryDirectory() as directory:
         assert {p.name: p.read_bytes() for p in actual.iterdir()} == expected
         assert actual.stat().st_mode & 0o777 == 0o700
     assert (spool / "marked/not-reportable").read_bytes() == b"existing reason"
+    assert (spool / "vanished.new").is_symlink()
