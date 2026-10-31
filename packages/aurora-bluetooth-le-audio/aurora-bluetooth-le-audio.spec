@@ -8,9 +8,8 @@ BuildArch: noarch
 BuildRequires: systemd-rpm-macros
 Source0: le-audio.conf
 Source1: bluetooth.service.conf
-Source2: 50-aurora-le-audio.conf
-Source3: README.md
-Source4: LICENSE
+Source2: README.md
+Source3: LICENSE
 Requires: bluez >= 5.75
 Requires: pipewire-libs >= 1.2
 Requires: wireplumber >= 0.5
@@ -28,14 +27,12 @@ Installing it does not restart Bluetooth or pair any devices.
 %install
 install -Dm644 %{SOURCE0} %{buildroot}%{_sysconfdir}/bluetooth/le-audio.conf
 install -Dm644 %{SOURCE1} %{buildroot}%{_unitdir}/bluetooth.service.d/50-aurora-le-audio.conf
-install -Dm644 %{SOURCE2} %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d/50-aurora-le-audio.conf
-install -Dm644 %{SOURCE3} %{buildroot}%{_docdir}/%{name}/README.md
-install -Dm644 %{SOURCE4} %{buildroot}%{_licensedir}/%{name}/LICENSE
+install -Dm644 %{SOURCE2} %{buildroot}%{_docdir}/%{name}/README.md
+install -Dm644 %{SOURCE3} %{buildroot}%{_licensedir}/%{name}/LICENSE
 
 %files
 %config(noreplace) %{_sysconfdir}/bluetooth/le-audio.conf
 %{_unitdir}/bluetooth.service.d/50-aurora-le-audio.conf
-%{_datadir}/wireplumber/wireplumber.conf.d/50-aurora-le-audio.conf
 %doc %{_docdir}/%{name}/README.md
 %license %{_licensedir}/%{name}/LICENSE
 
