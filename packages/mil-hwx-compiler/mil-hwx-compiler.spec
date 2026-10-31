@@ -1,3 +1,4 @@
+%global toolchain clang
 %global commit 927013f5480768b07c8e62a866e1514c41aba778
 %global debug_package %{nil}
 %global __provides_exclude_from ^%{_prefix}/lib/mil-hwx-compiler/.*$
@@ -21,7 +22,7 @@ Patch0: gnustep-base-block-ivar.patch
 ExclusiveArch: aarch64
 BuildRequires: clang lld cmake ninja-build make pkgconf-pkg-config
 BuildRequires: libffi-devel libxml2-devel libicu-devel openssl-devel zlib-devel robin-map-devel
-BuildRequires: gcc-c++ python3 patchelf patch
+BuildRequires: gcc-c++ python3 patchelf patch which
 # Libraries are private, not ABI-compatible with the system GNUstep runtime.
 Provides: bundled(libobjc2)
 Provides: bundled(gnustep-base)
