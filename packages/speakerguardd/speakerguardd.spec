@@ -1,39 +1,51 @@
-%global commit 0287029648842be7b62ce9869ceaf5dbe9555831
+%global commit add7f9610d68b3ff898275d3e7d1cdcd8587c47c
 Name: speakerguardd
-Version: 0.1.12
-Release: 4%{?dist}
-Summary: Feed-forward speaker protection for Apple J700
+Version: 0.1.13~rc2
+Release: 1%{?dist}
+Summary: Unified Apple speaker protection release candidate
 License: MIT
 URL: https://github.com/aurora-silicon/speakerguardd
 Source0: speakerguardd-%{commit}.tar.gz
 Source1: use-feedback-guard
 Source2: 50-j700-guard.conf
 ExclusiveArch: aarch64
-BuildRequires: rust cargo alsa-lib-devel pkgconf-pkg-config systemd-rpm-macros
+BuildRequires: rust cargo alsa-lib-devel pkgconf-pkg-config systemd-rpm-macros gcc make ladspa-devel python3
+
+Requires: python3
 
 %description
-Feed-forward speaker protection for Apple J700. Built from the recorded Aurora source revision.
+Unified Apple speaker protection candidate. Unqualified profiles still require
+explicit admission. This draft must pass the upstream release gates before use.
+
+%package xlim
+Summary: Optional speaker excursion and peak limiter
+%description xlim
+Optional LADSPA excursion limiter. Installing it does not enable an audio graph.
 
 %prep
-%autosetup -n speakerguardd-0287029648842be7b62ce9869ceaf5dbe9555831
+%autosetup -n speakerguardd-add7f9610d68b3ff898275d3e7d1cdcd8587c47c
 
 %build
 # The binary names its source in -V and the journal.
 export SPEAKERGUARDD_COMMIT=%(echo %{commit} | cut -c1-12)
-cargo build --locked --release
+cargo build --locked --release -j8
+make -j8 filter
 
 %check
-cargo test --locked
+cargo test --locked --release -j8
+python3 tools/test-preserve-recordings.py
+make -j8 filter-test
 
 %install
 install -Dm755 target/release/speakerguardd %{buildroot}%{_bindir}/speakerguardd
 mkdir -p %{buildroot}%{_datadir}/speakerguardd
 cp -a conf/. %{buildroot}%{_datadir}/speakerguardd/
 install -Dm644 speakerguardd.service %{buildroot}%{_unitdir}/speakerguardd.service
-sed -i 's@ExecStart=/usr/bin/speakerguardd -c /usr/share/speakerguardd@ExecStart=/usr/bin/speakerguardd -c /usr/share/speakerguardd -C AppleJ700@' %{buildroot}%{_unitdir}/speakerguardd.service
-# The J700 model must be the one the unit names.
-grep -qx 'ExecStart=/usr/bin/speakerguardd -c /usr/share/speakerguardd -C AppleJ700 --wait-for-card 30' %{buildroot}%{_unitdir}/speakerguardd.service
+# Keep upstream DT/ALSA profile selection and its qualification refusal.
+grep -qx 'ExecStart=/usr/bin/speakerguardd' %{buildroot}%{_unitdir}/speakerguardd.service
 install -Dm644 95-speakerguardd.rules %{buildroot}%{_udevrulesdir}/95-speakerguardd.rules
+install -Dm755 tools/preserve-recordings %{buildroot}%{_libexecdir}/speakerguardd/preserve-recordings
+install -Dm755 filter/speakerguard-xlim.so %{buildroot}%{_libdir}/ladspa/speakerguard-xlim.so
 install -Dm755 %{SOURCE1} %{buildroot}%{_libexecdir}/speakerguardd/use-feedback-guard
 install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/speakersafetyd.service.d/50-j700-guard.conf
 
@@ -42,7 +54,9 @@ install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/speakersafetyd.service.d/50-j7
 %preun
 %systemd_preun speakerguardd.service
 %postun
-%systemd_postun_with_restart speakerguardd.service
+# Keep the running protection until an orderly reboot. Mixing a pre-marker
+# owner and the evidence-start binary in one boot cannot prove history.
+%systemd_postun speakerguardd.service
 
 %files
 %license LICENSE
@@ -53,7 +67,15 @@ install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/speakersafetyd.service.d/50-j7
 %{_udevrulesdir}/95-speakerguardd.rules
 %{_libexecdir}/speakerguardd/
 
+%files xlim
+%license LICENSE
+%{_libdir}/ladspa/speakerguard-xlim.so
+
 %changelog
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13~rc2-1
+- Pin the integrated upstream RC; keep failing acceptance gates effective.
+- Package restart evidence preservation and the optional xlim plugin.
+- Retain upstream profile selection, qualification and service owner policy.
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.12-4
 - Pin speakerguardd main 0287029648842 (pull 29 merged, safety review
   approved): the evidence start, with its marker at
