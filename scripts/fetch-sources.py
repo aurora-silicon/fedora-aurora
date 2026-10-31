@@ -21,6 +21,12 @@ MIRROR = "https://github.com/aurora-silicon/fedora-aurora/releases/download/sour
 
 def fetch(name, destination):
     record = json.loads((ROOT / "sources.json").read_text())[name]
+    for extra_name, extra in record.get("extra_sources", {}).items():
+        fetch_record(extra_name, extra, destination)
+    return fetch_record(name, record, destination)
+
+
+def fetch_record(name, record, destination):
     expected = record.get("sha256")
     if not expected:
         raise ValueError(f"{name}: source archive has not been hash-pinned")

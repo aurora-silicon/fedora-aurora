@@ -3,14 +3,19 @@
 %global debug_package %{nil}
 Name: omarchy-ane-tools
 Version: 0.5.7
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Apple Neural Engine userspace tools for the in-kernel ANE driver
 License: GPL-2.0-only OR MIT
 URL: https://github.com/joshuaswarren/omarchy-ane
 Source0: omarchy-ane-tools-%{commit}.tar.gz
+Source1: 70-omarchy-ane.rules
+Source2: omarchy-ane-tools.sysusers
+Source3: fix-smoke.py
 ExclusiveArch: aarch64
 BuildRequires: gcc make binutils libdrm-devel python3
 Requires: python3
+BuildRequires: systemd-rpm-macros
+%{?sysusers_requires_compat}
 
 %description
 Userspace for the Apple Neural Engine driver that the Aurora kernel ships
@@ -24,6 +29,7 @@ Apple firmware, no kernel module and no device-tree overlays.
 %autosetup -n omarchy-ane-%{commit}
 
 %build
+python3 %{SOURCE3}
 make -C libane libane
 make -C tools ane-run
 
@@ -33,6 +39,8 @@ make -C tools ane-run
 python3 tools/test_ane_firmware_fetch.py
 
 %install
+install -Dm644 %{SOURCE1} %{buildroot}%{_udevrulesdir}/70-omarchy-ane.rules
+install -Dm644 %{SOURCE2} %{buildroot}%{_sysusersdir}/omarchy-ane-tools.conf
 install -Dm755 tools/ane-run %{buildroot}%{_bindir}/omarchy-ane-run
 install -Dm755 packaging/omarchy-ane-smoke %{buildroot}%{_bindir}/omarchy-ane-smoke
 install -Dm755 packaging/omarchy-ane-firmware-fetch %{buildroot}%{_bindir}/omarchy-ane-firmware-fetch
@@ -42,7 +50,12 @@ for gen in h13 h14; do
     %{buildroot}%{_datadir}/omarchy-ane/fixtures/$gen-anec/add/program-0.anec
 done
 
+%pre
+%sysusers_create_compat %{SOURCE2}
+
 %files
+%{_udevrulesdir}/70-omarchy-ane.rules
+%{_sysusersdir}/omarchy-ane-tools.conf
 %license LICENSE
 %{_bindir}/omarchy-ane-run
 %{_bindir}/omarchy-ane-smoke
@@ -50,6 +63,9 @@ done
 %{_datadir}/omarchy-ane/
 
 %changelog
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.5.7-2
+- Add accel permissions and relocatable smoke lookup for distro parity.
+
 * Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.5.7-1
 - Initial package: the userspace half of omarchy-ane 0.5.7 for the kernel's
   own ANE driver.
