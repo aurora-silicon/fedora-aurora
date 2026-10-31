@@ -1,7 +1,7 @@
 %global commit 846646456ee17ba1fb60be169abcd0727bed36f4
 Name: aurora-camera-denoise
 Version: 0.1.0
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Low-light denoise filter for the built-in camera on Apple silicon
 License: MIT
 URL: https://github.com/aurora-silicon/camera-denoise
@@ -15,9 +15,7 @@ Requires: pipewire
 
 %description
 A PipeWire video filter that runs as a user service and takes the grain out
-of the built-in camera on Apple silicon laptops in low light. For each
-built-in camera it adds a camera node with the same name and formats; apps
-pick it by default, and the original stays available. It filters only on
+of the built-in camera on Apple silicon laptops in low light. When explicitly started, it adds a filtered camera node beside the original. It filters only on
 boards with data in boards.conf (keyed by the device-tree compatible) unless
 told otherwise, and follows the sensor gain the camera driver reports, or
 the measured noise on kernels without that report.
@@ -36,7 +34,7 @@ the measured noise on kernels without that report.
 %meson_install
 # Backends other than the built-in CPU one are shared objects loaded from here.
 install -d %{buildroot}%{_libdir}/aurora-camera-denoise
-# On for every user; it only acts on boards with data in boards.conf.
+# The filter is opt-in; presets must never activate it on installation.
 install -Dm644 %{SOURCE1} %{buildroot}%{_userpresetdir}/80-aurora-camera-denoise.preset
 
 %post
@@ -58,6 +56,9 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_userpresetdir}/80-aurora-camera-denoise
 %{_userpresetdir}/80-aurora-camera-denoise.preset
 
 %changelog
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-2
+- Keep camera effects opt-in.
+
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-1
 - Initial Fedora Aurora package of camera-denoise 0.1.0 (846646456ee1),
-  with the CPU backend. The user service is preset on.
+  with the CPU backend. The user service is available but disabled by default.

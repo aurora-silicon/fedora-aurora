@@ -1,1 +1,1 @@
-enable aurora-camera-denoise.service
+disable aurora-camera-denoise.service

@@ -60,3 +60,5 @@ calibration where present and verifies trusted-key sealing and unsealing. No
 calibration is redistributed. The full reader driver set remains enabled; the
 native libfprint build runs all 130 upstream/patched tests. Password policy and
 power-button behavior are unchanged. Real SEP hardware qualification is pending.
+
+Optional file transcription and capture demos: [demos/TRY.md](demos/TRY.md).
