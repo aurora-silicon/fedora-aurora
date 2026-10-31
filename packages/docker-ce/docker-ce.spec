@@ -11,6 +11,7 @@ URL: https://github.com/moby/moby
 Source0: https://github.com/moby/moby/archive/refs/tags/docker-v29.9.2.tar.gz
 Patch100: docker-query-forwarding-policy.patch
 BuildRequires: gcc gcc-c++ make golang >= 1.26.8 git-core pkgconfig(systemd) nftables-devel go-md2man
+BuildRequires: pkgconfig(libsystemd)
 BuildRequires: systemd-rpm-macros
 Requires: (docker-ce-cli >= 29 or docker-cli >= 29)
 Requires: (containerd.io >= 2.1.5 or containerd >= 2.1.5)
