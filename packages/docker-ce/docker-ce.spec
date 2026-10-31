@@ -1,6 +1,9 @@
 # Based on docker/docker-ce-packaging rpm/SPECS/docker-ce.spec (Apache-2.0).
 # Build the upstream engine with its vendored dependencies, without fetching
 # an untracked tini binary during the build. Fedora supplies tini-static.
+# The upstream release build strips DWARF; match Docker CE's RPM recipe.
+%global debug_package %{nil}
+
 Name: docker-ce
 Epoch: 3
 Version: 29.9.2
