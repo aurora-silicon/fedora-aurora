@@ -195,7 +195,9 @@ Viewer for nested mutter instances.
 export LIBGL_ALWAYS_SOFTWARE=1
 export GALLIUM_DRIVER=llvmpipe
 export XDG_RUNTIME_DIR=$(mktemp -d)
-trap 'rm -rf "$XDG_RUNTIME_DIR"' EXIT
+# RPM removes BUILD after success; retain detailed logs outside that tree.
+log_dir=$(mktemp -d "%{_topdir}/test-logs.XXXXXX")
+trap 'status=$?; cp -a "%{_vpath_builddir}/meson-logs/." "$log_dir/"; rm -rf "$XDG_RUNTIME_DIR"; exit "$status"' EXIT
 xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --num-processes 8
 
 %files -f %{name}.lang

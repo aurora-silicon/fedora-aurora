@@ -33,5 +33,6 @@ jobs:
             out/mutter-51/repo/out/rpms/*.rpm
             out/mutter-51/repo/out/srpms/*.rpm
             out/mutter-51/repo/out/manifests/*.json
+            out/mutter-51/repo/out/build/mutter/test-logs.*/**
             out/mutter-51/repo/out/build/mutter/BUILD/**/meson-logs/**
           retention-days: 30
