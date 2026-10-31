@@ -1,4 +1,4 @@
-%global commit d7efb9266747c37bea09aec1c5573fe4a53d4e45
+%global commit 221c8bfa2ac4aa43a1f9075420a95c1d12bce4b0
 Name: speakerguardd
 Version: 0.1.13~rc1
 Release: 1%{?dist}
@@ -23,7 +23,7 @@ Summary: Optional speaker excursion and peak limiter
 Optional LADSPA excursion limiter. Installing it does not enable an audio graph.
 
 %prep
-%autosetup -n speakerguardd-d7efb9266747c37bea09aec1c5573fe4a53d4e45
+%autosetup -n speakerguardd-221c8bfa2ac4aa43a1f9075420a95c1d12bce4b0
 
 %build
 # The binary names its source in -V and the journal.
