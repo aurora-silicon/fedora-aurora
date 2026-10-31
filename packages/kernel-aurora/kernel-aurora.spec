@@ -102,6 +102,7 @@ fi
 * Sat Oct 31 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-7
 - Use the source-pinned shared hardware fragment on every supported Mac.
 - Retain Fedora peripheral policy in the distribution base; retire local hardware copies.
+- Match shared dock, memory hotplug and diagnostics policy with Arch and NixOS.
 
 * Fri Oct 30 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-6
 - Track aurora-silicon/linux integration/aurora at 5d7c3e7.
