@@ -27,14 +27,14 @@ def asset_name(filename):
 def metadata(path):
     row = subprocess.check_output(['rpm', '-qp', '--qf', '%{NAME}\t%{ARCH}\t%{SOURCERPM}\n', str(path)],
                                   text=True).strip().split('\t')
-    if len(row) != 3 or row[1] not in ('aarch64', 'noarch') or not row[2].endswith('.src.rpm'):
+    if len(row) != 3 or row[1] not in ('aarch64', 'noarch') or not row[2].endswith(('.src.rpm', '.nosrc.rpm')):
         raise ValueError(f'Unsupported binary RPM: {path.name}')
     return tuple(row)
 
 
 def expected_sources():
     return {subprocess.check_output([
-        'rpmspec', '--srpm', '-q', '--qf', '%{NAME}-%{VERSION}-%{RELEASE}.src.rpm', str(spec),
+        'rpmspec', '--srpm', '-q', '--qf', '%{NAME}-%{VERSION}-%{RELEASE}.%|NOSOURCE?{no}:{}|src.rpm', str(spec),
     ], text=True).strip() for spec in (ROOT / 'packages').glob('*/*.spec')}
 
 
@@ -52,7 +52,7 @@ def verify_base(directory, key, fingerprint):
         raise ValueError('The base snapshot names another signing key')
     entries = manifest['packages']
     names = {asset_name(row['filename']) for row in entries}
-    if len(names) != len(entries) or names != {path.name for path in directory.glob('*.rpm') if not path.name.endswith('.src.rpm')}:
+    if len(names) != len(entries) or names != {path.name for path in directory.glob('*.rpm') if not path.name.endswith(('.src.rpm', '.nosrc.rpm'))}:
         raise ValueError('The base RPM inventory differs from its manifest')
     with tempfile.TemporaryDirectory(prefix='aurora-base-rpm-keys-') as temporary:
         subprocess.run(['rpmkeys', '--dbpath', temporary, '--import', str(key)], check=True)
@@ -72,7 +72,7 @@ class IncompleteSnapshot(ValueError):
 def assemble(base, candidates, output, expected):
     fresh = {}
     for path in sorted(candidates.glob('*.rpm')):
-        if path.name.endswith('.src.rpm'):
+        if path.name.endswith(('.src.rpm', '.nosrc.rpm')):
             continue
         if path.is_symlink():
             raise ValueError('RPM input is a symlink')
@@ -85,7 +85,7 @@ def assemble(base, candidates, output, expected):
     rebuilt = {source.rsplit('-', 2)[0] for _, source in fresh.values()}
     selected = {}
     for path in sorted(base.glob('*.rpm')) if base else []:
-        if path.name.endswith('.src.rpm'):
+        if path.name.endswith(('.src.rpm', '.nosrc.rpm')):
             continue
         name, arch, source = metadata(path)
         if source.rsplit('-', 2)[0] not in rebuilt:

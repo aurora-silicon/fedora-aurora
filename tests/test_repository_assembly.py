@@ -39,6 +39,14 @@ class RepositoryTests(unittest.TestCase):
                                    {'mesa-aurora-26.3-1.src.rpm', 'kernel-aurora-7.2.10-2.src.rpm'})
         self.assertEqual(result, ['kernel-new.rpm', 'mesa.rpm'])
 
+    def test_nosource_recipe_is_never_put_in_the_binary_repository(self):
+        source = 'tools-1-1.nosrc.rpm'
+        self.rpm(self.candidates, 'tools.rpm', 'tools', source)
+        (self.candidates / source).write_bytes(b'recipe only')
+        result = assembly.assemble(None, self.candidates, self.root / 'result', {source})
+        self.assertEqual(result, ['tools.rpm'])
+        self.assertFalse((self.root / 'result' / source).exists())
+
     def test_partial_first_snapshot_is_rejected_before_writing(self):
         self.rpm(self.candidates, 'power.rpm', 'upower', 'upower-1.91.4-1.src.rpm')
         output = self.root / 'result'
