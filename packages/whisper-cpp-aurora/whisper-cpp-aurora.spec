@@ -11,7 +11,7 @@ Source1: libane-%{libane_commit}.tar.gz
 Source2: whisper.cpp-aurora
 ExclusiveArch: aarch64
 BuildRequires: libdrm-devel
-BuildRequires: gcc gcc-c++ make cmake ninja-build glslc vulkan-headers vulkan-loader-devel python3
+BuildRequires: gcc gcc-c++ make cmake ninja-build glslc vulkan-headers vulkan-loader-devel spirv-headers-devel python3
 Requires: python3 python3-numpy vulkan-tools aurora-models
 Provides: whisper.cpp-aurora = %{version}-%{release}
 
