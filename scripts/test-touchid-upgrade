@@ -82,7 +82,7 @@ createrepo_c /tmp/touchid-repo
 repo=("--repofrompath=touchid,file:///tmp/touchid-repo" --setopt=touchid.gpgcheck=0)
 # DNF must classify every already-installed component as an upgrade. No
 # --allowerasing, downgrade, distro-sync, or explicit candidate RPM install.
-dnf -q "${repo[@]}" repoquery --upgrades --repo=touchid --queryformat '%{name}' \
+dnf -q "${repo[@]}" repoquery --upgrades --repo=touchid --queryformat $'%{name}\n' \
   | sort -u > /tmp/touchid-dnf-upgrades.txt
 diff -u /tmp/touchid-upgrades.txt /tmp/touchid-dnf-upgrades.txt
 # Synthetic records stand in for enrolments, identity and calibration files.
