@@ -9,6 +9,9 @@ Summary: Open MIL to ANE HWX and ANEC compiler
 License: MIT AND LGPL-2.1-or-later
 URL: https://github.com/joshuaswarren/mil-hwx-compiler
 Source0: mil-hwx-compiler-%{commit}.tar.gz
+# The full upstream archive contains unrelated binary research inputs. Keep
+# the verified URL/hash in sources.json; distribute only the recipe in SRPMs.
+NoSource: 0
 Source1: libobjc2-a1faad66cee79f29c4ca268b004111edc33a2ae2.tar.gz
 Source2: gnustep-make-d0349cc83a23367acdc53df364f73504c281b26c.tar.gz
 Source3: gnustep-base-3d7013e144b153abcd6c088dc8d6c64ebd43bc4b.tar.gz

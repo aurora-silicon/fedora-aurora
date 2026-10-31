@@ -8,6 +8,9 @@ Summary: Apple Neural Engine userspace tools for the in-kernel ANE driver
 License: GPL-2.0-only OR MIT
 URL: https://github.com/joshuaswarren/omarchy-ane
 Source0: omarchy-ane-tools-%{commit}.tar.gz
+# The full upstream archive contains unrelated binary research inputs. Keep
+# the verified URL/hash in sources.json; distribute only the recipe in SRPMs.
+NoSource: 0
 Source1: 70-omarchy-ane.rules
 Source2: omarchy-ane-tools.sysusers
 Source3: fix-smoke.py

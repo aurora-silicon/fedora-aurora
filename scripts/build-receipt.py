@@ -19,7 +19,7 @@ for kind in ("RPMS", "SRPMS"):
         with path.open("rb") as stream:
             digest = hashlib.file_digest(stream, "sha256").hexdigest()
         outputs.append({"filename": path.name, "sha256": digest, "bytes": path.stat().st_size})
-if not outputs or not any(not row["filename"].endswith(".src.rpm") for row in outputs):
+if not outputs or not any(not row["filename"].endswith((".src.rpm", ".nosrc.rpm")) for row in outputs):
     raise SystemExit("A successful RPM build must produce binary and source artifacts")
 destination = root / "out/manifests"
 destination.mkdir(exist_ok=True)

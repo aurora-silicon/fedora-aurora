@@ -43,7 +43,7 @@ def fetch_record(name, record, destination):
         shutil.copyfile(cache, target)
     if not target.exists():
         mirror = os.environ.get("AURORA_SOURCE_MIRROR", MIRROR)
-        urls = ([f"{mirror.rstrip('/')}/{filename}"] if mirror else []) + [record["source_url"]]
+        urls = ([f"{mirror.rstrip('/')}/{filename}"] if mirror and record.get("redistribute_source", True) else []) + [record["source_url"]]
         try:
             updatelib.download(urls, target, sha256=expected, token=os.environ.get("GH_TOKEN"))
         except RuntimeError as error:
