@@ -10,7 +10,7 @@ Requires: fastfetch >= 2.68.1-2
 Requires: linux-firmware amd-gpu-firmware intel-gpu-firmware nvidia-gpu-firmware
 Requires: iwlwifi-dvm-firmware iwlwifi-mvm-firmware realtek-firmware
 Requires: aurora-sep libfprint(aurora-sep) = 4
-Requires: aurora-firstboot avd-fw upower >= 1.91.4
+Requires: aurora-firstboot avd-fw upower >= 1:1.91.5
 Requires: kernel-aurora aura uboot-aurora aurora-release aurora-logos aurora-firmware aurora-bless aurora-neo-platform-config tiny-dfr
 
 Source100: README
