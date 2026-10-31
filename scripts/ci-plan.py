@@ -25,6 +25,9 @@ else:
     if {"scripts/test-graphics-upgrade", "scripts/test-fex-overlay-upgrade"} & set(paths):
         paths.extend(f"packages/{name}/{name}.spec" for name in
                      ("mesa-aurora", "mesa-aurora-fex-guest", "aurora-flatpak-gl") if name in names)
+    if {"scripts/build-avd-fedora", "scripts/check-avd-install.py", "docs/firefox/check-proposal.py"} & set(paths):
+        paths.extend(f"packages/{name}/{name}.spec" for name in
+                     ("ffmpeg-avd", "libva-v4l2-request") if name in names)
     if "sources.json" in paths:
         previous = json.loads(subprocess.check_output(
             ["git", "show", before + ":sources.json"], cwd=root, text=True))

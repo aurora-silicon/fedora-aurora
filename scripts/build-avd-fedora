@@ -1,0 +1,43 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# Run inside a controller build slot. Docker must already support arm64.
+set -euo pipefail
+release=${1:?Fedora release 44 or 45}
+[[ $release == 44 || $release == 45 ]] || exit 2
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+result=${BUILD_OUT:?controller build output directory required}/fc${release}
+mkdir -p "$result"
+collect() {
+  rc=$?
+  trap - EXIT
+  for kind in rpms srpms manifests; do
+    if [[ -d $root/out/$kind ]]; then cp -a "$root/out/$kind" "$result/"; fi
+  done
+  # Keep configure/Meson/test failures even when no RPM was produced.
+  if [[ -d $root/out/build ]]; then
+    (cd "$root" && find out/build -type f \( -name config.log -o -name meson-log.txt -o -name testlog.txt \)       -exec cp --parents '{}' "$result/" \;) || true
+  fi
+  cp "$root"/out/*.ldd "$root"/out/*.dynamic "$root"/out/*.provides "$result/" 2>/dev/null || true
+  exit "$rc"
+}
+trap collect EXIT
+# Each slot owns its source tree and output. No privileged container is needed.
+docker run --rm --platform linux/arm64 \
+  -v "$root:/src" -w /src registry.fedoraproject.org/fedora:"$release" \
+  bash -euo pipefail -c '
+    test "$(uname -m)" = aarch64
+    dnf install -y rpm-build dnf5-plugins python3 git tar gzip xz coreutils findutils gcc-c++ kernel-headers gnupg2
+    source_tests=0
+    python3 -m unittest discover -s tests -p "test_*.py" || source_tests=$?
+    python3 images/test_configure.py || source_tests=$?
+    python3 docs/firefox/check-proposal.py
+    export AURORA_INSTALL_BUILDDEPS=1 AURORA_BUILD_JOBS=8
+    bash scripts/build-rpm ffmpeg-avd
+    bash scripts/build-rpm libva-v4l2-request
+    dnf install -y out/rpms/ffmpeg-avd-[0-9]*.aarch64.rpm out/rpms/mpv-avd-[0-9]*.aarch64.rpm out/rpms/libva-v4l2-request-[0-9]*.aarch64.rpm
+    ffmpeg-avd -hide_banner -hwaccels
+    mpv-avd --no-config --hwdec=help
+    python3 scripts/check-avd-install.py
+    rpm -ql ffmpeg-avd mpv-avd libva-v4l2-request
+    exit "$source_tests"
+  ' 2>&1 | tee "$result/build.log"
