@@ -12,6 +12,7 @@ mesa-libOpenCL
 mesa-libOpenCL-devel
 mesa-aurora-dri-drivers
 mesa-aurora-vulkan-drivers
+mesa-aurora-vulkan-lavapipe
 mesa-aurora-devel
 mesa-aurora-libOpenCL
 mesa-aurora-libOpenCL-devel

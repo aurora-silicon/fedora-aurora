@@ -1,0 +1,95 @@
+#!/bin/bash
+# Disposable Fedora CI container booted with systemd; never a fleet installer.
+set -euo pipefail
+[[ -e /.dockerenv && -d /run/systemd/system && $(uname -m) == aarch64 ]]
+old=${1:?baseline RPM directory}
+new=${2:?candidate RPM repository}
+proof=${3:?evidence directory}
+mkdir -p "$proof" /usr/share/guestos/fex-mesa/usr
+exec > >(tee "$proof/fex-overlay.log") 2>&1
+printf 'stock guest\n' > /usr/share/guestos/fex-mesa/usr/stock-marker
+cat > /etc/yum.repos.d/aurora-overlay-test.repo <<REPO
+[aurora-overlay-test]
+name=Disposable unsigned CI candidates
+baseurl=file://$new
+enabled=0
+gpgcheck=0
+REPO
+# A transaction trigger observes the interval after the new guest's %post
+# and before %posttrans. This proves unmounting even on non-SELinux CI hosts.
+mkdir -p /var/tmp/fex-overlay-witness
+cat > /var/tmp/fex-overlay-witness/witness.spec <<'SPEC'
+Name: aurora-fex-overlay-witness-test
+Version: 1
+Release: 1
+Summary: Disposable FEX transaction lifecycle observer
+License: MIT
+Requires: util-linux-core
+%description
+Verify that the guest overlay is unmounted until transaction completion.
+%install
+mkdir -p %{buildroot}/usr/share/aurora-fex-overlay-witness-test
+printf 'observer\n' > %{buildroot}/usr/share/aurora-fex-overlay-witness-test/marker
+%triggerin -- mesa-aurora-fex-guest >= 26.3.0-13
+if mountpoint -q /usr/share/guestos/aurora-fex-mesa; then
+  echo 'FEX overlay was still mounted while replacing the guest' >&2
+  exit 1
+fi
+printf 'overlay unmounted before posttrans\n' > /run/aurora-fex-overlay-witness
+%files
+/usr/share/aurora-fex-overlay-witness-test/marker
+SPEC
+rpmbuild -bb --define '_topdir /var/tmp/fex-overlay-witness' /var/tmp/fex-overlay-witness/witness.spec
+dnf -y install /var/tmp/fex-overlay-witness/RPMS/aarch64/*.rpm
+dnf -y --setopt=install_weak_deps=False install "$old"/*.rpm
+rpm -qa | sort > "$proof/before.txt"
+rpm -qa --qf '%{NAME}\n' | sort > "$proof/before-names.txt"
+systemctl start aurora-fex-mesa.service
+systemctl is-active aurora-fex-mesa.service
+mountpoint -q /usr/share/guestos/aurora-fex-mesa
+! touch /usr/share/guestos/aurora-fex-mesa/read-only-probe
+findmnt /usr/share/guestos/aurora-fex-mesa > "$proof/mount-before.txt"
+# A real DNF transaction executes the incoming %pre before relabel/unpack.
+dnf -y --enable-repo=aurora-overlay-test --setopt=install_weak_deps=False upgrade 'mesa*' aurora-flatpak-gl
+cat /run/aurora-fex-overlay-witness | tee "$proof/unmounted-before-posttrans.txt"
+[[ $(rpm -q --qf '%{VERSION}-%{RELEASE}' mesa-aurora-fex-guest) == 26.3.0-13.fc44.aurora ]]
+systemctl is-active aurora-fex-mesa.service
+mountpoint -q /usr/share/guestos/aurora-fex-mesa
+cmp /usr/share/guestos/aurora-fex-mesa/.aurora-mesa-commit /usr/share/guestos/aurora-fex-mesa-layer/.aurora-mesa-commit
+! touch /usr/share/guestos/aurora-fex-mesa/read-only-probe
+[[ ! -e /run/aurora-fex-mesa.upgrade ]]
+rpm -V mesa-aurora-fex-guest
+rpm -qa | sort > "$proof/after.txt"
+findmnt /usr/share/guestos/aurora-fex-mesa > "$proof/mount-after.txt"
+# An inactive unit with a stale mount must fail in %pre before unpacking.
+mkdir -p /run/systemd/system/aurora-fex-mesa.service.d
+printf '[Service]\nExecStop=\nExecStop=/usr/bin/true\n' > /run/systemd/system/aurora-fex-mesa.service.d/stale-test.conf
+systemctl daemon-reload
+systemctl stop aurora-fex-mesa.service
+mountpoint -q /usr/share/guestos/aurora-fex-mesa
+if dnf -y --enable-repo=aurora-overlay-test reinstall mesa-aurora-fex-guest; then
+  echo 'Expected the stale overlay to abort the transaction' >&2; exit 1
+fi
+rpm -V mesa-aurora-fex-guest
+rm /run/systemd/system/aurora-fex-mesa.service.d/stale-test.conf
+systemctl daemon-reload
+umount /usr/share/guestos/aurora-fex-mesa
+systemctl start aurora-fex-mesa.service
+# Reinstalling an upgrade while inactive must leave the service inactive.
+systemctl stop aurora-fex-mesa.service
+dnf -y --enable-repo=aurora-overlay-test reinstall mesa-aurora-fex-guest
+! systemctl is-active aurora-fex-mesa.service
+! mountpoint -q /usr/share/guestos/aurora-fex-mesa
+# The incoming old baseline has no fix: stop explicitly around rollback.
+# This is an isolated container: remove exactly the transaction's additions
+# in the same rollback solve, including any newly needed compiler runtime.
+mapfile -t remove < <(comm -13 "$proof/before-names.txt" <(rpm -qa --qf '%{NAME}\n' | sort))
+rollback=(do)
+if (( ${#remove[@]} )); then rollback+=(--action=remove "${remove[@]}"); fi
+rollback+=(--action=install --allow-downgrade "$old"/*.rpm)
+dnf -y --setopt=install_weak_deps=False "${rollback[@]}"
+systemctl start aurora-fex-mesa.service
+systemctl is-active aurora-fex-mesa.service
+rpm -qa | sort > "$proof/rollback.txt"
+cmp "$proof/before.txt" "$proof/rollback.txt"
+echo FEX-OVERLAY-UPGRADE-ROLLBACK-PASS

@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 12%{?dist}.aurora
+Release: 13%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -183,6 +183,9 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-13
+- Rebuild in lockstep with the mesa-aurora-fex-guest upgrade fix.
+
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-12
 - Ship lavapipe as mesa-aurora-vulkan-lavapipe. The replaced
   mesa-vulkan-drivers carried libvulkan_lvp.so and installed applications

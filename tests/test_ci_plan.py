@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PlanTests(unittest.TestCase):
-    def plan(self, changed_sources, shared_tooling=False, split=False):
+    def plan(self, changed_sources, shared_tooling=False, split=False, event_name="push"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'scripts').mkdir()
@@ -35,12 +35,15 @@ class PlanTests(unittest.TestCase):
             sources.update(changed_sources)
             (root / 'sources.json').write_text(json.dumps(sources))
             if shared_tooling:
-                (root / ('scripts/' + (shared_tooling if isinstance(shared_tooling, str) else 'build-rpm'))).write_text('changed shared builder\n')
+                name = shared_tooling if isinstance(shared_tooling, str) else 'build-rpm'
+                path = root / (name if '/' in name else 'scripts/' + name)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('changed shared builder\n')
             git('add', '.')
             git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'update')
             event = root / 'event.json'
-            event.write_text(json.dumps({'before': before}))
-            env = {**os.environ, 'GITHUB_EVENT_PATH': str(event), 'GITHUB_EVENT_NAME': 'push',
+            event.write_text(json.dumps({'before': before, 'pull_request': {'base': {'sha': before}}}))
+            env = {**os.environ, 'GITHUB_EVENT_PATH': str(event), 'GITHUB_EVENT_NAME': event_name,
                    'GITHUB_SHA': git('rev-parse', 'HEAD')}
             output = subprocess.check_output(['python3', str(root / 'scripts/ci-plan.py')], env=env, text=True)
             plan = dict(line.split('=', 1) for line in output.splitlines())
@@ -65,4 +68,23 @@ class PlanTests(unittest.TestCase):
 
     def test_flatpak_repository_builder_invalidates_native_build_receipts(self):
         self.assertEqual(self.plan({'avd-fw': {'commit': 'new'}}, shared_tooling='build-flatpak-gl-repo'),
+                         ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])
+
+    def test_pr_source_change_builds_affected_recipes_without_unrelated_kernel(self):
+        self.assertEqual(self.plan({'mesa-aurora': {'commit': 'new'}}, event_name='pull_request'),
+                         ['mesa-aurora'])
+
+    def test_pr_shared_builder_change_still_invalidates_all_recipes(self):
+        self.assertEqual(self.plan({'avd-fw': {'commit': 'new'}}, shared_tooling=True,
+                                   event_name='pull_request'),
+                         ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])
+
+    def test_pr_workflow_change_invalidates_every_build(self):
+        self.assertEqual(self.plan({}, shared_tooling='.github/workflows/rpms.yml',
+                                   event_name='pull_request'),
+                         ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])
+
+    def test_pr_receipt_builder_change_invalidates_every_build(self):
+        self.assertEqual(self.plan({}, shared_tooling='build-receipt.py',
+                                   event_name='pull_request'),
                          ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])

@@ -30,7 +30,7 @@ mapfile -t old < state/rollback-rpms
 remove=()
 # Different names require an atomic rename reversal; same-name packages use
 # install's --allow-downgrade. Never run a separate erase transaction.
-for name in mesa-aurora-dri-drivers mesa-aurora-vulkan-drivers mesa-aurora-devel mesa-aurora-libOpenCL mesa-aurora-libOpenCL-devel aurora-flatpak-gl; do
+for name in mesa-aurora-dri-drivers mesa-aurora-vulkan-drivers mesa-aurora-vulkan-lavapipe mesa-aurora-devel mesa-aurora-libOpenCL mesa-aurora-libOpenCL-devel aurora-flatpak-gl; do
   if rpm -q "$name" >/dev/null 2>&1 && ! grep -q "^$name-[0-9]" state/before-rpm-filenames; then
     remove+=("$name")
   fi
@@ -38,6 +38,31 @@ done
 args=(--setopt=install_weak_deps=False do)
 if (( ${#remove[@]} )); then args+=(--action=remove "${remove[@]}"); fi
 args+=(--action=install --allow-downgrade "${old[@]}")
+# Old incoming RPMs predate the upgrade fix. Unmount explicitly for rollback,
+# including when the current release knows how to handle forward upgrades.
+restore_fex() {
+  rc=$?
+  if [[ -e state/fex-rollback-restart-needed ]]; then
+    if systemctl start aurora-fex-mesa.service; then
+      rm state/fex-rollback-restart-needed
+    else
+      echo 'FEX overlay remount failed; recovery marker retained' >&2
+      [[ $rc != 0 ]] || rc=1
+    fi
+  fi
+  exit "$rc"
+}
+trap restore_fex EXIT
+fex_was_active=no
+if rpm -q mesa-aurora-fex-guest >/dev/null 2>&1 && systemctl -q is-active aurora-fex-mesa.service; then
+  systemctl stop aurora-fex-mesa.service
+  fex_was_active=yes
+fi
+if mountpoint -q /usr/share/guestos/aurora-fex-mesa; then
+  echo 'FEX overlay remains mounted; refusing rollback to older RPM scriptlets' >&2
+  exit 1
+fi
+if [[ $fex_was_active == yes ]]; then touch state/fex-rollback-restart-needed; fi
 touch state/rollback-started
 dnf "${args[@]}" 2>&1 | tee state/rollback.log
 # Exact old package versions must all be back, including renamed devel/OpenCL.
