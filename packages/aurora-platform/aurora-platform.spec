@@ -1,6 +1,6 @@
 Name: aurora-platform
 Version: 44
-Release: 7%{?dist}
+Release: 8%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
