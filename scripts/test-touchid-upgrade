@@ -1,0 +1,114 @@
+#!/bin/bash
+# Root only, in a disposable Fedora 45 container. No device access is needed.
+# Usage: test-touchid-upgrade CANDIDATE_RPMS stock|FC44_RPMS
+set -euo pipefail
+candidate=${1:?directory containing candidate RPMs}
+baseline=${2:?stock or directory containing the fc44 v5 RPMs}
+packages=(aurora-sep aurora-sep-selinux libfprint libfprint-selinux libfprint-devel libfprint-tests fprintd fprintd-pam fprintd-devel)
+stock=(libfprint libfprint-devel libfprint-tests fprintd fprintd-pam fprintd-devel)
+dnf install -y python3-rpm createrepo_c selinux-policy-targeted
+if [[ $baseline == stock ]]; then
+  dnf install -y "${stock[@]}"
+else
+  # The actual fc44 payloads, rebuilt from #73's immutable source revision.
+  # Selecting local files here establishes the old baseline, not the upgrade.
+  old=("$baseline"/aurora-sep-1-15.fc44.noarch.rpm
+       "$baseline"/aurora-sep-selinux-1-15.fc44.noarch.rpm
+       "$baseline"/libfprint{,-selinux,-devel,-tests}-1.94.100-1.fc44.aurora7.*.rpm
+       "$baseline"/fprintd{,-pam,-devel}-1.94.5-99.fc44.aurora1.*.rpm)
+  dnf install -y "${old[@]}"
+fi
+rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' \
+  "${stock[@]}" $(if [[ $baseline != stock ]]; then echo aurora-sep aurora-sep-selinux libfprint-selinux; fi) \
+  | sort | tee /tmp/touchid-before.txt
+python3 - "$candidate" "$baseline" <<'PY'
+import glob
+from pathlib import Path
+import rpm
+import shutil
+import sys
+
+names = ('aurora-sep', 'aurora-sep-selinux', 'libfprint', 'libfprint-selinux',
+         'libfprint-devel', 'libfprint-tests', 'fprintd', 'fprintd-pam', 'fprintd-devel')
+transaction = rpm.TransactionSet()
+headers = {}
+repo = Path('/tmp/touchid-repo')
+repo.mkdir()
+for path in glob.glob(sys.argv[1] + '/*.rpm'):
+    with open(path, 'rb') as stream:
+        header = transaction.hdrFromFdno(stream)
+    name = header['name']
+    if name in names:
+        assert name not in headers, ('duplicate candidate', name)
+        headers[name] = header
+        shutil.copy2(path, repo)
+assert set(headers) == set(names), ('missing candidates', set(names) - set(headers))
+
+def evr(header):
+    return str(header['epoch'] or 0), header['version'], header['release']
+
+def nevra(header):
+    return f"{header['name']} {':'.join(evr(header)[:2])}-{header['release']}.{header['arch']}\n"
+
+expected = []
+upgrades = []
+for name in names:
+    candidate = headers[name]
+    assert '.fc45' in candidate['release'], (name, evr(candidate))
+    assert candidate['arch'] in ('aarch64', 'noarch'), (name, candidate['arch'])
+    assert evr(candidate)[0] == ('0' if name.startswith('aurora-sep') else '1'), (name, evr(candidate))
+    installed = list(transaction.dbMatch('name', name))
+    if installed:
+        assert len(installed) == 1, (name, len(installed))
+        old = installed[0]
+        if sys.argv[2] != 'stock':
+            version, release = (('1', '15.fc44') if name.startswith('aurora-sep') else
+                                ('1.94.100', '1.fc44.aurora7') if name.startswith('libfprint') else
+                                ('1.94.5', '99.fc44.aurora1'))
+            assert evr(old) == ('0', version, release), (name, evr(old))
+        assert rpm.labelCompare(evr(candidate), evr(old)) > 0, (name, evr(candidate), evr(old))
+        print(f'UPGRADE {name}: {evr(old)} -> {evr(candidate)}')
+        upgrades.append(name + '\n')
+    else:
+        assert sys.argv[2] == 'stock' and name in ('aurora-sep', 'aurora-sep-selinux', 'libfprint-selinux'), name
+        print(f'NEW {name}: {evr(candidate)}')
+    expected.append(nevra(candidate))
+Path('/tmp/touchid-expected.txt').write_text(''.join(sorted(expected)))
+Path('/tmp/touchid-upgrades.txt').write_text(''.join(sorted(upgrades)))
+PY
+createrepo_c /tmp/touchid-repo
+repo=(--repofrompath=touchid,file:///tmp/touchid-repo --setopt=touchid.gpgcheck=0)
+# DNF must classify every already-installed component as an upgrade. No
+# --allowerasing, downgrade, distro-sync, or explicit candidate RPM install.
+dnf -q "${repo[@]}" repoquery --upgrades --repo=touchid --queryformat '%{name}' \
+  | sort -u > /tmp/touchid-dnf-upgrades.txt
+diff -u /tmp/touchid-upgrades.txt /tmp/touchid-dnf-upgrades.txt
+# Synthetic records stand in for enrolments, identity and calibration files.
+mkdir -p /var/lib/fprint/upgrade-test /var/lib/aurora-sep
+printf 'synthetic fingerprint record\n' > /var/lib/fprint/upgrade-test/print
+printf 'synthetic identity and calibration\n' > /var/lib/aurora-sep/upgrade-test
+sha256sum /var/lib/fprint/upgrade-test/print /var/lib/aurora-sep/upgrade-test > /tmp/touchid-state.sha256
+dnf "${repo[@]}" upgrade -y "${stock[@]}" \
+  $(if [[ $baseline != stock ]]; then echo aurora-sep aurora-sep-selinux libfprint-selinux; fi)
+if [[ $baseline == stock ]]; then
+  dnf "${repo[@]}" install -y aurora-sep
+fi
+rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' "${packages[@]}" \
+  | sort | tee /tmp/touchid-after.txt
+diff -u /tmp/touchid-expected.txt /tmp/touchid-after.txt
+rpm -q --whatprovides 'libfprint(aurora-sep) = 5' 'fprintd(aurora-sep) = 1'
+sha256sum --check /tmp/touchid-state.sha256
+# Exercise an explicit rollback; ordinary updates must still prefer candidates.
+if [[ $baseline == stock ]]; then
+  dnf remove -y aurora-sep aurora-sep-selinux
+  dnf --repo=fedora --repo=updates distro-sync -y "${stock[@]}"
+  dnf remove -y libfprint-selinux
+else
+  dnf downgrade -y "${old[@]}"
+fi
+rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' \
+  "${stock[@]}" $(if [[ $baseline != stock ]]; then echo aurora-sep aurora-sep-selinux libfprint-selinux; fi) \
+  | sort > /tmp/touchid-rollback.txt
+diff -u /tmp/touchid-before.txt /tmp/touchid-rollback.txt
+sha256sum --check /tmp/touchid-state.sha256
+printf 'PASS: Fedora 45 Touch ID upgrade and rollback from %s\n' "$baseline"
