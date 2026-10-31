@@ -18,7 +18,8 @@ Source4: libane-%{libane_commit}.tar.gz
 Source5: build-mil-hwxc
 Source6: install-mil-hwxc
 Source7: mil-hwxc
-BuildRequires: clang lld cmake ninja-build make pkgconf-pkg-config python3 patchelf
+Source8: libane_python.c
+BuildRequires: gcc gcc-c++ clang lld cmake ninja-build make pkgconf-pkg-config python3 patchelf
 BuildRequires: libffi-devel libxml2-devel libicu-devel openssl-devel zlib-devel robin-map-devel libdrm-devel
 Requires: bash python3 python3-numpy
 # The ARC libraries are private to this compiler, not a system runtime ABI.
@@ -38,10 +39,16 @@ bash %{SOURCE5} "$PWD" "$PWD" "$PWD/runtime"
 make -C omarchy-ane-1adf2ee392ef7d3d64a24743d293dbc1670f0e8b/libane %{?_smp_mflags} CFLAGS="%{optflags} -fPIC"
 cc %{optflags} -Iomarchy-ane-1adf2ee392ef7d3d64a24743d293dbc1670f0e8b/libane tools/h13-mobilenet/anechain.c omarchy-ane-1adf2ee392ef7d3d64a24743d293dbc1670f0e8b/libane/libane.a -ldrm -o tools/h13-mobilenet/anechain
 
+echo "c8792e0da6b1fdef74c4ae39f97fdc3a47f6dd509b9b91977cfc520ba5dd1542  %{SOURCE8}" | sha256sum -c
+cc %{optflags} -shared -pthread -fPIC -fno-strict-aliasing -Iomarchy-ane-%{libane_commit}/libane %{SOURCE8} omarchy-ane-%{libane_commit}/libane/libane.a -ldrm -o tools/libane_python.so
+
+python3 -c 'import ctypes; lib = ctypes.CDLL("./tools/libane_python.so"); assert lib.pyane_query_caps'
+
 %install
 bash %{SOURCE6} "$PWD" "$PWD/runtime" "%{buildroot}" "%{_libexecdir}/mil-hwx-compiler/runtime"
 install -Dm755 %{SOURCE7} %{buildroot}%{_bindir}/mil-hwxc
 sed -i -e 's|@RUNTIME@|%{_libexecdir}/mil-hwx-compiler/runtime|g' -e 's|@COMPILER@|%{_libexecdir}/mil-hwx-compiler/mil-hwxc|g' %{buildroot}%{_bindir}/mil-hwxc
+install -Dm644 %{SOURCE8} %{buildroot}%{_licensedir}/%{name}/libane-python-source-MIT.c
 mkdir -p %{buildroot}%{_licensedir}/%{name}
 cp LICENSE %{buildroot}%{_licensedir}/%{name}/compiler-MIT
 cp libobjc2-a1faad66cee79f29c4ca268b004111edc33a2ae2/COPYING %{buildroot}%{_licensedir}/%{name}/libobjc2-MIT

@@ -13,6 +13,7 @@ ExclusiveArch: aarch64
 BuildRequires: libdrm-devel
 BuildRequires: gcc gcc-c++ make cmake ninja-build glslc vulkan-headers vulkan-loader-devel spirv-headers-devel python3
 Requires: python3 python3-numpy vulkan-tools aurora-models
+Recommends: mil-hwx-compiler
 Provides: whisper.cpp-aurora = %{version}-%{release}
 
 %description
