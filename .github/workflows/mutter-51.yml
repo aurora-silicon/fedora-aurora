@@ -1,0 +1,38 @@
+name: Mutter 51 Fedora 45
+on:
+  pull_request:
+    paths: [packages/mutter/**, scripts/build-mutter-51, .github/workflows/mutter-51.yml]
+  push:
+    branches: [main]
+    paths: [packages/mutter/**, scripts/build-mutter-51, .github/workflows/mutter-51.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  mutter:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Build and test Fedora 45 arm64 RPMs
+        run: |
+          set -euo pipefail
+          docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src \
+            registry.fedoraproject.org/fedora:45 bash -euo pipefail -c '
+              dnf install -y rpm-build dnf5-plugins python3 git tar gzip coreutils findutils
+              AURORA_INSTALL_BUILDDEPS=1 AURORA_BUILD_JOBS=8 bash scripts/build-mutter-51
+            ' 2>&1 | tee mutter-51.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: mutter-51-f45-attempt-${{ github.run_attempt }}
+          path: |
+            mutter-51.log
+            out/mutter-51/repo/out/rpms/*.rpm
+            out/mutter-51/repo/out/srpms/*.rpm
+            out/mutter-51/repo/out/manifests/*.json
+            out/mutter-51/repo/out/build/mutter/test-logs.*/**
+            out/mutter-51/repo/out/build/mutter/BUILD/**/meson-logs/**
+          retention-days: 30

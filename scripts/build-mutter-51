@@ -1,0 +1,12 @@
+#!/bin/bash
+# Build the Fedora 45 candidate separately from the Fedora 44 publication set.
+set -euo pipefail
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+stage=$root/out/mutter-51/repo
+mkdir -p "$stage/scripts" "$stage/packages/mutter"
+cp "$root"/scripts/{build-rpm,build-receipt.py,fetch-sources.py,updatelib.py} "$stage/scripts/"
+cp "$root/packages/mutter/f45/sources.json" "$stage/sources.json"
+cp "$root/packages/mutter/f45/mutter.spec" "$stage/packages/mutter/"
+cp "$root"/packages/mutter/*.patch "$stage/packages/mutter/"
+cp "$root"/packages/mutter/f45/*.patch "$stage/packages/mutter/"
+exec bash "$stage/scripts/build-rpm" mutter
