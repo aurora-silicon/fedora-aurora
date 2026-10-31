@@ -1,7 +1,7 @@
-%global commit 34aeed9085ad0f66cb8f266f997e11dd781470a6
+%global commit ef36a26171483d6d81c25c5247ecdb824512c459
 Name: speakerguardd
 Version: 0.1.12
-Release: 1%{?dist}
+Release: 2.evidence%{?dist}
 Summary: Feed-forward speaker protection for Apple J700
 License: MIT
 URL: https://github.com/aurora-silicon/speakerguardd
@@ -15,7 +15,7 @@ BuildRequires: rust cargo alsa-lib-devel pkgconf-pkg-config systemd-rpm-macros
 Feed-forward speaker protection for Apple J700. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n speakerguardd-34aeed9085ad0f66cb8f266f997e11dd781470a6
+%autosetup -n speakerguardd-ef36a26171483d6d81c25c5247ecdb824512c459
 
 %build
 # The binary names its source in -V and the journal.
@@ -54,6 +54,10 @@ install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/speakersafetyd.service.d/50-j7
 %{_libexecdir}/speakerguardd/
 
 %changelog
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.12-2.evidence
+- Pin speakerguardd pull 29 (ef36a2617148): start each boot from evidence
+  (a protected-past bound and the last run's record) instead of latched at
+  the coils' limit; the Neo plays at full level from the first sound.
 * Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.12-1
 - Move to speakerguardd 0.1.12 (main 34aeed9), the build the Neo has run
   since 25 October: it fails closed on control errors, lost sense time and
