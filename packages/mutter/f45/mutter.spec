@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       3%{?dist}.aurora
+Release:       4%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -36,6 +36,7 @@ Source0:       http://download.gnome.org/sources/%{name}/%{major_version}/%{name
 Patch0:        0001-wayland-touch-Do-not-crash-on-empty-focus-surface.patch
 Patch1:        0001-native-output-kms-Prefer-variable-refresh-rate-on-VRR-capable-outputs.patch
 Patch2:        0002-input-capture-disable-on-eis-disconnect.patch
+Patch3:        0003-x11-assign-frame-counters-on-actor-views.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -244,6 +245,9 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-4.aurora
+- Assign X11 frame counters only on views which paint the window
+
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-3.aurora
 - Disable active input capture when its EIS client disconnects
 
