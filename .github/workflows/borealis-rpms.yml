@@ -17,6 +17,10 @@ on:
         description: Candidate release prefix
         required: true
         default: '0.15'
+      native_overlay:
+        description: Build an LLVM-free native Asahi overlay instead of RPM candidates
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -24,6 +28,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
+    if: ${{ inputs.native_overlay != true }}
     strategy:
       fail-fast: false
       max-parallel: 3
@@ -76,4 +81,39 @@ jobs:
         with:
           name: borealis-${{ matrix.name }}
           path: ${{ runner.temp }}/rpm/out/
+          retention-days: 30
+  native-overlay:
+    if: ${{ inputs.native_overlay == true }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    env:
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
+      SOURCE_SHA256: ${{ inputs.source_sha256 }}
+      RPM_RELEASE: ${{ inputs.rpm_release }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          persist-credentials: false
+      - name: Prepare isolated build capacity
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet
+          df -B1 "$RUNNER_TEMP"
+          free -b
+          test "$(df --output=avail -B1 "$RUNNER_TEMP" | tail -1)" -ge 21474836480
+          test "$(awk '/MemAvailable/{print $2}' /proc/meminfo)" -ge 10485760
+      - name: Prepare checksum-pinned public inputs
+        run: python3 ci/borealis/prepare.py "$SOURCE_COMMIT" "$SOURCE_SHA256" "$RPM_RELEASE" native "$RUNNER_TEMP/overlay"
+      - name: Build native compiler tools and LLVM-free driver runtime
+        run: |
+          set -euo pipefail
+          docker run --rm --platform linux/arm64 --cpus 4 --memory 12g --memory-swap 12g \
+            -v "$RUNNER_TEMP/overlay:/r" -v "$PWD/ci/borealis:/recipe:ro" \
+            registry.fedoraproject.org/fedora@sha256:e0f7c9b6ed4f631ac8d0261f7543c3646d148be46a94d60b9465b73c7d4e1500 \
+            nice -n 10 bash /recipe/overlay-build.sh "$SOURCE_COMMIT" \
+            2>&1 | tee "$RUNNER_TEMP/overlay/out/driver.log"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: borealis-native-overlay-fedora45-aarch64
+          path: ${{ runner.temp }}/overlay/out/
           retention-days: 30
