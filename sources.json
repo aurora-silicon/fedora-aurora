@@ -231,5 +231,14 @@
       }
     },
     "redistribute_source": false
+  },
+  "udisks2": {
+    "repository": "https://github.com/storaged-project/udisks",
+    "commit": "caffebe56d8208365cf0d62e0d05d31260d91156",
+    "version": "2.11.2",
+    "source_url": "https://github.com/storaged-project/udisks/releases/download/udisks-2.11.2/udisks-2.11.2.tar.bz2",
+    "archive_root": "udisks-2.11.2",
+    "archive_file": "udisks-2.11.2.tar.bz2",
+    "sha256": "18630a8aad806bea0bc626ce97e71e50ec82c742956ac1c834a4275f8f22207b"
   }
 }
