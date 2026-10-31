@@ -1,4 +1,4 @@
-%global commit 6506c580d8c67462ceeb3dc5d671a4e81be30e1a
+%global commit 84ec71a54796bce9436b03d4bed3f68fb2594c0a
 Name: aurora-diag
 Version: 0.2.1
 Release: 1%{?dist}
