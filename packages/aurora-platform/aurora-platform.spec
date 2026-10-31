@@ -1,6 +1,6 @@
 Name: aurora-platform
 Version: 44
-Release: 7%{?dist}
+Release: 8%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -32,7 +32,7 @@ Obsoletes: asahi-platform-metapackage-audio < 1
 Conflicts: asahi-platform-metapackage < 1
 Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
 Requires: speakersafetyd speakerguardd
-Requires: aurora-audio alsa-ucm-conf-aurora
+Requires: aurora-audio alsa-ucm-conf-aurora aurora-storage
 
 %description core
 The Apple Silicon hardware services that every Aurora system needs: the
@@ -59,6 +59,9 @@ install -Dm644 %{SOURCE101} %{buildroot}%{_sysconfdir}/dnf/protected.d/aurora-pl
 %config(noreplace) %{_sysconfdir}/dnf/protected.d/aurora-platform-core.conf
 
 %changelog
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-8
+- Pull driver-scoped Apple ANS storage defaults into the core platform.
+
 * Fri Oct 30 2026 Aurora Silicon <ryan@aurorasilicon.org> - 44-7
 - Split the hardware services into aurora-platform-core. It replaces the
   Fedora Asahi metapackages without pulling the stock kernel, and dnf

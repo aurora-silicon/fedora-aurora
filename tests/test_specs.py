@@ -11,7 +11,7 @@ class SpecTests(unittest.TestCase):
                     if '%{' not in value and not value.startswith('http'):
                         self.assertTrue((spec.parent / value).is_file(), value)
     def test_noarch_recipes_do_not_claim_machine_specific_binaries(self):
-        for name in ['aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-release', 'aurora-logos', 'speakersafetyd-aurora-profiles']:
+        for name in ['aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-release', 'aurora-logos', 'speakersafetyd-aurora-profiles', 'aurora-storage']:
             text = (ROOT / 'packages' / name / (name + '.spec')).read_text()
             self.assertIn('BuildArch: noarch', text)
     def test_release_identity_is_named_aurora_fedora_remix(self):

@@ -60,3 +60,8 @@ calibration where present and verifies trusted-key sealing and unsealing. No
 calibration is redistributed. The full reader driver set remains enabled; the
 native libfprint build runs all 130 upstream/patched tests. Password policy and
 power-button behavior are unchanged. Real SEP hardware qualification is pending.
+
+Apple ANS storage defaults are packaged with the same driver-scoped udev rule
+on Fedora, ALARM and NixOS Aurora. The candidate `none` scheduler default needs
+matched benchmarks before merge; it leaves controller limits and polling alone.
+See the [scope, benchmark method and rollback notes](packages/aurora-storage/README.md).
