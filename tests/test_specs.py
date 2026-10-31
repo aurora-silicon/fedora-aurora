@@ -97,7 +97,7 @@ class SpecTests(unittest.TestCase):
         core = text.split('%package core', 1)[1].split('%description core', 1)[0]
         requires = ' '.join(re.findall(r'^Requires:\s+(.+)$', core, re.M)).split()
         for name in ['update-m1n1', 'dracut-asahi', 'asahi-fwupdate', 'speakersafetyd',
-                     'speakerguardd', 'aurora-audio', 'alsa-ucm-conf-aurora']:
+                     'speakerguardd', 'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise']:
             self.assertIn(name, requires)
         for name in requires:
             self.assertFalse(name.startswith(('kernel', 'uboot', 'm1n1')) or name == 'aura', name)
