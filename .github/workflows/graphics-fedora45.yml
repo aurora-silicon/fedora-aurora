@@ -1,0 +1,125 @@
+name: Graphics Fedora 45
+on:
+  push:
+    branches: [main]
+    paths:
+      - sources.json
+      - packages/mesa-aurora/**
+      - packages/mesa-aurora-fex-guest/**
+      - scripts/build-rpm
+      - scripts/fetch-sources.py
+      - scripts/test-graphics-fedora45-upgrade
+      - .github/workflows/graphics-fedora45.yml
+  pull_request:
+    paths:
+      - sources.json
+      - packages/mesa-aurora/**
+      - packages/mesa-aurora-fex-guest/**
+      - scripts/build-rpm
+      - scripts/fetch-sources.py
+      - scripts/test-graphics-fedora45-upgrade
+      - .github/workflows/graphics-fedora45.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: mesa-aurora
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+          - package: mesa-aurora-fex-guest
+            runner: ubuntu-24.04
+            platform: linux/amd64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Prepare graphics build capacity
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet
+          df -h "$RUNNER_TEMP"
+          test "$(df --output=avail -B1 "$RUNNER_TEMP" | tail -1)" -ge 21474836480
+      - name: Build Fedora 45 RPMs and run recipe checks
+        env:
+          PACKAGE: ${{ matrix.package }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          docker run --rm --platform "$PLATFORM" -v "$PWD:/src" -w /src \
+            registry.fedoraproject.org/fedora:45 bash -euxo pipefail -c '
+              dnf install -y rpm-build dnf5-plugins python3 git tar gzip coreutils findutils
+              AURORA_INSTALL_BUILDDEPS=1 AURORA_BUILD_JOBS=8 bash scripts/build-rpm "$1"
+            ' build "$PACKAGE" 2>&1 | tee out/build-fedora45.log
+      # Separate artifact names keep these candidates out of the Fedora 44 publisher.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: graphics-fedora45-${{ matrix.package }}
+          path: |
+            out/rpms/*.rpm
+            out/srpms/*.rpm
+            out/manifests/*.json
+            out/build/**/meson-logs/
+            out/build-fedora45.log
+          retention-days: 30
+  transactions:
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: graphics-fedora45-mesa-*
+          path: candidates
+          merge-multiple: true
+      - name: Retain signed fc44 baseline and check release hashes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for pair in fc44-9:testing-20261030.10 fc44-10:testing-20261030.11 fc44-13:testing-20261031.1; do
+            directory=${pair%%:*}; tag=${pair#*:}
+            mkdir -p "baselines/$directory"
+            gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+              --pattern 'mesa-aurora-*.aarch64.rpm' --pattern 'mesa-aurora-*.noarch.rpm' \
+              --pattern SHA256SUMS --dir "baselines/$directory"
+            (cd "baselines/$directory" && sha256sum --check --ignore-missing SHA256SUMS)
+          done
+      - name: Upgrade stock F45 and the fc44 Aurora graph, then restore exact RPMs
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD/candidates/rpms:/candidates" \
+            registry.fedoraproject.org/fedora:45 bash -euxo pipefail -c '
+              dnf install -y createrepo_c
+              createrepo_c /candidates
+            '
+          rc=0
+          for baseline in stock fc44-9 fc44-10 fc44-13; do
+            mkdir -p "proof/$baseline"
+            docker run --rm --platform linux/arm64 \
+              -v "$PWD:/src:ro" -v "$PWD/candidates/rpms:/candidates:ro" \
+              -v "$PWD/baselines:/baselines:ro" -v "$PWD/proof/$baseline:/proof" \
+              registry.fedoraproject.org/fedora:45 bash -euxo pipefail -c '
+                rpm --import /src/keys/RPM-GPG-KEY-aurora
+                old=$1
+                [[ $old == stock ]] || old=/baselines/$old
+                bash /src/scripts/test-graphics-fedora45-upgrade "$old" /candidates /proof
+              ' transaction "$baseline" 2>&1 | tee "proof/$baseline.log" || rc=1
+          done
+          exit "$rc"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: graphics-fedora45-transactions
+          path: proof/
+          retention-days: 30

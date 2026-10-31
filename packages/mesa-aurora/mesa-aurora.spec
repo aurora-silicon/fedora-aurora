@@ -1,8 +1,9 @@
-%global commit cf4e08105dfa526b8874318b6a52b3ce948f6297
+%global commit 9fe179df8bf1cec359d9e452fc9dfa8680285698
 %global debug_package %{nil}
 Name: mesa-aurora
+Epoch: 1
 Version: 26.3.0
-Release: 13%{?dist}.aurora
+Release: 14%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -27,24 +28,24 @@ is packaged separately with its compiler runtime dependencies.
 
 %package -n mesa-aurora-dri-drivers
 Summary: Aurora Mesa OpenGL, EGL and GBM
-Provides: mesa-dri-drivers = %{version}-%{release}
-Provides: mesa-dri-drivers%{?_isa} = %{version}-%{release}
-Provides: mesa-libEGL = %{version}-%{release}
-Provides: mesa-libEGL%{?_isa} = %{version}-%{release}
-Provides: mesa-libGL = %{version}-%{release}
-Provides: mesa-libGL%{?_isa} = %{version}-%{release}
-Provides: mesa-libgbm = %{version}-%{release}
-Provides: mesa-libgbm%{?_isa} = %{version}-%{release}
-Provides: mesa-libglapi = %{version}-%{release}
-Provides: mesa-libglapi%{?_isa} = %{version}-%{release}
-Provides: mesa-libgallium = %{version}-%{release}
-Provides: mesa-libgallium%{?_isa} = %{version}-%{release}
-Obsoletes: mesa-dri-drivers < %{version}-%{release}
-Obsoletes: mesa-libEGL < %{version}-%{release}
-Obsoletes: mesa-libGL < %{version}-%{release}
-Obsoletes: mesa-libgbm < %{version}-%{release}
-Obsoletes: mesa-libglapi < %{version}-%{release}
-Obsoletes: mesa-libgallium < %{version}-%{release}
+Provides: mesa-dri-drivers = %{epoch}:%{version}-%{release}
+Provides: mesa-dri-drivers%{?_isa} = %{epoch}:%{version}-%{release}
+Provides: mesa-libEGL = %{epoch}:%{version}-%{release}
+Provides: mesa-libEGL%{?_isa} = %{epoch}:%{version}-%{release}
+Provides: mesa-libGL = %{epoch}:%{version}-%{release}
+Provides: mesa-libGL%{?_isa} = %{epoch}:%{version}-%{release}
+Provides: mesa-libgbm = %{epoch}:%{version}-%{release}
+Provides: mesa-libgbm%{?_isa} = %{epoch}:%{version}-%{release}
+Provides: mesa-libglapi = %{epoch}:%{version}-%{release}
+Provides: mesa-libglapi%{?_isa} = %{epoch}:%{version}-%{release}
+Provides: mesa-libgallium = %{epoch}:%{version}-%{release}
+Provides: mesa-libgallium%{?_isa} = %{epoch}:%{version}-%{release}
+Obsoletes: mesa-dri-drivers < %{epoch}:%{version}-%{release}
+Obsoletes: mesa-libEGL < %{epoch}:%{version}-%{release}
+Obsoletes: mesa-libGL < %{epoch}:%{version}-%{release}
+Obsoletes: mesa-libgbm < %{epoch}:%{version}-%{release}
+Obsoletes: mesa-libglapi < %{epoch}:%{version}-%{release}
+Obsoletes: mesa-libgallium < %{epoch}:%{version}-%{release}
 Requires: libglvnd-egl libglvnd-glx
 
 %description -n mesa-aurora-dri-drivers
@@ -52,9 +53,9 @@ Aurora Asahi, Zink and software OpenGL drivers, plus EGL and GBM integration.
 
 %package -n mesa-aurora-vulkan-drivers
 Summary: Aurora Honeykrisp Vulkan driver
-Provides: mesa-vulkan-drivers = %{version}-%{release}
-Provides: mesa-vulkan-drivers%{?_isa} = %{version}-%{release}
-Obsoletes: mesa-vulkan-drivers < %{version}-%{release}
+Provides: mesa-vulkan-drivers = %{epoch}:%{version}-%{release}
+Provides: mesa-vulkan-drivers%{?_isa} = %{epoch}:%{version}-%{release}
+Obsoletes: mesa-vulkan-drivers < %{epoch}:%{version}-%{release}
 Requires: vulkan-loader
 
 %description -n mesa-aurora-vulkan-drivers
@@ -66,7 +67,7 @@ Native Honeykrisp Vulkan driver for Aurora Apple Silicon kernels.
 %package -n mesa-aurora-vulkan-lavapipe
 Summary: Aurora Mesa lavapipe software Vulkan driver
 Requires: vulkan-loader
-Obsoletes: mesa-vulkan-drivers < %{version}-%{release}
+Obsoletes: mesa-vulkan-drivers < %{epoch}:%{version}-%{release}
 
 %description -n mesa-aurora-vulkan-lavapipe
 CPU-based Vulkan driver built from the same source as the native drivers.
@@ -75,25 +76,25 @@ CPU-based Vulkan driver built from the same source as the native drivers.
 # devel packages installed with exact Requires on the replaced runtime EVR.
 %package -n mesa-aurora-devel
 Summary: Aurora Mesa EGL, GL and GBM development files
-Requires: mesa-aurora-dri-drivers%{?_isa} = %{version}-%{release}
+Requires: mesa-aurora-dri-drivers%{?_isa} = %{epoch}:%{version}-%{release}
 Requires: libglvnd-devel%{?_isa} >= 1:1.3.2
 Requires: mesa-khr-devel%{?_isa}
-Provides: mesa-libEGL-devel = %{version}-%{release}
-Provides: mesa-libEGL-devel%{?_isa} = %{version}-%{release}
-Provides: mesa-libGL-devel = %{version}-%{release}
-Provides: mesa-libGL-devel%{?_isa} = %{version}-%{release}
-Provides: mesa-libgbm-devel = %{version}-%{release}
-Provides: mesa-libgbm-devel%{?_isa} = %{version}-%{release}
-Obsoletes: mesa-libEGL-devel < %{version}-%{release}
-Obsoletes: mesa-libGL-devel < %{version}-%{release}
-Obsoletes: mesa-libgbm-devel < %{version}-%{release}
+Provides: mesa-libEGL-devel = %{epoch}:%{version}-%{release}
+Provides: mesa-libEGL-devel%{?_isa} = %{epoch}:%{version}-%{release}
+Provides: mesa-libGL-devel = %{epoch}:%{version}-%{release}
+Provides: mesa-libGL-devel%{?_isa} = %{epoch}:%{version}-%{release}
+Provides: mesa-libgbm-devel = %{epoch}:%{version}-%{release}
+Provides: mesa-libgbm-devel%{?_isa} = %{epoch}:%{version}-%{release}
+Obsoletes: mesa-libEGL-devel < %{epoch}:%{version}-%{release}
+Obsoletes: mesa-libGL-devel < %{epoch}:%{version}-%{release}
+Obsoletes: mesa-libgbm-devel < %{epoch}:%{version}-%{release}
 
 %description -n mesa-aurora-devel
 Headers, pkg-config files and GBM linker interface for the matching Aurora Mesa.
 
 %package -n mesa-aurora-libOpenCL
 Summary: Aurora Mesa Rusticl OpenCL driver
-Requires: mesa-aurora-dri-drivers%{?_isa} = %{version}-%{release}
+Requires: mesa-aurora-dri-drivers%{?_isa} = %{epoch}:%{version}-%{release}
 Requires: (ocl-icd%{?_isa} or OpenCL-ICD-Loader%{?_isa})
 Requires: opencl-filesystem
 %if 0%{?fedora} >= 45
@@ -101,9 +102,9 @@ Requires: libclc22%{?_isa}
 %else
 Requires: libclc%{?_isa}
 %endif
-Provides: mesa-libOpenCL = %{version}-%{release}
-Provides: mesa-libOpenCL%{?_isa} = %{version}-%{release}
-Obsoletes: mesa-libOpenCL < %{version}-%{release}
+Provides: mesa-libOpenCL = %{epoch}:%{version}-%{release}
+Provides: mesa-libOpenCL%{?_isa} = %{epoch}:%{version}-%{release}
+Obsoletes: mesa-libOpenCL < %{epoch}:%{version}-%{release}
 
 %description -n mesa-aurora-libOpenCL
 Rusticl built from the same source as the native drivers. Replaces the older
@@ -111,10 +112,10 @@ OpenCL package, including its exact dependency on the old GBM version.
 
 %package -n mesa-aurora-libOpenCL-devel
 Summary: Linker interface for Aurora Mesa Rusticl
-Requires: mesa-aurora-libOpenCL%{?_isa} = %{version}-%{release}
-Provides: mesa-libOpenCL-devel = %{version}-%{release}
-Provides: mesa-libOpenCL-devel%{?_isa} = %{version}-%{release}
-Obsoletes: mesa-libOpenCL-devel < %{version}-%{release}
+Requires: mesa-aurora-libOpenCL%{?_isa} = %{epoch}:%{version}-%{release}
+Provides: mesa-libOpenCL-devel = %{epoch}:%{version}-%{release}
+Provides: mesa-libOpenCL-devel%{?_isa} = %{epoch}:%{version}-%{release}
+Obsoletes: mesa-libOpenCL-devel < %{epoch}:%{version}-%{release}
 
 %description -n mesa-aurora-libOpenCL-devel
 Linker interface for the matching Aurora Rusticl OpenCL library.
@@ -142,7 +143,8 @@ ninja -C build %{?_smp_mflags}
 # RPM phases use separate shells. meson test rebuilds the always-stale Git
 # header, so retain the archive identity here as well as in the build phase.
 export MESA_GIT_SHA1_OVERRIDE=%{commit}
-meson test -C build --print-errorlogs --num-processes 4
+# Permit slower builders to extend the deadline without skipping any tests.
+meson test -C build --print-errorlogs --num-processes 4 --timeout-multiplier %{?mesa_test_timeout_multiplier}%{!?mesa_test_timeout_multiplier:1}
 
 %install
 DESTDIR=%{buildroot} meson install -C build --no-rebuild
@@ -183,6 +185,10 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Sat Oct 31 2026 Aurora Silicon <hey@djdev.me> - 1:26.3.0-14
+- Pin Mesa to aurora-wip including mesa#122; keep consumer metadata aligned.
+- Build and test Fedora 45 candidates with epoch 1 for coherent upgrades.
+
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-13
 - Rebuild in lockstep with the mesa-aurora-fex-guest upgrade fix.
 

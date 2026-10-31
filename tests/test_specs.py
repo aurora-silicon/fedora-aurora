@@ -50,8 +50,8 @@ class SpecTests(unittest.TestCase):
         self.assertEqual(sources['mesa-aurora']['commit'], host[0])
         self.assertIn('BuildArch: noarch', guest[3])
         self.assertIn('# aurora-builder: x86_64', guest[3].splitlines())
-        self.assertIn('Requires: mesa-dri-drivers = %{version}-%{release}', guest[3])
-        self.assertIn('Requires: mesa-vulkan-drivers = %{version}-%{release}', guest[3])
+        self.assertIn('Requires: mesa-dri-drivers = %{epoch}:%{version}-%{release}', guest[3])
+        self.assertIn('Requires: mesa-vulkan-drivers = %{epoch}:%{version}-%{release}', guest[3])
     def test_spec_commit_matches_its_source_pin(self):
         sources = json.loads((ROOT / 'sources.json').read_text())
         for spec in (ROOT / 'packages').glob('*/*.spec'):

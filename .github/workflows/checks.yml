@@ -24,7 +24,7 @@ jobs:
           python3 images/test_configure.py
           python3 -m compileall -q scripts images
           for script in scripts/build-rpm scripts/build-flatpak-gl-repo \
-            packages/aurora-flatpak-gl/build-extension.sh scripts/test-graphics-upgrade scripts/test-fex-overlay-upgrade scripts/fleet-kit/*.sh; do
+            packages/aurora-flatpak-gl/build-extension.sh scripts/test-graphics-upgrade scripts/test-graphics-fedora45-upgrade scripts/test-fex-overlay-upgrade scripts/fleet-kit/*.sh; do
             bash -n "$script"
           done
           git diff --check

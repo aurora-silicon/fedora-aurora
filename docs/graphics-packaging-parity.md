@@ -1,5 +1,9 @@
 # Graphics packaging parity for the fleet
 
+For the current Mesa source pin and Fedora 45 CI/transaction work, see
+[graphics-fedora45.md](graphics-fedora45.md). The evidence below records the
+older Fedora 44 packaging campaign.
+
 Mesa source remains `cf4e08105dfa526b8874318b6a52b3ce948f6297`.
 Fedora packaging release 26.3.0-11 fixes delivery and migration; it does not
 change driver source. These are text-only proposals for the other distributions.

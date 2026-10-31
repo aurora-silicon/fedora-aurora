@@ -1,0 +1,214 @@
+#!/bin/bash
+# Disposable Fedora 45 AArch64 container only; never run on a machine.
+# Args: stock | directory of exact fc44 Mesa RPMs, candidate repo, evidence dir.
+set -euo pipefail
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+old=${1:?stock or fc44 RPM directory}
+new=$(realpath "${2:?candidate repository}")
+out=${3:?evidence directory}
+[[ $(uname -m) == aarch64 && ( -e /.dockerenv || -e /run/.containerenv ) ]] || exit 2
+# shellcheck source=/dev/null
+source /etc/os-release
+[[ $ID == fedora && $VERSION_ID == 45 ]] || exit 2
+mkdir -p "$out"
+exec > >(tee "$out/transaction.log") 2>&1
+native=(mesa-aurora-dri-drivers mesa-aurora-vulkan-drivers mesa-aurora-vulkan-lavapipe
+        mesa-aurora-devel mesa-aurora-libOpenCL mesa-aurora-libOpenCL-devel)
+all=("${native[@]}" mesa-aurora-fex-guest)
+stock=(mesa-dri-drivers mesa-vulkan-drivers mesa-libEGL mesa-libGL mesa-libgbm
+       mesa-libEGL-devel mesa-libGL-devel mesa-libgbm-devel mesa-libOpenCL mesa-libOpenCL-devel)
+# Use Fedora's signed dependencies; only this disposable candidate repo is unsigned.
+dnf install -y rpm-build dnf5-plugins python3-rpm binutils
+rollback=$(realpath "$out")/rollback-rpms
+mkdir -p "$rollback"
+if [[ $old == stock ]]; then
+  dnf install -y --setopt=install_weak_deps=False "${stock[@]}"
+  mapfile -t exact < <(rpm -qa --qf '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | grep '^mesa-')
+  dnf download --destdir="$rollback" "${exact[@]}"
+else
+  mapfile -d '' baseline < <(find "$old" -maxdepth 1 -name '*.rpm' ! -name '*.src.rpm' -print0 | sort -z)
+  (( ${#baseline[@]} >= 3 ))
+  for path in "${baseline[@]}"; do
+    [[ $(rpm -qp --qf '%{NAME}' "$path") == mesa-aurora-* ]]
+    [[ $(rpm -qp --qf '%{RELEASE}' "$path") == *.fc44.aurora ]]
+    signature=$(rpmkeys --checksig --verbose "$path")
+    printf '%s\n' "$signature"
+    grep -Ei 'signature.*: OK' <<< "$signature"
+  done
+  dnf install -y --setopt=install_weak_deps=False "${baseline[@]}"
+  rpm -q mesa-aurora-dri-drivers mesa-aurora-vulkan-drivers mesa-aurora-fex-guest
+  cp "${baseline[@]}" "$rollback/"
+fi
+# Retain stock Mesa dependencies installed alongside an Aurora baseline too.
+# The Aurora bytes above are local/signed; the remaining names come from Fedora.
+mapfile -t remaining < <(comm -23 \
+  <(rpm -qa --qf '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | grep '^mesa-' | sort) \
+  <(rpm -qp --qf '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' "$rollback/"*.rpm | sort))
+if (( ${#remaining[@]} )); then dnf download --destdir="$rollback" "${remaining[@]}"; fi
+# Retain a real consumer when the baseline already has lavapipe. The -9/-10
+# Aurora sets did not ship it, so their optional output is tested after upgrade.
+if rpm -q --whatprovides 'libvulkan_lvp.so()(64bit)' >/dev/null 2>&1; then
+mkdir -p /var/tmp/aurora-lvp-consumer
+cat > /var/tmp/aurora-lvp-consumer/consumer.spec <<'SPEC'
+Name: aurora-lavapipe-consumer-test
+Version: 1
+Release: 1
+Summary: Disposable lavapipe consumer
+License: MIT
+Requires: libvulkan_lvp.so()(64bit)
+%description
+Exercise preservation of an installed software Vulkan consumer.
+%install
+mkdir -p %{buildroot}/usr/share/aurora-lavapipe-consumer-test
+echo consumer > %{buildroot}/usr/share/aurora-lavapipe-consumer-test/marker
+%files
+/usr/share/aurora-lavapipe-consumer-test/marker
+SPEC
+rpmbuild -bb --define '_topdir /var/tmp/aurora-lvp-consumer' /var/tmp/aurora-lvp-consumer/consumer.spec
+dnf install -y /var/tmp/aurora-lvp-consumer/RPMS/aarch64/*.rpm
+fi
+dnf check
+inventory() { rpm -qa --qf '%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort; }
+sha256sum "$rollback/"*.rpm > "$out/rollback-rpms.sha256"
+inventory > "$out/before.tsv"
+rpm -qp --qf '%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' "$new/"*.rpm | sort > "$out/candidate.tsv"
+# Verify every candidate and its epoch before relying on the DNF solver.
+python3 - "$new" "${all[@]}" <<'PY'
+import glob, rpm, sys
+transaction = rpm.TransactionSet()
+headers = {}
+for path in glob.glob(sys.argv[1] + '/*.rpm'):
+    with open(path, 'rb') as stream:
+        h = transaction.hdrFromFdno(stream)
+    assert h['name'] in sys.argv[2:] and h['name'] not in headers, path
+    headers[h['name']] = h
+assert set(headers) == set(sys.argv[2:]), sorted(headers)
+def evr(h): return (str(h['epoch'] or 0), h['version'], h['release'])
+def split_evr(value):
+    epoch, separator, rest = value.partition(':')
+    if not separator: epoch, rest = '0', epoch
+    version, separator, release = rest.rpartition('-')
+    assert separator, value
+    return epoch, version, release
+expected = evr(headers['mesa-aurora-dri-drivers'])
+for name, h in headers.items():
+    assert evr(h) == expected and expected[0] == '1', (name, evr(h), expected)
+    assert h['release'].endswith('.fc45.aurora'), (name, h['release'])
+    assert h['arch'] == ('noarch' if name.endswith('fex-guest') else 'aarch64')
+    for previous in transaction.dbMatch('name', name):
+        assert rpm.labelCompare(evr(h), evr(previous)) > 0, (name, evr(h), evr(previous))
+# Also compare the replacement capabilities against the actual stock headers.
+for h in headers.values():
+    for name, version in zip(h['providename'], h['provideversion']):
+        for previous in transaction.dbMatch('name', name):
+            if name.startswith('mesa-') and not name.startswith('mesa-aurora-'):
+                old = ':'.join((evr(previous)[0], '-'.join(evr(previous)[1:])))
+                assert rpm.labelCompare(split_evr(version), split_evr(old)) > 0, (name, version, old)
+print('Candidate identity, lockstep EVR and upgrade ordering verified:', expected)
+PY
+cat > /etc/yum.repos.d/aurora-graphics-f45-test.repo <<REPO
+[aurora-graphics-f45-test]
+name=Disposable Fedora 45 graphics candidate
+baseurl=file://$new
+enabled=1
+gpgcheck=0
+REPO
+# Ordinary upgrade must replace the version-coupled native graph without erasure.
+dnf upgrade -y --setopt=install_weak_deps=False 'mesa*'
+inventory > "$out/upgrade.tsv"
+# Do not let the explicit optional-package install conceal a failed upgrade.
+python3 - "$out" <<'PYUPGRADE'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+def read(name): return dict(line.split('\t') for line in (p/name).read_text().splitlines())
+before, after, candidate = read('before.tsv'), read('upgrade.tsv'), read('candidate.tsv')
+replacements = {
+    **dict.fromkeys(('mesa-dri-drivers','mesa-libEGL','mesa-libGL','mesa-libgbm',
+                     'mesa-libglapi','mesa-libgallium'), 'mesa-aurora-dri-drivers'),
+    **dict.fromkeys(('mesa-libEGL-devel','mesa-libGL-devel','mesa-libgbm-devel'), 'mesa-aurora-devel'),
+    'mesa-vulkan-drivers': 'mesa-aurora-vulkan-drivers',
+    'mesa-libOpenCL': 'mesa-aurora-libOpenCL', 'mesa-libOpenCL-devel': 'mesa-aurora-libOpenCL-devel',
+}
+for name in before:
+    target = replacements.get(name, name)
+    if target in candidate:
+        assert after.get(target) == candidate[target], (name, target, after.get(target))
+    if name in replacements:
+        assert name not in after, name
+if 'aurora-lavapipe-consumer-test' in before:
+    assert after.get('aurora-lavapipe-consumer-test') == before['aurora-lavapipe-consumer-test']
+    assert after.get('mesa-aurora-vulkan-lavapipe') == candidate['mesa-aurora-vulkan-lavapipe']
+print('Ordinary DNF upgrade replaced every installed graphics output')
+PYUPGRADE
+# Old Aurora builds did not ship every optional output. Exercise the entire
+# set after the ordinary upgrade, including FEX's exact host requirements.
+dnf install -y --setopt=install_weak_deps=False "${all[@]}"
+dnf check
+inventory > "$out/after.tsv"
+for name in "${all[@]}"; do
+  # Prefix globs also match e.g. mesa-aurora-libOpenCL-devel. Compare the
+  # exact package name with the already validated candidate inventory.
+  expected=$(awk -v name="$name" '$1 == name {print $2}' "$out/candidate.tsv")
+  installed=$(rpm -q --qf '%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}' "$name")
+  [[ $installed == "$expected" ]] || { echo "Candidate mismatch: $name $installed != $expected" >&2; exit 1; }
+done
+commit=$(cat /usr/share/guestos/aurora-fex-mesa-layer/.aurora-mesa-commit)
+[[ $commit =~ ^[a-f0-9]{40}$ ]]
+expected_commit=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["mesa-aurora"]["commit"])' "$root/sources.json")
+[[ $commit == "$expected_commit" ]]
+strings /usr/lib64/libvulkan_asahi.so | grep -F "(git-${commit:0:10}), Borealis" > "$out/driverInfo.txt"
+for lib in /usr/share/guestos/aurora-fex-mesa-layer/usr/{lib64,lib}/libvulkan_asahi.so; do
+  strings "$lib" | grep -F "(git-${commit:0:10}), Borealis"
+done
+rpm -q --whatprovides 'libvulkan_lvp.so()(64bit)'
+test -f /usr/lib64/libvulkan_lvp.so
+test -f /usr/lib64/libRusticlOpenCL.so.1
+test -f /etc/OpenCL/vendors/rusticl.icd
+# Compare removed names with only the intentional stock replacements.
+python3 - "$out" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+def read(name): return dict(line.split('\t') for line in (p/name).read_text().splitlines())
+before, after = read('before.tsv'), read('after.tsv')
+allowed = {'mesa-dri-drivers','mesa-vulkan-drivers','mesa-libEGL','mesa-libGL','mesa-libgbm',
+           'mesa-libglapi','mesa-libgallium','mesa-libEGL-devel','mesa-libGL-devel',
+           'mesa-libgbm-devel','mesa-libOpenCL','mesa-libOpenCL-devel'}
+assert set(before) - set(after) <= allowed, sorted(set(before) - set(after) - allowed)
+PY
+echo GRAPHICS-F45-UPGRADE-PASS
+# Restore the exact retained RPMs, including renamed stock packages, atomically.
+remove=()
+mapfile -t installed_mesa < <(rpm -qa --qf '%{NAME}\n' | grep '^mesa-')
+for name in "${installed_mesa[@]}"; do
+  if ! awk -v n="$name" '$1==n {found=1} END {exit !found}' "$out/before.tsv"; then remove+=("$name"); fi
+done
+args=('do')
+if (( ${#remove[@]} )); then args+=(--action=remove "${remove[@]}"); fi
+args+=(--action=install --allow-downgrade "$rollback/"*.rpm)
+dnf -y --disable-repo=aurora-graphics-f45-test --setopt=install_weak_deps=False "${args[@]}"
+dnf check
+inventory > "$out/rollback.tsv"
+python3 - "$out" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+def read(name): return dict(line.split('\t') for line in (p/name).read_text().splitlines())
+before, after = read('before.tsv'), read('rollback.tsv')
+assert {k:v for k,v in before.items() if k.startswith('mesa-')} == {k:v for k,v in after.items() if k.startswith('mesa-')}
+assert set(before) <= set(after), sorted(set(before) - set(after))
+PY
+# Validate payload identity in addition to exact NEVRA restoration.
+tag=PAYLOADDIGEST
+if rpm --querytags | grep -Fx PAYLOADSHA256 >/dev/null; then tag=PAYLOADSHA256; fi
+format="%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH} %{${tag}}"
+: > "$out/rollback-payload-identities.txt"
+for path in "$rollback/"*.rpm; do
+  name=$(rpm -qp --qf '%{NAME}' "$path")
+  installed=$(rpm -q --qf "$format" "$name")
+  digest=$(rpm -q --qf "%{${tag}}" "$name")
+  [[ $digest =~ ^[0-9a-f]+$ && $installed == "$(rpm -qp --qf "$format" "$path")" ]]
+  printf '%s\n' "$installed" >> "$out/rollback-payload-identities.txt"
+done
+echo GRAPHICS-F45-ROLLBACK-PASS
