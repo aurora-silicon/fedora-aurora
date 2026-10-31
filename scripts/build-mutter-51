@@ -8,4 +8,5 @@ cp "$root"/scripts/{build-rpm,build-receipt.py,fetch-sources.py,updatelib.py} "$
 cp "$root/packages/mutter/f45/sources.json" "$stage/sources.json"
 cp "$root/packages/mutter/f45/mutter.spec" "$stage/packages/mutter/"
 cp "$root"/packages/mutter/*.patch "$stage/packages/mutter/"
+cp "$root"/packages/mutter/f45/*.patch "$stage/packages/mutter/"
 exec bash "$stage/scripts/build-rpm" mutter
