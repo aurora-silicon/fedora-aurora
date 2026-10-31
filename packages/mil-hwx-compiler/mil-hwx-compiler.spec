@@ -22,7 +22,7 @@ Patch0: gnustep-base-block-ivar.patch
 ExclusiveArch: aarch64
 BuildRequires: clang lld cmake ninja-build make pkgconf-pkg-config
 BuildRequires: libffi-devel libxml2-devel libicu-devel openssl-devel zlib-devel robin-map-devel
-BuildRequires: gcc-c++ python3 patchelf patch which
+BuildRequires: gcc-c++ python3 patchelf patch which git
 # Libraries are private, not ABI-compatible with the system GNUstep runtime.
 Provides: bundled(libobjc2)
 Provides: bundled(gnustep-base)
