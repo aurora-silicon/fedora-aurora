@@ -5,6 +5,7 @@ Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
 BuildArch: noarch
+BuildRequires: systemd-rpm-macros
 Requires: aurora-platform-core = %{version}-%{release}
 Requires: fastfetch >= 2.68.1-2
 Requires: linux-firmware amd-gpu-firmware intel-gpu-firmware nvidia-gpu-firmware

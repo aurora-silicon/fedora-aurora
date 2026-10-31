@@ -28,7 +28,7 @@ and firewalld keep their normal diagnostics and firewall integration.
 
 %build
 export GOMAXPROCS=8
-export GOFLAGS='-mod=vendor -p=8'
+export GOFLAGS='-mod=vendor -buildvcs=false -p=8'
 export DOCKER_GITCOMMIT=0367cbeb49b9d98cb0b4f51e95f7b54b4803e76c
 export VERSION=%{version}
 export DOCKER_BUILDTAGS='journald'
@@ -36,7 +36,7 @@ bash hack/make.sh dynbinary
 %make_build -C man GO_MD2MAN=go-md2man
 
 %check
-go test -mod=vendor -p=8 ./daemon/libnetwork/iptables -run '^TestSetupDockerForwardingPolicy$' -count=1 -v
+go test -mod=vendor -buildvcs=false -p=8 ./daemon/libnetwork/iptables -run '^TestSetupDockerForwardingPolicy$' -count=1 -v
 bundles/dynbinary-daemon/dockerd --version | grep -F 'Docker version %{version}, build 0367cbeb49b9d98cb0b4f51e95f7b54b4803e76c'
 
 %install
