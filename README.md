@@ -60,3 +60,6 @@ calibration where present and verifies trusted-key sealing and unsealing. No
 calibration is redistributed. The full reader driver set remains enabled; the
 native libfprint build runs all 130 upstream/patched tests. Password policy and
 power-button behavior are unchanged. Real SEP hardware qualification is pending.
+
+Bluetooth LE Audio defaults, opt-out instructions and the three-distro parity
+table are documented in [Bluetooth LE Audio](docs/bluetooth-le-audio.md).
