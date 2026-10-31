@@ -1,0 +1,61 @@
+name: Touch ID Fedora 45
+on:
+  push:
+    branches: [main]
+    paths: [sources.json, packages/aurora-sep/**, packages/libfprint/**, packages/fprintd/**, scripts/build-rpm, scripts/fetch-sources.py, scripts/build-receipt.py, scripts/test-touchid-upgrade, .github/workflows/touchid-fedora45.yml]
+  pull_request:
+    paths: [sources.json, packages/aurora-sep/**, packages/libfprint/**, packages/fprintd/**, scripts/build-rpm, scripts/fetch-sources.py, scripts/build-receipt.py, scripts/test-touchid-upgrade, .github/workflows/touchid-fedora45.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  touchid:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          path: candidate
+          persist-credentials: false
+      # Rebuild the installed v5 baseline, rather than depending on expiring
+      # artifacts from run 41147200126 (fedora-aurora#73).
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: 09dec299bf0bd35d1990038e9b10c75f3dea253f
+          path: baseline
+          persist-credentials: false
+      - name: Build native Fedora 45 candidates and Fedora 44 v5 baseline
+        run: |
+          set -euo pipefail
+          for pair in candidate:45 baseline:44; do
+            tree=${pair%:*}; release=${pair#*:}
+            docker run --rm --platform linux/arm64 -v "$PWD/$tree:/src" -w /src \
+              registry.fedoraproject.org/fedora:$release bash -euxo pipefail -c '
+                dnf install -y rpm-build dnf5-plugins python3 git tar gzip coreutils findutils
+                for package in libfprint fprintd aurora-sep; do
+                  AURORA_INSTALL_BUILDDEPS=1 AURORA_BUILD_JOBS=8 bash scripts/build-rpm "$package"
+                done
+              ' 2>&1 | tee build-fedora$release.log
+          done
+      - name: DNF upgrades from stock Fedora 45 and fc44 Aurora v5
+        run: |
+          set -euo pipefail
+          for old in stock /baseline; do
+            label=${old##*/}
+            docker run --rm --platform linux/arm64 -v "$PWD/candidate:/src:ro" \
+              -v "$PWD/baseline/out/rpms:/baseline:ro" \
+              registry.fedoraproject.org/fedora:45 \
+              bash /src/scripts/test-touchid-upgrade /src/out/rpms "$old" \
+              2>&1 | tee upgrade-fedora45-$label.log
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: touchid-fedora45
+          path: |
+            candidate/out/rpms/*.rpm
+            candidate/out/srpms/*.rpm
+            candidate/out/manifests/*.json
+            candidate/out/build/libfprint/BUILD/**/meson-logs/
+            *-fedora*.log
+          retention-days: 30

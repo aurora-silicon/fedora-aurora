@@ -1,6 +1,6 @@
 # Graphics packaging parity for the fleet
 
-Mesa source remains `cf4e08105dfa526b8874318b6a52b3ce948f6297`.
+Mesa source is `c208afc352e9d4c10ee71c883a369a9079dd7d84` (26.3.0-14, accepts the "aurora" kernel DRM name; earlier sections below describe cf4e08105dfa).
 Fedora packaging release 26.3.0-11 fixes delivery and migration; it does not
 change driver source. These are text-only proposals for the other distributions.
 

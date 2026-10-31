@@ -52,7 +52,7 @@ findmnt /usr/share/guestos/aurora-fex-mesa > "$proof/mount-before.txt"
 # A real DNF transaction executes the incoming %pre before relabel/unpack.
 dnf -y --enable-repo=aurora-overlay-test --setopt=install_weak_deps=False upgrade 'mesa*' aurora-flatpak-gl
 cat /run/aurora-fex-overlay-witness | tee "$proof/unmounted-before-posttrans.txt"
-[[ $(rpm -q --qf '%{VERSION}-%{RELEASE}' mesa-aurora-fex-guest) == 26.3.0-13.fc44.aurora ]]
+[[ $(rpm -q --qf '%{VERSION}-%{RELEASE}' mesa-aurora-fex-guest) == 26.3.0-14.fc44.aurora ]]
 systemctl is-active aurora-fex-mesa.service
 mountpoint -q /usr/share/guestos/aurora-fex-mesa
 cmp /usr/share/guestos/aurora-fex-mesa/.aurora-mesa-commit /usr/share/guestos/aurora-fex-mesa-layer/.aurora-mesa-commit

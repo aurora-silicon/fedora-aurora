@@ -1,6 +1,6 @@
-%global commit 221c8bfa2ac4aa43a1f9075420a95c1d12bce4b0
+%global commit c1de6aa10eb42719fae9a756cfa91e7c24f4c98c
 Name: speakerguardd
-Version: 0.1.13~rc1
+Version: 0.1.13~rc2
 Release: 1%{?dist}
 Summary: Unified Apple speaker protection release candidate
 License: MIT
@@ -23,7 +23,7 @@ Summary: Optional speaker excursion and peak limiter
 Optional LADSPA excursion limiter. Installing it does not enable an audio graph.
 
 %prep
-%autosetup -n speakerguardd-221c8bfa2ac4aa43a1f9075420a95c1d12bce4b0
+%autosetup -n speakerguardd-c1de6aa10eb42719fae9a756cfa91e7c24f4c98c
 
 %build
 # The binary names its source in -V and the journal.
@@ -70,10 +70,23 @@ install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/speakersafetyd.service.d/50-j7
 %{_libdir}/ladspa/speakerguard-xlim.so
 
 %changelog
-* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13~rc1-1
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13~rc2-1
 - Pin the integrated upstream RC; keep failing acceptance gates effective.
 - Package restart evidence preservation and the optional xlim plugin.
 - Retain upstream profile selection, qualification and service owner policy.
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.12-4
+- Pin speakerguardd main 0287029648842 (pull 29 merged, safety review
+  approved): the evidence start, with its marker at
+  /run/speakerguardd.unlocked.
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.12-3.evidence
+- Pin speakerguardd pull 29 at 2137581b706a: the evidence start is refused
+  after any unlock this boot (a /run marker carrying the boot id, and no
+  unlock without the /run state written), and under a speakersafetyd flag
+  or a macaudio override of the safe level.
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.12-2.evidence
+- Pin speakerguardd pull 29 (ef36a2617148): start each boot from evidence
+  (a protected-past bound and the last run's record) instead of latched at
+  the coils' limit; the Neo plays at full level from the first sound.
 * Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.12-1
 - Move to speakerguardd 0.1.12 (main 34aeed9), the build the Neo has run
   since 25 October: it fails closed on control errors, lost sense time and

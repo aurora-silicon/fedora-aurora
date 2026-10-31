@@ -1,0 +1,24 @@
+From: Aurora Silicon <ryan@aurorasilicon.org>
+Subject: [PATCH] daemon: preserve unpublished .new transactions during startup scan
+
+--- a/src/daemon/abrtd.c
++++ b/src/daemon/abrtd.c
+@@ -649,6 +649,18 @@
+             continue; /* skip "." and ".." */
+ 
+         g_autofree char *full_name = g_build_filename(path, dent->d_name, NULL);
++
++        /* Producers publish a report by renaming its .new staging directory.
++         * A producer may still be writing it, or may have been interrupted
++         * before creating the time item required by dd_opendir(). Check the
++         * publication boundary before stat: a live producer can rename it.
++         * Do not lock or modify an unpublished transaction; keep its data.
++         */
++        if (g_str_has_suffix(dent->d_name, ".new"))
++        {
++            log_notice("Preserving unfinished problem data in '%s'", full_name);
++            continue;
++        }
+ 
+         struct stat stat_buf;
+         if (stat(full_name, &stat_buf) != 0)
