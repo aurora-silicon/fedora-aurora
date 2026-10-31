@@ -1,7 +1,7 @@
 %global commit 4f60c51f7841dd74bb61c94a4ad31e630bbdab01
 Name: libva-v4l2-request
 Version: 1.3.r11
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Application-selected VA-API driver for stateless V4L2 decoders
 License: GPL-3.0-or-later
 URL: https://github.com/omacom/libva-v4l2_request
@@ -48,6 +48,9 @@ chmod 755 %{buildroot}%{_bindir}/avd-vaapi
 %{_bindir}/avd-vaapi
 
 %changelog
+* Sun Nov 01 2026 Aurora contributors <noreply@aurora-silicon.org> - 1.3.r11-3
+- Prime allocation/release paths before the resource fixture baseline
+
 * Sun Nov 01 2026 Aurora contributors <noreply@aurora-silicon.org> - 1.3.r11-2
 - Make offline test fixtures deterministic and recognize complete GCC startup diagnostics
 

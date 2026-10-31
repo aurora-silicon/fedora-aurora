@@ -5,7 +5,8 @@ GPL-3.0-or-later, matching the pinned upstream files. No driver or hardware
 protection logic is changed. Recognize GCC's complete numeric VMA startup
 diagnostic without accepting race warnings or unrelated failures. Use a
 unique file-backed mapping to prevent anonymous VMA coalescing from hiding
-the allocation fixture. Synchronize the SIGINT fixture with the guard start
+the allocation fixture. Prime its allocation/release paths before measuring
+the steady-state baseline. Synchronize the SIGINT fixture with the guard start
 record instead of interrupting an interpreter that may still be importing.
 
 diff --git a/tests/concurrent-tsan.py b/tests/concurrent-tsan.py
@@ -54,6 +55,43 @@ diff --git a/tests/resource-churn.py b/tests/resource-churn.py
              print("ALLOCATED", flush=True)
          elif command == "release":
              mapping.close()
+@@ -429,19 +433,25 @@
+         [sys.executable, __file__, "_child"], stdin=subprocess.PIPE,
+         stdout=subprocess.PIPE, text=True)
+     assert child.stdout.readline().strip() == "READY"
++    # Prime allocation and release paths before the steady-state baseline.
++    # Lazy interpreter/allocator mappings are not fixture resource leaks.
++    for command, expected in (("allocate", "ALLOCATED"), ("release", "RELEASED")):
++        child.stdin.write(command + "\n")
++        child.stdin.flush()
++        assert child.stdout.readline().strip() == expected
+     baseline = snapshot(child.pid)
+     child.stdin.write("allocate\n")
+     child.stdin.flush()
+     assert child.stdout.readline().strip() == "ALLOCATED"
+     allocated = snapshot(child.pid)
+     assert allocated["fd_count"] >= baseline["fd_count"] + 4
+-    assert allocated["map_count"] >= baseline["map_count"] + 1
++    assert allocated["map_count"] >= baseline["map_count"] + 1, (baseline, allocated)
+     child.stdin.write("release\n")
+     child.stdin.flush()
+     assert child.stdout.readline().strip() == "RELEASED"
+     released = snapshot(child.pid)
+     assert released["fd_count"] == baseline["fd_count"]
+-    assert released["map_count"] == baseline["map_count"]
++    assert released["map_count"] == baseline["map_count"], (baseline, released)
+     child.stdin.write("exit\n")
+     child.stdin.flush()
+     assert child.wait() == 0
+@@ -452,7 +462,7 @@
+         "mapped_bytes": allocated["mapped_bytes"] - baseline["mapped_bytes"],
+         "vmrss_kib": max(0, allocated["vmrss_kib"] - baseline["vmrss_kib"]),
+     }, acceptance=True)
+-    assert bounded["passed"]
++    assert bounded["passed"], bounded
+     leaking = [dict(baseline), dict(baseline), dict(baseline)]
+     for index, sample in enumerate(leaking):
+         sample["fd_count"] += index
 diff --git a/tests/hwguard.py b/tests/hwguard.py
 --- a/tests/hwguard.py
 +++ b/tests/hwguard.py
