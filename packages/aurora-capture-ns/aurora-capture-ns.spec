@@ -89,7 +89,8 @@ install -Dm644 DeepFilterNet-%{libdf_commit}/LICENSE-MIT %{buildroot}%{_licensed
 install -Dm644 DeepFilterNet-%{libdf_commit}/LICENSE-APACHE %{buildroot}%{_licensedir}/aurora-libdf/LICENSE-APACHE
 # The launcher defaults to /usr/local, so pass the packaged plugin explicitly.
 %files
-%license LICENSE %{_licensedir}/%{name}/libane-LICENSE
+%license LICENSE
+%license %{_licensedir}/%{name}/libane-LICENSE
 %doc README.md NOTICES.md docs/
 %{_bindir}/aurora-capture-ns
 %{_libexecdir}/aurora-capture-ns/

@@ -43,7 +43,8 @@ install -Dm755 %{SOURCE2} %{buildroot}%{_bindir}/whisper.cpp-aurora
 sed -i -e 's|@CLI@|%{_bindir}/whisper-cli-aurora|g' -e 's|@FETCH@|%{_bindir}/aurora-model-fetch|g' -e 's|@VULKANINFO@|%{_bindir}/vulkaninfo|g' %{buildroot}%{_bindir}/whisper.cpp-aurora
 install -Dm644 omarchy-ane-%{libane_commit}/LICENSE %{buildroot}%{_licensedir}/%{name}/libane-LICENSE
 %files
-%license LICENSE %{_licensedir}/%{name}/libane-LICENSE
+%license LICENSE
+%license %{_licensedir}/%{name}/libane-LICENSE
 %doc docs/ane/
 %{_bindir}/whisper-cli-aurora
 %{_bindir}/whisper-bench-aurora
