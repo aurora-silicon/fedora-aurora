@@ -59,7 +59,7 @@ pushd rnnoise-%{rnnoise_commit}
 %make_build
 popd
 pushd DeepFilterNet-%{libdf_commit}
-CARGO_BUILD_JOBS=%{_smp_build_ncpus} cargo build --release --locked -p deep_filter --no-default-features --features capi
+CARGO_PROFILE_RELEASE_OPT_LEVEL=2 CARGO_PROFILE_RELEASE_LTO=false CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-%{_smp_build_ncpus}}" cargo build --release --locked -p deep_filter --no-default-features --features capi
 popd
 %make_build LIBANE_DIR=$PWD/omarchy-ane-%{libane_commit}/libane LIBANE_LIB=$PWD/omarchy-ane-%{libane_commit}/libane/libane.a CFLAGS="%{optflags}" LDFLAGS="%{build_ldflags}"
 
