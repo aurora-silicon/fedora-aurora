@@ -97,7 +97,8 @@ fi
 rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' "${packages[@]}" \
   | sort | tee /tmp/touchid-after.txt
 diff -u /tmp/touchid-expected.txt /tmp/touchid-after.txt
-rpm -q --whatprovides 'libfprint(aurora-sep) = 5' 'fprintd(aurora-sep) = 1'
+rpm -q --provides libfprint | grep -Fx 'libfprint(aurora-sep) = 5'
+rpm -q --provides fprintd | grep -Fx 'fprintd(aurora-sep) = 1'
 sha256sum --check /tmp/touchid-state.sha256
 # Exercise an explicit rollback; ordinary updates must still prefer candidates.
 if [[ $baseline == stock ]]; then
