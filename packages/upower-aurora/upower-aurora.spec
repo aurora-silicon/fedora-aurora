@@ -1,6 +1,7 @@
-%global commit 00e8cb66b408e2a7e5f1c527accbe0634a12996c
+%global commit ec0b67ff412d97b16629614edc4decbb34d05983
 Name: upower
-Version: 1.91.4
+Epoch: 1
+Version: 1.91.5
 Release: 1%{?dist}.aurora
 Summary: Power management service with Aurora macsmc battery estimates
 License: GPL-2.0-or-later
@@ -14,7 +15,7 @@ BuildRequires: pkgconfig(libimobiledevice-1.0) pkgconfig(libplist-2.0)
 BuildRequires: pkgconfig(polkit-gobject-1) pkgconfig(libudev) pkgconfig(systemd)
 BuildRequires: systemd-rpm-macros dbus-daemon python3-dbusmock python3-gobject python3-packaging
 BuildRequires: umockdev pkgconfig(umockdev-1.0)
-Requires: %{name}-libs%{?_isa} = %{version}-%{release}
+Requires: %{name}-libs%{?_isa} = %{epoch}:%{version}-%{release}
 %{?systemd_requires}
 
 %description
@@ -30,7 +31,7 @@ UPower client library and GObject introspection data.
 
 %package devel
 Summary: Development files for UPower
-Requires: %{name}-libs%{?_isa} = %{version}-%{release}
+Requires: %{name}-libs%{?_isa} = %{epoch}:%{version}-%{release}
 
 %description devel
 Headers, pkg-config metadata and introspection sources for UPower clients.
@@ -49,6 +50,7 @@ Headers, pkg-config metadata and introspection sources for UPower clients.
 meson test -C %{_vpath_builddir} --list > registered-tests.txt
 grep -q test_macsmc_kernel_time_at_zero_rate registered-tests.txt
 grep -q test_other_supply_ignores_kernel_time registered-tests.txt
+grep -q test_macsmc_kernel_time_charge_units registered-tests.txt
 %meson_test --print-errorlogs
 
 %install
@@ -98,5 +100,8 @@ grep -q test_other_supply_ignores_kernel_time registered-tests.txt
 %{_datadir}/dbus-1/interfaces/org.freedesktop.UPower*.xml
 
 %changelog
+* Sat Oct 31 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:1.91.5-1
+- Rebase the macsmc estimate fix onto 1.91.5; outrank stock Fedora.
+
 * Mon Oct 19 2026 Aurora Silicon <hey@djdev.me> - 1.91.4-1
 - Package the Aurora macsmc battery estimate fix and its integration tests.
