@@ -196,7 +196,7 @@ export LIBGL_ALWAYS_SOFTWARE=1
 export GALLIUM_DRIVER=llvmpipe
 export XDG_RUNTIME_DIR=$(mktemp -d)
 trap 'rm -rf "$XDG_RUNTIME_DIR"' EXIT
-xvfb-run -a %meson_test
+xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --num-processes 8
 
 %files -f %{name}.lang
 %license COPYING
