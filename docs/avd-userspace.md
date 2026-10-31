@@ -21,8 +21,8 @@ entry, public headers, pkg-config files or global SONAME provides.
 `/usr/lib64/aurora-avd/va/v4l2_request_drv_video.so`. Only `avd-vaapi` selects it.
 It exports `LIBVA_DRIVER_NAME=v4l2_request` and that private driver search path
 for the child command. It changes no global environment or application settings.
-Existing browser processes must be closed by the tester before this launch, or
-they may reuse a process that did not receive the environment.
+The browser commands below use a new test profile for each launch so that
+the child process receives the selected driver environment.
 
 License check: FFmpeg is configured without GPL/nonfree components and carries
 its LGPL-2.1-or-later license. mpv is GPL-2.0-or-later. The pinned bridge
@@ -98,14 +98,16 @@ artifact hashes. Device capability listing alone is not a decode result.
 For each available short H.264, HEVC, VP9 and AV1 clip:
 
 ```sh
-CLIP=demo-h264-4k30.mp4  # repeat with each codec's clip
+set -o pipefail
+RUN_DIR=$(mktemp -d "$PWD/avd-run.XXXXXX")
+CLIP=demo-h264-4k30.mp4  # repeat this block with each codec's clip
 ffmpeg-avd -nostdin -hide_banner -loglevel verbose -hwaccel v4l2request \
-  -i "$CLIP" -map 0:v:0 -an -frames:v 120 -f null - 2>&1 | tee ffmpeg-request.log
+  -i "$CLIP" -map 0:v:0 -an -frames:v 120 -f null - 2>&1 | tee "$RUN_DIR/ffmpeg-request.log"
 mpv-avd --no-config --no-audio --hwdec=v4l2request --length=4 \
-  --msg-level=vd=debug --log-file=mpv-request.log "$CLIP"
+  --msg-level=vd=debug --log-file="$RUN_DIR/mpv-request.log" "$CLIP"
 # The existing copy mode separates decode from renderer import problems:
 mpv-avd --no-config --no-audio --hwdec=v4l2request-copy --length=4 \
-  --msg-level=vd=debug --log-file=mpv-request-copy.log "$CLIP"
+  --msg-level=vd=debug --log-file="$RUN_DIR/mpv-request-copy.log" "$CLIP"
 ```
 
 FFmpeg's terminal null output exercises decode; mpv's
@@ -117,11 +119,11 @@ hashes against software decode before claiming correctness. CPU load alone does
 not prove hardware use. For an 8-bit clip, compare normalized output bytes:
 
 ```sh
-ffmpeg-avd -nostdin -hwaccel v4l2request -hwaccel_output_format drm_prime   -i "$CLIP" -an -frames:v 120 -vf 'hwdownload,format=nv12' -f framemd5 hw.md5
-ffmpeg-avd -nostdin -hwaccel none -i "$CLIP" -an -frames:v 120   -vf format=nv12 -f framemd5 sw.md5
-awk '!/^#/ {print $NF}' hw.md5 > hw.hashes
-awk '!/^#/ {print $NF}' sw.md5 > sw.hashes
-diff -u sw.hashes hw.hashes
+ffmpeg-avd -nostdin -hwaccel v4l2request -hwaccel_output_format drm_prime   -i "$CLIP" -an -frames:v 120 -vf 'hwdownload,format=nv12' -f framemd5 "$RUN_DIR/hw.md5"
+ffmpeg-avd -nostdin -hwaccel none -i "$CLIP" -an -frames:v 120   -vf format=nv12 -f framemd5 "$RUN_DIR/sw.md5"
+awk '!/^#/ {print $NF}' "$RUN_DIR/hw.md5" > "$RUN_DIR/hw.hashes"
+awk '!/^#/ {print $NF}' "$RUN_DIR/sw.md5" > "$RUN_DIR/sw.hashes"
+diff -u "$RUN_DIR/sw.hashes" "$RUN_DIR/hw.hashes"
 ```
 
 For 10-bit capture use the negotiated software transfer format (for example
@@ -133,9 +135,9 @@ HEVC depends on the kernel exposing S265; record unsupported if it is absent.
 ## VA-API and browsers
 
 ```sh
-avd-vaapi vainfo --display drm --device "$RENDER" 2>&1 | tee vainfo-avd.log
+avd-vaapi vainfo --display drm --device "$RENDER" 2>&1 | tee "$RUN_DIR/vainfo-avd.log"
 avd-vaapi mpv --no-config --no-audio --hwdec=vaapi --length=4 \
-  --msg-level=vd=debug --log-file=mpv-vaapi.log "$CLIP"
+  --msg-level=vd=debug --log-file="$RUN_DIR/mpv-vaapi.log" "$CLIP"
 ```
 
 `vainfo` must name the bridge and report the profiles supported by that node.
@@ -148,14 +150,13 @@ or a render node cannot supply this check.
 
 Firefox requires the proposal in [firefox/README.md](firefox/README.md) to be
 reviewed and built with V4L2 enabled. Stock Firefox is a useful denial baseline.
-Do not disable the RDD sandbox. Start a separate empty test profile after any
-previous instance using that profile has exited:
+Do not disable the RDD sandbox. Start a separate empty test profile:
 
 ```sh
 printf '%s\n' '<!doctype html><meta charset="utf-8"><video controls muted src="demo-h264-4k30.mp4"></video>' > video-test.html
-mkdir -p "$PWD/firefox-avd-profile"
-MOZ_LOG='PlatformDecoderModule:5,FFmpegVideo:5' \
-  avd-vaapi firefox --no-remote --profile "$PWD/firefox-avd-profile" \
+FIREFOX_PROFILE=$(mktemp -d "$PWD/firefox-avd-profile.XXXXXX")
+MOZ_LOG_FILE="$RUN_DIR/firefox" MOZ_LOG='PlatformDecoderModule:5,FFmpegVideo:5' \
+  avd-vaapi firefox --no-remote --profile "$FIREFOX_PROFILE" \
   about:support "file://$PWD/video-test.html"
 ```
 
@@ -173,14 +174,16 @@ Chromium is a separate qualification path, because this Firefox patch does not
 change Chromium's device broker:
 
 ```sh
-avd-vaapi chromium --user-data-dir="$PWD/chromium-avd-profile" \
+CHROMIUM_PROFILE=$(mktemp -d "$PWD/chromium-avd-profile.XXXXXX")
+avd-vaapi chromium --user-data-dir="$CHROMIUM_PROFILE" \
   --mute-audio about:gpu "file://$PWD/video-test.html"
 ```
 
 Record the browser version and its existing graphics-acceleration setting.
 Record Video Acceleration Information from `about:gpu` and the selected video
 decoder from `chrome://media-internals` during the same muted local clip. Retain
-broker denials. Do not use `--no-sandbox` or `--disable-gpu-sandbox`. If Chromium
+broker denials. Keep each `$RUN_DIR` and its test profiles, including failed attempts.
+Do not use `--no-sandbox` or `--disable-gpu-sandbox`. If Chromium
 cannot open the media node, report that gap; this proposal does not establish
 Chromium hardware playback.
 
