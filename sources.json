@@ -25,11 +25,11 @@
   },
   "mesa-aurora": {
     "repository": "https://github.com/aurora-silicon/mesa",
-    "commit": "cf4e08105dfa526b8874318b6a52b3ce948f6297",
+    "commit": "c208afc352e9d4c10ee71c883a369a9079dd7d84",
     "version": "26.3.0",
-    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/cf4e08105dfa526b8874318b6a52b3ce948f6297",
-    "archive_root": "mesa-cf4e08105dfa526b8874318b6a52b3ce948f6297",
-    "sha256": "b898c15a604a8d7d01467a2fc5b3ad70814d0eb6294228ac9128b946f0a76ddd"
+    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/c208afc352e9d4c10ee71c883a369a9079dd7d84",
+    "archive_root": "mesa-c208afc352e9d4c10ee71c883a369a9079dd7d84",
+    "sha256": "a8ca816b201673a9e2cf5aeafefdfa1bdffe2e14cd125b3bffd1cfe5040a3b0b"
   },
   "speakerguardd": {
     "repository": "https://github.com/aurora-silicon/speakerguardd",
@@ -139,11 +139,11 @@
   },
   "mesa-aurora-fex-guest": {
     "repository": "https://github.com/aurora-silicon/mesa",
-    "commit": "cf4e08105dfa526b8874318b6a52b3ce948f6297",
+    "commit": "c208afc352e9d4c10ee71c883a369a9079dd7d84",
     "version": "26.3.0",
-    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/cf4e08105dfa526b8874318b6a52b3ce948f6297",
-    "archive_root": "mesa-cf4e08105dfa526b8874318b6a52b3ce948f6297",
-    "sha256": "b898c15a604a8d7d01467a2fc5b3ad70814d0eb6294228ac9128b946f0a76ddd"
+    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/c208afc352e9d4c10ee71c883a369a9079dd7d84",
+    "archive_root": "mesa-c208afc352e9d4c10ee71c883a369a9079dd7d84",
+    "sha256": "a8ca816b201673a9e2cf5aeafefdfa1bdffe2e14cd125b3bffd1cfe5040a3b0b"
   },
   "alsa-utils": {
     "repository": "https://github.com/alsa-project/alsa-utils",
@@ -171,6 +171,24 @@
     "archive_file": "fprintd-v1.94.5.tar.gz",
     "archive_root": "fprintd-v1.94.5",
     "sha256": "a026ef34c31b25975275cc29a5e4eba2b54524769672095a5228098a08acd82c"
+  },
+  "abrt": {
+    "repository": "https://github.com/abrt/abrt",
+    "commit": "1ae85385932385711259cd06124e4306bfe75a23",
+    "version": "2.17.9",
+    "source_url": "https://github.com/abrt/abrt/archive/refs/tags/2.17.9.tar.gz",
+    "archive_root": "abrt-2.17.9",
+    "archive_file": "2.17.9.tar.gz",
+    "sha256": "dce5698de521b250aabbe7a2540fc8fc3fb2f838b3a6604e1711b560e7b887f0"
+  },
+  "docker-ce": {
+    "repository": "https://github.com/moby/moby",
+    "commit": "0367cbeb49b9d98cb0b4f51e95f7b54b4803e76c",
+    "version": "29.9.2",
+    "source_url": "https://github.com/moby/moby/archive/refs/tags/docker-v29.9.2.tar.gz",
+    "archive_root": "moby-docker-v29.9.2",
+    "archive_file": "docker-v29.9.2.tar.gz",
+    "sha256": "d7ce182528eb4c182f3884a7a83b7652ffcbc59b21d3d302050564ff949a9689"
   },
   "omarchy-ane-tools": {
     "repository": "https://github.com/joshuaswarren/omarchy-ane",

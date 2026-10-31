@@ -12,8 +12,9 @@
 Name:           libfprint
 
 Version:        1.94.100
-# Fedora's release plus a suffix, so this sorts above the Fedora build it
-# replaces (1.fc45 < 1.fc45.aurora5) and below the next Fedora release.
+# Keep the Aurora driver/account gate ahead of stock Fedora updates.
+Epoch:          1
+# Keep aurora7: this is a native rebuild of the same v4/v5 driver.
 Release:        1%{?dist}.aurora7
 Summary:        Toolkit for fingerprint scanner
 
@@ -77,7 +78,7 @@ BuildRequires:  bzip2
 Provides:       libfprint(aurora-sep) = 4
 Provides:       libfprint(aurora-sep) = 5
 # Pull in the SELinux module wherever the targeted policy is installed.
-Requires:       (%{name}-selinux = %{version}-%{release} if selinux-policy-targeted)
+Requires:       (%{name}-selinux = %{epoch}:%{version}-%{release} if selinux-policy-targeted)
 
 %description
 libfprint offers support for consumer fingerprint reader devices.
@@ -99,7 +100,7 @@ reader is hidden in clamshell mode on systems with SELinux enforcing.
 
 %package        devel
 Summary:        Development files for %{name}
-Requires:       %{name}%{?_isa} = %{version}-%{release}
+Requires:       %{name}%{?_isa} = %{epoch}:%{version}-%{release}
 
 %description    devel
 The %{name}-devel package contains libraries and header files for
@@ -107,7 +108,7 @@ developing applications that use %{name}.
 
 %package        tests
 Summary:        Tests for the %{name} package
-Requires:       %{name}%{?_isa} = %{version}-%{release}
+Requires:       %{name}%{?_isa} = %{epoch}:%{version}-%{release}
 
 %description tests
 The %{name}-tests package contains tests that can be used to verify
@@ -179,6 +180,10 @@ python3 %{SOURCE1003} libfprint/drivers/aurora/aurora.c %{SOURCE1000}
 %{_datadir}/installed-tests/libfprint-2/
 
 %changelog
+* Sat Oct 31 2026 Aurora Silicon contributors - 1:1.94.100-1.aurora7
+- Build natively for Fedora 45 and upgrade stock and fc44 Aurora packages
+- Qualify matching subpackage dependencies with the epoch
+
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.94.100-1.aurora7
 - Support SEP interfaces v4 and v5 with versioned enrolment ioctls
 - Validate enrolment accounts and preserve persistence errors

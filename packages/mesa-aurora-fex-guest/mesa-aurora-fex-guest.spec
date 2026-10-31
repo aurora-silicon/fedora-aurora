@@ -10,9 +10,9 @@
 #            --define 'host_release 0.12.aurora.borealis.<12-hex>%%{?dist}' ...
 # Both lines provide mesa-dri-drivers and mesa-vulkan-drivers at their own
 # version-release, which is what this package requires.
-%{!?commit:%global commit cf4e08105dfa526b8874318b6a52b3ce948f6297}
+%{!?commit:%global commit c208afc352e9d4c10ee71c883a369a9079dd7d84}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 13%{?dist}.aurora}
+%{!?host_release:%global host_release 14%{?dist}.aurora}
 %global debug_package %{nil}
 # Fedora's x86_64 build flags carry -m64 and would turn the i686 build into a
 # second x86_64 one; meson's release buildtype sets the optimisation instead.
@@ -199,6 +199,9 @@ fi
 %{_presetdir}/80-aurora-fex-mesa.preset
 
 %changelog
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-14.aurora
+- Move in lockstep with mesa-aurora 26.3.0-14.
+
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-13.aurora
 - Unmount the guest overlay during upgrades; RPM cannot relabel its mount point.
 
