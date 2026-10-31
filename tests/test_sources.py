@@ -58,6 +58,25 @@ class SourceTests(unittest.TestCase):
             with patch.object(fetch, "ROOT", root), self.assertRaisesRegex(ValueError, "checksum mismatch"):
                 fetch.fetch("fixture", destination)
 
+class ExtraSourceTests(unittest.TestCase):
+    def test_extra_sources_are_verified_before_the_main_archive_is_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            destination = root / 'files'
+            destination.mkdir()
+            extra = {'commit': 'b' * 40, 'sha256': hashlib.sha256(b'extra').hexdigest()}
+            main = {'commit': 'a' * 40, 'sha256': hashlib.sha256(b'main').hexdigest(),
+                    'extra_sources': {'dependency': extra}}
+            (root / 'sources.json').write_text(json.dumps({'fixture': main}))
+            (destination / ('fixture-' + 'a' * 40 + '.tar.gz')).write_bytes(b'main')
+            dependency = destination / ('dependency-' + 'b' * 40 + '.tar.gz')
+            dependency.write_bytes(b'wrong')
+            with patch.object(fetch, 'ROOT', root), self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+                fetch.fetch('fixture', destination)
+            dependency.write_bytes(b'extra')
+            with patch.object(fetch, 'ROOT', root):
+                self.assertEqual(fetch.fetch('fixture', destination).read_bytes(), b'main')
+
 
 if __name__ == "__main__":
     unittest.main()

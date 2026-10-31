@@ -205,7 +205,7 @@ jobs:
           mkdir candidate
           mv complete-rpms candidate/
           mkdir -p candidate/srpms candidate/manifests candidate/builds
-          cp input-build/srpms/*.src.rpm candidate/srpms/ 2>/dev/null || true
+          cp input-build/srpms/*.{src,nosrc}.rpm candidate/srpms/ 2>/dev/null || true
           cp input-build/manifests/*.json candidate/manifests/
           cp build-[0-9]*.json candidate/builds/
           tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf candidate.tar -C candidate .
@@ -388,7 +388,7 @@ jobs:
             site/builds.json site/repository-metadata-*.tar.gz site/repository-metadata-*.tar.gz.asc assets/
           # Source RPMs keep the release asset names GitHub stores (see
           # asset_name in scripts/sign-repository.py), so SHA256SUMS names them.
-          for srpm in candidate/srpms/*.src.rpm; do
+          for srpm in candidate/srpms/*.{src,nosrc}.rpm; do
             [[ -e $srpm ]] || continue
             name=${srpm##*/}
             cp "$srpm" "assets/${name//[^A-Za-z0-9._-]/.}"
