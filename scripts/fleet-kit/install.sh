@@ -71,11 +71,11 @@ for item in devel libOpenCL libOpenCL-devel; do
   found=no
   for name in "${names[@]}"; do if rpm -q "$name" >/dev/null 2>&1; then found=yes; fi; done
   if [[ $found == yes ]]; then
-    rpms+=("./optional-rpms/mesa-aurora-$item-26.3.0-13.fc${FEDORA}.aurora.aarch64.rpm")
+    rpms+=("./optional-rpms/mesa-aurora-$item-26.3.0-14.fc${FEDORA}.aurora.aarch64.rpm")
   fi
 done
 if rpm -q mesa-aurora-fex-guest >/dev/null 2>&1; then
-  rpms+=(./optional-rpms/mesa-aurora-fex-guest-26.3.0-13.fc${FEDORA}.aurora.noarch.rpm)
+  rpms+=(./optional-rpms/mesa-aurora-fex-guest-26.3.0-14.fc${FEDORA}.aurora.noarch.rpm)
 fi
 printf '%s\n' "${rpms[@]}" > state/install-rpms
 # DNF performs a transaction test before committing; no erasing/skip flags.
