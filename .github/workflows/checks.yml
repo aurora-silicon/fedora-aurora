@@ -7,6 +7,10 @@ on:
       graphics_runs:
         description: Space-separated successful RPM build run IDs to validate
         default: ''
+      graphics_fedora45:
+        description: Build and validate Fedora 45 graphics candidates
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -28,6 +32,9 @@ jobs:
             bash -n "$script"
           done
           git diff --check
+  graphics-fedora45:
+    if: github.event_name == 'workflow_dispatch' && inputs.graphics_fedora45
+    uses: ./.github/workflows/graphics-fedora45.yml
   graphics:
     if: github.event_name == 'workflow_dispatch' && inputs.graphics_runs != ''
     runs-on: ubuntu-24.04-arm

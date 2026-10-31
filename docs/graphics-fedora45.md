@@ -48,6 +48,11 @@ Artifact names start with `graphics-fedora45-`, so the existing Fedora 44
 publisher cannot consume them as ordinary `rpm-*` inputs. Publication,
 signing and machine installation require separate work.
 
+Before the new workflow is merged onto the default branch, dispatch the
+existing source-check workflow with `gh workflow run checks.yml --ref <branch>
+-f graphics_fedora45=true`. It calls the same graphics workflow through
+`workflow_call`, including both builds and all transaction cases.
+
 ## Container upgrade and exact rollback
 
 `scripts/test-graphics-fedora45-upgrade OLD REPOSITORY EVIDENCE` requires a
