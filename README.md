@@ -60,3 +60,9 @@ calibration where present and verifies trusted-key sealing and unsealing. No
 calibration is redistributed. The full reader driver set remains enabled; the
 native libfprint build runs all 130 upstream/patched tests. Password policy and
 power-button behavior are unchanged. Real SEP hardware qualification is pending.
+
+Opt-in AVD userspace candidates are documented in [the qualification guide](docs/avd-userspace.md).
+`ffmpeg-avd` and its `mpv-avd` subpackage keep their FFmpeg ABI private;
+`libva-v4l2-request` selects its private VA-API module only through `avd-vaapi`.
+The guide includes Fedora 44/45 aarch64 builds, application tests, license
+findings, rollback and the proposed Firefox RDD sandbox patch.

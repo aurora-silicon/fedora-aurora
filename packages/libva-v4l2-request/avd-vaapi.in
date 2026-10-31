@@ -1,0 +1,10 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+if [ "$#" -eq 0 ]; then
+    echo 'usage: avd-vaapi APPLICATION [ARGUMENT ...]' >&2
+    exit 2
+fi
+LIBVA_DRIVER_NAME=v4l2_request
+LIBVA_DRIVERS_PATH=@DRIVERDIR@
+export LIBVA_DRIVER_NAME LIBVA_DRIVERS_PATH
+exec "$@"

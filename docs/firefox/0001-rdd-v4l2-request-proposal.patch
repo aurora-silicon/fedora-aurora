@@ -1,0 +1,166 @@
+From: Aurora contributors <noreply@aurora-silicon.org>
+Subject: [PROPOSAL] sandbox: admit topology-linked Request API decoder nodes
+
+MPL-2.0. Independently implemented from the public behavior described in
+Mozilla bug 2080696, reported by Christian Bartels. This version bounds
+and verifies both topology queries and permits four exact media ioctls.
+It has not been compiled as Firefox or hardware-qualified.
+
+diff --git a/security/sandbox/linux/broker/SandboxBrokerPolicyFactory.cpp b/security/sandbox/linux/broker/SandboxBrokerPolicyFactory.cpp
+--- a/security/sandbox/linux/broker/SandboxBrokerPolicyFactory.cpp
++++ b/security/sandbox/linux/broker/SandboxBrokerPolicyFactory.cpp
+@@ -17,7 +17,9 @@
+ #endif
+ #ifdef MOZ_ENABLE_V4L2
+ #  include <fcntl.h>
++#  include <linux/media.h>
+ #  include <linux/videodev2.h>
++#  include "nsTArray.h"
+ #  include <sys/ioctl.h>
+ #endif  // MOZ_ENABLE_V4L2
+ #ifdef MOZ_ENABLE_VULKAN_VIDEO
+@@ -884,6 +886,71 @@
+ }
+ 
+ #ifdef MOZ_ENABLE_V4L2
++// Only grant a media controller when its topology names an already admitted
++// M2M video device. Capture-only controllers (including cameras) stay blocked.
++static void AddV4l2RequestMediaDevices(SandboxBroker::Policy* policy,
++                                     const nsTArray<dev_t>& aM2mDevices) {
++  if (aM2mDevices.IsEmpty()) {
++    return;
++  }
++  DIR* dir = opendir("/dev");
++  if (!dir) {
++    return;
++  }
++  while (auto entry = readdir(dir)) {
++    if (strncmp(entry->d_name, "media", 5) || !entry->d_name[5] ||
++        strspn(entry->d_name + 5, "0123456789") != strlen(entry->d_name + 5)) {
++      continue;
++    }
++    nsPrintfCString path("/dev/%s", entry->d_name);
++    int fd = open(path.get(), O_RDWR | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW);
++    if (fd < 0) {
++      continue;
++    }
++    struct stat st;
++    struct media_v2_topology topology = {};
++    if (fstat(fd, &st) < 0 || !S_ISCHR(st.st_mode) ||
++        ioctl(fd, MEDIA_IOC_G_TOPOLOGY, &topology) < 0 ||
++        topology.num_interfaces == 0 || topology.num_interfaces > 256) {
++      close(fd);
++      continue;
++    }
++    const uint32_t count = topology.num_interfaces;
++    const uint64_t version = topology.topology_version;
++    auto interfaces = std::make_unique<media_v2_interface[]>(count);
++    topology = {};
++    topology.num_interfaces = count;
++    topology.ptr_interfaces = reinterpret_cast<uintptr_t>(interfaces.get());
++    int result = ioctl(fd, MEDIA_IOC_G_TOPOLOGY, &topology);
++    close(fd);
++    // Topology can change between queries. Fail closed, including truncation.
++    if (result < 0 || topology.topology_version != version ||
++        topology.num_interfaces != count) {
++      continue;
++    }
++    bool allowed = false;
++    for (uint32_t i = 0; i < count; ++i) {
++      const auto& intf = interfaces[i];
++      if (intf.intf_type != MEDIA_INTF_T_V4L_VIDEO ||
++          !aM2mDevices.Contains(makedev(intf.devnode.major, intf.devnode.minor))) {
++        continue;
++      }
++      allowed = true;
++      nsPrintfCString uevent("/sys/dev/char/%u:%u/uevent", intf.devnode.major,
++                             intf.devnode.minor);
++      policy->AddPath(rdonly, uevent.get());
++      UniqueFreePtr<char[]> canonical(realpath(uevent.get(), nullptr));
++      if (canonical) {
++        policy->AddPath(rdonly, canonical.get());
++      }
++    }
++    if (allowed) {
++      policy->AddPath(rdwr, path.get());
++    }
++  }
++  closedir(dir);
++}
++
+ static void AddV4l2Dependencies(SandboxBroker::Policy* policy) {
+   // For V4L2 hardware-accelerated video decode, RDD needs access to certain
+   // /dev/video* devices but don't want to allow it access to webcams etc.
+@@ -894,6 +961,7 @@
+     return;
+   }
+ 
++  nsTArray<dev_t> m2mDevices;
+   struct dirent* dir_entry;
+   while ((dir_entry = readdir(dir))) {
+     if (strncmp(dir_entry->d_name, "video", 5)) {
+@@ -904,7 +972,7 @@
+     nsCString path = "/dev/"_ns;
+     path += nsDependentCString(dir_entry->d_name);
+ 
+-    int fd = open(path.get(), O_RDWR | O_NONBLOCK, 0);
++    int fd = open(path.get(), O_RDWR | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW, 0);
+     if (fd < 0) {
+       // Couldn't open this device, so ignore it.
+       SANDBOX_LOG("Couldn't open video device %s", path.get());
+@@ -921,10 +989,14 @@
+       continue;
+     }
+ 
+-    if ((cap.device_caps & V4L2_CAP_VIDEO_M2M) ||
+-        (cap.device_caps & V4L2_CAP_VIDEO_M2M_MPLANE)) {
++    const uint32_t caps = (cap.capabilities & V4L2_CAP_DEVICE_CAPS)
++                              ? cap.device_caps : cap.capabilities;
++    struct stat st;
++    if ((caps & (V4L2_CAP_VIDEO_M2M | V4L2_CAP_VIDEO_M2M_MPLANE)) &&
++        fstat(fd, &st) == 0 && S_ISCHR(st.st_mode)) {
+       // This is an M2M device (i.e. not a webcam), so allow access
+       policy->AddPath(rdwr, path.get());
++      m2mDevices.AppendElement(st.st_rdev);
+     }
+ 
+     close(fd);
+@@ -933,6 +1005,7 @@
+ 
+   // FFmpeg V4L2 needs to list /dev to find V4L2 devices.
+   policy->AddPath(rdonly, "/dev");
++  AddV4l2RequestMediaDevices(policy, m2mDevices);
+ }
+ #endif  // MOZ_ENABLE_V4L2
+ 
+diff --git a/security/sandbox/linux/SandboxFilter.cpp b/security/sandbox/linux/SandboxFilter.cpp
+--- a/security/sandbox/linux/SandboxFilter.cpp
++++ b/security/sandbox/linux/SandboxFilter.cpp
+@@ -3,6 +3,10 @@
+  * You can obtain one at http://mozilla.org/MPL/2.0/. */
+ 
+ #include "SandboxFilter.h"
++
++#ifdef MOZ_ENABLE_V4L2
++#  include <linux/media.h>
++#endif
+ 
+ #include <asm/ioctls.h>    // For TCGETS2
+ #include <asm/termbits.h>  // For termios2
+@@ -2202,6 +2206,16 @@
+ #endif
+ #ifdef MOZ_ENABLE_V4L2
+             .ElseIf(shifted_type == kVideoType, Allow())
++            // Only the four media/request operations used by the bridge.
++            // The broker controls which media and video devices can be opened.
++            .ElseIf(request == static_cast<unsigned long>(MEDIA_IOC_G_TOPOLOGY),
++                    Allow())
++            .ElseIf(request == static_cast<unsigned long>(MEDIA_IOC_REQUEST_ALLOC),
++                    Allow())
++            .ElseIf(request == static_cast<unsigned long>(MEDIA_REQUEST_IOC_QUEUE),
++                    Allow())
++            .ElseIf(request == static_cast<unsigned long>(MEDIA_REQUEST_IOC_REINIT),
++                    Allow())
+ #endif
+         // NVIDIA decoder from Linux4Tegra, this is specific to Tegra ARM64 SoC
+ #if defined(__aarch64__)
