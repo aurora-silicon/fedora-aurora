@@ -1,6 +1,6 @@
 Name: aurora-platform
 Version: 44
-Release: 7%{?dist}
+Release: 8%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -15,6 +15,7 @@ Requires: kernel-aurora aura uboot-aurora aurora-release aurora-logos aurora-fir
 
 Source100: README
 Source101: aurora-platform-core.conf
+Source102: 50-after-swapfile.conf
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -33,6 +34,9 @@ Conflicts: asahi-platform-metapackage < 1
 Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
 Requires: speakersafetyd speakerguardd
 Requires: aurora-audio alsa-ucm-conf-aurora
+# BlueZ 5.86 attempts an empty default-parameter transaction at startup.
+# 5.87 includes the upstream empty-TLV fix; retain real error reporting.
+Requires: bluez >= 5.87
 
 %description core
 The Apple Silicon hardware services that every Aurora system needs: the
@@ -51,14 +55,19 @@ requires the stock kernel-16k, and is protected from removal in the same way.
 %install
 install -Dm644 %{SOURCE100} %{buildroot}%{_docdir}/aurora-platform/README
 install -Dm644 %{SOURCE101} %{buildroot}%{_sysconfdir}/dnf/protected.d/aurora-platform-core.conf
+install -Dm644 %{SOURCE102} %{buildroot}%{_unitdir}/var-swap-swapfile2.swap.d/50-after-swapfile.conf
 
 %files
 %{_docdir}/aurora-platform/
 
 %files core
 %config(noreplace) %{_sysconfdir}/dnf/protected.d/aurora-platform-core.conf
+%{_unitdir}/var-swap-swapfile2.swap.d/
 
 %changelog
+* Sat Oct 31 2026 Aurora Silicon <ryan@aurorasilicon.org> - 44-8
+- Require the BlueZ empty-parameter fix and serialize the second swapfile.
+
 * Fri Oct 30 2026 Aurora Silicon <ryan@aurorasilicon.org> - 44-7
 - Split the hardware services into aurora-platform-core. It replaces the
   Fedora Asahi metapackages without pulling the stock kernel, and dnf
