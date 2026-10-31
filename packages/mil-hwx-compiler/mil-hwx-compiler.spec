@@ -19,6 +19,7 @@ Source5: build-mil-hwxc
 Source6: install-mil-hwxc
 Source7: mil-hwxc
 Source8: libane_python.c
+BuildRequires: which gzip
 BuildRequires: gcc gcc-c++ clang lld cmake ninja-build make pkgconf-pkg-config python3 patchelf
 BuildRequires: libffi-devel libxml2-devel libicu-devel openssl-devel zlib-devel robin-map-devel libdrm-devel
 Requires: bash python3 python3-numpy
