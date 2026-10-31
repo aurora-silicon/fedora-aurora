@@ -1,11 +1,11 @@
 {
   "kernel-aurora": {
     "repository": "https://github.com/aurora-silicon/linux",
-    "commit": "695d9745c2118afb03d998602abe36e0464a15d0",
+    "commit": "5d7c3e74019d0a04a22e0c6e5cec5a297e245fd6",
     "version": "7.3.0",
-    "source_url": "https://codeload.github.com/aurora-silicon/linux/tar.gz/695d9745c2118afb03d998602abe36e0464a15d0",
-    "archive_root": "linux-695d9745c2118afb03d998602abe36e0464a15d0",
-    "sha256": "57b7a2454d6cf23680b468ff9c5450ee26abd4b8474b4a7ea6203d66f4718145"
+    "source_url": "https://codeload.github.com/aurora-silicon/linux/tar.gz/5d7c3e74019d0a04a22e0c6e5cec5a297e245fd6",
+    "archive_root": "linux-5d7c3e74019d0a04a22e0c6e5cec5a297e245fd6",
+    "sha256": "fba78492f3a52733846ca06b1a343b7f8948d90b7d55ad51cd2b83685516af85"
   },
   "aura": {
     "repository": "https://github.com/aurora-silicon/aura",
@@ -25,11 +25,11 @@
   },
   "mesa-aurora": {
     "repository": "https://github.com/aurora-silicon/mesa",
-    "commit": "14b6b0c453146a09d08f377e9a6c9905d64e442a",
+    "commit": "cf4e08105dfa526b8874318b6a52b3ce948f6297",
     "version": "26.3.0",
-    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/14b6b0c453146a09d08f377e9a6c9905d64e442a",
-    "archive_root": "mesa-14b6b0c453146a09d08f377e9a6c9905d64e442a",
-    "sha256": "0e310f8da7e495664778b83e1d9c9c438ca57ff91ebc3d2c6440370d85b0b2a3"
+    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/cf4e08105dfa526b8874318b6a52b3ce948f6297",
+    "archive_root": "mesa-cf4e08105dfa526b8874318b6a52b3ce948f6297",
+    "sha256": "b898c15a604a8d7d01467a2fc5b3ad70814d0eb6294228ac9128b946f0a76ddd"
   },
   "speakerguardd": {
     "repository": "https://github.com/aurora-silicon/speakerguardd",
@@ -97,11 +97,11 @@
   },
   "upower-aurora": {
     "repository": "https://github.com/aurora-silicon/upower",
-    "commit": "00e8cb66b408e2a7e5f1c527accbe0634a12996c",
-    "version": "1.91.4",
-    "source_url": "https://codeload.github.com/aurora-silicon/upower/tar.gz/00e8cb66b408e2a7e5f1c527accbe0634a12996c",
-    "archive_root": "upower-00e8cb66b408e2a7e5f1c527accbe0634a12996c",
-    "sha256": "4b3b15a50f9f92988b4b570a5147ff2cc9ae119a806d56c464b0b2654509c7d3"
+    "commit": "ec0b67ff412d97b16629614edc4decbb34d05983",
+    "version": "1.91.5",
+    "source_url": "https://codeload.github.com/aurora-silicon/upower/tar.gz/ec0b67ff412d97b16629614edc4decbb34d05983",
+    "archive_root": "upower-ec0b67ff412d97b16629614edc4decbb34d05983",
+    "sha256": "6758f97ce858a51919755a206387b7ca8795793fa62ebd8b8e5ae5fe3fbe9784"
   },
   "libfprint": {
     "repository": "https://gitlab.freedesktop.org/libfprint/libfprint",
@@ -139,11 +139,11 @@
   },
   "mesa-aurora-fex-guest": {
     "repository": "https://github.com/aurora-silicon/mesa",
-    "commit": "14b6b0c453146a09d08f377e9a6c9905d64e442a",
+    "commit": "cf4e08105dfa526b8874318b6a52b3ce948f6297",
     "version": "26.3.0",
-    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/14b6b0c453146a09d08f377e9a6c9905d64e442a",
-    "archive_root": "mesa-14b6b0c453146a09d08f377e9a6c9905d64e442a",
-    "sha256": "0e310f8da7e495664778b83e1d9c9c438ca57ff91ebc3d2c6440370d85b0b2a3"
+    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/cf4e08105dfa526b8874318b6a52b3ce948f6297",
+    "archive_root": "mesa-cf4e08105dfa526b8874318b6a52b3ce948f6297",
+    "sha256": "b898c15a604a8d7d01467a2fc5b3ad70814d0eb6294228ac9128b946f0a76ddd"
   },
   "alsa-utils": {
     "repository": "https://github.com/alsa-project/alsa-utils",
@@ -162,6 +162,15 @@
     "archive_root": "mutter-50.6",
     "archive_file": "mutter-50.6.tar.xz",
     "sha256": "abed98ed9c46934a0f761ba8c28a055305b99b4855e44c8273f881da7189bc9c"
+  },
+  "fprintd": {
+    "repository": "https://gitlab.freedesktop.org/libfprint/fprintd",
+    "commit": "b54a007ccf58ac0ae074c7151b223f35cbd17306",
+    "version": "1.94.5",
+    "source_url": "https://gitlab.freedesktop.org/libfprint/fprintd/-/archive/v1.94.5/fprintd-v1.94.5.tar.gz",
+    "archive_file": "fprintd-v1.94.5.tar.gz",
+    "archive_root": "fprintd-v1.94.5",
+    "sha256": "a026ef34c31b25975275cc29a5e4eba2b54524769672095a5228098a08acd82c"
   },
   "omarchy-ane-tools": {
     "repository": "https://github.com/joshuaswarren/omarchy-ane",

@@ -15,16 +15,11 @@
 #   rpmbuild --define 'commit <40-hex>' --define 'host_version 26.3.0~devel' \
 #            --define 'host_release 0.17.aurora.borealis.<12-hex>%%{?dist}' ...
 #
-# The repository is not built here: build it with build-extension.sh (next to
-# this file) for each runtime branch, tar it as Source10 and build with
-# --with repo. build-extension.sh stamps each branch with its Mesa commit and
-# the build refuses a repository from another commit. Without the repository
-# the package carries only the settings, which change nothing until GL.aurora
-# is installed.
-%bcond repo 0
-%{!?commit:%global commit 14b6b0c453146a09d08f377e9a6c9905d64e442a}
+# Source10 is mandatory. scripts/build-rpm builds it for both supported
+# runtimes (or consumes AURORA_FLATPAK_GL_REPO_TAR). Never publish settings alone.
+%{!?commit:%global commit cf4e08105dfa526b8874318b6a52b3ce948f6297}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 9%{?dist}.aurora}
+%{!?host_release:%global host_release 13%{?dist}.aurora}
 %global shortcommit %{sub %{commit} 1 12}
 %global debug_package %{nil}
 %global __requires_exclude_from ^%{_datadir}/aurora-flatpak-gl/
@@ -38,10 +33,10 @@ URL: https://github.com/aurora-silicon/fedora-aurora
 Source0: aurora-flatpak-gl
 Source1: 60-aurora-flatpak-gl.conf
 Source2: aurora-flatpak-gl.sh
-%if %{with repo}
+Source3: validate-repo.py
 Source10: aurora-flatpak-gl-repo-%{shortcommit}.tar
-%endif
 ExclusiveArch: aarch64
+BuildRequires: python3 ostree
 Requires: flatpak
 
 %description
@@ -60,7 +55,6 @@ install -Dm755 %{SOURCE0} %{buildroot}%{_libexecdir}/aurora-flatpak-gl/aurora-fl
 install -Dm644 %{SOURCE1} %{buildroot}%{_prefix}/lib/environment.d/60-aurora-flatpak-gl.conf
 install -Dm644 %{SOURCE2} %{buildroot}%{_sysconfdir}/profile.d/aurora-flatpak-gl.sh
 install -d %{buildroot}%{_datadir}/aurora-flatpak-gl
-%if %{with repo}
 tar -xf %{SOURCE10} -C %{buildroot}%{_datadir}/aurora-flatpak-gl
 repo=%{buildroot}%{_datadir}/aurora-flatpak-gl/repo
 test -d $repo/objects
@@ -68,7 +62,7 @@ stamps=$(ls $repo/aurora-mesa-commit.* 2>/dev/null) || { echo 'repository has no
 for s in $stamps; do
     [ "$(cat $s)" = %{commit} ] || { echo "$s is $(cat $s), not %{commit}" >&2; exit 1; }
 done
-%endif
+python3 %{SOURCE3} "$repo" %{commit} 25.08 26.08
 
 %posttrans
 %{_libexecdir}/aurora-flatpak-gl/aurora-flatpak-gl enable >/dev/null || :
@@ -85,6 +79,15 @@ fi
 %{_datadir}/aurora-flatpak-gl/
 
 %changelog
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-13.aurora
+- Move in lockstep with mesa-aurora 26.3.0-13.
+
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-12.aurora
+- Move in lockstep with mesa-aurora 26.3.0-12.
+
+* Sat Oct 31 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-11.aurora
+- Require complete, validated GL payloads for both runtime branches.
+
 * Thu Oct 29 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-7.aurora
 - Move in lockstep with mesa-aurora: commit, Version and Release follow its
   pin, and the build checks the repository's Mesa commit stamps.

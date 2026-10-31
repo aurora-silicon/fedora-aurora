@@ -1,0 +1,151 @@
+#!/bin/bash
+# Fedora 44 AArch64 disposable container only.
+# Arguments: old binary RPM directory, new repository, evidence directory.
+# New local repository must already have createrepo_c metadata.
+set -euo pipefail
+old=${1:?old binary RPM directory}
+new=${2:?new repository path}
+out=${3:?evidence directory}
+[[ $(uname -m) == aarch64 ]] || { echo 'AArch64 container required' >&2; exit 2; }
+[[ -e /.dockerenv || -e /run/.containerenv ]] || { echo 'Disposable container required' >&2; exit 2; }
+source /etc/os-release
+[[ $ID == fedora && $VERSION_ID == 44 ]] || exit 2
+mkdir -p "$out"
+exec > >(tee "$out/transaction.log") 2>&1
+# This test repository contains unsigned local build outputs. It never changes
+# a machine's repository/trust configuration. Fedora dependencies keep their
+# normal signature policy; only the task-local build repo is unsigned.
+cat > /etc/yum.repos.d/aurora-packaging-test.repo <<EOF
+[aurora-packaging-test]
+name=Local Aurora packaging test
+baseurl=file://$new
+enabled=1
+gpgcheck=0
+EOF
+# Keep fixes disabled until the old graph is installed and checked.
+if [[ $old == fedora ]]; then
+  dnf -y --disable-repo=aurora-packaging-test --setopt=install_weak_deps=False install \
+    mesa-dri-drivers mesa-vulkan-drivers mesa-libEGL mesa-libGL mesa-libgbm \
+    mesa-libEGL-devel mesa-libGL-devel mesa-libgbm-devel mesa-libOpenCL mesa-libOpenCL-devel \
+    /baselines/10/aurora-flatpak-gl-*.aarch64.rpm
+else
+  mapfile -d '' old_rpms < <(find "$old" -maxdepth 1 -name '*.rpm' ! -name '*.src.rpm' -print0 | sort -z)
+  (( ${#old_rpms[@]} ))
+  dnf -y --disable-repo=aurora-packaging-test --setopt=install_weak_deps=False install "${old_rpms[@]}"
+fi
+if [[ $old == fedora ]]; then
+  # Model the desktop application's direct lavapipe dependency. The stock
+  # provider must be replaced without dropping its installed consumer.
+  mkdir -p /var/tmp/lavapipe-consumer
+  cat > /var/tmp/lavapipe-consumer/consumer.spec <<'SPEC'
+Name: aurora-lavapipe-consumer-test
+Version: 1
+Release: 1
+Summary: Disposable direct lavapipe dependency
+License: MIT
+Requires: libvulkan_lvp.so()(64bit)
+%description
+Exercise preservation of applications requiring the CPU Vulkan library.
+%install
+mkdir -p %{buildroot}/usr/share/aurora-lavapipe-consumer-test
+printf 'consumer\n' > %{buildroot}/usr/share/aurora-lavapipe-consumer-test/marker
+%files
+/usr/share/aurora-lavapipe-consumer-test/marker
+SPEC
+  rpmbuild -bb --define '_topdir /var/tmp/lavapipe-consumer' /var/tmp/lavapipe-consumer/consumer.spec
+  dnf -y --disable-repo=aurora-packaging-test install /var/tmp/lavapipe-consumer/RPMS/aarch64/*.rpm
+fi
+dnf check
+rpm -qa --qf '%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > "$out/before.tsv"
+# Retain exact old bytes for a real package-rename rollback test.
+mkdir -p /var/tmp/aurora-graphics-rollback
+if [[ $old == fedora ]]; then
+  mapfile -t old_mesa < <(rpm -qa --qf '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | grep '^mesa-')
+  dnf --disable-repo=aurora-packaging-test download --destdir=/var/tmp/aurora-graphics-rollback "${old_mesa[@]}"
+  cp /baselines/10/aurora-flatpak-gl-*.aarch64.rpm /var/tmp/aurora-graphics-rollback/
+else
+  cp "${old_rpms[@]}" /var/tmp/aurora-graphics-rollback/
+fi
+# Real repository upgrade, not a header comparison or an erasing solver.
+dnf -y --setopt=install_weak_deps=False upgrade 'mesa*' aurora-flatpak-gl
+# Older Aurora baselines never installed CPU Vulkan; also prove the optional
+# split package can be selected there without replacing the native driver.
+dnf -y --setopt=install_weak_deps=False install mesa-aurora-vulkan-lavapipe
+dnf check
+rpm -qa --qf '%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > "$out/after.tsv"
+for name in mesa-aurora-dri-drivers mesa-aurora-vulkan-drivers mesa-aurora-vulkan-lavapipe aurora-flatpak-gl; do
+  [[ $(rpm -q --qf '%{VERSION}-%{RELEASE}' "$name") == 26.3.0-13.fc44.aurora ]]
+done
+for name in mesa-libEGL-devel mesa-libGL-devel mesa-libgbm-devel mesa-libOpenCL mesa-libOpenCL-devel; do
+  if awk -v n="$name" '$1 == n {found=1} END {exit !found}' "$out/before.tsv"; then
+    ! rpm -q "$name"
+    rpm -q --whatprovides "$name" "$name(aarch-64)"
+  fi
+done
+rpm -qpl "$new"/aurora-flatpak-gl-*.aarch64.rpm > "$out/flatpak-rpm-payload.txt"
+grep -F '/usr/share/aurora-flatpak-gl/repo/objects/' "$out/flatpak-rpm-payload.txt"
+# Validation from the installed RPM's repository, not the build work directory.
+python3 /src/packages/aurora-flatpak-gl/validate-repo.py \
+  /usr/share/aurora-flatpak-gl/repo cf4e08105dfa526b8874318b6a52b3ce948f6297 25.08 26.08
+strings /usr/lib64/libvulkan_asahi.so | grep -F '(git-cf4e08105d), Borealis' > "$out/driverInfo.txt"
+rpm -q --whatprovides 'libvulkan_lvp.so()(64bit)'
+test -f /usr/lib64/libvulkan_lvp.so
+# Only replacements/upgrades are acceptable. No unrelated old package can disappear.
+python3 - "$out" <<'PY'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+old = dict(line.rstrip().split('\t') for line in (p / 'before.tsv').read_text().splitlines())
+new = dict(line.rstrip().split('\t') for line in (p / 'after.tsv').read_text().splitlines())
+allowed = {'mesa-dri-drivers','mesa-vulkan-drivers','mesa-libEGL','mesa-libGL','mesa-libgbm',
+           'mesa-libglapi','mesa-libgallium','mesa-libEGL-devel','mesa-libGL-devel',
+           'mesa-libgbm-devel','mesa-libOpenCL','mesa-libOpenCL-devel'}
+assert set(old) - set(new) <= allowed, sorted(set(old) - set(new) - allowed)
+print('No unrelated installed package was removed')
+PY
+echo GRAPHICS-UPGRADE-PASS
+# Undo a rename in one transaction, preserving the post-upgrade evidence above.
+remove=()
+for name in mesa-aurora-dri-drivers mesa-aurora-vulkan-drivers mesa-aurora-vulkan-lavapipe mesa-aurora-devel mesa-aurora-libOpenCL mesa-aurora-libOpenCL-devel; do
+  if rpm -q "$name" >/dev/null 2>&1 && ! awk -v n="$name" '$1==n {found=1} END {exit !found}' "$out/before.tsv"; then
+    remove+=("$name")
+  fi
+done
+rollback=(do)
+if (( ${#remove[@]} )); then rollback+=(--action=remove "${remove[@]}"); fi
+rollback+=(--action=install --allow-downgrade /var/tmp/aurora-graphics-rollback/*.rpm)
+dnf -y --setopt=install_weak_deps=False "${rollback[@]}"
+dnf check
+rpm -qa --qf '%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > "$out/rollback.tsv"
+python3 - "$out" <<'PYROLL'
+from pathlib import Path
+import sys
+p = Path(sys.argv[1])
+before = dict(line.rstrip().split('\t') for line in (p/'before.tsv').read_text().splitlines())
+after = dict(line.rstrip().split('\t') for line in (p/'rollback.tsv').read_text().splitlines())
+for name, evr in before.items():
+    if name.startswith(('mesa-', 'aurora-flatpak-gl')):
+        assert after.get(name) == evr, (name, evr, after.get(name))
+assert not (set(after) - set(before)) & {'mesa-aurora-dri-drivers','mesa-aurora-vulkan-drivers','mesa-aurora-vulkan-lavapipe',
+                                      'mesa-aurora-devel','mesa-aurora-libOpenCL','mesa-aurora-libOpenCL-devel'}
+print('Exact old Mesa/Flatpak graph restored')
+PYROLL
+# Validate the installed database retains the same payload identity as the
+# original archives; this is also the kit's exact-rollback availability gate.
+payload_tags=$(rpm --querytags)
+if grep -Fx PAYLOADSHA256 <<< "$payload_tags" >/dev/null; then
+  payload_tag=PAYLOADSHA256
+else
+  payload_tag=PAYLOADDIGEST
+fi
+format="%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH} %{${payload_tag}}"
+: > "$out/rollback-payload-identities.txt"
+for path in /var/tmp/aurora-graphics-rollback/*.rpm; do
+  name=$(rpm -qp --qf '%{NAME}' "$path")
+  staged=$(rpm -qp --qf "$format" "$path")
+  installed=$(rpm -q --qf "$format" "$name")
+  digest=$(rpm -q --qf "%{${payload_tag}}" "$name")
+  [[ $digest =~ ^[0-9a-f]+$ && $installed == "$staged" ]]
+  printf '%s\n' "$installed" >> "$out/rollback-payload-identities.txt"
+done
+echo GRAPHICS-ROLLBACK-PASS

@@ -13,18 +13,59 @@ kernel. The package requires a recent `kernel-aurora-core` only when that
 package is installed, so it also installs beside a kernel from outside RPM; the
 units then run only where `apple_sep` is a loadable module.
 
-Calibration extraction reads the local boot container without modifying it. A
-private cache is bound to its partition identity and SHA-256. The device-tree
-firmware name is respected. The helper installs only a comb record, the form the
-enclave loads as found, and only over a file it installed itself. A standalone
-FSC2 image (MacBook Neo, M4 Air) is cached but not installed, since the enclave
-refuses it until it is resealed with the Mac's factory records, and a file at
-the firmware path that the helper did not write, such as the installer's sealed
-record, is kept. No calibration data is distributed or reused across
-machines. Models without a fingerprint reader can still initialize SEP trusted
-keys; missing calibration is reported without suppressing the cryptographic
-services. Read XART-SAFETY.md for persistent identity ownership constraints and
+## Touch ID calibration: aurora-touchid-setup
+
+The sensor's driver loads per-device factory data that no package can ship:
+the calibration and, on sensors with a nonce session (MacBook Neo, M4 Pro),
+the sensor's signed root key. The fingerprint node's `firmware-name` list in
+the device tree names both, in that order; the driver falls back to
+`apple/mesa_calibration.bin` and `apple/msrk-j700.bin`.
+
+`aurora-touchid-setup` builds these files from this Mac's own data, read-only:
+
+- Where the factory cache holds an FSC2 calibration (J700, J713, J616s), each
+  file is rebuilt from the factory records on the Hardware volume of the iBoot
+  System Container, sealed for this Mac. The seal must name the running Mac's
+  chip, ECID and serial number and cover the record. This needs no macOS.
+- Elsewhere (M1, M2) the container holds a comb record, which is installed as
+  carved.
+
+No calibration data is distributed or reused across machines. The enclave
+alone verifies the signatures; the tool checks provenance and structure.
+
+It runs in three cases, and never as routine boot work:
+
+1. **A file is missing.** `aurora-touchid-setup.service` runs once at boot,
+   before Touch ID starts. Its condition only checks that the files it
+   installed or checked before still exist, so a boot with Touch ID in place
+   skips it. It also runs on the first boot after installation, to record
+   what is there.
+2. **The enclave refused an installed file.** When the sensor does not
+   attach, `aurora-sep-ready` looks in this boot's kernel log for a refused
+   `LOAD_CALIBRATION` or `SENSOR_ROOT_KEY`, or a missing file. It then starts
+   the service, which replaces the file. The driver loads it again at its own
+   retry about 10 s later, or at the next enrolment or verify. There is at
+   most one automatic rebuild per boot, and a second refusal is only logged.
+3. **The owner runs it.** `sudo aurora-touchid-setup --check` reports what it
+   would do and writes nothing. `sudo aurora-touchid-setup` sets up what is
+   missing. `sudo aurora-touchid-setup --force-rebuild` rebuilds and replaces
+   what differs. Add `--json` for a machine-readable result.
+
+A file the tool did not install is never replaced, unless the enclave refused
+it this boot or `--force-rebuild` asks for it. Every replacement keeps the old
+bytes in `/var/lib/aurora-sep/rollback`. The new file is written atomically
+with mode 0600 and read back. The last result is in
+`/var/lib/aurora-sep/touchid-setup.json`, with one JSON line per run in
+`touchid-setup.log`. Models without a fingerprint reader record that once and
+are not checked again; SEP trusted keys start either way. After the files are
+in place, enrol with `fprintd-enroll -f right-index-finger USER` (the last word
+is the user name) or the desktop's fingerprint settings.
+
+The factory-record reader and the sealed-record rebuild are Erik Bourget's
+work. Read XART-SAFETY.md for persistent identity ownership constraints and
 OS-IDENTITY.md for running Linux beside macOS.
+
+## Readiness and choices
 
 On a Mac with a reader, `aurora-sep-ready.service` opens `/dev/sep-bio` before
 fprintd starts, which restores the enrolled fingerprints. It reports Touch ID
@@ -58,3 +99,15 @@ generic device nodes receive no additional permissions. The policy text is the
 one in the linux tree, so moving between the two keeps the label. A module
 loaded by hand with `semodule -i` sits at priority 400 and shadows this one
 until `semodule -X 400 -r aurora_sep` removes it.
+
+## Kernel interface compatibility
+
+The sensor gate accepts SEP interface v4 and v5 with a physical reader;
+unknown interface versions and absent readers remain disabled. Both versions
+use the same readiness diagnostics. libfprint uses the legacy enrolment request
+on v4, and the account-bound request and persistence checks on v5. A failed
+v5 enrolment never retries the v4 request. Install the companion patched
+fprintd to retain host records when deleting from the device fails.
+Keep the existing SEP OS identity and persistent state across this update.
+
+See the [controller-approved v4/v5 qualification plan](https://github.com/aurora-silicon/aurora-sep-userspace/blob/2799b51243708d0a551b67d902472319f132c417/docs/sep-v5-test-plan.md) before removing the kernel hold.
