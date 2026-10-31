@@ -7,6 +7,7 @@ baseline=${2:?stock or directory containing the fc44 v5 RPMs}
 packages=(aurora-sep aurora-sep-selinux libfprint libfprint-selinux libfprint-devel libfprint-tests fprintd fprintd-pam fprintd-devel)
 stock=(libfprint libfprint-devel libfprint-tests fprintd fprintd-pam fprintd-devel)
 dnf install -y python3-rpm createrepo_c selinux-policy-targeted
+installed=("${stock[@]}")
 if [[ $baseline == stock ]]; then
   dnf install -y "${stock[@]}"
 else
@@ -17,9 +18,10 @@ else
        "$baseline"/libfprint{,-selinux,-devel,-tests}-1.94.100-1.fc44.aurora7.*.rpm
        "$baseline"/fprintd{,-pam,-devel}-1.94.5-99.fc44.aurora1.*.rpm)
   dnf install -y "${old[@]}"
+  installed=("${packages[@]}")
 fi
 rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' \
-  "${stock[@]}" $(if [[ $baseline != stock ]]; then echo aurora-sep aurora-sep-selinux libfprint-selinux; fi) \
+  "${installed[@]}" \
   | sort | tee /tmp/touchid-before.txt
 python3 - "$candidate" "$baseline" <<'PY'
 import glob
@@ -77,7 +79,7 @@ Path('/tmp/touchid-expected.txt').write_text(''.join(sorted(expected)))
 Path('/tmp/touchid-upgrades.txt').write_text(''.join(sorted(upgrades)))
 PY
 createrepo_c /tmp/touchid-repo
-repo=(--repofrompath=touchid,file:///tmp/touchid-repo --setopt=touchid.gpgcheck=0)
+repo=("--repofrompath=touchid,file:///tmp/touchid-repo" --setopt=touchid.gpgcheck=0)
 # DNF must classify every already-installed component as an upgrade. No
 # --allowerasing, downgrade, distro-sync, or explicit candidate RPM install.
 dnf -q "${repo[@]}" repoquery --upgrades --repo=touchid --queryformat '%{name}' \
@@ -88,8 +90,7 @@ mkdir -p /var/lib/fprint/upgrade-test /var/lib/aurora-sep
 printf 'synthetic fingerprint record\n' > /var/lib/fprint/upgrade-test/print
 printf 'synthetic identity and calibration\n' > /var/lib/aurora-sep/upgrade-test
 sha256sum /var/lib/fprint/upgrade-test/print /var/lib/aurora-sep/upgrade-test > /tmp/touchid-state.sha256
-dnf "${repo[@]}" upgrade -y "${stock[@]}" \
-  $(if [[ $baseline != stock ]]; then echo aurora-sep aurora-sep-selinux libfprint-selinux; fi)
+dnf "${repo[@]}" upgrade -y "${installed[@]}"
 if [[ $baseline == stock ]]; then
   dnf "${repo[@]}" install -y aurora-sep
 fi
@@ -107,7 +108,7 @@ else
   dnf downgrade -y "${old[@]}"
 fi
 rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' \
-  "${stock[@]}" $(if [[ $baseline != stock ]]; then echo aurora-sep aurora-sep-selinux libfprint-selinux; fi) \
+  "${installed[@]}" \
   | sort > /tmp/touchid-rollback.txt
 diff -u /tmp/touchid-before.txt /tmp/touchid-rollback.txt
 sha256sum --check /tmp/touchid-state.sha256
