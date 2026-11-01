@@ -1,9 +1,9 @@
-%global commit f41ac3de3e645232524ef28c8347d7d37f16bf23
+%global commit b359258c9d41d3df15a6d400f712a0f3ba0e8882
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 9%{?dist}.aurora
+Release: 10%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -99,6 +99,11 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-10
+- Track aurora-silicon/linux aurora-wip at b359258 (fleet14f: external
+  VRR, panel EDR, H14 ANE program lifetime, Neo encoder performance
+  request, H.264 fixes), promoted on all four Aurora Macs.
+
 * Sun Nov 01 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-9
 - Track aurora-silicon/linux aurora-wip at f41ac3d (fleet14c, promoted on
   all four Aurora Macs). Release 8 was rebuilt from an older pin by mistake;
