@@ -240,5 +240,13 @@
     "archive_root": "udisks-2.11.2",
     "archive_file": "udisks-2.11.2.tar.bz2",
     "sha256": "18630a8aad806bea0bc626ce97e71e50ec82c742956ac1c834a4275f8f22207b"
+  },
+  "aurora-camera-denoise": {
+    "repository": "https://github.com/aurora-silicon/camera-denoise",
+    "commit": "da883730b16d6ac6ddb55e9e0348e92065d05c69",
+    "version": "0.1.0",
+    "source_url": "https://codeload.github.com/aurora-silicon/camera-denoise/tar.gz/da883730b16d6ac6ddb55e9e0348e92065d05c69",
+    "archive_root": "camera-denoise-da883730b16d6ac6ddb55e9e0348e92065d05c69",
+    "sha256": "d3457a8697f3af3e5cf0fa94ea9fd3406e5dd2eec53eafdfc71b36d3ec5cd933"
   }
 }
