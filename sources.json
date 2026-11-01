@@ -261,11 +261,11 @@
   },
   "kwin": {
     "repository": "https://invent.kde.org/plasma/kwin",
-    "commit": "ab7df7ccb7c6af20f4b279cd6220f7cd3d2267d7",
-    "version": "6.7.5",
-    "source_url": "https://download.kde.org/stable/plasma/6.7.5/kwin-6.7.5.tar.xz",
-    "archive_root": "kwin-6.7.5",
-    "archive_file": "kwin-6.7.5.tar.xz",
-    "sha256": "6baa910b732d93c48c90f9c1cc685cc93d0b8de0cdf138c24192c045bc3a48e2"
+    "commit": "f130ab33c8e6f3b9d728aade87836086ae9a8ed4",
+    "version": "6.8.2",
+    "source_url": "https://download.kde.org/stable/plasma/6.8.2/kwin-6.8.2.tar.xz",
+    "archive_root": "kwin-6.8.2",
+    "archive_file": "kwin-6.8.2.tar.xz",
+    "sha256": "ea5e68d957c7d70abed97222a592d4445fda29129e20942658badd224ee138b4"
   }
 }
