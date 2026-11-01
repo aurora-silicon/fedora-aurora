@@ -57,4 +57,4 @@ if [[ -n ${KEYBOARD_THEME:-} ]]; then
 else
     theme=$work/theme.plymouth
 fi
-"$work/test-removal" "$theme" "$build/src/plugins/splash/script"
+"$work/test-removal" "$theme" "$build/src/plugins/splash/script/"
