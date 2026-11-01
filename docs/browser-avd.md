@@ -75,7 +75,7 @@ set -o pipefail
 v4l2-ctl -d "$VIDEO" --list-formats-out > "$RUN_DIR/formats.txt"
 media-ctl -d "$MEDIA" -p > "$RUN_DIR/topology.txt"
 LIBVA_V4L2_REQUEST_MEDIA_PATH="$MEDIA" avd-vaapi \
-  vainfo --display drm --device "$RENDER" 2>&1 | tee "$RUN_DIR/vainfo.log"
+  timeout 30s vainfo --display drm --device "$RENDER" 2>&1 | tee "$RUN_DIR/vainfo.log"
 ```
 
 Require the `v4l2-request` vendor, expected decode entries and a successful
@@ -93,6 +93,7 @@ CODEC=h264
 CLIP=/absolute/path/to/h264-8bit.mp4
 PIX_FMT=nv12
 CASE_DIR=$(mktemp -d "$RUN_DIR/$CODEC.XXXXXX")
+JOURNAL_START=$(date --iso-8601=seconds)
 sha256sum "$CLIP" > "$CASE_DIR/clip.sha256"
 ffprobe-avd -v error -show_streams "$CLIP" > "$CASE_DIR/streams.txt"
 timeout 60s ffmpeg-avd -nostdin -hide_banner -loglevel verbose -xerror \
@@ -107,6 +108,7 @@ LIBVA_V4L2_REQUEST_MEDIA_PATH="$MEDIA" avd-vaapi \
   2> "$CASE_DIR/hw.log"
 hw_rc=$?
 printf '%s\n' "$hw_rc" > "$CASE_DIR/hw.exit"
+sudo journalctl -k --since "$JOURNAL_START" --no-pager > "$CASE_DIR/kernel.log"
 awk '!/^#/ && NF {print $NF}' "$CASE_DIR/sw.md5" > "$CASE_DIR/sw.hashes"
 awk '!/^#/ && NF {print $NF}' "$CASE_DIR/hw.md5" > "$CASE_DIR/hw.hashes"
 wc -l "$CASE_DIR/"*.hashes
@@ -180,25 +182,29 @@ against the same system codec library. Then use the candidate with
 `MOZ_AVD_FFMPEG=1` for the four-codec matrix. Stock Firefox ignores the new
 switch; its missing H.264/HEVC native decoder is a separate baseline failure.
 
-Create a muted local page and fresh profile for each browser/codec attempt:
+Repeat this setup block for every stock/candidate browser and codec attempt.
+It creates a new evidence directory and muted local page:
 
 ```sh
-python3 - "$CLIP" "$RUN_DIR/video.html" <<'PY'
+BROWSER_RUN_DIR=$(mktemp -d "$RUN_DIR/browser.XXXXXX")
+BROWSER_JOURNAL_START=$(date --iso-8601=seconds)
+sha256sum "$CLIP" > "$BROWSER_RUN_DIR/clip.sha256"
+python3 - "$CLIP" "$BROWSER_RUN_DIR/video.html" <<'PY'
 import html, sys
 from pathlib import Path
 uri = html.escape(Path(sys.argv[1]).resolve().as_uri(), quote=True)
 Path(sys.argv[2]).write_text(
     '<!doctype html><meta charset="utf-8"><video controls muted src="' + uri + '"></video>')
 PY
-FIREFOX_PROFILE=$(mktemp -d "$RUN_DIR/firefox-profile.XXXXXX")
+FIREFOX_PROFILE=$(mktemp -d "$BROWSER_RUN_DIR/firefox-profile.XXXXXX")
 cat > "$FIREFOX_PROFILE/user.js" <<'PREFS'
 user_pref("media.ffmpeg.vaapi.enabled", true);
 user_pref("media.volume_scale", "0.0");
 PREFS
 LIBVA_V4L2_REQUEST_MEDIA_PATH="$MEDIA" MOZ_AVD_FFMPEG=1 MOZ_SANDBOX_LOGGING=1 \
-  MOZ_LOG_FILE="$RUN_DIR/firefox" MOZ_LOG='PlatformDecoderModule:5,FFmpegVideo:5' \
+  MOZ_LOG_FILE="$BROWSER_RUN_DIR/firefox" MOZ_LOG='PlatformDecoderModule:5,FFmpegVideo:5' \
   avd-vaapi firefox --no-remote --profile "$FIREFOX_PROFILE" \
-  about:support "file://$RUN_DIR/video.html" 2>&1 | tee "$RUN_DIR/firefox-launch.log"
+  about:support "file://$BROWSER_RUN_DIR/video.html" 2>&1 | tee "$BROWSER_RUN_DIR/firefox-launch.log"
 ```
 
 Save `about:support` Media and Graphics sections, including the hardware decode
@@ -212,10 +218,10 @@ from the process list:
 
 ```sh
 RDD_PID=12345                 # replace with this test profile's RDD process
-cat "/proc/$RDD_PID/status" > "$RUN_DIR/rdd-status.txt"
-cat "/proc/$RDD_PID/maps" > "$RUN_DIR/rdd-maps.txt"
-ls -l "/proc/$RDD_PID/fd" > "$RUN_DIR/rdd-fds.txt"
-lsof "$VIDEO" "$MEDIA" > "$RUN_DIR/avd-openers.txt"
+cat "/proc/$RDD_PID/status" > "$BROWSER_RUN_DIR/rdd-status.txt"
+cat "/proc/$RDD_PID/maps" > "$BROWSER_RUN_DIR/rdd-maps.txt"
+ls -l "/proc/$RDD_PID/fd" > "$BROWSER_RUN_DIR/rdd-fds.txt"
+lsof "$VIDEO" "$MEDIA" > "$BROWSER_RUN_DIR/avd-openers.txt"
 ```
 
 The selector-only regression can be reproduced on Linux with
@@ -286,12 +292,12 @@ remain required before shipping.
 First record stock Chromium with the same feature flags, then the candidate:
 
 ```sh
-CHROMIUM_PROFILE=$(mktemp -d "$RUN_DIR/chromium-profile.XXXXXX")
+CHROMIUM_PROFILE=$(mktemp -d "$BROWSER_RUN_DIR/chromium-profile.XXXXXX")
 chromium --user-data-dir="$CHROMIUM_PROFILE" --mute-audio \
   --enable-features=AcceleratedVideoDecoder,AcceleratedVideoDecodeLinuxGL,PreferV4L2VideoAcceleration \
   --enable-logging=stderr --vmodule='*v4l2*=3,*video_decoder*=2' \
-  chrome://gpu chrome://media-internals "file://$RUN_DIR/video.html" \
-  2>&1 | tee "$RUN_DIR/chromium.log"
+  chrome://gpu chrome://media-internals "file://$BROWSER_RUN_DIR/video.html" \
+  2>&1 | tee "$BROWSER_RUN_DIR/chromium.log"
 ```
 
 Use the existing hardware graphics acceleration setting and record it. The
@@ -307,6 +313,33 @@ for this aarch64 package: VA-API is compiled out. Switching backends would also
 need the appropriate broker paths and sysfs access for the bridge. It would
 add another translation and export path before proving the existing native
 backend. No claim is made that either browser is ready to ship yet.
+
+After correctness and sandbox checks pass, repeat the setup and browser run
+with a licensed `3840x2160` VP9 clip, then AV1 on AV1-capable hardware. Record
+30/60 fps as actually selected, active decoder, AVD fds and visible correctness.
+For the local page, capture this browser-console result at the beginning and
+end of playback:
+
+```js
+const video = document.querySelector('video');
+({width: video.videoWidth, height: video.videoHeight,
+  quality: video.getVideoPlaybackQuality()});
+```
+
+Record total/dropped frames and preserve the decoder logs. For a YouTube 4K
+demo, use the same candidate flags and a fresh profile, keep playback muted,
+and corroborate Stats for Nerds resolution/fps with the decoder/fd evidence.
+Resolution selection alone is not a hardware-decode pass.
+
+After each browser attempt, capture its bounded kernel interval:
+
+```sh
+sudo journalctl -k --since "$BROWSER_JOURNAL_START" --no-pager \
+  > "$BROWSER_RUN_DIR/kernel.log"
+```
+
+Keep raw browser/journal evidence in the local run directory; publish only
+redacted codec and sandbox summaries.
 
 ## Rollback and evidence
 
