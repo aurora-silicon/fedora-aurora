@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 14%{?dist}.aurora
+Release: 15%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -25,6 +25,15 @@ Aurora's native Asahi Gallium and Honeykrisp drivers. Compiler tools are built
 first; GL/Vulkan drivers do not link to LLVM or SPIRV-Tools. Rusticl OpenCL
 is packaged separately with its compiler runtime dependencies.
 
+%package -n mesa-aurora-filesystem
+Summary: Aurora Mesa driver filesystem
+Provides: mesa-filesystem = %{version}-%{release}
+Provides: mesa-dri-filesystem = %{version}-%{release}
+Obsoletes: mesa-filesystem < %{version}-%{release}
+
+%description -n mesa-aurora-filesystem
+Filesystem directories shared by Aurora Mesa's OpenGL and Vulkan drivers.
+
 %package -n mesa-aurora-dri-drivers
 Summary: Aurora Mesa OpenGL, EGL and GBM
 Provides: mesa-dri-drivers = %{version}-%{release}
@@ -45,6 +54,7 @@ Obsoletes: mesa-libGL < %{version}-%{release}
 Obsoletes: mesa-libgbm < %{version}-%{release}
 Obsoletes: mesa-libglapi < %{version}-%{release}
 Obsoletes: mesa-libgallium < %{version}-%{release}
+Requires: mesa-aurora-filesystem%{?_isa} = %{version}-%{release}
 Requires: libglvnd-egl libglvnd-glx
 
 %description -n mesa-aurora-dri-drivers
@@ -55,6 +65,7 @@ Summary: Aurora Honeykrisp Vulkan driver
 Provides: mesa-vulkan-drivers = %{version}-%{release}
 Provides: mesa-vulkan-drivers%{?_isa} = %{version}-%{release}
 Obsoletes: mesa-vulkan-drivers < %{version}-%{release}
+Requires: mesa-aurora-filesystem%{?_isa} = %{version}-%{release}
 Requires: vulkan-loader
 
 %description -n mesa-aurora-vulkan-drivers
@@ -172,6 +183,10 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 
 %files -n mesa-aurora-dri-drivers -f dri.files
 %files -n mesa-aurora-vulkan-drivers -f vulkan.files
+%files -n mesa-aurora-filesystem
+%dir %{_libdir}/dri
+%dir %{_datadir}/drirc.d
+
 %files -n mesa-aurora-vulkan-lavapipe
 %{_libdir}/libvulkan_lvp.so
 %{_datadir}/vulkan/icd.d/lvp_icd.aarch64.json
@@ -187,6 +202,9 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 - Track aurora-silicon/mesa aurora-wip at c208afc.
 - Upstream head: Merge pull request #126 from aurora-silicon/aurora/kernel-identity
 - Accept the "aurora" kernel DRM name next to "asahi" and ship aurora_dri.so.
+
+* Sun Nov 01 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-15
+- Own the Mesa driver filesystem and replace Fedora's stock mesa-filesystem.
 
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-13
 - Rebuild in lockstep with the mesa-aurora-fex-guest upgrade fix.
