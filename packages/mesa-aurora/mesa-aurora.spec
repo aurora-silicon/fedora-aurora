@@ -2,7 +2,7 @@
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 15%{?dist}.aurora
+Release: 16%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -28,7 +28,9 @@ is packaged separately with its compiler runtime dependencies.
 %package -n mesa-aurora-filesystem
 Summary: Aurora Mesa driver filesystem
 Provides: mesa-filesystem = %{version}-%{release}
+Provides: mesa-filesystem%{?_isa} = %{version}-%{release}
 Provides: mesa-dri-filesystem = %{version}-%{release}
+Provides: mesa-dri-filesystem%{?_isa} = %{version}-%{release}
 Obsoletes: mesa-filesystem < %{version}-%{release}
 
 %description -n mesa-aurora-filesystem
@@ -198,6 +200,11 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-16
+- Also provide the arch-specific mesa-filesystem(aarch-64), which libva
+  requires, so mesa-aurora-filesystem can replace Fedora's package in the
+  KDE and GNOME images.
+
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-14
 - Track aurora-silicon/mesa aurora-wip at c208afc.
 - Upstream head: Merge pull request #126 from aurora-silicon/aurora/kernel-identity
