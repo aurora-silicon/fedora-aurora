@@ -78,4 +78,4 @@ busctl --user get-property org.kde.KWin.NightLight /org/kde/KWin/NightLight org.
 
 ## Packages
 
-Fedora carries the three patches in `iio-sensor-proxy` (3.8), `gnome-settings-daemon` (50.1) and `kwin` (6.8.2). Each builds and runs its tests in the RPM build: the iio-sensor-proxy integration tests, including one for the colour channel, and the GNOME colour plugin tests (`gcm-self-test`, `ambient-policy`, `ambient-service`). Arch Linux ARM and NixOS carry the same patches.
+Fedora carries the three patches in `iio-sensor-proxy` (3.8), `gnome-settings-daemon` (50.1) and `kwin` (6.7.5). Each builds and runs its tests in the RPM build: the iio-sensor-proxy integration tests, including one for the colour channel, and the GNOME colour plugin tests (`gcm-self-test`, `ambient-policy`, `ambient-service`). Arch Linux ARM and NixOS carry the same patches.

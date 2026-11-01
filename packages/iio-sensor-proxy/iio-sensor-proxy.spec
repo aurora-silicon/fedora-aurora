@@ -40,7 +40,7 @@ BuildArch:      noarch
 This package contains the documentation for %{name}.
 
 %prep
-%autosetup -S git_am
+%autosetup -p1
 
 %build
 %meson -Dgtk_doc=true -Dgtk-tests=false -Dtests=true
