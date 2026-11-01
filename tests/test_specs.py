@@ -126,12 +126,12 @@ class SpecTests(unittest.TestCase):
         # The distribution's spinner theme: its spinner, entry and watermark, which
         # initramfs generators copy as the theme's ImageDir.
         self.assertEqual(theme['ImageDir'], '/usr/share/plymouth/themes/spinner')
-        self.assertEqual(theme['ScriptFile'], '/usr/share/plymouth/themes/aurora/aurora.script')
+        self.assertEqual(theme['ScriptFile'], '/run/plymouth/aurora.script')
         script = (d / 'aurora.script').read_text()
         self.assertIn('logo_image[1] = Image("../aurora/aurora-logo-128.png");', script)
         self.assertIn('logo_image[2] = Image("../aurora/aurora-logo-256.png");', script)
         self.assertIn('return Math.Int((w - size) / 2);', script)
-        self.assertIn('d.y + Math.Int((d.h - logo.GetHeight()) / 2), 1);', script)
+        self.assertIn('d.y + place_logo_y(d.w, d.h, logo.GetHeight()), 1);', script)
         self.assertIn('branding_source = Image("watermark.png");', script)
         spec = (d / 'plymouth-theme-aurora.spec').read_text()
         post = spec.split('%post', 1)[1].split('%postun', 1)[0]
