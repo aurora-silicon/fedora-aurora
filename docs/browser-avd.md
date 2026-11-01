@@ -321,9 +321,11 @@ For the local page, capture this browser-console result at the beginning and
 end of playback:
 
 ```js
-const video = document.querySelector('video');
-({width: video.videoWidth, height: video.videoHeight,
-  quality: video.getVideoPlaybackQuality()});
+(() => {
+  const video = document.querySelector('video');
+  return {width: video.videoWidth, height: video.videoHeight,
+    quality: video.getVideoPlaybackQuality()};
+})();
 ```
 
 Record total/dropped frames and preserve the decoder logs. For a YouTube 4K
