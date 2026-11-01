@@ -19,7 +19,7 @@
 
 Name:          mutter
 Version:       50.6
-Release:       2%{?dist}.aurora
+Release:       3%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -30,6 +30,10 @@ Patch:         0001-wayland-touch-Do-not-crash-on-empty-focus-surface.patch
 
 # Aurora: displays that support variable refresh rate default to it
 Patch:         0001-native-output-kms-Prefer-variable-refresh-rate-on-VRR-capable-outputs.patch
+
+# Aurora: a panel that scales PQ with its backlight (PQ_REFERENCE_LUMINANCE)
+# keeps its backlight and gets its reference white in BT.2100 mode
+Patch:         0002-backends-Take-the-PQ-reference-white-from-PQ_REFERENCE_LUMINANCE.patch
 
 
 BuildRequires: cvt
@@ -215,6 +219,13 @@ Viewer for nested mutter instances.
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 50.6-3.aurora
+- In BT.2100 mode, take the reference white of an output from the
+  connector's PQ_REFERENCE_LUMINANCE property when it has one, and keep
+  the regular backlight as the brightness control. Apple's EDR panels
+  report PQ 100 cd/m², and the HDR desktop no longer comes out twice as
+  bright as SDR on them
+
 * Thu Oct 29 2026 Ryan Murray <ryan@aurorasilicon.org> - 50.6-2.aurora
 - Fedora 44's mutter 50.6-2 with one Aurora patch: an output that
   supports variable refresh rate prefers its variable variant of the
