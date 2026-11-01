@@ -14,7 +14,7 @@
 
 Name:           gnome-settings-daemon
 Version:        50.1
-Release:        2%{?dist}.aurora1
+Release:        2%{?dist}.aurora2
 Summary:        The daemon sharing settings from GNOME to GTK+/KDE applications
 
 License:        GPL-2.0-or-later AND LGPL-2.1-or-later
@@ -210,5 +210,8 @@ install -Dm644 %{SOURCE2} %{buildroot}%{_docdir}/%{name}/gnome-ambient-white-poi
 %endif
 
 %changelog
+* Sun Nov 01 2026 Aurora Silicon <noreply@aurorasilicon.org> - 50.1-2.aurora2
+- Prefer processed IIO color temperature and retain the raw fallback
+
 * Sun Nov 01 2026 Aurora Silicon <noreply@aurorasilicon.org> - 50.1-2.aurora1
 - Carry default-off ambient white point policy and color regression tests
