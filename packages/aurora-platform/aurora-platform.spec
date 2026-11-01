@@ -1,6 +1,6 @@
 Name: aurora-platform
 Version: 44
-Release: 10%{?dist}
+Release: 11%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -72,6 +72,10 @@ install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwd
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 
 %changelog
+* Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-11
+- Update the model examples in the DMI udev rule and hwdb comments to the
+  product name without its release date.
+
 * Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-10
 - Name the DMI vendor "Apple" (hwdb) instead of "Apple Inc.", so the
   hardware model reads "Apple MacBook Pro (...)".
