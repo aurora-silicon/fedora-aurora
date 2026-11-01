@@ -1,6 +1,6 @@
 # Plymouth terminal input carry
 
-This carries Fedora 45's Plymouth 26.134.222 recipe with a nonblocking
+On Fedora 45 this carries Plymouth 26.134.222 with a nonblocking
 terminal input fix. Fedora's subpackage names and existing patches are
 retained. Build with `scripts/build-rpm plymouth` on Fedora aarch64.
 
@@ -51,3 +51,10 @@ branch changes only the Fedora carry.
 
 Retire the carry once the distribution package includes an upstream
 fix that guarantees nonblocking terminal keyboard reads.
+
+## Script splash renderer removal
+
+The carry also fixes keyboard lifetime during renderer removal on Fedora 44
+and 45. The recipe selects the distribution's existing source version. See
+[KEYBOARD-LIFETIME.md](KEYBOARD-LIFETIME.md) for the cause, source provenance,
+regression checks, package dependency, and rollback requirements.

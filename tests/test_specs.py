@@ -9,7 +9,7 @@ class SpecTests(unittest.TestCase):
         pins = json.loads((ROOT / 'sources.json').read_text())
         for spec in (ROOT / 'packages').glob('*/*.spec'):
             extras = pins.get(spec.parent.name, {}).get('extra_sources', {})
-            fetched = {f"{name}-{record['commit']}.tar.gz" for name, record in extras.items()}
+            fetched = {record.get("archive_file", f"{name}-{record['commit']}.tar.gz") for name, record in extras.items()}
             with self.subTest(spec=spec.name):
                 for kind, value in re.findall(r'^(Source\d*|Patch\d*):\s+(\S+)', spec.read_text(), re.M):
                     if '%{' not in value and not value.startswith('http') and value not in fetched:
