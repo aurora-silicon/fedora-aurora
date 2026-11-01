@@ -1,0 +1,25 @@
+From: Aurora contributors <noreply@aurora-silicon.org>
+Subject: [PATCH] tests: publish the cancellation fixture PID atomically
+
+GPL-3.0-or-later, matching the upstream fixture. The parent observes file
+existence before reading a PID. write_text creates an empty file first, so
+a scheduled reader can fail with ValueError on an empty string. Publish a
+completed temporary file by same-directory rename. Keep all finite deadlines,
+pidfd identity checks and process cancellation assertions unchanged.
+No driver, guard or runtime process-management code changes.
+
+--- a/tests/concurrent-process-test.py
++++ b/tests/concurrent-process-test.py
+@@ -18,7 +18,11 @@
+     root = Path(directory)
+     for escaped in (False, True):
+         pidfile = root / ('escaped.pid' if escaped else 'worker.pid')
+-        child = "import os,time;from pathlib import Path;Path(%r).write_text(str(os.getpid()));time.sleep(30)" % str(pidfile)
++        # Publish the complete PID atomically: existence alone is not readiness
++        # while write_text has opened the destination but not written its data.
++        child = ("import os,time;from pathlib import Path;p=Path(%r);"
++                 "tmp=p.with_suffix('.tmp');tmp.write_text(str(os.getpid()));"
++                 "tmp.replace(p);time.sleep(30)") % str(pidfile)
+         worker = ("import subprocess,sys;subprocess.Popen([sys.executable,'-c',%r],start_new_session=True)" % child) if escaped else child
+         launch = "import importlib.util,sys;s=importlib.util.spec_from_file_location('r',%r);m=importlib.util.module_from_spec(s);s.loader.exec_module(m);sys.exit(m.run_processes([sys.executable,'-c',%r],1,4,1,1,10))" % (str(RUNNER), worker)
+         proc = subprocess.Popen([sys.executable, '-c', launch], stdout=subprocess.DEVNULL)

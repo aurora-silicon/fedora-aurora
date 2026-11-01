@@ -20,8 +20,9 @@ still required.
 Both spec deltas add `%bcond avd_request 0`. Building with `--with avd_request`
 applies the corresponding source patch and adds `.avd1` to the RPM release.
 Default builds retain their previous behavior. Nothing here publishes a COPR,
-updates a system browser or creates a new PR. The existing private bridge RPM
-is unchanged.
+updates a system browser or creates a new PR. The bridge driver code is
+unchanged. Bridge RPM release 4 fixes only the offline process-cleanup
+fixture's PID-file publication race, retaining its assertions and deadlines.
 
 ## VA-API verdict and expected enumeration
 
@@ -44,8 +45,8 @@ H.264 High 10 remains off unless separately selected and qualified. VP9 Profile
 also returned by the profile query; its VideoProc entrypoint depends on finding
 a converter. Do not count it as a decode profile or require it for AVD.
 The existing bridge pin already contains the Chromium early-export fix. No new
-bridge defect has been reproduced here, so no speculative bridge change is
-included.
+driver decode defect has been reproduced here, so no speculative driver change
+is included.
 
 On the selected Fedora 45 target, install the matching bridge and ffmpeg-avd
 artifacts described in [avd-userspace.md](avd-userspace.md), plus `libva-utils`
