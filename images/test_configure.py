@@ -300,6 +300,22 @@ class ConfigureTests(unittest.TestCase):
         dropin.parent.mkdir()
         dropin.touch()
         self.assertTrue(accepted())
+        # Desktop images boot to the Aurora splash, never to the Fedora default.
+        config.write_text(config.read_text().replace("/usr/share/plymouth/themes",
+                                                     str(image / "usr/share/plymouth/themes")))
+        theme = image / "usr/share/plymouth/themes/aurora/aurora.plymouth"
+        theme.parent.mkdir(parents=True)
+        theme.touch()
+        chooser = commands / "plymouth-set-default-theme"
+        chooser.write_text("#!/bin/sh\necho bgrt\n")
+        chooser.chmod(0o755)
+        self.assertFalse(accepted())
+        chooser.write_text("#!/bin/sh\necho aurora\n")
+        self.assertTrue(accepted())
+        desktop = ET.parse(output / "components/desktop-environments.xml").getroot()
+        self.assertIn("plymouth-theme-aurora", {n.get("name") for g in desktop.iter("packages")
+                                                if g.get("profiles") == "DesktopCommon"
+                                                for n in g.iter("package")})
 
     def test_image_rejects_a_stale_kernel_before_export(self):
         output = self.root / "kernel-gate"
