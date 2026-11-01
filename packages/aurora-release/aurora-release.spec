@@ -1,6 +1,6 @@
 Name: aurora-release
 Version: 44
-Release: 6%{?dist}
+Release: 7%{?dist}
 Summary: Aurora Fedora Remix release identity
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -27,6 +27,9 @@ Source104: macros.dist
 Source105: malcontent-signal.conf
 Source106: malcontent-webd-update-signal.conf
 Source107: 80-aurora-sshd.preset
+Source108: aurora-vendors.conf
+Source109: aurora-vendors-asahi.conf
+Source110: aurora-vendors-unvendored.conf
 
 %description
 Aurora Fedora Remix release identity.
@@ -65,6 +68,11 @@ for unit in malcontent-timerd malcontent-timer-extension-agent malcontent-webd; 
   install -Dm644 %{SOURCE105} %{buildroot}%{_unitdir}/$unit.service.d/50-aurora-signal.conf
 done
 install -Dm644 %{SOURCE106} %{buildroot}%{_unitdir}/malcontent-webd-update.service.d/50-aurora-signal.conf
+# dnf5 vendor change policies: Aurora's and Fedora's packages may replace
+# each other even where allow_vendor_change is off (Fedora Asahi Remix).
+install -Dm644 %{SOURCE108} %{buildroot}/usr/share/dnf5/vendors.d/aurora.conf
+install -Dm644 %{SOURCE109} %{buildroot}/usr/share/dnf5/vendors.d/aurora-asahi.conf
+install -Dm644 %{SOURCE110} %{buildroot}/usr/share/dnf5/vendors.d/aurora-unvendored.conf
 
 
 %files
@@ -74,6 +82,7 @@ install -Dm644 %{SOURCE106} %{buildroot}%{_unitdir}/malcontent-webd-update.servi
 /usr/lib/systemd/system-preset/*.preset
 /usr/lib/systemd/user-preset/*.preset
 /usr/share/dnf5/libdnf.conf.d/20-fedora-defaults.conf
+/usr/share/dnf5/vendors.d/aurora*.conf
 %license %{_licensedir}/%{name}/fedora-release-LICENSE
 /etc/fedora-release
 /etc/redhat-release
@@ -85,6 +94,14 @@ install -Dm644 %{SOURCE106} %{buildroot}%{_unitdir}/malcontent-webd-update.servi
 %{_unitdir}/malcontent-*.service.d/50-aurora-signal.conf
 
 %changelog
+* Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-7
+- Ship dnf5 vendor change policies so that Aurora's packages (vendor
+  Aurora Silicon) and Fedora's can replace each other on upgrade where
+  allow_vendor_change is off, as on Fedora Asahi Remix, including the
+  Asahi packages Aurora supersedes and Aurora's earlier builds that have
+  no vendor. This package itself stays without a vendor so that it can
+  upgrade, and bring the policies, before any vendor change is needed.
+
 * Fri Oct 30 2026 Aurora Silicon <hey@djdev.me> - 44-6
 - Rename the distribution to Aurora Fedora Remix, the standard Fedora Remix
   naming, in os-release NAME and PRETTY_NAME and in /etc/fedora-release.

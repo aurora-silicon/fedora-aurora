@@ -26,7 +26,12 @@ if [[ $package == aurora-flatpak-gl ]]; then
     bash "$root/scripts/build-flatpak-gl-repo" "$archive"
   fi
 fi
-rpmbuild -ba --define "_topdir $top" --define "_smp_mflags -j${AURORA_BUILD_JOBS:-6}" "$top/SPECS/$package.spec"
+# Aurora's builds carry a vendor so dnf's vendor change policy can tell them
+# apart from Fedora's. aurora-release has none: it ships that policy, so it
+# must upgrade without a vendor change on systems that don't have it yet.
+vendor=(--define "vendor Aurora Silicon")
+[[ $package == aurora-release ]] && vendor=()
+rpmbuild -ba --define "_topdir $top" --define "_smp_mflags -j${AURORA_BUILD_JOBS:-6}" "${vendor[@]}" "$top/SPECS/$package.spec"
 mkdir -p "$root/out/rpms" "$root/out/srpms"
 find "$top/RPMS" -type f -name '*.rpm' -exec cp -p {} "$root/out/rpms/" \;
 find "$top/SRPMS" -type f -name '*.rpm' -exec cp -p {} "$root/out/srpms/" \;
