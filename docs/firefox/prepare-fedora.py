@@ -35,4 +35,7 @@ delta = str(directory / "fedora-45.spec.patch")
 subprocess.run(["git", "-C", str(checkout), "apply", "--check", delta], check=True)
 subprocess.run(["git", "-C", str(checkout), "apply", delta], check=True)
 shutil.copyfile(directory / patch_source, checkout / patch_dest)
+if args.browser == "firefox":
+    shutil.copyfile(directory / "0002-opt-in-private-ffmpeg.patch",
+                    checkout / "0002-opt-in-private-ffmpeg.patch")
 print(f"Prepared {args.browser} at {revision}; build with --with avd_request")

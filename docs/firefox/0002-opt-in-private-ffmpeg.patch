@@ -1,0 +1,63 @@
+From: Aurora contributors <noreply@aurora-silicon.org>
+Subject: [CANDIDATE] FFmpeg: allow an explicit private AVD library test on aarch64
+
+MPL-2.0. Target: Firefox 159.0. AI-assisted implementation.
+Fedora ffmpeg-free disables the native h264/hevc decoders. MOZ_AVD_FFMPEG=1
+selects only the ffmpeg-avd library, with no global loader changes. Normal
+launches retain the original library list. The option is confined to the
+opt-in Fedora RPM patch set and requires physical browser qualification.
+
+--- a/dom/media/platforms/ffmpeg/FFmpegRuntimeLinker.cpp
++++ b/dom/media/platforms/ffmpeg/FFmpegRuntimeLinker.cpp
+@@ -7,6 +7,7 @@
+ #include "FFmpegLibWrapper.h"
+ #include "FFmpegLog.h"
+ #include "mozilla/StaticPrefs_media.h"
++#include "prenv.h"
+ #include "prlink.h"
+ 
+ namespace mozilla {
+@@ -33,6 +34,12 @@
+ };
+ 
+ static FFmpegLibWrapper sLibAV;
++
++#if defined(MOZ_WIDGET_GTK) && defined(__aarch64__)
++// The opt-in Fedora AVD package keeps FFmpeg isolated from system consumers.
++static constexpr char kAvdLib[] =
++    "/usr/lib64/aurora-avd/libavcodec.so.62";
++#endif
+ 
+ static const char* sLibs[] = {
+ // clang-format off
+@@ -52,6 +59,9 @@
+   "libavcodec.so", // OpenBSD port controls the major/minor library version
+                    // of ffmpeg and update it regulary on ABI/API changes
+ #else
++#  if defined(MOZ_WIDGET_GTK) && defined(__aarch64__)
++  kAvdLib,
++#  endif
+   "libavcodec.so." FFMPEG_MAX_MAJOR_VERSION_STR(FFMPEG_MAX_MAJOR_VERSION),
+   "libavcodec.so.62",
+   "libavcodec.so.61",
+@@ -86,7 +96,20 @@
+   // more precise error if possible.
+   sLinkStatus = LinkStatus_NOT_FOUND;
+ 
++#if defined(MOZ_WIDGET_GTK) && defined(__aarch64__)
++  const char* avdFFmpeg = PR_GetEnv("MOZ_AVD_FFMPEG");
++  const bool useAvdFFmpeg =
++      avdFFmpeg && avdFFmpeg[0] == '1' && avdFFmpeg[1] == '\0';
++#endif
++
+   for (auto lib : sLibs) {
++#if defined(MOZ_WIDGET_GTK) && defined(__aarch64__)
++    // Exact opt-in; do not silently substitute system FFmpeg if the private
++    // candidate is missing or unusable. Without opt-in, never load it.
++    if ((lib == kAvdLib) != useAvdFFmpeg) {
++      continue;
++    }
++#endif
+     PRLibSpec lspec;
+     lspec.type = PR_LibSpec_Pathname;
+     lspec.value.pathname = lib;

@@ -37,6 +37,11 @@ on GTK/aarch64. It has no `--enable-v4l2` option. Confirm the generated define
 in the actual package build. A configuration without `MOZ_ENABLE_V4L2` should
 retain the baseline denied behavior. The Fedora delta defaults to disabled;
 `--with avd_request` selects it and adds `.avd1` to the RPM release.
+The second, separate RPM patch enables the exact child-scoped
+`MOZ_AVD_FFMPEG=1` switch for the private ffmpeg-avd library. This is needed for
+the four-codec test because Fedora's default FFmpeg omits native H.264/HEVC
+decoders. With the variable absent, library selection is unchanged. See the
+browser guide for the separate same-library VP9 sandbox comparison.
 
 `python3 docs/firefox/check-proposal.py` extracts the actual proposed topology
 helper and compiles it on Linux against the media UAPI with mocked OS and

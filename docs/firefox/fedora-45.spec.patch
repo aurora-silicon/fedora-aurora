@@ -1,5 +1,5 @@
 From: Aurora contributors <noreply@aurora-silicon.org>
-Subject: [CANDIDATE] Fedora 45 firefox: opt-in Request API prototype
+Subject: [CANDIDATE] Fedora 45 firefox: opt-in Request API test package
 
 Target dist-git: 054f5ce6c099dfc8d788332920b4cb3397334ab6
 Build with --with avd_request. Default build is unchanged.
@@ -24,24 +24,26 @@ Build with --with avd_request. Default build is unchanged.
  URL:            https://www.mozilla.org/firefox/
  # Automatically converted from old format: MPLv1.1 or GPLv2+ or LGPLv2+ - review is highly recommended.
  License:        LicenseRef-Callaway-MPLv1.1 OR GPL-2.0-or-later OR LicenseRef-Callaway-LGPLv2+
-@@ -238,6 +243,11 @@
+@@ -238,6 +243,12 @@
  Source50:       wasi-sdk-30.tar.gz
  
  # Build patches
 +%if %{with avd_request}
 +Patch900:       0001-rdd-v4l2-request-proposal.patch
++Patch901:       0002-opt-in-private-ffmpeg.patch
 +BuildRequires:  kernel-headers >= 6.5
 +%endif
 +
  Patch44:        build-arm-libopus.patch
  Patch71:        0001-GLIBCXX-fix-for-GCC-12.patch
  Patch78:        firefox-i686-build.patch
-@@ -556,6 +566,10 @@
+@@ -556,6 +567,11 @@
  %patch -P603 -p1 -b .inline
  %patch -P604 -p1 -b .0001-Bug-2085342-Hash-the-little-endian-ICU-data-in-icu-d
  
 +%if %{with avd_request}
 +%patch -P900 -p1
++%patch -P901 -p1
 +%endif
 +
  rm -f .mozconfig

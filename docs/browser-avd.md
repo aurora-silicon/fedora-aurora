@@ -129,14 +129,28 @@ does not grant a media prefix or disable RDD. Firefox 159's
 `toolkit/moz.configure` already defines `MOZ_ENABLE_V4L2` on GTK/aarch64; there
 is no `--enable-v4l2` configure option in this revision.
 
+Fedora's [FFmpeg 9.0.2 recipe](https://src.fedoraproject.org/rpms/ffmpeg/tree/be22e49dabfc1c7e3335c6401e099c6d3a030b7a)
+disables native `h264` and `hevc` decoders in its default free-codec build.
+The OpenH264 decoder has no VA-API hwconfig. Firefox normally loads system
+libavcodec by SONAME, so installing `ffmpeg-avd` does not select its private
+FFmpeg 8.1 libraries for Firefox. The separate
+[private-library patch](firefox/0002-opt-in-private-ffmpeg.patch), applied only
+by the candidate RPM, adds `MOZ_AVD_FFMPEG=1` on GTK/aarch64. That exact value
+selects only `/usr/lib64/aurora-avd/libavcodec.so.62`; a missing/unusable library
+fails instead of substituting the system codec library. Without the switch,
+the original search list is used and the private library is skipped.
+The library's own private RUNPATH resolves its FFmpeg dependencies. This does
+not set `LD_LIBRARY_PATH` or replace any system FFmpeg library. Keep the two
+patches separate when reviewing the minimal sandbox change.
+
 Prepare a clean checkout and build on Fedora 45 aarch64:
 
 ```sh
 git clone --branch f45 https://src.fedoraproject.org/rpms/firefox.git firefox-f45
-git -C firefox-f45 checkout --detach 054f5ce6c099dfc8d788332920b4cb3397334ab6
+git -C firefox-f45 switch -c avd-request 054f5ce6c099dfc8d788332920b4cb3397334ab6
 python3 docs/firefox/prepare-fedora.py firefox firefox-f45
 cd firefox-f45
-fedpkg sources
+fedpkg --release f45 sources
 sudo dnf builddep firefox.spec
 rpmbuild -ba --with avd_request --define "_sourcedir $PWD" \
   --define '_smp_build_ncpus 8' --define '_smp_mflags -j8' firefox.spec
@@ -153,6 +167,17 @@ Before installing a candidate, preserve the exact stock Firefox and matching
 langpack RPMs for rollback and inventory their NEVRAs. Install the matching
 `.fc45.avd1.aarch64.rpm` set only after reviewing the DNF transaction. Keep a
 stock-browser evidence run and a patched-browser run with separate profiles.
+For the pinned package, with the main and langpack artifacts in this directory:
+
+```sh
+sudo dnf install ./firefox-159.0-2.fc45.avd1.aarch64.rpm \
+  ./firefox-langpacks-159.0-2.fc45.avd1.aarch64.rpm
+```
+
+Use VP9 with `MOZ_AVD_FFMPEG` absent in both runs to isolate the sandbox delta
+against the same system codec library. Then use the candidate with
+`MOZ_AVD_FFMPEG=1` for the four-codec matrix. Stock Firefox ignores the new
+switch; its missing H.264/HEVC native decoder is a separate baseline failure.
 
 Create a muted local page and fresh profile for each browser/codec attempt:
 
@@ -169,7 +194,7 @@ cat > "$FIREFOX_PROFILE/user.js" <<'PREFS'
 user_pref("media.ffmpeg.vaapi.enabled", true);
 user_pref("media.volume_scale", "0.0");
 PREFS
-LIBVA_V4L2_REQUEST_MEDIA_PATH="$MEDIA" MOZ_SANDBOX_LOGGING=1 \
+LIBVA_V4L2_REQUEST_MEDIA_PATH="$MEDIA" MOZ_AVD_FFMPEG=1 MOZ_SANDBOX_LOGGING=1 \
   MOZ_LOG_FILE="$RUN_DIR/firefox" MOZ_LOG='PlatformDecoderModule:5,FFmpegVideo:5' \
   avd-vaapi firefox --no-remote --profile "$FIREFOX_PROFILE" \
   about:support "file://$RUN_DIR/video.html" 2>&1 | tee "$RUN_DIR/firefox-launch.log"
@@ -180,14 +205,23 @@ decision and failure log. Record whether `VIDEO_DECODING_TEST_FAILED` remains.
 Play the muted clip and require logs identifying the VA-API decoder and actual
 frames. Do not bypass a failed probe using force-enabled preferences for the
 acceptance run. Confirm RDD is alive, has `Seccomp: 2`, uses the AVD pair and
-has no camera fd. With its numeric PID selected from the process list:
+has no camera fd. Also confirm `/proc/<RDD_PID>/maps` names the private
+libavcodec and libavutil for this explicit run. With its numeric PID selected
+from the process list:
 
 ```sh
 RDD_PID=12345                 # replace with this test profile's RDD process
 cat "/proc/$RDD_PID/status" > "$RUN_DIR/rdd-status.txt"
+cat "/proc/$RDD_PID/maps" > "$RUN_DIR/rdd-maps.txt"
 ls -l "/proc/$RDD_PID/fd" > "$RUN_DIR/rdd-fds.txt"
 lsof "$VIDEO" "$MEDIA" > "$RUN_DIR/avd-openers.txt"
 ```
+
+The selector-only regression can be reproduced on Linux with
+`python3 docs/firefox/check-private-ffmpeg.py /path/to/unpatched/firefox-159.0`.
+It compiles the actual patched candidate-selection code for simulated
+GTK/aarch64 and GTK/x86_64 conditions. It does not test dynamic linkage or
+replace a full Firefox compile.
 
 An absent camera fd alone does not prove camera denial. Real broker/seccomp
 negative tests must additionally confirm an unrelated camera video/media pair
@@ -233,10 +267,10 @@ Prepare/build using the same dist-git process as Firefox:
 
 ```sh
 git clone --branch f45 https://src.fedoraproject.org/rpms/chromium.git chromium-f45
-git -C chromium-f45 checkout --detach f202a8d8a1af53c6e462ee2034c947bd8c936e2f
+git -C chromium-f45 switch -c avd-request f202a8d8a1af53c6e462ee2034c947bd8c936e2f
 python3 docs/firefox/prepare-fedora.py chromium chromium-f45
 cd chromium-f45
-fedpkg sources
+fedpkg --release f45 sources
 sudo dnf builddep chromium.spec
 rpmbuild -ba --with avd_request --define "_sourcedir $PWD" \
   --define '_smp_build_ncpus 8' --define '_smp_mflags -j8' chromium.spec
@@ -278,6 +312,13 @@ backend. No claim is made that either browser is ready to ship yet.
 Close candidate browsers. Keep their fresh profiles and all failing logs.
 Reinstall/downgrade the saved, matching stock browser RPM set after reviewing
 the DNF transaction, then launch stock browsers with a new stock test profile.
+For the matching pinned stock Firefox version, for example:
+
+```sh
+sudo dnf downgrade ./stock-rpms/firefox-159.0-2.fc45.aarch64.rpm \
+  ./stock-rpms/firefox-langpacks-159.0-2.fc45.aarch64.rpm
+```
+
 Remove `ffmpeg-avd mpv-avd libva-v4l2-request` if no longer needed, as described
 in [the package guide](avd-userspace.md#rollback). No kernel, firmware, boot
 setting, speaker service or global configuration change is part of this work.
