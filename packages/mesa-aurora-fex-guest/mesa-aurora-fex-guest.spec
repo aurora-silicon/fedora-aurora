@@ -12,7 +12,7 @@
 # version-release, which is what this package requires.
 %{!?commit:%global commit c208afc352e9d4c10ee71c883a369a9079dd7d84}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 15%{?dist}.aurora}
+%{!?host_release:%global host_release 16%{?dist}.aurora}
 %global debug_package %{nil}
 # Fedora's x86_64 build flags carry -m64 and would turn the i686 build into a
 # second x86_64 one; meson's release buildtype sets the optimisation instead.
@@ -199,6 +199,9 @@ fi
 %{_presetdir}/80-aurora-fex-mesa.preset
 
 %changelog
+* Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-16.aurora
+- Move in lockstep with mesa-aurora 26.3.0-16.
+
 * Sun Nov 01 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-15.aurora
 - Move in lockstep with mesa-aurora 26.3.0-15.
 
