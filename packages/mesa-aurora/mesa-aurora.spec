@@ -28,7 +28,9 @@ is packaged separately with its compiler runtime dependencies.
 %package -n mesa-aurora-filesystem
 Summary: Aurora Mesa driver filesystem
 Provides: mesa-filesystem = %{version}-%{release}
+Provides: mesa-filesystem%{?_isa} = %{version}-%{release}
 Provides: mesa-dri-filesystem = %{version}-%{release}
+Provides: mesa-dri-filesystem%{?_isa} = %{version}-%{release}
 Obsoletes: mesa-filesystem < %{version}-%{release}
 
 %description -n mesa-aurora-filesystem
