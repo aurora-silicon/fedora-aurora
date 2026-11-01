@@ -88,6 +88,11 @@ def assemble(base, candidates, output, expected):
         if path.name.endswith(('.src.rpm', '.nosrc.rpm')):
             continue
         name, arch, source = metadata(path)
+        # A base snapshot can outlive a recipe that was intentionally removed
+        # from the distribution.  Do not carry that retired source forward;
+        # the current recipe set is the repository contract.
+        if source not in expected:
+            continue
         if source.rsplit('-', 2)[0] not in rebuilt:
             if (name, arch) in selected:
                 raise ValueError(f'Duplicate base package: {name}.{arch}')

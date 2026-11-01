@@ -61,6 +61,14 @@ class RepositoryTests(unittest.TestCase):
             assembly.assemble(self.base, self.candidates, self.root / 'result',
                               {'upower-1.91.4-1.src.rpm', 'kernel-aurora-7.2.10-2.src.rpm'})
 
+    def test_removed_recipe_is_pruned_from_the_base_snapshot(self):
+        self.rpm(self.base, 'retired.rpm', 'retired-package', 'retired-package-1-1.src.rpm')
+        self.rpm(self.base, 'mesa.rpm', 'mesa-aurora', 'mesa-aurora-26.3-1.src.rpm')
+        self.rpm(self.candidates, 'mesa-new.rpm', 'mesa-aurora', 'mesa-aurora-26.3-2.src.rpm')
+        result = assembly.assemble(self.base, self.candidates, self.root / 'result',
+                                   {'mesa-aurora-26.3-2.src.rpm'})
+        self.assertEqual(result, ['mesa-new.rpm'])
+
 
 class BaseSnapshotNameTests(unittest.TestCase):
     """testing-20261030.5's manifest lists aura-1.0.0~b1-..., but GitHub
