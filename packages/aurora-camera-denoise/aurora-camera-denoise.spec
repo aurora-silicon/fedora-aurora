@@ -1,7 +1,7 @@
-%global commit da883730b16d6ac6ddb55e9e0348e92065d05c69
+%global commit 77e35ccbfd2f2b5c16a48caf501dd850c9430302
 Name: aurora-camera-denoise
 Version: 0.1.0
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Noise filter for the built-in camera on Apple silicon
 License: MIT
 URL: https://github.com/aurora-silicon/camera-denoise
@@ -58,6 +58,11 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_userpresetdir}/80-aurora-camera-denoise
 %{_userpresetdir}/80-aurora-camera-denoise.preset
 
 %changelog
+* Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-3
+- Update to 77e35ccbfd2f: in low light the camera may slow below 30 fps so
+  each frame gets more exposure, as macOS does. Turn it off with
+  low-light-frame-rate = off in denoise.conf.
+
 * Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-2
 - Update to da883730b16d: the temporal filter runs on every stream, as on
   macOS, with the low-light stage on top above the board's gain levels.
