@@ -42,7 +42,7 @@ python3 "$root/docs/firefox/prepare-fedora.py" firefox "$work/distgit"
 cp "$top/SOURCES/firefox.spec" "$top/SPECS/"
 dnf builddep -y "$top/SPECS/firefox.spec"
 rpmspec --parse --with avd_request "$top/SPECS/firefox.spec" > "$result/expanded.spec"
-rpmbuild -ba --with avd_request --define "_topdir $top" \
+rpmbuild -ba --noclean --with avd_request --define "_topdir $top" \
   --define '_smp_build_ncpus 8' --define '_smp_mflags -j8' \
   "$top/SPECS/firefox.spec"
 python3 - "$top/BUILD" <<'PY'
