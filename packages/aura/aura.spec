@@ -1,11 +1,8 @@
 %global debug_package %{nil}
-%global commit 0ca7bf85c9946a7ec90a5701c126b70ed144bd34
-# This commit is the v1.0.0b1 tag, so the image carries that release label
-# instead of 1.0.0b1-g<commit>. track-sources.py drops it when aura moves on.
-%global release_tag 1.0.0b1
+%global commit 32dccf0297e90e66deac7cf252478b2af9e71d27
 Name: aura
 Version: 1.0.0~b1
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -20,7 +17,7 @@ Requires: update-m1n1 uboot-aurora
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-0ca7bf85c9946a7ec90a5701c126b70ed144bd34
+%autosetup -n aura-32dccf0297e90e66deac7cf252478b2af9e71d27
 
 %build
 export RUSTC_BOOTSTRAP=1
@@ -44,6 +41,12 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Sun Nov 01 2026 Aurora Silicon <hey@djdev.me> - 1.0.0~b1-2
+- Track aurora-silicon/aura main at 32dccf0 (1.0.0b1-g32dccf02): the
+  1.6 MB Stage 1 that M1 Pro iBoot accepts, ANS sleep before hand-off
+  (NVMe after a warm reboot on M1/M2), board-matched Stage 2 trees, AVE
+  firmware hand-off on the M4 Pro, motion calibration and SMBIOS identity.
+
 * Fri Oct 30 2026 Aurora Silicon <hey@djdev.me> - 1.0.0~b1-1
 - Update to aura 1.0.0b1 (tag v1.0.0b1, 0ca7bf8).
 - aura is the shipping Stage 1 and Stage 2. Its version marker is
