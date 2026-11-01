@@ -239,5 +239,14 @@
     "source_url": "https://codeload.github.com/aurora-silicon/camera-denoise/tar.gz/77e35ccbfd2f2b5c16a48caf501dd850c9430302",
     "archive_root": "camera-denoise-77e35ccbfd2f2b5c16a48caf501dd850c9430302",
     "sha256": "bd3c92b0272e98e8651283a7848164e04faaa6d69feae3f699b61415c65f576b"
+  },
+  "plymouth": {
+    "repository": "https://gitlab.freedesktop.org/plymouth/plymouth",
+    "commit": "1aacf818fd5d1b6a7695546eb08fcbc46893dd0b",
+    "version": "26.134.222",
+    "source_url": "https://gitlab.freedesktop.org/plymouth/plymouth/-/archive/26.134.222/plymouth-26.134.222.tar.bz2",
+    "archive_file": "plymouth-26.134.222.tar.bz2",
+    "archive_root": "plymouth-26.134.222",
+    "sha256": "043f21b27c50ed70d0638a318460e747e5a12cc2af1bce960858b7a63b981ecc"
   }
 }
