@@ -58,8 +58,8 @@ removal of an old keyboard, detach/free, and hide/show. It checks that input
 handlers are removed and reattached exactly once.
 
 The tests include private implementation files to reach the lifecycle paths
-without a GPU or udev injection. Their renderer path points at the just-built
-module. No test code or display instrumentation is installed in the RPM.
+without a GPU or udev injection. Their renderer and label paths point at the just-built
+modules, with a private PTY and font available for the graphical fixture. No test code or display instrumentation is installed in the RPM.
 
 ## Source provenance
 

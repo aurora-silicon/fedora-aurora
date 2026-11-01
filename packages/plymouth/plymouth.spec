@@ -137,6 +137,7 @@ Source4: test-script-keyboard.c
 Source5: check-keyboard-lifetime.sh
 Patch: 0001-Fix-splash-keyboard-lifetime.patch
 BuildRequires: xorg-x11-server-Xvfb
+BuildRequires: font(cantarell)
 
 BuildRequires: meson
 BuildRequires: system-logos
