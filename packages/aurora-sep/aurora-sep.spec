@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 16%{?dist}
+Release: 17%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -160,6 +160,9 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sun Nov 01 2026 Aurora Silicon contributors - 1-17
+- Start GDM independently of SEP and detect late fingerprint restoration
+
 * Sat Oct 31 2026 Aurora Silicon contributors - 1-16
 - Rebuild the v4/v5 integration for Fedora 45 alongside Fedora 44
 
