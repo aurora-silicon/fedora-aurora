@@ -2,6 +2,8 @@
 # SPDX-License-Identifier: MIT
 # Run inside a disposable Fedora 45 aarch64 container in a controller slot.
 set -euo pipefail
+# Fedora's Cargo/CMake sub-builds do not consume RPM's make job settings.
+export CARGO_BUILD_JOBS=8 CMAKE_BUILD_PARALLEL_LEVEL=8
 test "$(uname -m)" = aarch64
 test "$(rpm -E '%fedora')" = 45
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
