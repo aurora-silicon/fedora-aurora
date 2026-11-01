@@ -240,5 +240,14 @@
     "archive_root": "udisks-2.11.2",
     "archive_file": "udisks-2.11.2.tar.bz2",
     "sha256": "18630a8aad806bea0bc626ce97e71e50ec82c742956ac1c834a4275f8f22207b"
+  },
+  "plymouth": {
+    "repository": "https://gitlab.freedesktop.org/plymouth/plymouth",
+    "commit": "1aacf818fd5d1b6a7695546eb08fcbc46893dd0b",
+    "version": "26.134.222",
+    "source_url": "https://gitlab.freedesktop.org/plymouth/plymouth/-/archive/26.134.222/plymouth-26.134.222.tar.bz2",
+    "archive_file": "plymouth-26.134.222.tar.bz2",
+    "archive_root": "plymouth-26.134.222",
+    "sha256": "043f21b27c50ed70d0638a318460e747e5a12cc2af1bce960858b7a63b981ecc"
   }
 }
