@@ -121,21 +121,12 @@
   },
   "kinfocenter": {
     "repository": "https://invent.kde.org/plasma/kinfocenter",
-    "commit": "4431c74e026903760e5ea8c7253dcb9b89a6af00",
-    "version": "6.7.5",
-    "source_url": "https://download.kde.org/stable/plasma/6.7.5/kinfocenter-6.7.5.tar.xz",
-    "archive_root": "kinfocenter-6.7.5",
-    "archive_file": "kinfocenter-6.7.5.tar.xz",
-    "sha256": "e3aeb4b6f7237fddff4e68f4d7d715772cc47bd0ac376febe24ae3d717680416"
-  },
-  "powerdevil": {
-    "repository": "https://invent.kde.org/plasma/powerdevil",
-    "commit": "5627bacf05394a737f1dd50295b187748150ffb1",
-    "version": "6.7.5",
-    "source_url": "https://download.kde.org/stable/plasma/6.7.5/powerdevil-6.7.5.tar.xz",
-    "archive_root": "powerdevil-6.7.5",
-    "archive_file": "powerdevil-6.7.5.tar.xz",
-    "sha256": "6a738fccf01e4d1b10fea68ff8b404a406f95bc36fcb593bcc70fafb1c53258b"
+    "commit": "08eff78fdd0f89fa9a21c6d7f33f4ff0021e68a7",
+    "version": "6.8.2",
+    "source_url": "https://download.kde.org/stable/plasma/6.8.2/kinfocenter-6.8.2.tar.xz",
+    "archive_root": "kinfocenter-6.8.2",
+    "archive_file": "kinfocenter-6.8.2.tar.xz",
+    "sha256": "2782ff66388124529a5dc4ecff28b4c69f2dec4c7658a35c205932cd64e06716"
   },
   "mesa-aurora-fex-guest": {
     "repository": "https://github.com/aurora-silicon/mesa",
