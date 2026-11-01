@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import re
+import struct
 import unittest
 ROOT = Path(__file__).resolve().parents[1]
 class SpecTests(unittest.TestCase):
@@ -111,4 +112,22 @@ class SpecTests(unittest.TestCase):
         self.assertEqual((d / 'aurora-platform-core.conf').read_text().split(), ['aurora-platform-core'])
         self.assertIn('protected.d/aurora-platform-core.conf', text.split('%files core', 1)[1])
         self.assertRegex(text, r'(?m)^Requires: aurora-platform-core = %\{version\}-%\{release\}$')
+    def test_splash_keeps_the_bootloader_logo_in_place(self):
+        # aura draws its 256 px logo centred on black; the splash draws the same
+        # image centred on black, so the logo does not move between the two.
+        d = ROOT / 'packages' / 'plymouth-theme-aurora'
+        logo = (d / 'aurora-logo-256.png').read_bytes()
+        self.assertEqual(logo[:8], b'\x89PNG\r\n\x1a\n')
+        self.assertEqual(struct.unpack('>II', logo[16:24]), (256, 256))
+        theme = dict(line.split('=', 1) for line in (d / 'aurora.plymouth').read_text().splitlines()
+                     if '=' in line and not line.startswith('#'))
+        self.assertEqual(theme['ModuleName'], 'two-step')
+        self.assertEqual(theme['ImageDir'], '/usr/share/plymouth/themes/aurora')
+        self.assertEqual((theme['WatermarkHorizontalAlignment'], theme['WatermarkVerticalAlignment']), ('.5', '.5'))
+        self.assertEqual((theme['BackgroundStartColor'], theme['BackgroundEndColor']), ('0x000000', '0x000000'))
+        spec = (d / 'plymouth-theme-aurora.spec').read_text()
+        self.assertIn('install -Dm644 %{SOURCE101} $d/watermark.png', spec)
+        # An owner's own theme choice in /etc wins over the package default.
+        self.assertIn("if ! grep -qs '^[[:space:]]*Theme[[:space:]]*=' %{_sysconfdir}/plymouth/plymouthd.conf; then",
+                      spec.split('%post', 1)[1])
 if __name__ == '__main__': unittest.main()
