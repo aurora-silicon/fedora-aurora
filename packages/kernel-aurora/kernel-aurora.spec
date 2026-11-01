@@ -1,4 +1,4 @@
-%global commit 052924773992f3fd51ce2861f0e8202cd46619a6
+%global commit 437edfa194947b4fca833f3f23226e9cff7652d3
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
@@ -100,7 +100,7 @@ fi
 
 %changelog
 * Sun Nov 01 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-8
-- Track aurora-silicon/linux aurora-wip at 0529247 (fleet14, the kernel
+- Track aurora-silicon/linux aurora-wip at 437edfa (fleet14b, the kernel
   the Aurora Macs run), moving from integration/aurora 5d7c3e7.
 
 * Sat Oct 31 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-7
