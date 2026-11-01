@@ -1,6 +1,6 @@
 Name: aurora-platform
 Version: 44
-Release: 8%{?dist}
+Release: 10%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -17,6 +17,8 @@ Requires: kernel-aurora aura uboot-aurora aurora-release aurora-logos aurora-fir
 Source100: README
 Source101: aurora-platform-core.conf
 Source102: 50-after-swapfile.conf
+Source103: 61-aurora-dmi-id.rules
+Source104: 60-aurora-dmi-vendor.hwdb
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -57,6 +59,8 @@ requires the stock kernel-16k, and is protected from removal in the same way.
 install -Dm644 %{SOURCE100} %{buildroot}%{_docdir}/aurora-platform/README
 install -Dm644 %{SOURCE101} %{buildroot}%{_sysconfdir}/dnf/protected.d/aurora-platform-core.conf
 install -Dm644 %{SOURCE102} %{buildroot}%{_unitdir}/var-swap-swapfile2.swap.d/50-after-swapfile.conf
+install -Dm644 %{SOURCE103} %{buildroot}%{_udevrulesdir}/61-aurora-dmi-id.rules
+install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 
 %files
 %{_docdir}/aurora-platform/
@@ -64,8 +68,18 @@ install -Dm644 %{SOURCE102} %{buildroot}%{_unitdir}/var-swap-swapfile2.swap.d/50
 %files core
 %config(noreplace) %{_sysconfdir}/dnf/protected.d/aurora-platform-core.conf
 %{_unitdir}/var-swap-swapfile2.swap.d/
+%{_udevrulesdir}/61-aurora-dmi-id.rules
+%{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 
 %changelog
+* Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-10
+- Name the DMI vendor "Apple" (hwdb) instead of "Apple Inc.", so the
+  hardware model reads "Apple MacBook Pro (...)".
+
+* Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-9
+- Keep the firmware's product name unchanged in udev's ID_MODEL, so the
+  hardware model is not shown with parentheses replaced by underscores.
+
 * Sat Oct 31 2026 Aurora Silicon <ryan@aurorasilicon.org> - 44-8
 - Require the BlueZ empty-parameter fix and serialize the second swapfile.
 
