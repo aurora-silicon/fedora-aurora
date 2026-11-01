@@ -155,7 +155,8 @@ python3 docs/firefox/prepare-fedora.py firefox firefox-f45
 cd firefox-f45
 fedpkg --release f45 sources
 sudo dnf builddep firefox.spec
-rpmbuild -ba --with avd_request --define "_sourcedir $PWD" \
+CARGO_BUILD_JOBS=8 CMAKE_BUILD_PARALLEL_LEVEL=8 \
+  rpmbuild -ba --with avd_request --define "_sourcedir $PWD" \
   --define '_smp_build_ncpus 8' --define '_smp_mflags -j8' firefox.spec
 ```
 
@@ -165,6 +166,18 @@ pinned dist-git input, fetches Fedora's hash-checked lookaside sources, builds
 the candidate RPM/SRPM, and preserves build/configuration failures. This is a
 build recipe, not a statement that an RPM or full test suite passed; consult
 the worker's build receipt for the actual outcome.
+
+`scripts/build-firefox-avd-fedora --source-only` produces a canonical SRPM
+with the same default sandbox configuration. To rebuild that source package
+on Fedora 45 aarch64, keep the opt-in condition explicit:
+
+```sh
+RPM_TOP=$(mktemp -d "$PWD/firefox-rpmbuild.XXXXXX")
+CARGO_BUILD_JOBS=8 CMAKE_BUILD_PARALLEL_LEVEL=8 \
+  rpmbuild --rebuild --noclean --with avd_request \
+  --define "_topdir $RPM_TOP" --define '_smp_build_ncpus 8' \
+  --define '_smp_mflags -j8' ./firefox-159.0-2.fc45.avd1.src.rpm
+```
 
 Before installing a candidate, preserve the exact stock Firefox and matching
 langpack RPMs for rollback and inventory their NEVRAs. Install the matching
