@@ -59,7 +59,11 @@ main (int argc, char **argv)
         context.splash = ply_boot_splash_new (argv[1], argv[2], buffer);
         CHECK (ply_boot_splash_load (context.splash));
         ply_boot_splash_attach_to_event_loop (context.splash, loop);
+#ifdef HAVE_DEVICE_MANAGER_EXTRA_ESC_KEY
+        manager = ply_device_manager_new ("/dev/null", PLY_DEVICE_MANAGER_FLAGS_IGNORE_UDEV, 0);
+#else
         manager = ply_device_manager_new ("/dev/null", PLY_DEVICE_MANAGER_FLAGS_IGNORE_UDEV);
+#endif
         manager->keyboard_added_handler = (ply_keyboard_added_handler_t) keyboard_added;
         manager->keyboard_removed_handler = (ply_keyboard_removed_handler_t) keyboard_removed;
         manager->pixel_display_added_handler = (ply_pixel_display_added_handler_t) pixel_added;

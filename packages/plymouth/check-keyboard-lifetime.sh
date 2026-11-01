@@ -28,6 +28,9 @@ THEME
 # plugin path with the installed system path.
 sed "s|^#define PLYMOUTH_PLUGIN_PATH .*|#define PLYMOUTH_PLUGIN_PATH \"$work/plugins/\"|" "$build/config.h" > "$work/config.h"
 common=(-I"$work" -include "$work/config.h" -D_GNU_SOURCE -g -O0 -I"$build" -I"$src" -I"$src/src/libply" -I"$src/src/libply-splash-core" -I"$src/src/libply-splash-graphics")
+if grep -q extra_esc_key "$src/src/libply-splash-core/ply-device-manager.h"; then
+    common+=(-DHAVE_DEVICE_MANAGER_EXTRA_ESC_KEY)
+fi
 libs=(-L"$build/src/libply" -L"$build/src/libply-splash-core" -L"$build/src/libply-splash-graphics" -lply-splash-graphics -lply-splash-core -lply -lm -ldl)
 export LD_LIBRARY_PATH="$build/src/libply:$build/src/libply-splash-core:$build/src/libply-splash-graphics${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 ${CC:-cc} "${common[@]}" -I"$src/src/libply-splash-core" \
