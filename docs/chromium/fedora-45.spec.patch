@@ -1,0 +1,56 @@
+From: Aurora contributors <noreply@aurora-silicon.org>
+Subject: [CANDIDATE] Fedora 45 chromium: opt-in Request API prototype
+
+Target dist-git: f202a8d8a1af53c6e462ee2034c947bd8c936e2f
+Build with --with avd_request. Default build is unchanged.
+
+--- a/chromium.spec
++++ b/chromium.spec
+@@ -1,3 +1,8 @@
++%bcond avd_request 0
++%if %{with avd_request}
++%global avd_release .avd1
++%endif
++
+ # macro for el10 minor version
+ %if 0%{?rhel} == 10
+ %global rhel_minor_version %(echo %{dist} | sed -n 's/.*el10_\\([0-9]\\+\\).*/\\1/p')
+@@ -283,12 +288,17 @@
+ 
+ Name:	chromium
+ Version: 156.0.8078.79
+-Release: 1%{?dist}
++Release: 1%{?dist}%{?avd_release}
+ Summary: A WebKit (Blink) powered web browser that Google doesn't want you to use
+ Url: http://www.chromium.org/Home
+ License: BSD-3-Clause AND LGPL-2.1-or-later AND Apache-2.0 AND IJG AND MIT AND GPL-2.0-or-later AND ISC AND OpenSSL AND (MPL-1.1 OR GPL-2.0-only OR LGPL-2.0-only)
+ 
+ # Use /etc/chromium for initial_prefs
++%if %{with avd_request}
++Patch900: chromium-linux-stateless-decoder-broker-prototype.patch
++BuildRequires: kernel-headers >= 6.5
++%endif
++
+ Patch1: chromium-115-initial_prefs-etc-path.patch
+ 
+ # Try to load widevine from other places
+@@ -1112,6 +1122,9 @@
+ %setup -q -n chromium-%{version}
+ 
+ ### Chromium Fedora Patches ###
++%if %{with avd_request}
++%patch -P900 -p1
++%endif
+ %patch -P1 -p1 -b .etc
+ %patch -P8 -p1 -b .widevine-other-locations
+ %patch -P9 -p1 -b .widevine-no-download
+@@ -1570,6 +1583,9 @@
+ 
+ %if %{use_v4l2_codec} 
+ CHROMIUM_BROWSER_GN_DEFINES+=' use_v4l2_codec=true'
++%if %{with avd_request}
++CHROMIUM_BROWSER_GN_DEFINES+=' use_av1_hw_decoder=true use_libgav1_parser=true'
++%endif
+ %endif
+ 
+ %if 0%{?fedora} || 0%{?rhel} > 8

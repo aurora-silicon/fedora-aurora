@@ -2,6 +2,11 @@
 
 `0001-rdd-v4l2-request-proposal.patch` is a proposal against mozilla-firefox/firefox
 commit `a5df22d986d4b626f771b4f8885241941601c35c`, not an installed Firefox patch.
+It also applies to the checksum-verified Firefox 159.0 release files used by
+Fedora 45 dist-git `054f5ce6c099dfc8d788332920b4cb3397334ab6`.
+The opt-in RPM delta, build recipe, Chromium prototype and exact lead commands
+are in [the Fedora 45 browser guide](../browser-avd.md). Application to source
+files is distinct from a successful full Firefox build or target decode.
 The two baseline files were fetched publicly and are MPL-2.0. The behavior is
 informed by [Mozilla bug 2080696](https://bugzilla.mozilla.org/show_bug.cgi?id=2080696),
 reported by Christian Bartels. The implementation here is newly written; the
@@ -27,10 +32,11 @@ Request fds are allocated from those media controllers. The proposal does not
 change content/GMP/utility policies or disable any sandbox.
 
 The private bridge module sits below `/usr/lib64`, which RDD already reads.
-Build Firefox with its existing V4L2 option enabled (`--enable-v4l2`) and confirm
-`MOZ_ENABLE_V4L2` in generated configuration. A binary built without it should
-retain the baseline denied behavior. Fedora's exact Firefox source version
-still needs a rebase/application check before integration into its RPM.
+Firefox 159's `toolkit/moz.configure` enables `MOZ_ENABLE_V4L2` automatically
+on GTK/aarch64. It has no `--enable-v4l2` option. Confirm the generated define
+in the actual package build. A configuration without `MOZ_ENABLE_V4L2` should
+retain the baseline denied behavior. The Fedora delta defaults to disabled;
+`--with avd_request` selects it and adds `.avd1` to the RPM release.
 
 `python3 docs/firefox/check-proposal.py` extracts the actual proposed topology
 helper and compiles it on Linux against the media UAPI with mocked OS and
@@ -42,8 +48,9 @@ focused harness does not compile Firefox or exercise its real broker/seccomp.
 ## Required review and test plan
 
 1. In the pinned source, run `git apply --check` and `git apply` with this patch,
-   configure a debug Linux aarch64 Firefox with V4L2 enabled, and build with
-   `./mach build -j8`. Also compile with V4L2 disabled. Run `./mach lint` for the
+   configure a debug GTK/Linux aarch64 Firefox, and build with
+   `./mach build -j8`. Also compile a configuration without V4L2, such as the
+   default GTK/x86_64 configuration. Run `./mach lint` for the
    two files and the existing Linux sandbox broker/gtest suites. The source
    apply check is distinct from a complete Firefox compile.
 2. Add broker tests using controlled device discovery/ioctl fixtures: a linked

@@ -1,0 +1,46 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# Run inside a disposable Fedora 45 aarch64 container in a controller slot.
+set -euo pipefail
+test "$(uname -m)" = aarch64
+test "$(rpm -E '%fedora')" = 45
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+result=${BUILD_OUT:?controller build output directory required}/firefox-fc45
+mkdir -p "$result"
+exec > >(tee "$result/build.log") 2>&1
+work=$(mktemp -d "$root/out-firefox.XXXXXX")
+top=$work/rpmbuild
+mkdir -p "$top"/{SOURCES,SPECS,SRPMS,RPMS,BUILD,BUILDROOT}
+collect() {
+  rc=$?
+  trap - EXIT
+  for kind in RPMS SRPMS; do
+    cp -a "$top/$kind" "$result/" || true
+  done
+  find "$top/BUILD" -type f \( -name config.log -o -name config.status \
+    -o -name mozconfig -o -name autoconf.h \) \
+    -exec cp --parents '{}' "$result/" \; || true
+  exit "$rc"
+}
+trap collect EXIT
+dnf install -y fedpkg rpm-build dnf5-plugins redhat-rpm-config git python3 kernel-headers
+revision=054f5ce6c099dfc8d788332920b4cb3397334ab6
+git clone --branch f45 https://src.fedoraproject.org/rpms/firefox.git "$work/distgit"
+git -C "$work/distgit" checkout --detach "$revision"
+python3 "$root/docs/firefox/prepare-fedora.py" firefox "$work/distgit"
+(
+  cd "$work/distgit"
+  fedpkg sources
+  # fedpkg verifies the lookaside SHA512 entries. Retain the public manifest.
+  cp sources "$result/fedora-sources"
+  cp ./* "$top/SOURCES/"
+)
+cp "$top/SOURCES/firefox.spec" "$top/SPECS/"
+dnf builddep -y "$top/SPECS/firefox.spec"
+rpmspec --parse --with avd_request "$top/SPECS/firefox.spec" > "$result/expanded.spec"
+rpmbuild -ba --with avd_request --define "_topdir $top" \
+  --define '_smp_build_ncpus 8' --define '_smp_mflags -j8' \
+  "$top/SPECS/firefox.spec"
+find "$top/RPMS" "$top/SRPMS" -type f -name '*.rpm' -exec sha256sum '{}' \; \
+  > "$result/rpm-sha256.txt"
+echo 'Firefox RPM build complete; physical AVD/browser qualification is pending.'

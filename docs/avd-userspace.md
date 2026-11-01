@@ -4,6 +4,11 @@ The packages are opt-in candidates. System FFmpeg, mpv and browser preferences
 are unchanged. This change does not assert that any machine passed hardware
 qualification. Use one video at a time and retain decode/reset failures.
 
+For Fedora 45 browser candidates, explicit media-node selection, four-codec
+VA-API frame comparisons and the native Chromium decision, use
+[the browser guide](browser-avd.md). It supersedes the preliminary browser
+commands below for that package version.
+
 ## Package layout and source identity
 
 `ffmpeg-avd` contains FFmpeg 8.1 plus the public 13-commit Request API series
