@@ -240,5 +240,32 @@
     "archive_root": "udisks-2.11.2",
     "archive_file": "udisks-2.11.2.tar.bz2",
     "sha256": "18630a8aad806bea0bc626ce97e71e50ec82c742956ac1c834a4275f8f22207b"
+  },
+  "iio-sensor-proxy": {
+    "repository": "https://gitlab.freedesktop.org/hadess/iio-sensor-proxy",
+    "commit": "7fec9326aa785127d0ebaea53ba2e89d37d7bca0",
+    "version": "3.8",
+    "source_url": "https://gitlab.freedesktop.org/hadess/iio-sensor-proxy/-/archive/3.8/iio-sensor-proxy-3.8.tar.bz2",
+    "archive_root": "iio-sensor-proxy-3.8",
+    "archive_file": "iio-sensor-proxy-3.8.tar.bz2",
+    "sha256": "cdf9bdb6ef125d6189069d3f6dc9afb301ce5a17213971e65c5e20a57494593d"
+  },
+  "gnome-settings-daemon": {
+    "repository": "https://gitlab.gnome.org/GNOME/gnome-settings-daemon",
+    "commit": "ec681847221cf44e658363b9d8137b4cbae7b321",
+    "version": "50.1",
+    "source_url": "https://download.gnome.org/sources/gnome-settings-daemon/50/gnome-settings-daemon-50.1.tar.xz",
+    "archive_root": "gnome-settings-daemon-50.1",
+    "archive_file": "gnome-settings-daemon-50.1.tar.xz",
+    "sha256": "dd2c9730914f0ececa0229dd8a8c2940a57ddeb0802434558d4b164d79cfe05c"
+  },
+  "kwin": {
+    "repository": "https://invent.kde.org/plasma/kwin",
+    "commit": "f130ab33c8e6f3b9d728aade87836086ae9a8ed4",
+    "version": "6.8.2",
+    "source_url": "https://download.kde.org/stable/plasma/6.8.2/kwin-6.8.2.tar.xz",
+    "archive_root": "kwin-6.8.2",
+    "archive_file": "kwin-6.8.2.tar.xz",
+    "sha256": "ea5e68d957c7d70abed97222a592d4445fda29129e20942658badd224ee138b4"
   }
 }
