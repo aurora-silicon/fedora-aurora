@@ -43,7 +43,7 @@ This package contains the documentation for %{name}.
 %autosetup -S git_am
 
 %build
-%meson -Dgtk_doc=true -Dgtk-tests=false
+%meson -Dgtk_doc=true -Dgtk-tests=false -Dtests=true
 %meson_build
 
 %install
