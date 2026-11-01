@@ -1,5 +1,5 @@
 %global debug_package %{nil}
-%global commit 7d97eb149b45ffc87cdab87fbaae4d312fda8589
+%global commit 01f255b636737bc783b581b04584d1224ab06cf4
 Name: uboot-aurora
 Version: 2026.07
 Release: 5%{?dist}
@@ -16,7 +16,7 @@ BuildRequires: gcc make bc bison flex dtc python3 python3-pyelftools swig openss
 Aurora U-Boot for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n u-boot-7d97eb149b45ffc87cdab87fbaae4d312fda8589
+%autosetup -n u-boot-01f255b636737bc783b581b04584d1224ab06cf4
 
 %build
 make O=build-aurora apple_m1_defconfig
@@ -33,12 +33,9 @@ install -Dm644 build-aurora/u-boot-nodtb.bin %{buildroot}/usr/lib/asahi-boot/u-b
 
 %changelog
 * Sun Nov 01 2026 Aurora Silicon <hey@djdev.me> - 2026.07-5
-- Track U-Boot at 7d97eb1 (aurora-silicon/u-boot PR 28 on aurora-wip
-  01f255b), the U-Boot the Aurora Macs run: no boot countdown on any Apple
-  machine, I-cache on at entry, boot timings handed to the OS, SMBIOS
-  machine identity, quiet normal-path messages, DRAM ranges in one pass,
-  USB-C left to the OS on machines with a built-in keyboard, and the J713
-  FDT size limit.
+- Track U-Boot aurora-wip at 01f255b: DRAM ranges in one device-tree pass,
+  USB-C left to the OS on machines with a built-in keyboard (M1 Pro dock),
+  and the J713 FDT size limit.
 
 * Fri Oct 30 2026 Aurora Silicon <hey@djdev.me> - 2026.07-4
 - Track U-Boot aurora-wip at 2409ad5, the U-Boot that ships with
