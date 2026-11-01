@@ -1,4 +1,4 @@
-%global commit b359258c9d41d3df15a6d400f712a0f3ba0e8882
+%global commit b35adc7ede082dd5e910e1b0d01fd84d7df27833
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
@@ -100,9 +100,10 @@ fi
 
 %changelog
 * Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-10
-- Track aurora-silicon/linux aurora-wip at b359258 (fleet14f: external
-  VRR, panel EDR, H14 ANE program lifetime, Neo encoder performance
-  request, H.264 fixes), promoted on all four Aurora Macs.
+- Track aurora-silicon/linux aurora-wip at b35adc7 (fleet14g: external
+  VRR, panel EDR, H16 ANE cold boot, H14 ANE program lifetime, Neo encoder
+  performance request, M2 SIO bring-up and H.264 fixes), promoted on all
+  four Aurora Macs.
 
 * Sun Nov 01 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-9
 - Track aurora-silicon/linux aurora-wip at f41ac3d (fleet14c, promoted on
