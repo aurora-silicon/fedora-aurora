@@ -1,7 +1,7 @@
-%global commit 77e35ccbfd2f2b5c16a48caf501dd850c9430302
+%global commit a929985764bc03d1d3517c2a7e9b8dde918381b8
 Name: aurora-camera-denoise
 Version: 0.1.0
-Release: 3%{?dist}
+Release: 4%{?dist}
 Summary: Noise filter for the built-in camera on Apple silicon
 License: MIT
 URL: https://github.com/aurora-silicon/camera-denoise
@@ -58,6 +58,10 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_userpresetdir}/80-aurora-camera-denoise
 %{_userpresetdir}/80-aurora-camera-denoise.preset
 
 %changelog
+* Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-4
+- Update to a929985764bc: when another program holds the camera, the filter
+  now retries until it is free instead of giving apps a black picture.
+
 * Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-3
 - Update to 77e35ccbfd2f: in low light the camera may slow below 30 fps so
   each frame gets more exposure, as macOS does. Turn it off with
