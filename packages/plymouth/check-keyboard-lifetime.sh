@@ -10,6 +10,10 @@ work=$(mktemp -d)
 trap 'if [[ -n ${xpid:-} ]]; then kill "$xpid" 2>/dev/null || :; wait "$xpid" 2>/dev/null || :; fi; rm -rf "$work"' EXIT
 mkdir -p "$work/plugins/renderers"
 ln -s "$build/src/plugins/renderers/x11/x11.so" "$work/plugins/renderers/x11.so"
+for module in "$build"/src/plugins/controls/*/*.so; do
+    [[ -f $module ]] || continue
+    ln -s "$module" "$work/plugins/${module##*/}"
+done
 cat > "$work/query.script" <<'SCRIPT'
 fun refresh() { global.capslock = Plymouth.GetCapslockState(); }
 Plymouth.SetRefreshFunction(refresh);
@@ -35,6 +39,7 @@ libs=(-L"$build/src/libply" -L"$build/src/libply-splash-core" -L"$build/src/libp
 export LD_LIBRARY_PATH="$build/src/libply:$build/src/libply-splash-core:$build/src/libply-splash-graphics${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 ${CC:-cc} "${common[@]}" -I"$src/src/libply-splash-core" \
     "$tests/test-keyboard-lifetime.c" "$src/src/libply-splash-core/ply-renderer.c" \
+    "$src/src/libply-splash-graphics/ply-label.c" \
     -o "$work/test-removal" "${libs[@]}" $(pkg-config --cflags --libs libudev xkbcommon libevdev)
 objects=()
 for object in "$build/src/plugins/splash/script/script.so.p/"*.o; do
