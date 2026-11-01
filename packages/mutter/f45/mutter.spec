@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       4%{?dist}.aurora
+Release:       5%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -37,6 +37,7 @@ Patch0:        0001-wayland-touch-Do-not-crash-on-empty-focus-surface.patch
 Patch1:        0001-native-output-kms-Prefer-variable-refresh-rate-on-VRR-capable-outputs.patch
 Patch2:        0002-input-capture-disable-on-eis-disconnect.patch
 Patch3:        0003-x11-assign-frame-counters-on-actor-views.patch
+Patch4:        0004-backends-take-the-pq-reference-white-from-pq-reference-luminance.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -245,6 +246,10 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-5.aurora
+- Take the PQ reference white from the output's PQ_REFERENCE_LUMINANCE
+  (HDR reference-white, as in the Fedora 44 and ALARM builds)
+
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-4.aurora
 - Assign X11 frame counters only on views which paint the window
 
