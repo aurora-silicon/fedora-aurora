@@ -3,14 +3,14 @@
 ExcludeArch: %{ix86}
 
 Name:    kinfocenter
-Version: 6.7.5
-Release: 2%{?dist}.aurora
+Version: 6.8.2
+Release: 1%{?dist}.aurora
 Summary: KDE Info Center
 
 License: BSD-2-Clause AND BSD-3-Clause AND CC0-1.0 AND FSFAP AND GPL-2.0-only AND GPL-2.0-or-later AND GPL-3.0-only AND LGPL-2.1-or-later AND LGPL-3.0-only AND (GPL-2.0-only OR GPL-3.0-only) AND (LGPL-2.1-only OR LGPL-3.0-only)
 URL:     https://invent.kde.org/plasma/%{name}
 
-Source0: kinfocenter-%{version}.tar.xz
+Source0: http://download.kde.org/%{stable_kf6}/plasma/%{version}/%{name}-%{version}.tar.xz
 Patch0: 0001-handle-unknown-installed-memory.patch
 
 BuildRequires:  gcc-c++
@@ -35,6 +35,7 @@ BuildRequires:  cmake(KF6XmlGui)
 BuildRequires:  cmake(KF6Declarative)
 BuildRequires:  cmake(KF6Package)
 BuildRequires:  cmake(KF6DocTools)
+BuildRequires:  cmake(Qt6Graphs)
 BuildRequires:  mesa-libGL-devel
 BuildRequires:  mesa-libGLES-devel
 BuildRequires:  mesa-libEGL-devel
@@ -54,6 +55,9 @@ Requires: kf6-kirigami2%{?_isa}
 
 # runtime query of usb.ids, oui.txt
 Requires: hwdata
+
+# Required for the libva page
+Requires: libva-utils
 
 # Runtime dependencies
 Requires: plasma-systemsettings
@@ -108,7 +112,7 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_about-distro.desk
 %{_datadir}/applications/kcm_about-distro.desktop
 %{_kf6_datadir}/dbus-1/system-services/org.kde.kinfocenter.dmidecode.service
 %{_kf6_datadir}/dbus-1/system.d/org.kde.kinfocenter.dmidecode.conf
-%{_libexecdir}/kinfocenter-opengl-helper
+%{_libexecdir}/kinfocenter-egl-helper
 %{_kf6_datadir}/kinfocenter/
 %{_kf6_datadir}/polkit-1/actions/org.kde.kinfocenter.dmidecode.policy
 %{_qt6_archdatadir}/qml/org/kde/kinfocenter/
@@ -116,8 +120,27 @@ desktop-file-validate %{buildroot}%{_datadir}/applications/kcm_about-distro.desk
 %{_libexecdir}/kinfocenter-vulkan-helper
 
 %changelog
-* Mon Oct 19 2026 Aurora Silicon <packages@aurorasilicon.org> - 6.7.5-2.aurora
-- Treat unknown installed memory as unavailable rather than zero
+* Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 6.8.2-1.aurora
+- Rebase to 6.8.2, now in Fedora 44 updates, keeping the fix that treats
+  unknown installed memory as unavailable rather than zero
+
+* Tue Oct 27 2026 Steve Cossette <steve@ninjasinpajamas.com> - 6.8.2-1
+- 6.8.2
+
+* Fri Oct 23 2026 Jan Grulich <jgrulich@redhat.com> - 6.8.1-2
+- Rebuild (qt6)
+
+* Tue Oct 20 2026 Steve Cossette <steve@ninjasinpajamas.com> - 6.8.1-1
+- 6.8.1
+
+* Fri Oct 09 2026 Steve Cossette <farchord@gmail.com> - 6.8.0-1
+- 6.8.0
+
+* Thu Sep 24 2026 Steve Cossette <farchord@gmail.com> - 6.7.91-1
+- 6.7.91
+
+* Thu Sep 10 2026 Steve Cossette <farchord@gmail.com> - 6.7.90-1
+- 6.7.90
 
 * Tue Sep 08 2026 Steve Cossette <farchord@gmail.com> - 6.7.5-1
 - 6.7.5

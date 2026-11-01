@@ -1,27 +1,27 @@
 {
   "kernel-aurora": {
     "repository": "https://github.com/aurora-silicon/linux",
-    "commit": "5d7c3e74019d0a04a22e0c6e5cec5a297e245fd6",
+    "commit": "052924773992f3fd51ce2861f0e8202cd46619a6",
     "version": "7.3.0",
-    "source_url": "https://codeload.github.com/aurora-silicon/linux/tar.gz/5d7c3e74019d0a04a22e0c6e5cec5a297e245fd6",
-    "archive_root": "linux-5d7c3e74019d0a04a22e0c6e5cec5a297e245fd6",
-    "sha256": "fba78492f3a52733846ca06b1a343b7f8948d90b7d55ad51cd2b83685516af85"
+    "source_url": "https://codeload.github.com/aurora-silicon/linux/tar.gz/052924773992f3fd51ce2861f0e8202cd46619a6",
+    "archive_root": "linux-052924773992f3fd51ce2861f0e8202cd46619a6",
+    "sha256": "6fa1baf19d8e3212c08ef9c6e4a49dc4e49a091b12b66daf4270582e95bc5cdd"
   },
   "aura": {
     "repository": "https://github.com/aurora-silicon/aura",
-    "commit": "0ca7bf85c9946a7ec90a5701c126b70ed144bd34",
+    "commit": "32dccf0297e90e66deac7cf252478b2af9e71d27",
     "version": "1.0.0b1",
-    "source_url": "https://codeload.github.com/aurora-silicon/aura/tar.gz/0ca7bf85c9946a7ec90a5701c126b70ed144bd34",
-    "archive_root": "aura-0ca7bf85c9946a7ec90a5701c126b70ed144bd34",
-    "sha256": "d867820c0aebd9402782617405b17dd786b44aec7eeab68f59ef89c8b03d980e"
+    "source_url": "https://codeload.github.com/aurora-silicon/aura/tar.gz/32dccf0297e90e66deac7cf252478b2af9e71d27",
+    "archive_root": "aura-32dccf0297e90e66deac7cf252478b2af9e71d27",
+    "sha256": "6e3cd04fedf244391ec6e498e6d2b8a4e4fd889b4080e9bdc5c4aa67eaf0b49c"
   },
   "uboot-aurora": {
     "repository": "https://github.com/aurora-silicon/u-boot",
-    "commit": "2409ad5a25f88ec5ef42e1afdd6e29957a2fac96",
+    "commit": "01f255b636737bc783b581b04584d1224ab06cf4",
     "version": "2026.07",
-    "source_url": "https://codeload.github.com/aurora-silicon/u-boot/tar.gz/2409ad5a25f88ec5ef42e1afdd6e29957a2fac96",
-    "archive_root": "u-boot-2409ad5a25f88ec5ef42e1afdd6e29957a2fac96",
-    "sha256": "4838c39375da2aff86465bca8115b1bee3bc2ebe29a2667023254e078b2c2fdf"
+    "source_url": "https://codeload.github.com/aurora-silicon/u-boot/tar.gz/01f255b636737bc783b581b04584d1224ab06cf4",
+    "archive_root": "u-boot-01f255b636737bc783b581b04584d1224ab06cf4",
+    "sha256": "b1656feb1edcb418d4bf2f83aeb750be94fcd824a20f40259b90f75c67f5300a"
   },
   "mesa-aurora": {
     "repository": "https://github.com/aurora-silicon/mesa",
@@ -121,21 +121,12 @@
   },
   "kinfocenter": {
     "repository": "https://invent.kde.org/plasma/kinfocenter",
-    "commit": "4431c74e026903760e5ea8c7253dcb9b89a6af00",
-    "version": "6.7.5",
-    "source_url": "https://download.kde.org/stable/plasma/6.7.5/kinfocenter-6.7.5.tar.xz",
-    "archive_root": "kinfocenter-6.7.5",
-    "archive_file": "kinfocenter-6.7.5.tar.xz",
-    "sha256": "e3aeb4b6f7237fddff4e68f4d7d715772cc47bd0ac376febe24ae3d717680416"
-  },
-  "powerdevil": {
-    "repository": "https://invent.kde.org/plasma/powerdevil",
-    "commit": "5627bacf05394a737f1dd50295b187748150ffb1",
-    "version": "6.7.5",
-    "source_url": "https://download.kde.org/stable/plasma/6.7.5/powerdevil-6.7.5.tar.xz",
-    "archive_root": "powerdevil-6.7.5",
-    "archive_file": "powerdevil-6.7.5.tar.xz",
-    "sha256": "6a738fccf01e4d1b10fea68ff8b404a406f95bc36fcb593bcc70fafb1c53258b"
+    "commit": "08eff78fdd0f89fa9a21c6d7f33f4ff0021e68a7",
+    "version": "6.8.2",
+    "source_url": "https://download.kde.org/stable/plasma/6.8.2/kinfocenter-6.8.2.tar.xz",
+    "archive_root": "kinfocenter-6.8.2",
+    "archive_file": "kinfocenter-6.8.2.tar.xz",
+    "sha256": "2782ff66388124529a5dc4ecff28b4c69f2dec4c7658a35c205932cd64e06716"
   },
   "mesa-aurora-fex-guest": {
     "repository": "https://github.com/aurora-silicon/mesa",
@@ -240,6 +231,14 @@
     "archive_root": "udisks-2.11.2",
     "archive_file": "udisks-2.11.2.tar.bz2",
     "sha256": "18630a8aad806bea0bc626ce97e71e50ec82c742956ac1c834a4275f8f22207b"
+  },
+  "aurora-camera-denoise": {
+    "repository": "https://github.com/aurora-silicon/camera-denoise",
+    "commit": "da883730b16d6ac6ddb55e9e0348e92065d05c69",
+    "version": "0.1.0",
+    "source_url": "https://codeload.github.com/aurora-silicon/camera-denoise/tar.gz/da883730b16d6ac6ddb55e9e0348e92065d05c69",
+    "archive_root": "camera-denoise-da883730b16d6ac6ddb55e9e0348e92065d05c69",
+    "sha256": "d3457a8697f3af3e5cf0fa94ea9fd3406e5dd2eec53eafdfc71b36d3ec5cd933"
   },
   "iio-sensor-proxy": {
     "repository": "https://gitlab.freedesktop.org/hadess/iio-sensor-proxy",

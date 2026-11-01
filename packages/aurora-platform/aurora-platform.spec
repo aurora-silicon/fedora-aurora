@@ -1,6 +1,6 @@
 Name: aurora-platform
 Version: 44
-Release: 10%{?dist}
+Release: 12%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -40,16 +40,19 @@ Requires: aurora-audio alsa-ucm-conf-aurora
 # BlueZ 5.86 attempts an empty default-parameter transaction at startup.
 # 5.87 includes the upstream empty-TLV fix; retain real error reporting.
 Requires: bluez >= 5.87
+Requires: aurora-camera-denoise
 
 %description core
 The Apple Silicon hardware services that every Aurora system needs: the
 boot.bin assembler (update-m1n1), vendor firmware in the initramfs
 (dracut-asahi), firmware refresh (asahi-fwupdate), speaker protection
-(speakersafetyd and speakerguardd), and the Aurora audio graphs and UCM
-profiles. It installs no kernel, bootloader or release identity, so it fits
-a Fedora Asahi Remix install whose kernel and boot chain are managed
-separately. It replaces asahi-platform-metapackage, whose -core subpackage
-requires the stock kernel-16k, and is protected from removal in the same way.
+(speakersafetyd and speakerguardd), the Aurora audio graphs and UCM
+profiles, and the noise filter for the built-in camera
+(aurora-camera-denoise). It installs no kernel, bootloader or release
+identity, so it fits a Fedora Asahi Remix install whose kernel and boot
+chain are managed separately. It replaces asahi-platform-metapackage, whose
+-core subpackage requires the stock kernel-16k, and is protected from removal
+in the same way.
 
 %prep
 
@@ -72,6 +75,14 @@ install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwd
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 
 %changelog
+* Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-12
+- Pull in aurora-camera-denoise, the noise filter for the built-in camera,
+  from aurora-platform-core.
+
+* Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-11
+- Update the model examples in the DMI udev rule and hwdb comments to the
+  product name without its release date.
+
 * Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-10
 - Name the DMI vendor "Apple" (hwdb) instead of "Apple Inc.", so the
   hardware model reads "Apple MacBook Pro (...)".

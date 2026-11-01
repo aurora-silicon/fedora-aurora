@@ -1,9 +1,9 @@
-%global commit 5d7c3e74019d0a04a22e0c6e5cec5a297e245fd6
+%global commit 052924773992f3fd51ce2861f0e8202cd46619a6
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 7%{?dist}.aurora
+Release: 8%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -99,6 +99,10 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Sun Nov 01 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-8
+- Track aurora-silicon/linux aurora-wip at 0529247 (fleet14, the kernel
+  the Aurora Macs run), moving from integration/aurora 5d7c3e7.
+
 * Sat Oct 31 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-7
 - Use the source-pinned shared hardware fragment on every supported Mac.
 - Retain Fedora peripheral policy in the distribution base; retire local hardware copies.
