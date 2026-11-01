@@ -7,6 +7,8 @@
 #include "config.h"
 #include "ply-device-manager.c"
 #include "ply-boot-splash.h"
+#include <fcntl.h>
+#include <unistd.h>
 
 #define CHECK(condition) do { \
         if (!(condition)) { \
@@ -54,15 +56,25 @@ main (int argc, char **argv)
         ply_device_manager_t *manager;
         ply_buffer_t *buffer = ply_buffer_new ();
         ply_event_loop_t *loop = ply_event_loop_get_default ();
+        int terminal_master;
+        char *terminal_name;
 
         CHECK (argc == 3);
         context.splash = ply_boot_splash_new (argv[1], argv[2], buffer);
         CHECK (ply_boot_splash_load (context.splash));
         ply_boot_splash_attach_to_event_loop (context.splash, loop);
+        /* The manager opens and polls its default terminal. /dev/null is
+         * not epollable; keep a private PTY alive for this regression. */
+        terminal_master = posix_openpt (O_RDWR | O_NOCTTY);
+        CHECK (terminal_master >= 0);
+        CHECK (grantpt (terminal_master) == 0);
+        CHECK (unlockpt (terminal_master) == 0);
+        terminal_name = ptsname (terminal_master);
+        CHECK (terminal_name != NULL);
 #ifdef HAVE_DEVICE_MANAGER_EXTRA_ESC_KEY
-        manager = ply_device_manager_new ("/dev/null", PLY_DEVICE_MANAGER_FLAGS_IGNORE_UDEV, 0);
+        manager = ply_device_manager_new (terminal_name, PLY_DEVICE_MANAGER_FLAGS_IGNORE_UDEV, 0);
 #else
-        manager = ply_device_manager_new ("/dev/null", PLY_DEVICE_MANAGER_FLAGS_IGNORE_UDEV);
+        manager = ply_device_manager_new (terminal_name, PLY_DEVICE_MANAGER_FLAGS_IGNORE_UDEV);
 #endif
         manager->keyboard_added_handler = (ply_keyboard_added_handler_t) keyboard_added;
         manager->keyboard_removed_handler = (ply_keyboard_removed_handler_t) keyboard_removed;
@@ -86,6 +98,7 @@ main (int argc, char **argv)
         ply_boot_splash_free (context.splash);
         context.splash = NULL;
         ply_device_manager_free (manager);
+        close (terminal_master);
         ply_buffer_free (buffer);
         puts ("renderer removal and splash hide passed");
         return EXIT_SUCCESS;
