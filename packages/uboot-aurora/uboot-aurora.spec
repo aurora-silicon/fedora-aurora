@@ -1,8 +1,8 @@
 %global debug_package %{nil}
-%global commit 01f255b636737bc783b581b04584d1224ab06cf4
+%global commit d30213eadcaa886f4206d7661b61bc6cf7837828
 Name: uboot-aurora
 Version: 2026.07
-Release: 5%{?dist}
+Release: 6%{?dist}
 Summary: Aurora U-Boot for Apple Silicon
 License: GPL-2.0-or-later
 URL: https://github.com/aurora-silicon/u-boot
@@ -16,7 +16,7 @@ BuildRequires: gcc make bc bison flex dtc python3 python3-pyelftools swig openss
 Aurora U-Boot for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n u-boot-01f255b636737bc783b581b04584d1224ab06cf4
+%autosetup -n u-boot-d30213eadcaa886f4206d7661b61bc6cf7837828
 
 %build
 make O=build-aurora apple_m1_defconfig
@@ -32,6 +32,11 @@ install -Dm644 build-aurora/u-boot-nodtb.bin %{buildroot}/usr/lib/asahi-boot/u-b
 /usr/lib/asahi-boot/u-boot-nodtb.bin
 
 %changelog
+* Sun Nov 01 2026 Aurora Silicon <hey@djdev.me> - 2026.07-6
+- Track U-Boot aurora-wip at d30213e (u-boot PR 28 merged: boot speed,
+  boot timings, SMBIOS identity, quiet boot), the U-Boot all four Aurora
+  Macs run. Release 5 was rebuilt from an older pin by mistake.
+
 * Sun Nov 01 2026 Aurora Silicon <hey@djdev.me> - 2026.07-5
 - Track U-Boot aurora-wip at 01f255b: DRAM ranges in one device-tree pass,
   USB-C left to the OS on machines with a built-in keyboard (M1 Pro dock),
