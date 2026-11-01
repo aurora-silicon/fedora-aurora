@@ -1,10 +1,10 @@
-%global commit 66c3911bbaebdca90a179aa74c7addde9b2963ce
+%global commit 6062e8516c0a751bc8e50f5d604a17395923189f
 %global debug_package %{nil}
 # These are bare-metal ARM firmware and retained linked symbols, not host code.
 %global __strip /usr/bin/true
 Name: avd-fw
 Version: 0.1
-Release: 2%{?dist}.aurora
+Release: 3%{?dist}.aurora
 Summary: Open Apple Video Decoder firmware from Aurora
 License: MIT
 URL: https://github.com/aurora-silicon/avd-fw
@@ -41,6 +41,10 @@ install -m644 build/avd-fw-*.elf %{buildroot}%{_prefix}/lib/debug/firmware/apple
 %{_prefix}/lib/debug/firmware/apple/avd-fw-*.elf
 
 %changelog
+* Sun Nov 01 2026 Aurora Silicon <hey@djdev.me> - 0.1-3
+- Update to 6062e851 for per-image codec VP pools and multi-VP decoding.
+- Ship all eight images including v3-t2; enforce the clang 22 image hashes.
+
 * Sun Nov 01 2026 Aurora Silicon <hey@djdev.me> - 0.1-2
 - Update to 66c3911b: queue ABI 2, SRAM ring and VP DONE events.
 - Ship all seven images including v5-t2; verify reproducible image hashes.
