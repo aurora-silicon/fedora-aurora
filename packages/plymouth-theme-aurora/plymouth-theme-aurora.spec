@@ -1,12 +1,15 @@
 Name: plymouth-theme-aurora
 Version: 1
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Aurora boot splash: the bootloader's logo, kept in place, with the distribution's branding
 # The spinner, password entry and watermark images come from the distribution's
 # spinner theme (ImageDir); this package adds the script and aura's logos.
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
 BuildArch: noarch
+# Renderer removal must detach the script plugin before its keyboard is freed.
+# Both Fedora carries provide this after fixing the core and script plugin.
+Requires: plymouth(script-keyboard-lifetime) >= 1
 Requires: plymouth-plugin-script
 Requires: plymouth-plugin-label
 Requires: plymouth-theme-spinner
@@ -71,6 +74,10 @@ fi
 %{_datadir}/plymouth/themes/aurora/aurora-logo-256.png
 
 %changelog
+* Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-3
+- Require Plymouth's renderer keyboard lifetime fix for safe splash hide.
+- Drop caps-lock polling from the theme.
+
 * Sun Nov 01 2026 Aurora Silicon <hey@djdev.me> - 1-2
 - Draw the logo at aura's size and place on every panel: 256 px on Retina
   panels and 128 px elsewhere, in device pixels. Plymouth's 2x scale had
