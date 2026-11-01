@@ -14,7 +14,7 @@ class SpecTests(unittest.TestCase):
                     if '%{' not in value and not value.startswith('http') and value not in fetched:
                         self.assertTrue((spec.parent / value).is_file(), value)
     def test_noarch_recipes_do_not_claim_machine_specific_binaries(self):
-        for name in ['aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-release', 'aurora-logos', 'speakersafetyd-aurora-profiles']:
+        for name in ['aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-release', 'aurora-repos', 'aurora-logos', 'speakersafetyd-aurora-profiles']:
             text = (ROOT / 'packages' / name / (name + '.spec')).read_text()
             self.assertIn('BuildArch: noarch', text)
     def test_release_identity_is_named_aurora_fedora_remix(self):
@@ -111,4 +111,24 @@ class SpecTests(unittest.TestCase):
         self.assertEqual((d / 'aurora-platform-core.conf').read_text().split(), ['aurora-platform-core'])
         self.assertIn('protected.d/aurora-platform-core.conf', text.split('%files core', 1)[1])
         self.assertRegex(text, r'(?m)^Requires: aurora-platform-core = %\{version\}-%\{release\}$')
+    def test_aurora_repos_owns_the_repository_key_and_vendor_policies(self):
+        d = ROOT / 'packages' / 'aurora-repos'
+        spec = (d / 'aurora-repos.spec').read_text()
+        self.assertEqual((d / 'RPM-GPG-KEY-aurora').read_bytes(), (ROOT / 'keys' / 'RPM-GPG-KEY-aurora').read_bytes())
+        repo = (d / 'aurora.repo').read_text()
+        self.assertIn('baseurl=https://aurorasilicon.org/fedora-aurora/44/testing/aarch64\n', repo)
+        for line in ['gpgcheck=1', 'repo_gpgcheck=1', 'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-aurora']:
+            self.assertIn(line + '\n', repo)
+        files = spec.split('%files', 1)[1]
+        self.assertIn('%config(noreplace) %{_sysconfdir}/yum.repos.d/aurora.repo', files)
+        self.assertIn('/usr/share/dnf5/vendors.d/aurora*.conf', files)
+        self.assertRegex(spec, r'(?m)^Conflicts: aurora-release < 44-8$')
+        release = (ROOT / 'packages' / 'aurora-release' / 'aurora-release.spec').read_text()
+        self.assertRegex(release, r'(?m)^Requires: aurora-repos$')
+        self.assertNotIn('vendors.d', release)
+        platform = (ROOT / 'packages' / 'aurora-platform' / 'aurora-platform.spec').read_text()
+        core = platform.split('%package core', 1)[1].split('%description core', 1)[0]
+        self.assertRegex(core, r'(?m)^Requires: aurora-repos$')
+        build = (ROOT / 'scripts' / 'build-rpm').read_text()
+        self.assertIn('[[ $package == aurora-release || $package == aurora-repos ]] && vendor=()', build)
 if __name__ == '__main__': unittest.main()

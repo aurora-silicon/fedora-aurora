@@ -25,7 +25,7 @@ PACKAGES = {
         "kernel-aurora", "kernel-aurora-modules-extra", "aura", "uboot-aurora",
     ]),
     "components/base.xml": ("Common", [
-        "aurora-release", "aurora-logos", "aurora-platform", "aurora-remix-scripts",
+        "aurora-release", "aurora-repos", "aurora-logos", "aurora-platform", "aurora-remix-scripts",
         "aurora-firstboot", "aurora-sep", "libfprint", "mesa-aurora-dri-drivers", "mesa-aurora-vulkan-drivers",
         "aurora-firmware", "avd-fw", "upower", "alsa-ucm-conf-aurora", "aurora-audio", "speakerguardd",
         "speakersafetyd-aurora-profiles",

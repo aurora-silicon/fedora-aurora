@@ -1,10 +1,10 @@
 #!/bin/bash
-# Checks aurora-release's dnf5 vendor change policies inside a disposable
+# Checks aurora-repos's dnf5 vendor change policies inside a disposable
 # Fedora container, with vendor changes switched off as Fedora Asahi Remix
 # does. Probe packages stand in for Fedora's, Asahi's and Aurora's builds.
-# usage: test-vendor-change <aurora-release source dir>
+# usage: test-vendor-change <aurora-repos source dir>
 set -euo pipefail
-policies=${1:?aurora-release source directory required}
+policies=${1:?aurora-repos source directory required}
 dnf install -y -q rpm-build createrepo_c >/dev/null
 mkdir -p /usr/share/dnf5/libdnf.conf.d
 printf '[main]\nallow_vendor_change=False\n' > /usr/share/dnf5/libdnf.conf.d/30-test-sticky-vendors.conf

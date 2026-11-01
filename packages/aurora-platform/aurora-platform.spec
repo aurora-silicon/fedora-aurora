@@ -1,6 +1,6 @@
 Name: aurora-platform
 Version: 44
-Release: 12%{?dist}
+Release: 13%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -41,6 +41,9 @@ Requires: aurora-audio alsa-ucm-conf-aurora
 # 5.87 includes the upstream empty-TLV fix; retain real error reporting.
 Requires: bluez >= 5.87
 Requires: aurora-camera-denoise
+# The Aurora repository with its key and dnf vendor policies, so a Fedora
+# Asahi Remix system with these services keeps following Aurora's builds.
+Requires: aurora-repos
 
 %description core
 The Apple Silicon hardware services that every Aurora system needs: the
@@ -75,6 +78,12 @@ install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwd
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 
 %changelog
+* Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-13
+- Require aurora-repos from aurora-platform-core: a Fedora Asahi Remix
+  system with Aurora's hardware services gets the Aurora repository and the
+  dnf vendor policies that let Aurora's and Fedora's packages replace each
+  other on upgrade.
+
 * Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-12
 - Pull in aurora-camera-denoise, the noise filter for the built-in camera,
   from aurora-platform-core.
