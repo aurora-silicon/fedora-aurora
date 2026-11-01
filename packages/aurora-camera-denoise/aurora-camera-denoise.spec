@@ -1,8 +1,8 @@
-%global commit 846646456ee17ba1fb60be169abcd0727bed36f4
+%global commit da883730b16d6ac6ddb55e9e0348e92065d05c69
 Name: aurora-camera-denoise
 Version: 0.1.0
-Release: 1%{?dist}
-Summary: Low-light denoise filter for the built-in camera on Apple silicon
+Release: 2%{?dist}
+Summary: Noise filter for the built-in camera on Apple silicon
 License: MIT
 URL: https://github.com/aurora-silicon/camera-denoise
 Source0: https://github.com/aurora-silicon/camera-denoise/archive/%{commit}/%{name}-%{commit}.tar.gz
@@ -15,12 +15,12 @@ Requires: pipewire
 
 %description
 A PipeWire video filter that runs as a user service and takes the grain out
-of the built-in camera on Apple silicon laptops in low light. For each
+of the built-in camera on Apple silicon laptops, the way macOS does. For each
 built-in camera it adds a camera node with the same name and formats; apps
-pick it by default, and the original stays available. It filters only on
-boards with data in boards.conf (keyed by the device-tree compatible) unless
-told otherwise, and follows the sensor gain the camera driver reports, or
-the measured noise on kernels without that report.
+pick it by default, and the original stays available. A temporal noise
+filter runs on every frame, and a low-light stage (a backend plugin such as
+the Neural Engine one) joins in above per-board sensor gain levels from
+boards.conf. Users can turn it off in denoise.conf or mask the service.
 
 %prep
 %autosetup -n camera-denoise-%{commit}
@@ -36,7 +36,7 @@ the measured noise on kernels without that report.
 %meson_install
 # Backends other than the built-in CPU one are shared objects loaded from here.
 install -d %{buildroot}%{_libdir}/aurora-camera-denoise
-# On for every user; it only acts on boards with data in boards.conf.
+# On for every user, like the camera filtering on macOS.
 install -Dm644 %{SOURCE1} %{buildroot}%{_userpresetdir}/80-aurora-camera-denoise.preset
 
 %post
@@ -58,6 +58,10 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_userpresetdir}/80-aurora-camera-denoise
 %{_userpresetdir}/80-aurora-camera-denoise.preset
 
 %changelog
+* Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-2
+- Update to da883730b16d: the temporal filter runs on every stream, as on
+  macOS, with the low-light stage on top above the board's gain levels.
+
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-1
 - Initial Fedora Aurora package of camera-denoise 0.1.0 (846646456ee1),
   with the CPU backend. The user service is preset on.

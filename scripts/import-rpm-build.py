@@ -74,13 +74,13 @@ def import_build(root, metadata, artifacts, output, repository, matching_only=Fa
             if Path(filename).name != filename or not filename.endswith('.rpm') or filename in recorded:
                 raise ValueError('Unexpected artifact filename')
             recorded.add(filename)
-            kind = 'srpms' if filename.endswith('.src.rpm') else 'rpms'
+            kind = 'srpms' if filename.endswith(('.src.rpm', '.nosrc.rpm')) else 'rpms'
             path = packaged / kind / filename
             if path.is_symlink() or not path.is_file() or path.stat().st_size != record['bytes'] or digest(path) != record['sha256']:
                 raise ValueError(f'CI artifact checksum mismatch: {filename}')
             selected.append((path, output / kind / filename))
         actual = {p.name for kind in ('rpms', 'srpms') for p in (packaged / kind).glob('*.rpm')}
-        if recorded != actual or not any(not n.endswith('.src.rpm') for n in recorded) or not any(n.endswith('.src.rpm') for n in recorded):
+        if recorded != actual or not any(not n.endswith(('.src.rpm', '.nosrc.rpm')) for n in recorded) or not any(n.endswith(('.src.rpm', '.nosrc.rpm')) for n in recorded):
             raise ValueError('Incomplete CI artifact inventory')
         accepted_receipts.append(receipt)
     if not accepted_receipts:

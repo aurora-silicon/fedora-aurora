@@ -1,10 +1,11 @@
 Name: aurora-platform
 Version: 44
-Release: 8%{?dist}
+Release: 12%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
 BuildArch: noarch
+BuildRequires: systemd-rpm-macros
 Requires: aurora-platform-core = %{version}-%{release}
 Requires: fastfetch >= 2.68.1-2
 Requires: linux-firmware amd-gpu-firmware intel-gpu-firmware nvidia-gpu-firmware
@@ -15,6 +16,9 @@ Requires: kernel-aurora aura uboot-aurora aurora-release aurora-logos aurora-fir
 
 Source100: README
 Source101: aurora-platform-core.conf
+Source102: 50-after-swapfile.conf
+Source103: 61-aurora-dmi-id.rules
+Source104: 60-aurora-dmi-vendor.hwdb
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -33,6 +37,9 @@ Conflicts: asahi-platform-metapackage < 1
 Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
 Requires: speakersafetyd speakerguardd
 Requires: aurora-audio alsa-ucm-conf-aurora
+# BlueZ 5.86 attempts an empty default-parameter transaction at startup.
+# 5.87 includes the upstream empty-TLV fix; retain real error reporting.
+Requires: bluez >= 5.87
 Requires: aurora-camera-denoise
 
 %description core
@@ -40,7 +47,7 @@ The Apple Silicon hardware services that every Aurora system needs: the
 boot.bin assembler (update-m1n1), vendor firmware in the initramfs
 (dracut-asahi), firmware refresh (asahi-fwupdate), speaker protection
 (speakersafetyd and speakerguardd), the Aurora audio graphs and UCM
-profiles, and the low-light filter for the built-in camera
+profiles, and the noise filter for the built-in camera
 (aurora-camera-denoise). It installs no kernel, bootloader or release
 identity, so it fits a Fedora Asahi Remix install whose kernel and boot
 chain are managed separately. It replaces asahi-platform-metapackage, whose
@@ -54,17 +61,38 @@ in the same way.
 %install
 install -Dm644 %{SOURCE100} %{buildroot}%{_docdir}/aurora-platform/README
 install -Dm644 %{SOURCE101} %{buildroot}%{_sysconfdir}/dnf/protected.d/aurora-platform-core.conf
+install -Dm644 %{SOURCE102} %{buildroot}%{_unitdir}/var-swap-swapfile2.swap.d/50-after-swapfile.conf
+install -Dm644 %{SOURCE103} %{buildroot}%{_udevrulesdir}/61-aurora-dmi-id.rules
+install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 
 %files
 %{_docdir}/aurora-platform/
 
 %files core
 %config(noreplace) %{_sysconfdir}/dnf/protected.d/aurora-platform-core.conf
+%{_unitdir}/var-swap-swapfile2.swap.d/
+%{_udevrulesdir}/61-aurora-dmi-id.rules
+%{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 
 %changelog
-* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-8
-- Pull in aurora-camera-denoise, the low-light filter for the built-in
-  camera, from aurora-platform-core.
+* Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-12
+- Pull in aurora-camera-denoise, the noise filter for the built-in camera,
+  from aurora-platform-core.
+
+* Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-11
+- Update the model examples in the DMI udev rule and hwdb comments to the
+  product name without its release date.
+
+* Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-10
+- Name the DMI vendor "Apple" (hwdb) instead of "Apple Inc.", so the
+  hardware model reads "Apple MacBook Pro (...)".
+
+* Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-9
+- Keep the firmware's product name unchanged in udev's ID_MODEL, so the
+  hardware model is not shown with parentheses replaced by underscores.
+
+* Sat Oct 31 2026 Aurora Silicon <ryan@aurorasilicon.org> - 44-8
+- Require the BlueZ empty-parameter fix and serialize the second swapfile.
 
 * Fri Oct 30 2026 Aurora Silicon <ryan@aurorasilicon.org> - 44-7
 - Split the hardware services into aurora-platform-core. It replaces the

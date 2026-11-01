@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 15%{?dist}
+Release: 16%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -160,6 +160,9 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sat Oct 31 2026 Aurora Silicon contributors - 1-16
+- Rebuild the v4/v5 integration for Fedora 45 alongside Fedora 44
+
 * Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-14
 - Replace the every-boot prepare-sep-calibration with aurora-touchid-setup,
   which runs only when a Touch ID file is missing, when the enclave refused

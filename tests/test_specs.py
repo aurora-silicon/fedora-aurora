@@ -5,10 +5,13 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 class SpecTests(unittest.TestCase):
     def test_declared_local_sources_and_patches_are_present(self):
+        pins = json.loads((ROOT / 'sources.json').read_text())
         for spec in (ROOT / 'packages').glob('*/*.spec'):
+            extras = pins.get(spec.parent.name, {}).get('extra_sources', {})
+            fetched = {f"{name}-{record['commit']}.tar.gz" for name, record in extras.items()}
             with self.subTest(spec=spec.name):
                 for kind, value in re.findall(r'^(Source\d*|Patch\d*):\s+(\S+)', spec.read_text(), re.M):
-                    if '%{' not in value and not value.startswith('http'):
+                    if '%{' not in value and not value.startswith('http') and value not in fetched:
                         self.assertTrue((spec.parent / value).is_file(), value)
     def test_noarch_recipes_do_not_claim_machine_specific_binaries(self):
         for name in ['aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-release', 'aurora-logos', 'speakersafetyd-aurora-profiles']:

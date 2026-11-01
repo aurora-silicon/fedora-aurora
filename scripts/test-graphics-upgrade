@@ -74,7 +74,7 @@ dnf -y --setopt=install_weak_deps=False install mesa-aurora-vulkan-lavapipe
 dnf check
 rpm -qa --qf '%{NAME}\t%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > "$out/after.tsv"
 for name in mesa-aurora-dri-drivers mesa-aurora-vulkan-drivers mesa-aurora-vulkan-lavapipe aurora-flatpak-gl; do
-  [[ $(rpm -q --qf '%{VERSION}-%{RELEASE}' "$name") == 26.3.0-13.fc44.aurora ]]
+  [[ $(rpm -q --qf '%{VERSION}-%{RELEASE}' "$name") == 26.3.0-14.fc44.aurora ]]
 done
 for name in mesa-libEGL-devel mesa-libGL-devel mesa-libgbm-devel mesa-libOpenCL mesa-libOpenCL-devel; do
   if awk -v n="$name" '$1 == n {found=1} END {exit !found}' "$out/before.tsv"; then
@@ -86,8 +86,8 @@ rpm -qpl "$new"/aurora-flatpak-gl-*.aarch64.rpm > "$out/flatpak-rpm-payload.txt"
 grep -F '/usr/share/aurora-flatpak-gl/repo/objects/' "$out/flatpak-rpm-payload.txt"
 # Validation from the installed RPM's repository, not the build work directory.
 python3 /src/packages/aurora-flatpak-gl/validate-repo.py \
-  /usr/share/aurora-flatpak-gl/repo cf4e08105dfa526b8874318b6a52b3ce948f6297 25.08 26.08
-strings /usr/lib64/libvulkan_asahi.so | grep -F '(git-cf4e08105d), Borealis' > "$out/driverInfo.txt"
+  /usr/share/aurora-flatpak-gl/repo c208afc352e9d4c10ee71c883a369a9079dd7d84 25.08 26.08
+strings /usr/lib64/libvulkan_asahi.so | grep -F '(git-c208afc352), Borealis' > "$out/driverInfo.txt"
 rpm -q --whatprovides 'libvulkan_lvp.so()(64bit)'
 test -f /usr/lib64/libvulkan_lvp.so
 # Only replacements/upgrades are acceptable. No unrelated old package can disappear.

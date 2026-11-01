@@ -13,5 +13,5 @@
     "0005-aurora-support-v4-and-v5.patch": "8024015e227ad9172dd5eec2fbe128e6c32f7621571c49f869386123cc08585d",
     "test_interface.py": "73b95e4c39a2fe8c5496cd38545cc67df20c89cc1a88fc3aedf216e997b41da4"
   },
-  "adaptations": "libfprint.spec keeps the distro-pinned release archive name, retains Fedora's full Meson %check, and runs the upstream compatibility test during %check."
+  "adaptations": "libfprint.spec keeps the distro-pinned release archive name, retains Fedora's full Meson %check, and runs the upstream compatibility test during %check. Epoch 1 and epoch-qualified matching subpackage dependencies keep native Fedora 45 rebuilds ahead of stock and fc44 Aurora packages; driver patches remain aurora7."
 }
