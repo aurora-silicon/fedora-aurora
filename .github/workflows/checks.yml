@@ -40,7 +40,7 @@ jobs:
       - name: Vendor change policies with vendor changes switched off
         run: |
           docker run --rm -v "$PWD:/src:ro" registry.fedoraproject.org/fedora:${{ matrix.release }} \
-            bash /src/scripts/test-vendor-change /src/packages/aurora-release
+            bash /src/scripts/test-vendor-change /src/packages/aurora-repos
   graphics:
     if: github.event_name == 'workflow_dispatch' && inputs.graphics_runs != ''
     runs-on: ubuntu-24.04-arm

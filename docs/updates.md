@@ -10,8 +10,16 @@ qualification.
 `images/configure.py` writes `/etc/yum.repos.d/aurora.repo` with
 `baseurl=https://aurorasilicon.org/fedora-aurora/44/<channel>/aarch64`, `gpgcheck=1`, `repo_gpgcheck=1`
 and `gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-aurora`. `<channel>` comes from the `images.yml` input;
-the default, `testing`, is today's URL. No package owns the repo file or the key yet, which blocks key
-rotation (see the overview).
+the default, `testing`, is today's URL. The `aurora-repos` package owns the same repo file (testing
+channel, `%config(noreplace)`) and the key, and ships the dnf5 vendor change policies in
+`/usr/share/dnf5/vendors.d/aurora*.conf`. `aurora-release` and `aurora-platform-core` require it, so a
+Fedora Asahi Remix system that takes Aurora's platform packages gets the repository and the policies
+together. An image built for another channel keeps its own baseurl in the config file.
+
+Fedora Asahi Remix sets `allow_vendor_change=False`. Images built before `aurora-release` 44-7 have no
+policies, so their first `dnf upgrade` brings the policies (`aurora-release` and `aurora-repos` carry no
+vendor and upgrade without a vendor change) and the second one makes the vendor switches. Later images
+switch in one go.
 
 A kernel update runs `kernel-install`: dracut builds the initramfs (with `dracut-asahi` and
 `98aurora-peripherals`, which read this Mac's firmware from the ESP at boot), grubby adds the boot entry
