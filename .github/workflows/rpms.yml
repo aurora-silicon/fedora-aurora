@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      firefox_avd:
+        description: Build and verify the Fedora 45 Firefox AVD candidate on its review branch only
+        type: boolean
+        default: false
       packages:
         description: Space-separated packages; empty builds the entire set
         default: ''
@@ -19,6 +23,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   plan:
+    if: ${{ !inputs.firefox_avd }}
     runs-on: ubuntu-24.04
     outputs:
       packages: ${{ steps.plan.outputs.packages }}
@@ -148,3 +153,66 @@ jobs:
           name: failed-rpm-${{ matrix.package }}-attempt-${{ github.run_attempt }}
           path: build.log
           retention-days: 14
+
+  firefox-avd:
+    if: github.event_name == 'workflow_dispatch' && inputs.firefox_avd && github.ref == 'refs/heads/avd/browser-fedora-t4366'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Prepare build capacity
+        run: |
+          test "$(uname -m)" = aarch64
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet
+          df -h .
+      - name: Build and verify the unchanged Fedora 45 candidate natively
+        run: |
+          set -euo pipefail
+          mkdir -p out/firefox-fc45
+          git rev-parse HEAD > out/firefox-fc45/workflow-commit.txt
+          # Source/spec/build recipe must remain byte-identical to the reviewed candidate.
+          test -z "$(git diff 96c4cacc29c4e07c8211a68ea7a38ffb5d702c56 -- docs/firefox scripts/build-firefox-avd-fedora packages sources.json)"
+          docker run --rm --platform linux/arm64 --cpus 8 \
+            -v "$PWD:/src" -w /src -e BUILD_OUT=/src/out \
+            registry.fedoraproject.org/fedora:45 bash -euo pipefail -c '
+              test "$(uname -m)" = aarch64
+              test "$(rpm -E "%fedora")" = 45
+              dnf install -y rpm-build dnf5-plugins python3 git tar gzip xz coreutils findutils gcc-c++ kernel-headers gnupg2
+              export AURORA_INSTALL_BUILDDEPS=1 AURORA_BUILD_JOBS=8
+              export CARGO_BUILD_JOBS=8 CMAKE_BUILD_PARALLEL_LEVEL=8
+              bash scripts/build-rpm ffmpeg-avd
+              bash scripts/build-rpm libva-v4l2-request
+              bash scripts/build-firefox-avd-fedora
+              bash scripts/verify-firefox-avd-fedora
+            ' 2>&1 | python3 -u scripts/redact-build-log.py | tee out/native-build.log
+      - name: Collect candidate manifest and redact retained logs
+        if: always()
+        run: |
+          for log in out/firefox-fc45/build.log out/firefox-fc45/install-check.log; do
+            if test -f "$log"; then
+              python3 scripts/redact-build-log.py < "$log" > "$log.redacted"
+              mv "$log.redacted" "$log"
+            fi
+          done
+          find out -type f -name '*.rpm' -print0 | sort -z | xargs -0 -r sha256sum > out/SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: firefox-avd-fedora45-aarch64
+          path: |
+            out/firefox-fc45/RPMS/**/*.rpm
+            out/firefox-fc45/SRPMS/*.rpm
+            out/firefox-fc45/build.log
+            out/firefox-fc45/install-check.log
+            out/firefox-fc45/candidate-inputs.sha256
+            out/firefox-fc45/fedora-sources
+            out/firefox-fc45/workflow-commit.txt
+            out/rpms/*.rpm
+            out/srpms/*.rpm
+            out/native-build.log
+            out/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
