@@ -1,0 +1,8 @@
+# systemd applies the presets on the first boot; they must keep what the
+# image and Fedora's packages enable.
+# The image sets the default target; keep its default.target alias.
+enable graphical.target
+enable multi-user.target
+# systemd-resolved.service enables these through Also=.
+enable systemd-resolved-monitor.socket
+enable systemd-resolved-varlink.socket

@@ -15,6 +15,17 @@ configure = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(configure)
 
 
+# Fedora Asahi's config.sh enables its first-boot units like this.
+UPSTREAM_UNITS = """
+## Enable swap setup on firstboot
+systemctl enable asahi-setup-swap-firstboot.service
+
+## Enable extras install on firstboot; this will only run if the extras are
+## actually present (and self disable afterwards)
+systemctl enable asahi-extras-firstboot.service
+"""
+
+
 class ConfigureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -46,7 +57,7 @@ class ConfigureTests(unittest.TestCase):
                 f'<image><preferences><type image="oem" kernelcmdline="{arguments}" '
                 'rootfs_label="fedora"/></preferences></image>')
         for name in ("config.sh", "post_bootstrap.sh", "pre_disk_sync.sh"):
-            (cls.source / name).write_text("#!/bin/bash\nset -euo pipefail\n# kernel-16k-core\nexit 0\n")
+            (cls.source / name).write_text("#!/bin/bash\nset -euo pipefail\n# kernel-16k-core\n" + UPSTREAM_UNITS + "exit 0\n")
         (cls.source / "COPYING").write_text("upstream license fixture\n")
         subprocess.run(["git", "init", "-q", str(cls.source)], check=True)
         subprocess.run(["git", "-C", str(cls.source), "add", "."], check=True)
@@ -82,8 +93,9 @@ class ConfigureTests(unittest.TestCase):
         script body for every unit but sshd, which is installed and off."""
         commands.mkdir()
         (commands / "systemctl").write_text(
-            '#!/bin/bash\ncase "$*" in is-enabled*sshd*) echo disabled; exit 1 ;; *sshd*) exit 0 ;; esac\n'
-            + systemctl)
+            '#!/bin/bash\ncase "$*" in is-enabled*sshd*) echo disabled; exit 1 ;; *sshd*) exit 0 ;;\n'
+            '  preset-all) exit 0 ;; get-default) echo "${AURORA_TEST_DEFAULT_TARGET:-graphical.target}"; exit 0 ;;\n'
+            'esac\n' + systemctl)
         (commands / "rpm").write_text("#!/bin/sh\nexit 0\n")
         for name in ("systemctl", "rpm"):
             (commands / name).chmod(0o755)
@@ -184,8 +196,7 @@ class ConfigureTests(unittest.TestCase):
                 result = subprocess.run(["bash", "-euo", "pipefail", "-c", check], env=env,
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode == 0, passes, result.stderr)
-                if installed == "1":
-                    self.assertEqual(log.read_text().splitlines()[0], "preset sshd.service sshd.socket")
+        self.assertLess(script.index("\nsystemctl preset-all\n"), script.index("# Every profile ships the SSH server"))
 
     def test_rejects_wrong_source_key_profile_and_unsafe_repository(self):
         cases = [dict(lock={**self.lock, "commit": "0" * 40}),
@@ -327,6 +338,62 @@ class ConfigureTests(unittest.TestCase):
         other.parent.mkdir()
         other.write_bytes(kernel.read_bytes())
         self.assertFalse(accepted())
+
+    def variant(self, name, edit):
+        """A committed copy of the upstream fixture with `edit` applied."""
+        source = self.root / name
+        subprocess.run(["git", "clone", "-q", str(self.source), str(source)], check=True)
+        edit(source)
+        subprocess.run(["git", "-C", str(source), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.org",
+                        "commit", "-qam", "variant"], check=True)
+        return source, {**self.lock, "commit": configure.git(source, "rev-parse", "HEAD")}
+
+    def test_image_applies_presets_before_checking_units(self):
+        for profile, target in configure.DEFAULT_TARGETS.items():
+            with self.subTest(profile=profile):
+                out = self.root / f"presets-{profile}"
+                self.prepare(out, profile=profile)
+                script = (out / "config.sh").read_text()
+                self.assertNotIn("asahi-", script)
+                self.assertNotIn("@DEFAULT_TARGET@", script)
+                self.assertIn(f'"$(systemctl get-default)" != {target} ]]', script)
+                preset = script.index("\nsystemctl preset-all\n")
+                for check in ("is-enabled plasma-setup.service", "is-enabled aurora-peripherals.service",
+                              'is-enabled "$unit"'):
+                    self.assertLess(preset, script.index(check), check)
+        image = self.root / "presets-image-root"
+        config = self.root / "presets-fedora-minimal/config.sh"
+        config.write_text(config.read_text().replace("/usr/lib/systemd/system", str(image / "usr/lib/systemd/system"))
+                          .replace("/usr/lib/modules/", str(image / "usr/lib/modules") + "/"))
+        kernel = image / "usr/lib/modules/fixture/config"
+        kernel.parent.mkdir(parents=True)
+        kernel.write_text("CONFIG_SECURITY_SELINUX=y\nCONFIG_SND_SOC_MAX98357A=m\n")
+        commands = self.root / "presets-commands"
+        self.mock_image_commands(commands, 'echo "$*" >> "$AURORA_TEST_LOG"; printf "enabled\\n"\n')
+
+        def run(target):
+            log = self.root / f"presets-{target}.log"
+            log.write_text("")
+            env = {**os.environ, "PATH": f"{commands}:{os.environ['PATH']}",
+                   "AURORA_TEST_DEFAULT_TARGET": target, "AURORA_TEST_LOG": str(log)}
+            return subprocess.run(["bash", str(config)], env=env, capture_output=True, text=True), log
+
+        result, log = run("graphical.target")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must boot to multi-user.target", result.stderr)
+        result, log = run("multi-user.target")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_rejects_changed_upstream_units(self):
+        def drop_units(source):
+            path = source / "config.sh"
+            path.write_text(path.read_text().replace(UPSTREAM_UNITS, ""))
+
+        for name, edit, message in (("no-units", drop_units, "first-boot units"),):
+            with self.subTest(name=name):
+                source, lock = self.variant(f"upstream-{name}", edit)
+                with self.assertRaisesRegex(ValueError, message):
+                    self.prepare(self.root / f"rejected-{name}", source=source, lock=lock)
 
     def test_output_cannot_recurse_into_the_upstream_checkout(self):
         with self.assertRaisesRegex(ValueError, "outside"):

@@ -1,6 +1,6 @@
 Name: aurora-release
 Version: 44
-Release: 8%{?dist}
+Release: 9%{?dist}
 Summary: Aurora Fedora Remix release identity
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -29,6 +29,7 @@ Source104: macros.dist
 Source105: malcontent-signal.conf
 Source106: malcontent-webd-update-signal.conf
 Source107: 80-aurora-sshd.preset
+Source108: 80-aurora-image.preset
 
 %description
 Aurora Fedora Remix release identity.
@@ -58,6 +59,7 @@ for path in /usr/lib/systemd/system-preset/{85-display-manager,90-default,99-def
 done
 # Without Fedora's desktop identities, 90-default.preset would enable sshd.
 install -Dm644 %{SOURCE107} %{buildroot}/usr/lib/systemd/system-preset/80-aurora-sshd.preset
+install -Dm644 %{SOURCE108} %{buildroot}/usr/lib/systemd/system-preset/80-aurora-image.preset
 install -Dm644 /usr/share/licenses/fedora-release-common/LICENSE %{buildroot}%{_licensedir}/%{name}/fedora-release-LICENSE
 install -Dm644 %{_sourcedir}/system-release %{buildroot}/etc/fedora-release
 ln -s fedora-release %{buildroot}/etc/redhat-release
@@ -87,6 +89,11 @@ install -Dm644 %{SOURCE106} %{buildroot}%{_unitdir}/malcontent-webd-update.servi
 %{_unitdir}/malcontent-*.service.d/50-aurora-signal.conf
 
 %changelog
+* Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 44-9
+- Preset the default targets and the systemd-resolved sockets on, so that
+  the presets systemd applies on the first boot keep what the image and
+  its packages enable.
+
 * Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-8
 - Move the dnf5 vendor change policies to aurora-repos, which also owns the
   Aurora repository file and signing key, and require it.

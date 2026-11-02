@@ -54,6 +54,23 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(text, r'(?m)^Source\d+: 80-aurora-sshd\.preset$')
         self.assertIn('%{buildroot}/usr/lib/systemd/system-preset/80-aurora-sshd.preset', text)
         self.assertIn('/usr/lib/systemd/system-preset/*.preset', text.split('%files', 1)[1])
+    def test_release_presets_keep_what_the_image_enables(self):
+        # systemd applies the presets on the first boot, before / is writable.
+        d = ROOT / 'packages' / 'aurora-release'
+        preset = d / '80-aurora-image.preset'
+        rules = [line for line in preset.read_text().splitlines() if line.strip() and not line.startswith('#')]
+        self.assertEqual(rules, ['enable graphical.target', 'enable multi-user.target',
+                                 'enable systemd-resolved-monitor.socket', 'enable systemd-resolved-varlink.socket'])
+        self.assertLess(preset.name, '99-default-disable.preset')
+        text = (d / 'aurora-release.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: 80-aurora-image\.preset$')
+        self.assertIn('%{buildroot}/usr/lib/systemd/system-preset/80-aurora-image.preset', text)
+    def test_remix_scripts_ship_no_first_boot_units(self):
+        d = ROOT / 'packages' / 'aurora-remix-scripts'
+        text = (d / 'aurora-remix-scripts.spec').read_text()
+        files = text.split('%files', 1)[1].split('%changelog', 1)[0]
+        self.assertNotIn('asahi-', files)
+        self.assertFalse(list(d.glob('*.service')))
     def test_initramfs_carries_the_usb4_router_with_the_type_c_controllers(self):
         # dracut-asahi brings tps6598x and sn201202x; their router must come too.
         d = ROOT / 'packages' / 'aurora-platform'

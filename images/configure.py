@@ -19,6 +19,11 @@ PROFILES = {
     "fedora-gnome": "Workstation-GNOME",
     "fedora-minimal": "Minimal",
 }
+DEFAULT_TARGETS = {
+    "fedora-kde": "graphical.target",
+    "fedora-gnome": "graphical.target",
+    "fedora-minimal": "multi-user.target",
+}
 # The RPM producer must implement these Fedora-native package contracts.
 PACKAGES = {
     "components/boot.xml": ("BootCore", [
@@ -185,11 +190,25 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
     if "kernel-16k-core" not in text:
         raise ValueError("upstream kernel selection changed; review the integration")
     text = text.replace("kernel-16k-core", "kernel-aurora-core")
+    # Aurora ships no Fedora Asahi first-boot swap or extras unit to enable.
+    text, enabled = re.subn(
+        r"(?m)(?:^##.*\n)*^systemctl enable asahi-(?:setup-swap|extras)-firstboot\.service\n", "", text)
+    if enabled != 2:
+        raise ValueError("upstream first-boot units changed; review the integration")
     if text.count("\nexit 0\n") != 1:
         raise ValueError("upstream image configuration exit changed; review the integration")
     # Check the RPM's preset result inside the assembled image. A build must
     # fail before exporting an image that will omit peripheral admission.
-    text = text.replace("\nexit 0\n", '''
+    checks = '''
+# systemd applies every preset on the first boot, before / is writable, and
+# can change nothing then. Bring the image to its preset state now; the
+# installer image is checked for this again when it is sealed.
+systemctl preset-all
+if [[ "$(systemctl get-default)" != @DEFAULT_TARGET@ ]]; then
+    echo 'The image must boot to @DEFAULT_TARGET@' >&2
+    exit 1
+fi
+
 # Desktop images create the owner with the desktop's own setup, after Aurora
 # has protected the disk on the boot splash.
 if [[ -f /usr/lib/systemd/system/plasma-setup.service &&
@@ -230,14 +249,13 @@ if [[ "$(systemctl is-enabled aurora-peripherals.service)" != enabled ]]; then
     exit 1
 fi
 
-# Every profile ships the SSH server with remote login off. Re-apply the
-# presets now that every package is installed, so install order cannot
-# leave it on, and refuse an image that would still start it.
+# Every profile ships the SSH server with remote login off. The presets
+# applied above decide that whatever the install order; refuse an image that
+# would still start it.
 if ! rpm -q openssh-server >/dev/null; then
     echo 'Every Aurora image must ship openssh-server' >&2
     exit 1
 fi
-systemctl preset sshd.service sshd.socket
 for unit in sshd.service sshd.socket; do
     if [[ "$(systemctl is-enabled "$unit" || true)" != disabled ]]; then
         echo "$unit must be off by default in the image" >&2
@@ -246,7 +264,8 @@ for unit in sshd.service sshd.socket; do
 done
 
 exit 0
-''')
+'''
+    text = text.replace("\nexit 0\n", checks.replace("@DEFAULT_TARGET@", DEFAULT_TARGETS[profile]))
     config.write_text(text)
     receipt = {
         "schema": 1, "distribution": "Aurora Fedora Remix",
