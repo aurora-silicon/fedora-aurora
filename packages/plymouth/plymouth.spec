@@ -129,9 +129,9 @@ Patch: 0001-ply-device-manager-Fix-race-in-fb_device_has_drm_dev.patch
 # https://gitlab.freedesktop.org/plymouth/plymouth/-/commit/cea90be39d263e388003a07d125b469c0803d55c
 Patch: 0001-ply-device-manager-fix-default-XKB-keymap-fallback-o.patch
 
+%endif
 Patch: 0001-ply-terminal-Keep-terminal-input-nonblocking.patch
 Source2: test-terminal-input.c
-%endif
 Source3: test-keyboard-lifetime.c
 Source4: test-script-keyboard.c
 Source5: check-keyboard-lifetime.sh
@@ -376,8 +376,7 @@ find -type f -exec sed -i -e 's/Cantarell/Red Hat Text/g' {} \;
 
 %check
 bash %{SOURCE5} "$PWD" "$PWD/%{_vpath_builddir}" "%{_sourcedir}"
-%if 0%{?fedora} != 44
-# The 26.134.222 release predates the upstream Meson test harness.
+# These releases predate the upstream Meson test harness.
 # Compile the same PTY regression against the libraries just built.
 %{__cc} -D_GNU_SOURCE -Wall -Wextra -Werror \
     -I. -Isrc/libply -Isrc/libply-splash-core \
@@ -386,8 +385,8 @@ bash %{SOURCE5} "$PWD" "$PWD/%{_vpath_builddir}" "%{_sourcedir}"
     -Wl,-rpath,$PWD/%{_vpath_builddir}/src/libply-splash-core \
     -Wl,-rpath,$PWD/%{_vpath_builddir}/src/libply \
     -lply-splash-core -lply
-./test-terminal-input
-%endif
+timeout 15s ./test-terminal-input
+echo "Plymouth terminal-input PTY regression passed"
 
 %install
 %meson_install

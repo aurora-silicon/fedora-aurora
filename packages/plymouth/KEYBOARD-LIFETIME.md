@@ -36,12 +36,11 @@ not exercise the renderer-loss path.
 
 The same patch applies to both version carries. `plymouth.spec` selects
 Fedora 44's 24.004.60-24 recipe and original Fedora patches on Fedora 44,
-and the existing Fedora 45 recipe elsewhere. It retains the Fedora 45
-terminal input carry. Build either with `scripts/build-rpm plymouth` in the
+and the existing Fedora 45 recipe elsewhere. Both versions include the terminal input carry. Build either with `scripts/build-rpm plymouth` in the
 corresponding Fedora environment.
 
 The fixed script subpackage provides `plymouth(script-keyboard-lifetime) = 1`.
-Aurora 1-3 requires it, tying the theme to both patched core libraries and the
+Aurora 1-4 requires it, tying the theme to both patched core libraries and the
 patched script plugin through Fedora's existing exact-version dependencies.
 The theme drops caps-lock polling entirely. The remaining Plymouth calls
 register callbacks or read the splash mode and do not access a keyboard.
@@ -78,17 +77,15 @@ modules, with a private PTY and font available for the graphical fixture. No tes
 
 ## Other distribution carries
 
-ALARM and NixOS need the same keyboard ownership contract in addition to the
-terminal-input fix. Apply this patch to their selected Plymouth source after
-checking context and run the native-query and renderer-removal regressions
-against the resulting package. Removing caps-lock polling from a script alone
-does not repair its C input handler at hide. Until their core carries include
-the lifetime fix, avoid treating a successful static headless start as proof
-that renderer transitions are safe.
+ALARM and NixOS apply the same patch and run both native fixtures alongside
+terminal-input checks. ALARM exposes `plymouth-script-keyboard-lifetime=1`
+through pacman's capability syntax; NixOS exposes `scriptKeyboardLifetime = 1`
+on the derivation and asserts it when constructing the theme. Their theme
+packages require capability 1, with version 1-4.
 
 ## Installation and rollback
 
-Install the complete matching Plymouth subpackage set and theme 1-3 in one
+Install the complete matching Plymouth subpackage set and theme 1-4 in one
 transaction. Rebuild the distribution's initramfs so it contains the patched
 core libraries, script plugin, and theme. Installing only the noarch theme
 cannot repair a dangling C pointer. Keep the previous RPMs, configuration,
