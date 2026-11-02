@@ -1,7 +1,7 @@
-%global commit 7bf3ce28ba4533b78333d3d849e7b50a4a8505ac
+%global commit d9d5b3fa7c0a2bf3612deb2cf125709f07837fd5
 %global selinuxtype targeted
 Name: aurora-firstboot
-Version: 0.1.12
+Version: 0.1.13
 Release: 1%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
@@ -74,10 +74,18 @@ fi
 %{_unitdir}/serial-getty@.service.d/aurora-firstboot.conf
 %{_unitdir}/plasma-setup.service.d/aurora-firstboot.conf
 %{_unitdir}/plymouth-quit.service.d/aurora-firstboot.conf
+%{_unitdir}/systemd-growfs-root.service.d/aurora-growfs.conf
+%{_unitdir}/systemd-growfs@.service.d/aurora-growfs.conf
 /usr/lib/systemd/system-preset/90-aurora-firstboot.preset
 %{_datadir}/selinux/packages/%{selinuxtype}/aurora_firstboot.pp
 
 %changelog
+* Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 0.1.13-1
+- Grow the encrypted root filesystem during the conversion, and run
+  systemd-growfs only when a Btrfs filesystem has room to grow. On an
+  encrypted root it logged a crypt_resize() error on every boot.
+- Refuse to seal a Fedora image whose units differ from their presets.
+
 * Fri Oct 30 2026 Aurora Silicon <hey@djdev.me> - 0.1.12-1
 - Give the disk password prompt the system keymap: a console keymap still at
   the image default follows the desktop layout before the password is
