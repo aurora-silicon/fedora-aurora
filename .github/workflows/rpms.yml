@@ -175,7 +175,7 @@ jobs:
           git rev-parse HEAD > out/firefox-fc45/workflow-commit.txt
           # Source/spec/build recipe must remain byte-identical to the reviewed candidate.
           test -z "$(git diff 96c4cacc29c4e07c8211a68ea7a38ffb5d702c56 -- docs/firefox scripts/build-firefox-avd-fedora packages sources.json)"
-          docker run --rm --platform linux/arm64 --cpus 8 \
+          docker run --rm --platform linux/arm64 --cpus 4 \
             -v "$PWD:/src" -w /src -e BUILD_OUT=/src/out \
             registry.fedoraproject.org/fedora:45 bash -euo pipefail -c '
               test "$(uname -m)" = aarch64
