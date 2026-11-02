@@ -26,9 +26,7 @@ class SpecTests(unittest.TestCase):
         self.assertEqual((fields['ID'], fields['VARIANT_ID'], fields['LOGO']), ('fedora', 'aurora', 'aurora-logo-icon'))
         self.assertEqual((d / 'system-release').read_text(), 'Aurora Fedora Remix release 44\n')
     def test_plasma_launcher_icon_is_kde_artwork_not_the_distribution_logo(self):
-        # Fedora's look-and-feel points the Plasma launcher at start-here.
-        # It must exist (Breeze lacks it, so a missing one is a blank icon)
-        # and carry Breeze's start-here-kde, which stock Plasma shows. The
+        # The launcher's start-here is KDE's artwork and never missing; the
         # Aurora logo stays the distribution logo.
         d = ROOT / 'packages' / 'aurora-logos'
         text = (d / 'aurora-logos.spec').read_text()

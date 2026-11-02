@@ -1,9 +1,8 @@
 Name: aurora-logos
 Version: 44
-Release: 3%{?dist}
+Release: 4%{?dist}
 Summary: Aurora Silicon desktop artwork
-# The Aurora artwork is MIT. start-here is Breeze's start-here-kde artwork
-# (breeze-icons 6.31.0), which is LGPL-3.0-or-later.
+# Aurora artwork is MIT; the Breeze start-here artwork is LGPL-3.0-or-later.
 License: MIT AND LGPL-3.0-or-later
 URL: https://github.com/aurora-silicon/fedora-aurora
 BuildArch: noarch
@@ -21,9 +20,7 @@ Source107: AuroraLogo-96.png
 Source108: AuroraLogo-128.png
 Source109: AuroraLogo-256.png
 Source110: AuroraLogo-512.png
-# breeze-icons 6.31.0 icons/places/<size>/start-here-kde.svg, symlinks
-# resolved. The 24px file is the one breeze-icons' build generates from 22px,
-# as breeze-icon-theme installs it.
+# Breeze's start-here-kde, as breeze-icon-theme installs it.
 Source200: breeze-start-here-kde-16.svg
 Source201: breeze-start-here-kde-22.svg
 Source202: breeze-start-here-kde-24.svg
@@ -41,31 +38,24 @@ cp -p %{SOURCE206} .
 %build
 
 %install
-# fedora-logos supplied these names: kcm-about-distrorc shows
-# system-logo-white.png, and Fedora's Plasma look-and-feel (kde-settings-plasma)
-# changes the launcher icon from Plasma's start-here-kde to start-here, which
-# Breeze lacks. Without them both render as blank icons.
-#
-# start-here carries Breeze's own start-here-kde artwork at Breeze's sizes, so
-# the Plasma launcher shows the KDE logo exactly as stock Plasma does. The
-# Aurora logo stays the distribution logo: os-release LOGO=aurora-logo-icon and
-# About this System.
+# The Aurora logo is the distribution logo.
 for size in 16 22 24 32 48 64 96 128 256 512; do
   install -Dm644 %{_sourcedir}/AuroraLogo-$size.png \
     %{buildroot}%{_datadir}/icons/hicolor/${size}x${size}/apps/aurora-logo-icon.png
 done
+install -Dm644 %{_sourcedir}/AuroraLogo-256.png %{buildroot}%{_datadir}/pixmaps/system-logo-white.png
+install -Dm644 %{_sourcedir}/AuroraLogo.png %{buildroot}%{_datadir}/backgrounds/aurora/logo.png
+# Fedora's look-and-feel sets the Plasma launcher icon to start-here, which
+# Breeze lacks; give it KDE's artwork, as stock Plasma shows.
 for size in 16 22 24 32 64 96; do
   install -Dm644 %{_sourcedir}/breeze-start-here-kde-$size.svg \
     %{buildroot}%{_datadir}/icons/hicolor/${size}x${size}/places/start-here.svg
 done
-# Breeze has the same artwork in its 16@2x, 22@2x and 24@2x directories; KDE
-# looks there first for scaled displays.
+# Breeze fills the @2 directories too; KDE checks them first on scaled displays.
 for size in 16 22 24; do
   install -Dm644 %{_sourcedir}/breeze-start-here-kde-$size.svg \
     %{buildroot}%{_datadir}/icons/hicolor/${size}x${size}@2/places/start-here.svg
 done
-install -Dm644 %{_sourcedir}/AuroraLogo-256.png %{buildroot}%{_datadir}/pixmaps/system-logo-white.png
-install -Dm644 %{_sourcedir}/AuroraLogo.png %{buildroot}%{_datadir}/backgrounds/aurora/logo.png
 
 %files
 %license breeze-COPYING-ICONS
@@ -75,6 +65,9 @@ install -Dm644 %{_sourcedir}/AuroraLogo.png %{buildroot}%{_datadir}/backgrounds/
 %{_datadir}/backgrounds/aurora/
 
 %changelog
+* Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 44-4
+- Shorten the spec comments; the installed files are unchanged.
+
 * Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 44-3
 - Show the KDE logo on the Plasma launcher, as stock Plasma does: start-here
   is now Breeze's start-here-kde artwork instead of the Aurora logo. The Aurora
