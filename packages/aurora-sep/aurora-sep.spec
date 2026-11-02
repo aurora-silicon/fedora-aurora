@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 16%{?dist}
+Release: 17%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -133,6 +133,22 @@ fi
 if selinuxenabled 2>/dev/null && [ -c /dev/sep-bio ]; then
     restorecon /dev/sep-bio || :
 fi
+# Move the driver's state files from var_lib_t to their own type. Only the
+# labels change: the files are never moved, rewritten or removed.
+if selinuxenabled 2>/dev/null; then
+    for f in /var/lib/apple-sep-catacomb-master.bin \
+             /var/lib/apple-sep-catacomb-owner.bin \
+             /var/lib/apple-sep-catacomb-user.bin \
+             /var/lib/aurora-sep-keybag.bin \
+             /var/lib/aurora-sep-refkey.bin \
+             /var/lib/aurora-sep-refkey-v2.bin \
+             /var/lib/aurora-sep-host-state.bin \
+             /var/lib/aurora-sep-xart-owned.bin \
+             /var/lib/aurora-sep-xart-allow-once.bin \
+             /var/lib/aurora-sep-xart-policy-previous.bin; do
+        [ -f "$f" ] && restorecon -F "$f" || :
+    done
+fi
 
 %files
 %doc README.md XART-SAFETY.md OS-IDENTITY.md logind-aurora-sep.conf
@@ -160,6 +176,15 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-17
+- SELinux: give the driver's state files in /var/lib their own type,
+  aurora_sep_state_t, label them so when the kernel creates them, relabel
+  existing ones on upgrade, and let fprintd and modprobe use them. Touch ID
+  enrolment no longer fails under enforcing with "no durable Catacomb or
+  identity-bag binding".
+- Turn on authselect's with-fingerprint once on Macs with a sensor, so
+  Fingerprint Login shows in GNOME Settings; a later opt-out is kept.
+
 * Sat Oct 31 2026 Aurora Silicon contributors - 1-16
 - Rebuild the v4/v5 integration for Fedora 45 alongside Fedora 44
 
