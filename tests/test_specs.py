@@ -37,6 +37,18 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(text, r'(?m)^Source\d+: 80-aurora-sshd\.preset$')
         self.assertIn('%{buildroot}/usr/lib/systemd/system-preset/80-aurora-sshd.preset', text)
         self.assertIn('/usr/lib/systemd/system-preset/*.preset', text.split('%files', 1)[1])
+    def test_initramfs_carries_the_usb4_router_with_the_type_c_controllers(self):
+        # dracut-asahi brings tps6598x and sn201202x; their router must come too.
+        d = ROOT / 'packages' / 'aurora-platform'
+        setup = (d / 'usb4-module-setup.sh').read_text()
+        self.assertRegex(setup, r"(?m)^\s+hostonly='' instmods thunderbolt_apple$")
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: usb4-module-setup\.sh$')
+        self.assertIn('/lib/dracut/modules.d/91aurora-usb4/module-setup.sh', text)
+        core_files = text.split('%files core', 1)[1].split('%changelog', 1)[0]
+        self.assertIn('%{_prefix}/lib/dracut/modules.d/91aurora-usb4/', core_files)
+        config = (ROOT / 'packages' / 'kernel-aurora' / 'config').read_text()
+        self.assertIn('CONFIG_USB4_APPLE_SOC=m', config.splitlines())
     def test_fex_guest_mesa_moves_in_lockstep_with_the_host_mesa(self):
         def fields(name):
             text = (ROOT / 'packages' / name / (name + '.spec')).read_text()
