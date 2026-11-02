@@ -34,7 +34,7 @@ The upstream description and its GPL-3.0-or-later license are copied into the ge
 | Graphics | `mesa-aurora-dri-drivers` and `mesa-aurora-vulkan-drivers`; `aurora-flatpak-gl` gives Flatpak apps the same Mesa (GL.aurora for the 25.08 and 26.08 runtimes) |
 | Platform | `aurora-platform`, `aurora-firmware`, `avd-fw`, `upower` (Aurora fork), `alsa-ucm-conf-aurora`, `aurora-audio`, `speakerguardd`, `speakersafetyd-aurora-profiles`, `aurora-sep`, Aurora `libfprint` and redistributable peripheral firmware |
 | Distribution | `aurora-release`, `aurora-logos`, `aurora-remix-scripts` |
-| Updates | The Aurora RPM repository is retained in the installed image, with package and repository signature checking enabled |
+| Updates | The Aurora RPM repository is retained in the installed image, with package signature checking and the signing key in the rpm database; refreshes need no key prompt ([updates](../docs/updates.md#installed-systems)) |
 
 These are RPM contracts, not renamed Arch archives. Kernel RPMs must integrate with Fedora's kernel-install, dracut and BLS conventions. Bootloader RPMs must provide the paths consumed by Fedora's `update-m1n1`. The release RPM must provide the Fedora release/identity capabilities required by the selected desktop groups; the scripts RPM must provide the first-boot service contracts inherited from the pinned image description. Device firmware and calibration continue to be extracted from the target Mac by the installer.
 

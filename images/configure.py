@@ -14,6 +14,8 @@ import xml.etree.ElementTree as ET
 
 
 HERE = Path(__file__).resolve().parent
+# The image keeps aurora-repos's file, so a later aurora-repos can replace it.
+REPOSITORY_FILE = HERE.parent / "packages/aurora-repos/aurora.repo"
 PROFILES = {
     "fedora-kde": "Workstation-KDE",
     "fedora-gnome": "Workstation-GNOME",
@@ -186,19 +188,22 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
     # KIWI resolves description-local signing keys before the root filesystem exists.
     (destination / key_name).write_bytes(key_bytes)
     repository = ET.Element("image")
+    # KIWI turns off the package check of a repository unless asked; the key
+    # is in the image's rpm database before the first package.
     node = ET.SubElement(repository, "repository", {
         "type": "rpm-md", "alias": "aurora", "sourcetype": "baseurl", "priority": "1",
+        "package_gpgcheck": "true",
     })
     origin = ET.SubElement(node, "source", {"path": repository_url.rstrip("/")})
     ET.SubElement(origin, "signing", {"key": (destination.resolve() / key_name).as_uri()})
     write_xml(ET.ElementTree(repository), destination / "repositories/aurora.xml")
+    repo_text, baseurls = re.subn(r"(?m)^baseurl=.*$", lambda _: f"baseurl={repository_url.rstrip('/')}",
+                                  REPOSITORY_FILE.read_text())
+    if baseurls != 1 or f"gpgkey=file:///etc/pki/rpm-gpg/{key_name}\n" not in repo_text:
+        raise ValueError("aurora-repos repository file changed; review the integration")
     repo_dir = destination / "root/etc/yum.repos.d"
     repo_dir.mkdir(parents=True, exist_ok=True)
-    (repo_dir / "aurora.repo").write_text(
-        "[aurora]\nname=Aurora Silicon for Fedora\n"
-        f"baseurl={repository_url.rstrip('/')}\nenabled=1\n"
-        f"gpgcheck=1\nrepo_gpgcheck=1\ngpgkey=file:///etc/pki/rpm-gpg/{key_name}\npriority=1\n"
-    )
+    (repo_dir / "aurora.repo").write_text(repo_text)
     config = destination / "config.sh"
     text = config.read_text()
     if "kernel-16k-core" not in text:
@@ -248,6 +253,13 @@ if [[ -f /usr/lib/systemd/system/plymouth-quit.service &&
     exit 1
 fi
 
+# The first install from the Aurora repository must not ask to trust its key.
+rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-aurora
+if ! rpmkeys --list @SIGNING_FINGERPRINT@ >/dev/null; then
+    echo 'The Aurora signing key must be in the image rpm database' >&2
+    exit 1
+fi
+
 # Reject stale repository images before they can reach installation.
 shopt -s nullglob
 kernel_configs=(/usr/lib/modules/*/config)
@@ -283,7 +295,8 @@ done
 
 exit 0
 '''
-    text = text.replace("\nexit 0\n", checks.replace("@DEFAULT_TARGET@", DEFAULT_TARGETS[profile]))
+    checks = checks.replace("@DEFAULT_TARGET@", DEFAULT_TARGETS[profile])
+    text = text.replace("\nexit 0\n", checks.replace("@SIGNING_FINGERPRINT@", fingerprint))
     config.write_text(text)
     receipt = {
         "schema": 1, "distribution": "Aurora Fedora Remix",

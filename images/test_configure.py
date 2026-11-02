@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -101,8 +102,9 @@ class ConfigureTests(unittest.TestCase):
             '#!/bin/bash\ncase "$*" in is-enabled*sshd*) echo disabled; exit 1 ;; *sshd*) exit 0 ;;\n'
             '  preset-all) exit 0 ;; get-default) echo "${AURORA_TEST_DEFAULT_TARGET:-graphical.target}"; exit 0 ;;\n'
             'esac\n' + systemctl)
-        (commands / "rpm").write_text("#!/bin/sh\nexit 0\n")
-        for name in ("systemctl", "rpm"):
+        for name in ("rpm", "rpmkeys"):
+            (commands / name).write_text("#!/bin/sh\nexit 0\n")
+        for name in ("systemctl", "rpm", "rpmkeys"):
             (commands / name).chmod(0o755)
 
     def test_all_profiles_keep_fedora_layout_and_aurora_packages(self):
@@ -133,7 +135,9 @@ class ConfigureTests(unittest.TestCase):
                 self.assertFalse(any(name.endswith("-firmware") for name in exclusions))
                 self.assertIn("dracut-config-rescue", exclusions)
                 self.assertFalse((out / "repositories/asahi.xml").exists())
-                self.assertIn("repo_gpgcheck=1", (out / "root/etc/yum.repos.d/aurora.repo").read_text())
+                self.assertEqual((out / "root/etc/yum.repos.d/aurora.repo").read_text(), re.sub(
+                    r"(?m)^baseurl=.*$", "baseurl=https://packages.example.org/fedora/44/aarch64",
+                    configure.REPOSITORY_FILE.read_text()))
                 self.assertEqual((out / "root/etc/pki/rpm-gpg/RPM-GPG-KEY-aurora").read_bytes(), self.key.read_bytes())
                 self.assertEqual((out / "COPYING").read_text(), "upstream license fixture\n")
                 self.assertEqual(json.loads((out / "aurora-image.json").read_text()), receipt)
@@ -202,6 +206,46 @@ class ConfigureTests(unittest.TestCase):
                                         capture_output=True, text=True)
                 self.assertEqual(result.returncode == 0, passes, result.stderr)
         self.assertLess(script.index("\nsystemctl preset-all\n"), script.index("# Every profile ships the SSH server"))
+
+    def test_image_trusts_the_aurora_signing_key(self):
+        out = self.root / "signing-key"
+        self.prepare(out)
+        script = (out / "config.sh").read_text()
+        check = script[script.index("# The first install from the Aurora"):script.index("# Reject stale")]
+        self.assertIn(f"rpmkeys --list {self.fingerprint} ", check)
+        # The image build checks every Aurora package against that key too.
+        repository = ET.parse(out / "repositories/aurora.xml").getroot().find("repository")
+        self.assertEqual(repository.get("package_gpgcheck"), "true")
+        self.assertEqual(repository.find("source/signing").get("key"),
+                         (out.resolve() / "RPM-GPG-KEY-aurora").as_uri())
+        bindir = self.root / "signing-key-bin"
+        bindir.mkdir()
+        (bindir / "rpm").write_text('#!/bin/sh\necho "rpm $*" >> "$FAKE_RPM_LOG"\n')
+        (bindir / "rpmkeys").write_text('#!/bin/sh\necho "rpmkeys $*" >> "$FAKE_RPM_LOG"\n[ "$FAKE_KEY_PRESENT" = 1 ]\n')
+        for tool in ("rpm", "rpmkeys"):
+            (bindir / tool).chmod(0o755)
+        for present in ("1", "0"):
+            with self.subTest(present=present):
+                log = self.root / f"signing-key-{present}.log"
+                env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}",
+                           FAKE_KEY_PRESENT=present, FAKE_RPM_LOG=str(log))
+                result = subprocess.run(["bash", "-euo", "pipefail", "-c", check], env=env,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, present == "1", result.stderr)
+                self.assertEqual(log.read_text().splitlines(), [
+                    "rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-aurora",
+                    f"rpmkeys --list {self.fingerprint}"])
+
+    def test_requires_the_aurora_repos_repository_file(self):
+        changed = self.root / "changed.repo"
+        changed.write_text("[aurora]\nname=Aurora\nmetalink=https://packages.example.org/metalink\n")
+        original = configure.REPOSITORY_FILE
+        configure.REPOSITORY_FILE = changed
+        try:
+            with self.assertRaises(ValueError):
+                self.prepare(self.root / "changed-repository")
+        finally:
+            configure.REPOSITORY_FILE = original
 
     def test_rejects_wrong_source_key_profile_and_unsafe_repository(self):
         cases = [dict(lock={**self.lock, "commit": "0" * 40}),

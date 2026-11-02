@@ -7,14 +7,24 @@ qualification.
 
 ## Installed systems
 
-`images/configure.py` writes `/etc/yum.repos.d/aurora.repo` with
-`baseurl=https://aurorasilicon.org/fedora-aurora/44/<channel>/aarch64`, `gpgcheck=1`, `repo_gpgcheck=1`
+`images/configure.py` writes `/etc/yum.repos.d/aurora.repo` from `aurora-repos`'s own file, with
+`baseurl=https://aurorasilicon.org/fedora-aurora/44/<channel>/aarch64`, `gpgcheck=1`
 and `gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-aurora`. `<channel>` comes from the `images.yml` input;
 the default, `testing`, is today's URL. The `aurora-repos` package owns the same repo file (testing
 channel, `%config(noreplace)`) and the key, and ships the dnf5 vendor change policies in
 `/usr/share/dnf5/vendors.d/aurora*.conf`. `aurora-release` and `aurora-platform-core` require it, so a
 Fedora Asahi Remix system that takes Aurora's platform packages gets the repository and the policies
 together. An image built for another channel keeps its own baseurl in the config file.
+
+Packages are signature-checked; the repository metadata is not (`repo_gpgcheck=0`), although the feed
+still signs it. Fedora 44's dnf5 trusts a metadata key only after a prompt, and a refresh that nobody
+answers (the `dnf5-makecache` timer, `dnf` without a terminal, `dnf5 offline-upgrade`) skips the
+repository and every Aurora update in it. The setting is a dnf5 repository override,
+`/usr/share/dnf5/repos.override.d/50-aurora.repo`, so it also applies to a repo file that was changed
+locally. Once Fedora's dnf5 has `auto_import_local_keys`, which the override already sets, the metadata
+check can come back. The image imports the key into its rpm database (`config.sh` checks it), so the
+first Aurora install does not ask either, and the image build checks every Aurora package against it
+(`package_gpgcheck` in the KIWI repository).
 
 Fedora Asahi Remix sets `allow_vendor_change=False`. Images built before `aurora-release` 44-7 have no
 policies, so their first `dnf upgrade` brings the policies (`aurora-release` and `aurora-repos` carry no

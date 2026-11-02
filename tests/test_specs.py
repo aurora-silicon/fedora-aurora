@@ -1,3 +1,4 @@
+import configparser
 import json
 from pathlib import Path
 import re
@@ -169,9 +170,19 @@ class SpecTests(unittest.TestCase):
         self.assertEqual((d / 'RPM-GPG-KEY-aurora').read_bytes(), (ROOT / 'keys' / 'RPM-GPG-KEY-aurora').read_bytes())
         repo = (d / 'aurora.repo').read_text()
         self.assertIn('baseurl=https://aurorasilicon.org/fedora-aurora/44/testing/aarch64\n', repo)
-        for line in ['gpgcheck=1', 'repo_gpgcheck=1', 'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-aurora']:
-            self.assertIn(line + '\n', repo)
+        for line in ['gpgcheck=1', 'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-aurora']:
+            self.assertIn('\n' + line + '\n', repo)
+        self.assertNotIn('repo_gpgcheck', repo)
+        # Fedora 44's dnf5 cannot trust a metadata key without a prompt, and an
+        # unanswered prompt skips the repository. The override also covers a
+        # locally changed aurora.repo.
+        override = configparser.ConfigParser(interpolation=None)
+        override.read_string((d / 'aurora-override.repo').read_text())
+        self.assertEqual(override.sections(), ['aurora'])
+        self.assertEqual(dict(override['aurora']), {'repo_gpgcheck': '0', 'auto_import_local_keys': '1'})
+        self.assertIn('install -Dm644 %{SOURCE105} %{buildroot}/usr/share/dnf5/repos.override.d/50-aurora.repo', spec)
         files = spec.split('%files', 1)[1]
+        self.assertIn('\n/usr/share/dnf5/repos.override.d/50-aurora.repo\n', files)
         self.assertIn('%config(noreplace) %{_sysconfdir}/yum.repos.d/aurora.repo', files)
         self.assertIn('/usr/share/dnf5/vendors.d/aurora*.conf', files)
         self.assertRegex(spec, r'(?m)^Conflicts: aurora-release < 44-8$')
