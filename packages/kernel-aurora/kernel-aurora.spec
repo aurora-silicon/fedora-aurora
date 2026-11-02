@@ -1,9 +1,9 @@
-%global commit e1524e6135e9cdb47f124cdf11c757470f0443c8
+%global commit 0652b3be41f124c2a233b5c92b5eb73a53f8bb3d
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 12%{?dist}.aurora
+Release: 13%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -99,6 +99,15 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-13
+- Track aurora-silicon/linux aurora-wip at 0652b3b: the Type-C ports take a
+  USB4 router that binds after the deferred-probe timeout, keybag creation
+  may rewrite its shared xART record (Touch ID on a second Linux install),
+  NVRAM writes on the J616s and J700 boot NOR parts, the J614s M4 Pro
+  MacBook Pro, H16/H17 Neural Engine sleep, the ambient-light colour
+  temperature as in_colortemp_input, Wi-Fi suspend and scan fixes, and PMGR,
+  AVE and DCP fixes.
+
 * Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-12
 - Track aurora-silicon/linux aurora-wip at e1524e6 (fleet14l: HEVC 10-bit
   decode, ProRes and JPEG encoders, the M4 Pro PMU RTC wake alarm and the
