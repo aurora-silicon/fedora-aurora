@@ -1,9 +1,9 @@
-%global commit b35adc7ede082dd5e910e1b0d01fd84d7df27833
+%global commit 52f0a6bee13baf7311123b88f5d5913ca039539c
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 10%{?dist}.aurora
+Release: 11%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -99,6 +99,11 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-11
+- Track aurora-silicon/linux aurora-wip at 52f0a6b (fleet14h: Neo AVD
+  performance request, AV1 single-stream overlap, Neo H17 ANE disabled in
+  the device tree, mt7932 directed scan), promoted on all four Aurora Macs.
+
 * Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-10
 - Track aurora-silicon/linux aurora-wip at b35adc7 (fleet14g: external
   VRR, panel EDR, H16 ANE cold boot, H14 ANE program lifetime, Neo encoder
