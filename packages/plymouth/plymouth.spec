@@ -1,7 +1,7 @@
 Summary: Graphical Boot Animation and Logger
 Name: plymouth
 Version: 26.134.222
-Release: 6%{?dist}.aurora1
+Release: 6%{?dist}.aurora2
 License: GPL-2.0-or-later
 URL: http://www.freedesktop.org/wiki/Software/Plymouth
 
@@ -18,6 +18,10 @@ Patch: 0001-ply-device-manager-fix-default-XKB-keymap-fallback-o.patch
 
 Patch: 0001-ply-terminal-Keep-terminal-input-nonblocking.patch
 Source2: test-terminal-input.c
+
+# The DRM master can hand off before the HDR compositor closes its file.
+Patch: 0002-drm-Reset-inherited-HDR-connector-state-before-SDR.patch
+Source3: test-drm-sdr.c
 
 BuildRequires: meson
 BuildRequires: system-logos
@@ -259,6 +263,15 @@ find -type f -exec sed -i -e 's/Cantarell/Red Hat Text/g' {} \;
     -Wl,-rpath,$PWD/%{_vpath_builddir}/src/libply \
     -lply-splash-core -lply
 ./test-terminal-input
+%{__cc} -D_GNU_SOURCE -Wall \
+    -I. -Isrc/libply -Isrc/libply-splash-core \
+    $(pkg-config --cflags libdrm libevdev) \
+    %{SOURCE3} -o test-drm-sdr \
+    -L%{_vpath_builddir}/src/libply-splash-core -L%{_vpath_builddir}/src/libply \
+    -Wl,-rpath,$PWD/%{_vpath_builddir}/src/libply-splash-core \
+    -Wl,-rpath,$PWD/%{_vpath_builddir}/src/libply \
+    -lply-splash-core -lply $(pkg-config --libs libdrm libevdev) -lm
+./test-drm-sdr
 
 %install
 %meson_install
@@ -434,6 +447,10 @@ fi
 %files system-theme
 
 %changelog
+* Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.134.222-6.aurora2
+- Clear inherited HDR metadata and colorspace before presenting the SDR splash
+- Test DRM handoffs, cloned outputs and failed commits without hardware
+
 * Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.134.222-6.aurora1
 - Keep terminal keyboard reads nonblocking with a separate input descriptor
 - Run a PTY regression covering stale readiness and canonical input
