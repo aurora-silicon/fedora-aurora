@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 17%{?dist}
+Release: 18%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -133,6 +133,11 @@ fi
 if selinuxenabled 2>/dev/null && [ -c /dev/sep-bio ]; then
     restorecon /dev/sep-bio || :
 fi
+# The loader runs in its own domain from 1-18; label an installed copy now so
+# the next boot starts it there.
+if selinuxenabled 2>/dev/null && [ -f %{_libexecdir}/aurora-sep-load ]; then
+    restorecon %{_libexecdir}/aurora-sep-load || :
+fi
 # Move the driver's state files from var_lib_t to their own type. Only the
 # labels change: the files are never moved, rewritten or removed.
 if selinuxenabled 2>/dev/null; then
@@ -176,6 +181,14 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-18
+- SELinux: run aurora-sep-load in its own domain, aurora_sep_load_t, with the
+  same unconfined access it had as unconfined_service_t. Its probe keys then
+  carry that label, and a root process that lists /proc/keys while the probe
+  runs (the GDM session worker at an automatic login) is still denied view
+  of them, but the denial is no longer logged. This removes the boot AVC on
+  Macs where GDM starts before the probe ends.
+
 * Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-17
 - SELinux: give the driver's state files in /var/lib their own type,
   aurora_sep_state_t, label them so when the kernel creates them, relabel
