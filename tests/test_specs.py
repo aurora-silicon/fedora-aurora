@@ -25,6 +25,25 @@ class SpecTests(unittest.TestCase):
         self.assertEqual(fields['PRETTY_NAME'], '"Aurora Fedora Remix 44"')
         self.assertEqual((fields['ID'], fields['VARIANT_ID'], fields['LOGO']), ('fedora', 'aurora', 'aurora-logo-icon'))
         self.assertEqual((d / 'system-release').read_text(), 'Aurora Fedora Remix release 44\n')
+    def test_plasma_launcher_icon_is_kde_artwork_not_the_distribution_logo(self):
+        # Fedora's look-and-feel points the Plasma launcher at start-here.
+        # It must exist (Breeze lacks it, so a missing one is a blank icon)
+        # and carry Breeze's start-here-kde, which stock Plasma shows. The
+        # Aurora logo stays the distribution logo.
+        d = ROOT / 'packages' / 'aurora-logos'
+        text = (d / 'aurora-logos.spec').read_text()
+        files = text.split('%files', 1)[1].split('%changelog', 1)[0]
+        self.assertIn('%{_datadir}/icons/hicolor/*/places/start-here.svg', files)
+        self.assertNotIn('start-here.png', text)
+        installed = re.findall(r'breeze-start-here-kde-\$size\.svg \\\n\s+(\S+)', text)
+        self.assertEqual(installed, ['%{buildroot}%{_datadir}/icons/hicolor/${size}x${size}/places/start-here.svg',
+                                     '%{buildroot}%{_datadir}/icons/hicolor/${size}x${size}@2/places/start-here.svg'])
+        for size in (16, 22, 24, 32, 64, 96):
+            self.assertIn('class="ColorScheme-Text"', (d / f'breeze-start-here-kde-{size}.svg').read_text())
+        self.assertRegex(text, r'(?m)^License: MIT AND LGPL-3\.0-or-later$')
+        self.assertIn('%license breeze-COPYING-ICONS', files)
+        self.assertIn('version 3 of the License, or (at your option) any later version', (d / 'breeze-COPYING-ICONS').read_text())
+        self.assertIn('AuroraLogo-256.png %{buildroot}%{_datadir}/pixmaps/system-logo-white.png', text)
     def test_release_presets_sshd_off_ahead_of_fedora_default(self):
         # Fedora's 90-default.preset enables sshd.service; the desktop
         # identities that turned it off are replaced by aurora-release.
