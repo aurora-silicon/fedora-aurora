@@ -1,6 +1,6 @@
 Name: aurora-repos
 Version: 44
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Aurora Silicon package repository, signing key and dnf vendor policies
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -45,6 +45,12 @@ install -Dm644 %{SOURCE105} %{buildroot}/usr/share/dnf5/repos.override.d/50-auro
 /usr/share/dnf5/repos.override.d/50-aurora.repo
 
 %changelog
+* Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 44-3
+- Follow the installed Fedora release: the repository URL uses $releasever
+  instead of 44, and a release without an Aurora repository now fails the
+  refresh instead of being skipped. An upgrade to such a release used to
+  install it without Aurora's packages, or replace them with Fedora's.
+
 * Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 44-2
 - Check package signatures only. dnf5 asks before it trusts the repository
   metadata key, and a refresh that nobody answers, such as the makecache

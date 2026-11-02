@@ -95,7 +95,7 @@ class ConfigureTests(unittest.TestCase):
 
     def prepare(self, output, **kwargs):
         args = dict(source=self.source, destination=output, profile="fedora-kde",
-                    repository_url="https://packages.example.org/fedora/44/aarch64",
+                    repository_url="https://packages.example.org/fedora/$releasever/aarch64",
                     key=self.key, fingerprint=self.fingerprint, lock=self.lock)
         args.update(kwargs)
         return configure.prepare(**args)
@@ -143,7 +143,7 @@ class ConfigureTests(unittest.TestCase):
                 self.assertIn("dracut-config-rescue", exclusions)
                 self.assertFalse((out / "repositories/asahi.xml").exists())
                 self.assertEqual((out / "root/etc/yum.repos.d/aurora.repo").read_text(), re.sub(
-                    r"(?m)^baseurl=.*$", "baseurl=https://packages.example.org/fedora/44/aarch64",
+                    r"(?m)^baseurl=.*$", "baseurl=https://packages.example.org/fedora/$releasever/aarch64",
                     configure.REPOSITORY_FILE.read_text()))
                 self.assertEqual((out / "root/etc/pki/rpm-gpg/RPM-GPG-KEY-aurora").read_bytes(), self.key.read_bytes())
                 self.assertEqual((out / "COPYING").read_text(), "upstream license fixture\n")
@@ -280,7 +280,9 @@ class ConfigureTests(unittest.TestCase):
                  dict(fingerprint="0" * 40), dict(profile="not-fedora"),
                  dict(repository_url="http://packages.example.org"),
                  dict(repository_url="https://user:secret@packages.example.org"),
-                 dict(repository_url="https://packages.example.org/?token=secret")]
+                 dict(repository_url="https://packages.example.org/?token=secret"),
+                 dict(repository_url="https://packages.example.org/fedora/44/aarch64"),
+                 dict(repository_url="https://packages.example.org/fedora?release=$releasever")]
         for index, kwargs in enumerate(cases):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 self.prepare(self.root / f"rejected-{index}", **kwargs)

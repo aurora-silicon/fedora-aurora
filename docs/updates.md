@@ -8,13 +8,22 @@ qualification.
 ## Installed systems
 
 `images/configure.py` writes `/etc/yum.repos.d/aurora.repo` from `aurora-repos`'s own file, with
-`baseurl=https://aurorasilicon.org/fedora-aurora/44/<channel>/aarch64`, `gpgcheck=1`
-and `gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-aurora`. `<channel>` comes from the `images.yml` input;
-the default, `testing`, is today's URL. The `aurora-repos` package owns the same repo file (testing
-channel, `%config(noreplace)`) and the key, and ships the dnf5 vendor change policies in
-`/usr/share/dnf5/vendors.d/aurora*.conf`. `aurora-release` and `aurora-platform-core` require it, so a
-Fedora Asahi Remix system that takes Aurora's platform packages gets the repository and the policies
-together. An image built for another channel keeps its own baseurl in the config file.
+`baseurl=https://aurorasilicon.org/fedora-aurora/$releasever/<channel>/aarch64`, `gpgcheck=1`,
+`gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-aurora` and `skip_if_unavailable=False`. `<channel>` comes
+from the `images.yml` input; the default, `testing`, is today's URL. The `aurora-repos` package owns the
+same repo file (testing channel, `%config(noreplace)`) and the key, and ships the dnf5 vendor change
+policies in `/usr/share/dnf5/vendors.d/aurora*.conf`. `aurora-release` and `aurora-platform-core` require
+it, so a Fedora Asahi Remix system that takes Aurora's platform packages gets the repository and the
+policies together. An image built for another channel keeps its own baseurl in the config file.
+
+The feed publishes only `44/`. dnf resolves `$releasever` for the release it is installing, so
+`dnf system-upgrade download --releasever=45` asks for `45/` and stops with
+`Failed to download metadata ... for repository "aurora"` until that tree exists. Otherwise dnf would
+skip the repository, and with the `--allowerasing` it suggests, the upgrade removes `aurora-release` and
+replaces Aurora's packages with Fedora's where it can. A refresh also fails when the site cannot be
+reached, as with Fedora's own repositories. Upgrading before an Aurora tree exists takes an explicit
+`--disablerepo=aurora`. A new Fedora release needs `<release>/<channel>/aarch64` published (the
+producer scripts write `44/` today) and an `aurora-release` for it.
 
 Packages are signature-checked; the repository metadata is not (`repo_gpgcheck=0`), although the feed
 still signs it. Fedora 44's dnf5 trusts a metadata key only after a prompt, and a refresh that nobody

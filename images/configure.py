@@ -105,6 +105,10 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
     if (url.scheme != "https" or not url.hostname or url.username or url.password
             or url.query or url.fragment or any(c.isspace() for c in repository_url)):
         raise ValueError("repository URL must be an HTTPS base URL without credentials or query")
+    # The installed system resolves it for its own release, so an upgrade
+    # moves to that release's repository.
+    if "$releasever" not in url.path:
+        raise ValueError("repository URL must contain $releasever")
     if not key.is_file() or key.is_symlink():
         raise ValueError("repository signing key must be a regular file")
     fingerprint = fingerprint.upper()
