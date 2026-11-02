@@ -13,6 +13,9 @@ filesystems the installer writes):
   network    NetworkManager is enabled; desktops ship its settings UI
   lid        logind still suspends on lid close; sleep is not masked
   GL         factory images leave Mesa driver selection automatic
+  flatpak-gl (--flatpak-gl) Flatpak apps get the host Mesa: GL.aurora is
+             installed for every runtime branch, built from the host Mesa
+             commit, and selected ahead of Flathub's GL.default
 
 --system names a NixOS system closure; its software and /etc are read
 from there instead of /usr and /etc.
@@ -99,6 +102,35 @@ def check_gl_selection(root):
             for key in ('MESA_LOADER_DRIVER_OVERRIDE', 'GALLIUM_DRIVER'):
                 if values.get(key):
                     return f'global {key} in {file}; leave factory GL selection automatic'
+    return None
+
+
+FLATPAK_GL = 'org.freedesktop.Platform.GL.aurora'
+FLATPAK_GL_BRANCHES = ('25.08', '26.08')
+
+
+def check_flatpak_gl(root):
+    """GL.aurora is installed, matches the host Mesa, and is selected."""
+    libraries = sorted(root.path(f'{root.usr}/lib64').glob('libgallium-*.so'))
+    if not libraries:
+        return 'the host Mesa (libgallium) is missing'
+    host = libraries[0].read_bytes()
+    for branch in FLATPAK_GL_BRANCHES:
+        ref = f'{FLATPAK_GL}/aarch64/{branch}'
+        stamp = root.text(f'/var/lib/flatpak/runtime/{ref}/active/files/.aurora-mesa-commit')
+        if stamp is None:
+            return f'{ref} is not installed in the system Flatpak installation'
+        commit = stamp.strip()
+        if not re.fullmatch(r'[0-9a-f]{40}', commit):
+            return f'{ref} has no Mesa commit stamp'
+        # Mesa names its build "(git-<10 hex>)" in every driver.
+        if f'(git-{commit[:10]})'.encode() not in host:
+            return f'{ref} is Mesa {commit[:12]}, not the host Mesa ({libraries[0].name})'
+    drivers = assignments(root.text('/usr/lib/environment.d/60-aurora-flatpak-gl.conf')).get('FLATPAK_GL_DRIVERS', '')
+    if 'aurora:' not in drivers:
+        return 'FLATPAK_GL_DRIVERS does not select GL.aurora (/usr/lib/environment.d/60-aurora-flatpak-gl.conf)'
+    if 'VK_DRIVER_FILES' not in assignments(root.text('/var/lib/flatpak/overrides/global')):
+        return 'the system Flatpak override does not point Vulkan at the merged GL drivers'
     return None
 
 
@@ -289,6 +321,8 @@ def main():
     parser.add_argument('--boot-image', help='the /boot filesystem image (ext4)')
     parser.add_argument('--boot-uuid', help='the /boot filesystem UUID')
     parser.add_argument('--grub-flavor', choices=['arch', 'fedora'], default='arch')
+    parser.add_argument('--flatpak-gl', action='store_true',
+                        help='require GL.aurora in the system Flatpak installation')
     args = parser.parse_args()
     if not args.root and not args.esp:
         parser.error('nothing to check: give --root, --esp or both')
@@ -299,6 +333,8 @@ def main():
         root = Root(args.root, args.system)
         checks.append(('locale', check_locale(root)))
         checks.append(('gl-selection', check_gl_selection(root)))
+        if args.flatpak_gl:
+            checks.append(('flatpak-gl', check_flatpak_gl(root)))
         if args.profile != 'minimal':
             checks.append(('terminal', check_terminal(root, args.profile)))
             checks.append(('wallpaper', check_wallpaper(root, args.profile)))
