@@ -168,6 +168,14 @@ jobs:
           test "$(uname -m)" = aarch64
           sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet
           df -h .
+          free -h
+          # Extra paging capacity for gkrust alongside native C++ compilation.
+          swap="$RUNNER_TEMP/firefox-avd-${GITHUB_RUN_ID}.swap"
+          sudo fallocate -l 16G "$swap"
+          sudo chmod 600 "$swap"
+          sudo mkswap "$swap"
+          sudo swapon "$swap"
+          free -h
       - name: Build and verify the unchanged Fedora 45 candidate natively
         run: |
           set -euo pipefail
@@ -197,7 +205,14 @@ jobs:
               mv "$log.redacted" "$log"
             fi
           done
-          find out -type f -name '*.rpm' -print0 | sort -z | xargs -0 -r sha256sum > out/SHA256SUMS
+          {
+            for directory in out/rpms out/srpms out/firefox-fc45/RPMS out/firefox-fc45/SRPMS; do
+              if test -d "$directory"; then find "$directory" -type f -name '*.rpm' -print0; fi
+            done
+          } | sort -z | xargs -0 -r sha256sum > out/SHA256SUMS
+          free -h
+          df -h .
+          sudo dmesg | grep -Ei 'out of memory|oom-kill|killed process' > out/memory-events.log || true
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
@@ -214,5 +229,6 @@ jobs:
             out/srpms/*.rpm
             out/native-build.log
             out/SHA256SUMS
+            out/memory-events.log
           if-no-files-found: error
           retention-days: 30

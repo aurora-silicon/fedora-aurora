@@ -9,5 +9,11 @@ sensitive = re.compile(
     r'|CARGO_PKG_AUTHORS=|https?://[^/\s:@]+:[^/\s@]+@', re.IGNORECASE
 )
 for line in sys.stdin:
-    print('[build configuration value omitted]' if sensitive.search(line)
-          else line.rstrip('\n'), flush=True)
+    if sensitive.search(line):
+        # Cargo appends the cause after a command containing author/env values.
+        # Retain only a narrowly parsed signal or numeric exit code.
+        cause = re.search(r"\((?:signal: \d+, SIG[A-Z]+: [a-z ]+|exit status: \d+)\)", line)
+        suffix = ' ' + cause.group(0) if cause else ''
+        print('[build configuration value omitted]' + suffix, flush=True)
+    else:
+        print(line.rstrip('\n'), flush=True)
