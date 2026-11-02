@@ -46,6 +46,11 @@ class ConfigureTests(unittest.TestCase):
                 '<ignore name="amd-gpu-firmware"/><ignore name="intel-gpu-firmware"/>'
                 '<ignore name="nvidia-gpu-firmware"/><ignore name="iwlwifi-mvm-firmware"/>'
                 '<ignore name="qcom-firmware"/><ignore name="dracut-config-rescue"/></packages></image>')
+        for path, (profile, _) in configure.EXCLUDED.items():
+            (cls.source / path).write_text(
+                f'<image><profiles><profile name="{profile}" description="Desktop"/></profiles>'
+                f'<packages type="image" profiles="{profile}"><namedCollection name="input-methods"/>'
+                '</packages></image>')
         (cls.source / "repositories/asahi.xml").write_text("<image/>")
         (cls.source / "root/etc").mkdir()
         (cls.source / "root/etc/fstab.script").write_text(
@@ -224,7 +229,8 @@ class ConfigureTests(unittest.TestCase):
         config = output / "config.sh"
         config.write_text(config.read_text().replace("/usr/lib/systemd/system", str(image_root / "usr/lib/systemd/system"))
                           .replace("/usr/libexec/aurora", str(image_root / "usr/libexec/aurora"))
-                          .replace("/usr/lib/modules/", str(image_root / "usr/lib/modules") + "/"))
+                          .replace("/usr/lib/modules/", str(image_root / "usr/lib/modules") + "/")
+                          .replace("/etc/xdg/autostart", str(image_root / "etc/xdg/autostart")))
         kernel = image_root / "usr/lib/modules/fixture/config"
         kernel.parent.mkdir(parents=True)
         kernel.write_text("CONFIG_SECURITY_SELINUX=y\nCONFIG_SND_SOC_MAX98357A=m\n")
@@ -247,7 +253,8 @@ class ConfigureTests(unittest.TestCase):
         config = output / "config.sh"
         config.write_text(config.read_text().replace("/usr/lib/systemd/system", str(units))
                           .replace("/usr/libexec/aurora", str(image / "usr/libexec/aurora"))
-                          .replace("/usr/lib/modules/", str(image / "usr/lib/modules") + "/"))
+                          .replace("/usr/lib/modules/", str(image / "usr/lib/modules") + "/")
+                          .replace("/etc/xdg/autostart", str(image / "etc/xdg/autostart")))
         kernel = image / "usr/lib/modules/fixture/config"
         kernel.parent.mkdir(parents=True)
         kernel.write_text("CONFIG_SECURITY_SELINUX=y\nCONFIG_SND_SOC_MAX98357A=m\n")
@@ -287,7 +294,8 @@ class ConfigureTests(unittest.TestCase):
         config = output / "config.sh"
         config.write_text(config.read_text().replace("/usr/lib/systemd/system", str(units))
                           .replace("/usr/share/gnome-session/sessions", str(sessions))
-                          .replace("/usr/lib/modules/", str(image / "usr/lib/modules") + "/"))
+                          .replace("/usr/lib/modules/", str(image / "usr/lib/modules") + "/")
+                          .replace("/etc/xdg/autostart", str(image / "etc/xdg/autostart")))
         kernel = image / "usr/lib/modules/fixture/config"
         kernel.parent.mkdir(parents=True)
         kernel.write_text("CONFIG_SECURITY_SELINUX=y\nCONFIG_SND_SOC_MAX98357A=m\n")
@@ -318,7 +326,8 @@ class ConfigureTests(unittest.TestCase):
         image = self.root / "kernel-image-root"
         config = output / "config.sh"
         config.write_text(config.read_text().replace("/usr/lib/systemd/system", str(image / "usr/lib/systemd/system"))
-                          .replace("/usr/lib/modules/", str(image / "usr/lib/modules") + "/"))
+                          .replace("/usr/lib/modules/", str(image / "usr/lib/modules") + "/")
+                          .replace("/etc/xdg/autostart", str(image / "etc/xdg/autostart")))
         kernel = image / "usr/lib/modules/fixture/config"
         kernel.parent.mkdir(parents=True)
         commands = self.root / "kernel-commands"
@@ -364,7 +373,8 @@ class ConfigureTests(unittest.TestCase):
         image = self.root / "presets-image-root"
         config = self.root / "presets-fedora-minimal/config.sh"
         config.write_text(config.read_text().replace("/usr/lib/systemd/system", str(image / "usr/lib/systemd/system"))
-                          .replace("/usr/lib/modules/", str(image / "usr/lib/modules") + "/"))
+                          .replace("/usr/lib/modules/", str(image / "usr/lib/modules") + "/")
+                          .replace("/etc/xdg/autostart", str(image / "etc/xdg/autostart")))
         kernel = image / "usr/lib/modules/fixture/config"
         kernel.parent.mkdir(parents=True)
         kernel.write_text("CONFIG_SECURITY_SELINUX=y\nCONFIG_SND_SOC_MAX98357A=m\n")
@@ -383,13 +393,35 @@ class ConfigureTests(unittest.TestCase):
         self.assertIn("must boot to multi-user.target", result.stderr)
         result, log = run("multi-user.target")
         self.assertEqual(result.returncode, 0, result.stderr)
+        autostart = image / "etc/xdg/autostart/imsettings-start.desktop"
+        autostart.parent.mkdir(parents=True)
+        autostart.touch()
+        result, log = run("multi-user.target")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("imsettings", result.stderr)
 
-    def test_rejects_changed_upstream_units(self):
+    def test_desktop_images_leave_out_imsettings(self):
+        out = self.root / "imsettings"
+        receipt = self.prepare(out)
+        tree = ET.parse(out / "components/desktop-environments.xml").getroot()
+        ignored = {node.get("name") for group in tree.iter("packages")
+                   if group.get("profiles") == "DesktopCommon" for node in group.iter("ignore")}
+        self.assertTrue({"imsettings", "imsettings-libs", "imsettings-gsettings", "imsettings-plasma",
+                         "im-chooser", "im-chooser-common"} <= ignored)
+        self.assertEqual(receipt["excluded_packages"]["components/desktop-environments.xml"],
+                         configure.EXCLUDED["components/desktop-environments.xml"][1])
+
+    def test_rejects_changed_upstream_units_and_desktop_profiles(self):
         def drop_units(source):
             path = source / "config.sh"
             path.write_text(path.read_text().replace(UPSTREAM_UNITS, ""))
 
-        for name, edit, message in (("no-units", drop_units, "first-boot units"),):
+        def rename_profile(source):
+            path = source / "components/desktop-environments.xml"
+            path.write_text(path.read_text().replace('name="DesktopCommon"', 'name="Desktop"'))
+
+        for name, edit, message in (("no-units", drop_units, "first-boot units"),
+                                    ("no-desktop", rename_profile, "DesktopCommon")):
             with self.subTest(name=name):
                 source, lock = self.variant(f"upstream-{name}", edit)
                 with self.assertRaisesRegex(ValueError, message):

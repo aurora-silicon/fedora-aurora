@@ -41,6 +41,15 @@ PACKAGES = {
         "openssh-server",
     ]),
 }
+# Fedora's imsettings turns itself off on GNOME and Plasma, but its autostart
+# entry still runs there and fails on every login. Both desktops configure
+# input methods themselves.
+EXCLUDED = {
+    "components/desktop-environments.xml": ("DesktopCommon", [
+        "imsettings", "imsettings-libs", "imsettings-gsettings", "imsettings-plasma",
+        "im-chooser", "im-chooser-common",
+    ]),
+}
 # Quiet by default: the splash (desktops) or a clean console, with failures
 # still reported. systemd shows status only when a unit fails or stalls.
 QUIET_BOOT = ["quiet", "loglevel=3", "rd.udev.log_level=3", "systemd.show_status=auto"]
@@ -154,14 +163,19 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
             node.set("from", "this://./repositories/aurora.xml")
     write_xml(tree, destination / "config.xml")
 
-    for name, (selected_profile, packages) in PACKAGES.items():
+    for (name, (selected_profile, packages)), tag in [
+            *((item, "package") for item in PACKAGES.items()),
+            *((item, "ignore") for item in EXCLUDED.items())]:
         path = destination / name
         tree = ET.parse(path)
+        if tag == "ignore" and not any(node.get("name") == selected_profile
+                                       for node in tree.iter("profile")):
+            raise ValueError(f"upstream {selected_profile} profile changed; review the integration")
         group = ET.SubElement(tree.getroot(), "packages", {
             "type": "image", "profiles": selected_profile,
         })
         for package in packages:
-            ET.SubElement(group, "package", {"name": package})
+            ET.SubElement(group, tag, {"name": package})
         write_xml(tree, path)
 
     key_bytes = key.read_bytes()
@@ -206,6 +220,10 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
 systemctl preset-all
 if [[ "$(systemctl get-default)" != @DEFAULT_TARGET@ ]]; then
     echo 'The image must boot to @DEFAULT_TARGET@' >&2
+    exit 1
+fi
+if [[ -e /etc/xdg/autostart/imsettings-start.desktop ]]; then
+    echo 'imsettings would fail to start on every login' >&2
     exit 1
 fi
 
@@ -280,6 +298,7 @@ exit 0
                    "root_subvolume": "root", "home_subvolume": "home",
                    "boot_manager": "grub2", "initramfs": "dracut"},
         "packages": {name: packages for name, (_, packages) in PACKAGES.items()},
+        "excluded_packages": {name: packages for name, (_, packages) in EXCLUDED.items()},
         "build_command": ["kiwi-ng", "--target-arch=aarch64", "--type=oem", f"--profile={PROFILES[profile]}",
                           "system", "build", "--description", str(destination.resolve()),
                           "--target-dir", str(destination.resolve().with_name(destination.name + "-image"))],
