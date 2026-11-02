@@ -3,7 +3,9 @@
 # Run inside a disposable Fedora 45 aarch64 container in a controller slot.
 set -euo pipefail
 # Fedora's Cargo/CMake sub-builds do not consume RPM's make job settings.
-export CARGO_BUILD_JOBS=8 CMAKE_BUILD_PARALLEL_LEVEL=8
+jobs=${AURORA_BUILD_JOBS:-8}
+[[ $jobs =~ ^[1-8]$ ]] || { echo 'AURORA_BUILD_JOBS must be 1..8' >&2; exit 2; }
+export CARGO_BUILD_JOBS=$jobs CMAKE_BUILD_PARALLEL_LEVEL=$jobs
 source_only=0
 case ${1:-} in
   '') ;;
@@ -51,7 +53,7 @@ dnf builddep -y "$top/SPECS/firefox.spec"
 rpmspec --parse --with avd_request "$top/SPECS/firefox.spec" > "$result/expanded.spec"
 if [[ $source_only == 1 ]]; then
   rpmbuild -bs --with avd_request --define "_topdir $top" \
-    --define '_smp_build_ncpus 8' --define '_smp_mflags -j8' \
+    --define "_smp_build_ncpus $jobs" --define "_smp_mflags -j$jobs" \
     "$top/SPECS/firefox.spec"
   find "$top/SRPMS" -type f -name '*.rpm' -exec sha256sum '{}' \; \
     > "$result/rpm-sha256.txt"
@@ -59,7 +61,7 @@ if [[ $source_only == 1 ]]; then
   exit 0
 fi
 rpmbuild -ba --noclean --with avd_request --define "_topdir $top" \
-  --define '_smp_build_ncpus 8' --define '_smp_mflags -j8' \
+  --define "_smp_build_ncpus $jobs" --define "_smp_mflags -j$jobs" \
   "$top/SPECS/firefox.spec"
 python3 - "$top/BUILD" <<'PY'
 from pathlib import Path
