@@ -70,6 +70,10 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(self.plan({'avd-fw': {'commit': 'new'}}, shared_tooling='build-flatpak-gl-repo'),
                          ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])
 
+    def test_release_selection_helper_invalidates_every_build(self):
+        self.assertEqual(self.plan({}, shared_tooling='fedoralib.py'),
+                         ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])
+
     def test_pr_source_change_builds_affected_recipes_without_unrelated_kernel(self):
         self.assertEqual(self.plan({'mesa-aurora': {'commit': 'new'}}, event_name='pull_request'),
                          ['mesa-aurora'])

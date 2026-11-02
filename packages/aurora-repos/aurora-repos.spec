@@ -1,6 +1,6 @@
 Name: aurora-repos
 Version: 44
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Aurora Silicon package repository, signing key and dnf vendor policies
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -41,6 +41,9 @@ install -Dm644 %{SOURCE104} %{buildroot}/usr/share/dnf5/vendors.d/aurora-unvendo
 /usr/share/dnf5/vendors.d/aurora*.conf
 
 %changelog
+* Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-2
+- Select the testing repository by Fedora $releasever for Fedora 44 and 45.
+
 * Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-1
 - Own the Aurora repository file and signing key, which images used to write
   without a package, and carry the dnf5 vendor change policies that were in

@@ -78,6 +78,23 @@ class SpecTests(unittest.TestCase):
         self.assertEqual(json.loads((ROOT / 'sources.json').read_text())['mesa-aurora']['commit'], gl[0])
         self.assertIn('aurora-mesa-commit.', gl[3])
         self.assertIn('aurora-mesa-commit.', (ROOT / 'packages' / 'aurora-flatpak-gl' / 'build-extension.sh').read_text())
+    def test_fedora45_graphics_are_pinned_and_versioned_together(self):
+        import sys
+        sys.path.insert(0, str(ROOT / 'scripts'))
+        import fedoralib
+        host = fedoralib.recipe_files(ROOT, 'mesa-aurora', 45)['mesa-aurora.spec'].read_text()
+        pin = fedoralib.sources(ROOT, 45)['mesa-aurora']
+        self.assertIn('%global commit ' + pin['commit'], host)
+        self.assertRegex(host, r'(?m)^Epoch: 1$')
+        self.assertRegex(host, r'(?m)^Release: 14%\{\?dist\}.aurora$')
+        for name in ('mesa-aurora-fex-guest', 'aurora-flatpak-gl'):
+            text = fedoralib.recipe_files(ROOT, name, 45)[name + '.spec'].read_text()
+            self.assertIn('%global commit ' + pin['commit'], text)
+            self.assertIn('%global host_release 14%{?dist}.aurora', text)
+        guest = fedoralib.recipe_files(ROOT, 'mesa-aurora-fex-guest', 45)['mesa-aurora-fex-guest.spec'].read_text()
+        self.assertIn('Requires: mesa-dri-drivers = %{epoch}:%{version}-%{release}', guest)
+        self.assertIn('Requires: mesa-vulkan-drivers = %{epoch}:%{version}-%{release}', guest)
+
     def test_flatpak_gl_settings_name_the_files_the_extension_ships(self):
         d = ROOT / 'packages' / 'aurora-flatpak-gl'
         helper = (d / 'aurora-flatpak-gl').read_text()
@@ -116,7 +133,10 @@ class SpecTests(unittest.TestCase):
         spec = (d / 'aurora-repos.spec').read_text()
         self.assertEqual((d / 'RPM-GPG-KEY-aurora').read_bytes(), (ROOT / 'keys' / 'RPM-GPG-KEY-aurora').read_bytes())
         repo = (d / 'aurora.repo').read_text()
-        self.assertIn('baseurl=https://aurorasilicon.org/fedora-aurora/44/testing/aarch64\n', repo)
+        self.assertIn('baseurl=https://aurorasilicon.org/fedora-aurora/$releasever/testing/aarch64\n', repo)
+        for releasever in ('44', '45'):
+            self.assertIn(f'baseurl=https://aurorasilicon.org/fedora-aurora/{releasever}/testing/aarch64\n',
+                          repo.replace('$releasever', releasever))
         for line in ['gpgcheck=1', 'repo_gpgcheck=1', 'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-aurora']:
             self.assertIn(line + '\n', repo)
         files = spec.split('%files', 1)[1]

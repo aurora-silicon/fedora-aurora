@@ -1,6 +1,6 @@
 [aurora]
 name=Aurora Silicon for Fedora
-baseurl=https://aurorasilicon.org/fedora-aurora/44/testing/aarch64
+baseurl=https://aurorasilicon.org/fedora-aurora/$releasever/testing/aarch64
 enabled=1
 gpgcheck=1
 repo_gpgcheck=1

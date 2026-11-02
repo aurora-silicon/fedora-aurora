@@ -9,8 +9,11 @@ import shutil
 import sys
 import subprocess
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import fedoralib
+
 SHARED = ('.github/workflows/rpms.yml', 'scripts/build-rpm',
-          'scripts/fetch-sources.py', 'scripts/build-receipt.py', 'scripts/build-flatpak-gl-repo')
+          'scripts/fetch-sources.py', 'scripts/build-receipt.py', 'scripts/build-flatpak-gl-repo', 'scripts/fedoralib.py')
 # Recipes whose payload is x86 code for FEX guests are built on x86_64.
 X86_BUILDER = '# aurora-builder: x86_64'
 
@@ -24,7 +27,8 @@ def git(root, *args):
     return subprocess.check_output(['git', '-C', str(root), *args], text=True).strip()
 
 
-def import_build(root, metadata, artifacts, output, repository, matching_only=False, packages=None):
+def import_build(root, metadata, artifacts, output, repository, matching_only=False, packages=None, fedora=44):
+    fedora = fedoralib.release(fedora)
     commit = metadata.get('head_sha', '')
     if (metadata.get('conclusion') != 'success' or metadata.get('head_repository', {}).get('full_name') != repository
             or metadata.get('event') not in ('push', 'workflow_dispatch')
@@ -38,7 +42,8 @@ def import_build(root, metadata, artifacts, output, repository, matching_only=Fa
             raise ValueError(f'The native build tooling changed: {name}')
     previous = json.loads(git(root, 'show', f'{commit}:sources.json'))
     current = json.loads((root / 'sources.json').read_text())
-    manifests = sorted(artifacts.glob('rpm-*/out/manifests/*.json'))
+    manifests = sorted(p for p in artifacts.glob('rpm-*/out/manifests/*.json')
+                       if p.parents[2].name == fedoralib.artifact(p.stem, fedora))
     if not manifests:
         raise ValueError('The build has no package receipts')
     selected = []
@@ -46,21 +51,23 @@ def import_build(root, metadata, artifacts, output, repository, matching_only=Fa
     for receipt in manifests:
         data = json.loads(receipt.read_text())
         name = data.get('package', '')
-        if not re.fullmatch('[a-z0-9][a-z0-9-]*', name) or receipt.parents[2].name != 'rpm-' + name:
+        if not re.fullmatch('[a-z0-9][a-z0-9-]*', name) or receipt.parents[2].name != fedoralib.artifact(name, fedora):
             raise ValueError('Unexpected package receipt location')
         if packages is not None and name not in packages:
             continue
         directory = root / 'packages' / name
-        recipe = directory / (name + '.spec')
-        builder = 'x86_64' if recipe.is_file() and X86_BUILDER in recipe.read_text().splitlines() else 'aarch64'
-        if data.get('succeeded') is not True or data.get('architecture') != builder:
-            raise ValueError(f'Package did not complete a native {builder} build')
         if not directory.is_dir() or git(root, 'rev-parse', f'{commit}:packages/{name}') != git(root, 'rev-parse', f'HEAD:packages/{name}'):
             if matching_only:
                 print(f'Skipping superseded package recipe: {name}', file=sys.stderr)
                 continue
             raise ValueError(f'The package recipe changed: {name}')
-        expected = {p.name: digest(p) for p in directory.iterdir() if p.is_file()}
+        recipe = fedoralib.recipe_files(root, name, fedora)[name + '.spec']
+        if data.get('fedora', 44) != fedora:
+            raise ValueError('Package receipt belongs to another Fedora release')
+        builder = 'x86_64' if recipe.is_file() and X86_BUILDER in recipe.read_text().splitlines() else 'aarch64'
+        if data.get('succeeded') is not True or data.get('architecture') != builder:
+            raise ValueError(f'Package did not complete a native {builder} build')
+        expected = fedoralib.recipe_inputs(root, name, fedora)
         if data.get('recipe_inputs') != expected or previous.get(name) != current.get(name):
             if matching_only:
                 print(f'Skipping superseded package inputs: {name}', file=sys.stderr)
@@ -73,6 +80,8 @@ def import_build(root, metadata, artifacts, output, repository, matching_only=Fa
             filename = record['filename']
             if Path(filename).name != filename or not filename.endswith('.rpm') or filename in recorded:
                 raise ValueError('Unexpected artifact filename')
+            if (fedora == 45 and not re.search(r'\.fc45(?:[.~-])', filename)) or (fedora == 44 and re.search(r'\.fc45(?:[.~-])', filename)):
+                raise ValueError('RPM belongs to another Fedora release')
             recorded.add(filename)
             kind = 'srpms' if filename.endswith(('.src.rpm', '.nosrc.rpm')) else 'rpms'
             path = packaged / kind / filename
@@ -98,6 +107,7 @@ def import_build(root, metadata, artifacts, output, repository, matching_only=Fa
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--fedora-release', type=int, choices=fedoralib.RELEASES, default=44)
     parser.add_argument('--metadata', type=Path, required=True)
     parser.add_argument('--artifacts', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
@@ -109,7 +119,7 @@ def main():
     args = parser.parse_args()
     count = import_build(Path(__file__).resolve().parents[1], json.loads(args.metadata.read_text()),
                          args.artifacts, args.output, args.repository, args.matching_only,
-                         set(args.packages) if args.packages else None)
+                         set(args.packages) if args.packages else None, args.fedora_release)
     print(f'Accepted {count} native package build(s) with unchanged merged inputs')
 
 

@@ -6,6 +6,12 @@ on:
   pull_request:
     paths: [sources.json, packages/aurora-sep/**, packages/libfprint/**, packages/fprintd/**, scripts/build-rpm, scripts/fetch-sources.py, scripts/build-receipt.py, scripts/test-touchid-upgrade, .github/workflows/touchid-fedora45.yml]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ci-candidates:
+        description: Validate the current rpms.yml run's Fedora 45 outputs
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -24,11 +30,30 @@ jobs:
           ref: 09dec299bf0bd35d1990038e9b10c75f3dea253f
           path: baseline
           persist-credentials: false
+      # rpms.yml supplies the exact candidates already built in this run.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: inputs.ci-candidates
+        with:
+          name: rpm-f45-libfprint
+          path: candidate
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: inputs.ci-candidates
+        with:
+          name: rpm-f45-fprintd
+          path: candidate
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: inputs.ci-candidates
+        with:
+          name: rpm-f45-aurora-sep
+          path: candidate
       - name: Build native Fedora 45 candidates and Fedora 44 v5 baseline
+        env:
+          CI_CANDIDATES: ${{ inputs.ci-candidates || false }}
         run: |
           set -euo pipefail
           for pair in candidate:45 baseline:44; do
             tree=${pair%:*}; release=${pair#*:}
+            if [[ $tree == candidate && $CI_CANDIDATES == true ]]; then continue; fi
             docker run --rm --platform linux/arm64 -v "$PWD/$tree:/src" -w /src \
               registry.fedoraproject.org/fedora:$release bash -euxo pipefail -c '
                 dnf install -y rpm-build dnf5-plugins python3 git tar gzip coreutils findutils

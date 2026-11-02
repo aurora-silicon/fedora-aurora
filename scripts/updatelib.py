@@ -824,11 +824,20 @@ def load_channels(root, repository, remote='origin'):
 
 
 def record_channel(state, channel, entry, keep=200):
-    if channel not in ('testing', 'stable'):
+    if channel not in ('testing', 'stable', '45/testing'):
         raise ValueError('unknown channel')
     state = json.loads(json.dumps(state))
     state['channels'][channel] = entry
-    state['history'] = ([{'channel': channel, **entry}] + state.get('history', []))[:keep]
+    # F45 publication must not evict the F44 testing soak/rollback history.
+    history = [{'channel': channel, **entry}] + state.get('history', [])
+    counts = {44: 0, 45: 0}
+    retained = []
+    for item in history:
+        fedora = 45 if item.get('channel') == '45/testing' else 44
+        if counts[fedora] < keep:
+            retained.append(item)
+            counts[fedora] += 1
+    state['history'] = retained
     return state
 
 
