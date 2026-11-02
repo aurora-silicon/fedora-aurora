@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / 'scripts/check-basics.py'
 BOOT = '2025cecd-807c-5835-9ad4-e547cfdeb279'
 PREAMBLE = '# Aurora: look for this installation only on the disk GRUB started from.\n'
+MESA = 'c208afc352e9d4c10ee71c883a369a9079dd7d84'
 
 
 def write(path, text='', mode=None):
@@ -184,6 +185,55 @@ class CheckBasicsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout)
         write(root / etc.lstrip('/') / 'locale.conf', 'LANG=C\n')
         self.assertNotEqual(self.check('--profile', 'gnome', '--root', str(root), '--system', system).returncode, 0)
+
+    def flatpak_gl(self, root, commit=MESA, host=MESA, branches=('25.08', '26.08')):
+        """A root with the host Mesa and GL.aurora as aurora-flatpak-gl installs it."""
+        write(root / 'usr/lib64/libgallium-26.3.0-devel.so', f'\0Mesa 26.3.0-devel (git-{host[:10]})\0'.encode())
+        for branch in branches:
+            ref = root / f'var/lib/flatpak/runtime/org.freedesktop.Platform.GL.aurora/aarch64/{branch}'
+            write(ref / f'deploy{branch}/files/.aurora-mesa-commit', commit + '\n')
+            link(ref / 'active', f'deploy{branch}')
+        write(root / 'usr/lib/environment.d/60-aurora-flatpak-gl.conf',
+              'FLATPAK_GL_DRIVERS=${FLATPAK_GL_DRIVERS:-aurora:default:host}\n')
+        write(root / 'var/lib/flatpak/overrides/global',
+              '[Environment]\nVK_DRIVER_FILES=/usr/lib/aarch64-linux-gnu/GL/vulkan/icd.d/asahi_icd.aarch64.json\n')
+        return root
+
+    def check_flatpak_gl(self, root):
+        return self.check('--profile', 'kde', '--root', str(root), '--flatpak-gl')
+
+    def test_flatpak_gl_from_the_host_mesa_passes(self):
+        result = self.check_flatpak_gl(self.flatpak_gl(self.desktop_root('kde')))
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn('flatpak-gl: ok', result.stdout)
+
+    def test_flatpak_gl_is_only_required_when_asked(self):
+        result = self.check('--profile', 'kde', '--root', str(self.desktop_root('kde')))
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn('flatpak-gl', result.stdout)
+
+    def assert_flatpak_gl_fails(self, root, expected):
+        result = self.check_flatpak_gl(root)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn(expected, result.stdout)
+
+    def test_missing_flatpak_gl_branch_fails(self):
+        self.assert_flatpak_gl_fails(self.flatpak_gl(self.desktop_root('kde'), branches=('25.08',)),
+                                     'GL.aurora/aarch64/26.08 is not installed')
+
+    def test_flatpak_gl_from_another_mesa_fails(self):
+        root = self.flatpak_gl(self.desktop_root('kde'), host='473e325b4f50' + MESA[12:])
+        self.assert_flatpak_gl_fails(root, 'not the host Mesa')
+
+    def test_unselected_flatpak_gl_fails(self):
+        root = self.flatpak_gl(self.desktop_root('kde'))
+        (root / 'usr/lib/environment.d/60-aurora-flatpak-gl.conf').unlink()
+        self.assert_flatpak_gl_fails(root, 'FLATPAK_GL_DRIVERS does not select GL.aurora')
+
+    def test_missing_flatpak_override_fails(self):
+        root = self.flatpak_gl(self.desktop_root('kde'))
+        (root / 'var/lib/flatpak/overrides/global').unlink()
+        self.assert_flatpak_gl_fails(root, 'system Flatpak override')
 
 
 if __name__ == '__main__':
