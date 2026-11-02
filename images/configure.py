@@ -141,6 +141,14 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
                 parent.set("kernelcmdline", " ".join(arguments))
             if parent.tag == "systemdisk":
                 parent.set("name", "aurora")
+            if parent.tag == "repository":
+                # KIWI writes gpgcheck=0 into a repository's file unless asked,
+                # which overrides rpm-check-signatures. Its <signing> keys are
+                # in the image rpm database before the first package.
+                if parent.find("source/signing") is None:
+                    raise ValueError(f"upstream repository {parent.get('alias')} has no signing key; "
+                                     "review the integration")
+                parent.set("package_gpgcheck", "true")
             for node in list(parent):
                 if node.tag == "package" and node.get("name") in REPLACED:
                     parent.remove(node)
@@ -188,8 +196,7 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
     # KIWI resolves description-local signing keys before the root filesystem exists.
     (destination / key_name).write_bytes(key_bytes)
     repository = ET.Element("image")
-    # KIWI turns off the package check of a repository unless asked; the key
-    # is in the image's rpm database before the first package.
+    # Package signatures are checked as for the Fedora repositories above.
     node = ET.SubElement(repository, "repository", {
         "type": "rpm-md", "alias": "aurora", "sourcetype": "baseurl", "priority": "1",
         "package_gpgcheck": "true",
