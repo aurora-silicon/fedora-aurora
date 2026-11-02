@@ -178,7 +178,7 @@ pam_hint() {
     marker=${AURORA_SEP_STATE_DIR:-/var/lib/aurora-sep}/fingerprint-sign-in-offered
     case " $features " in
     *" with-fingerprint "*)
-        [ -e "$marker" ] || : >"$marker" || :
+        [ -e "$marker" ] || printf "" >"$marker" 2>/dev/null || :
         return 0
         ;;
     esac
@@ -187,7 +187,7 @@ pam_hint() {
         return 0
     fi
     if authselect enable-feature with-fingerprint >/dev/null 2>&1; then
-        : >"$marker" || :
+        printf "" >"$marker" 2>/dev/null || :
         log "fingerprint sign-in is available; enrol a finger in Settings to use it"
     else
         log "could not turn on authselect's with-fingerprint feature"
