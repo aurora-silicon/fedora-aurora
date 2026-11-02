@@ -71,6 +71,12 @@ class SpecTests(unittest.TestCase):
         files = text.split('%files', 1)[1].split('%changelog', 1)[0]
         self.assertNotIn('asahi-', files)
         self.assertFalse(list(d.glob('*.service')))
+    def test_firstboot_package_ships_the_growfs_gate(self):
+        text = (ROOT / 'packages' / 'aurora-firstboot' / 'aurora-firstboot.spec').read_text()
+        files = text.split('%files', 1)[1].split('%changelog', 1)[0]
+        for unit in ('systemd-growfs-root.service', 'systemd-growfs@.service'):
+            self.assertIn(f'%{{_unitdir}}/{unit}.d/aurora-growfs.conf', files)
+        self.assertIn('/usr/lib/aurora/\n', files)
     def test_initramfs_carries_the_usb4_router_with_the_type_c_controllers(self):
         # dracut-asahi brings tps6598x and sn201202x; their router must come too.
         d = ROOT / 'packages' / 'aurora-platform'
