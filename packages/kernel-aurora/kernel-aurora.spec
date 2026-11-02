@@ -1,9 +1,9 @@
-%global commit 0652b3be41f124c2a233b5c92b5eb73a53f8bb3d
+%global commit f1534999589662d5a0fd84b8a4b2b0f886661930
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 13%{?dist}.aurora
+Release: 14%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -99,6 +99,18 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-14
+- Track aurora-silicon/linux integration/aurora at f153499 (fleet14p:
+  the J614s device tree with its speakers off, H16 and H17 Neural Engine
+  sleep, Neo AVE mailbox wake and ProRes/JPEG performance, the J616s
+  thermal switch-on fix, brcmfmac suspend and escan fixes, T6041 PMGR
+  banks, T6000 GFX resume wait, the late USB4 router and the DCP compact
+  service re-announce, the boot NOR flash parts of the J616s and the
+  J700 GigaDevice for NVRAM writes, the J616s ANE shared-memory stall
+  fix, Neo GPU recovery that keeps other clients alive, whole-word T6000
+  DCS commands, ALS colour temperature and the M2 Pro/Max second-install
+  keybag).
+
 * Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-13
 - Track aurora-silicon/linux aurora-wip at 0652b3b: the Type-C ports take a
   USB4 router that binds after the deferred-probe timeout, keybag creation
