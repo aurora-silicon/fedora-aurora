@@ -1,0 +1,7 @@
+# Applies to every Aurora repository file, including one changed locally.
+# dnf5 asks before it trusts a metadata key and skips the repository when
+# nobody answers, so only the packages are signature-checked.
+[aurora]
+repo_gpgcheck=0
+# dnf5 releases that know this option import the package key without asking.
+auto_import_local_keys=1
