@@ -17,7 +17,9 @@ selected files, including the release-specific pins, and identify Fedora 45.
 The graphics overlays reuse Ryan's candidates from [PR #90](https://github.com/aurora-silicon/fedora-aurora/pull/90):
 Mesa commit `9fe179df8bf1cec359d9e452fc9dfa8680285698`, epoch 1, release 14, the
 matching FEX guest and Flatpak GL recipe. The Flatpak builder uses the same
-release-specific Mesa source pin. Fedora 44 retains its existing Mesa commit,
+release-specific Mesa source pin. Fedora 45 exports also retain `aurora_dri.so` as a relative alias
+to the Asahi loader in the candidate's DRIL layout; all payload checks remain
+required. Fedora 44 retains its existing Mesa commit,
 release and capabilities.
 
 The Mutter overlay reuses `packages/mutter/f45` from [PR #74](https://github.com/aurora-silicon/fedora-aurora/pull/74),
@@ -32,6 +34,11 @@ U-Boot's host signing tools use Fedora 45's
 so their existing ENGINE API remains available alongside the system's OpenSSL 4.
 The U-Boot target configuration is unchanged. Fedora 44 keeps its original
 OpenSSL development dependencies.
+The AVD firmware overlay selects Fedora 45's
+[versioned LLVM 22 compiler](https://packages.fedoraproject.org/pkgs/llvm22/clang22/),
+linker and binary tools. The existing checker still requires all eight qualified
+firmware hashes, sizes, linked ELF images and reset vectors. Fedora 44 keeps its
+original compiler dependency names.
 
 `rpms.yml` keeps Fedora 44's incremental package selection and `rpm-<package>`
 artifacts. Every run also builds the complete Fedora 45 set in

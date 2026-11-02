@@ -159,6 +159,15 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(old.split('%build', 1)[1].split('%changelog', 1)[0],
                          new.split('%build', 1)[1].split('%changelog', 1)[0])
 
+    def test_f45_firmware_keeps_the_qualified_llvm22_toolchain_and_hash_checker(self):
+        old = fedoralib.recipe_files(ROOT, 'avd-fw', 44)
+        new = fedoralib.recipe_files(ROOT, 'avd-fw', 45)
+        self.assertIn('BuildRequires: clang llvm lld ', old['avd-fw.spec'].read_text())
+        self.assertIn('BuildRequires: clang22 llvm22 lld22 ', new['avd-fw.spec'].read_text())
+        self.assertIn('export PATH=%{_libdir}/llvm22/bin:$PATH', new['avd-fw.spec'].read_text())
+        self.assertEqual(old['check-firmware.py'].read_bytes(), new['check-firmware.py'].read_bytes())
+        self.assertIn('python3 %{SOURCE1} build', new['avd-fw.spec'].read_text())
+
     def test_pages_preserve_all_three_channels_when_either_testing_channel_changes(self):
         site = module('channel-site')
         state = updatelib.empty_channels('aurora-silicon/fedora-aurora')
