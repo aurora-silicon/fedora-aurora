@@ -1,9 +1,9 @@
-%global commit e1524e6135e9cdb47f124cdf11c757470f0443c8
+%global commit b7ee2b72269583c644808fe84907efef8817b4c6
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 12%{?dist}.aurora
+Release: 12.sepfix1%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -99,6 +99,10 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-12.sepfix1
+- TEST BUILD, not for release: aurora-wip e40cf4f plus the SEP keybag
+  creation window (aurora-silicon/linux#860), for the J414s hardware test.
+
 * Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-12
 - Track aurora-silicon/linux aurora-wip at e1524e6 (fleet14l: HEVC 10-bit
   decode, ProRes and JPEG encoders, the M4 Pro PMU RTC wake alarm and the
