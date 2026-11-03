@@ -1,10 +1,8 @@
 %global debug_package %{nil}
-%global commit 1b4d11cb7943879ab3bcdfb44e51e9eb881966bf
-# Tagged release; preserve its label in the source archive build.
-%global release_tag 1.0.0b3
+%global commit fd30ea94ff7c065b838c08a60d002345259a4258
 Name: aura
 Version: 1.0.0~b3
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -19,7 +17,7 @@ Requires: update-m1n1 uboot-aurora
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-1b4d11cb7943879ab3bcdfb44e51e9eb881966bf
+%autosetup -n aura-fd30ea94ff7c065b838c08a60d002345259a4258
 
 %build
 export RUSTC_BOOTSTRAP=1
@@ -45,6 +43,10 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 1.0.0~b3-2
+- Track aurora-silicon/aura main at fd30ea9.
+- Upstream head: Merge pull request #62 from aurora-silicon/fix/monitor-probe-every-chip
+
 * Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 1.0.0~b3-1
 - Pin aura v1.0.0b3 (1b4d11cb): opt-in FEAT_NV2 virtualization and PSCI on
   the MacBook Neo, the ANE firmware preload hand-off on the M4 Pro and
