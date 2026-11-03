@@ -154,6 +154,14 @@ class SpecTests(unittest.TestCase):
         self.assertIn('%{_prefix}/lib/dracut/modules.d/91aurora-usb4/', core_files)
         config = (ROOT / 'packages' / 'kernel-aurora' / 'config').read_text()
         self.assertIn('CONFIG_USB4_APPLE_SOC=m', config.splitlines())
+    def test_aura_ships_both_stage1_forms_from_the_stage1_build(self):
+        spec = (ROOT / 'packages' / 'aura' / 'aura.spec').read_text()
+        # Both come from the Stage 1 build, before `make clean` rebuilds for Stage 2.
+        stage1 = spec.split('%build', 1)[1].split('make clean', 1)[0]
+        self.assertIn('cp build/aura.bin ../aurora-stage1/aura-raw.bin\n', stage1)
+        self.assertIn('cp build/aura-boot.macho ../aurora-stage1/aura-boot.macho\n', stage1)
+        for name in ('aura-raw.bin', 'aura-boot.macho'):
+            self.assertIn(f'install -Dm644 ../aurora-stage1/{name} %{{buildroot}}%{{_datadir}}/aura/stage1/{name}\n', spec)
     def test_fex_guest_mesa_moves_in_lockstep_with_the_host_mesa(self):
         def fields(name):
             text = (ROOT / 'packages' / name / (name + '.spec')).read_text()
