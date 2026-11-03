@@ -146,6 +146,25 @@ class CheckBasicsTests(unittest.TestCase):
         self.assert_fails('minimal', lambda root: link(root / 'etc/systemd/system/suspend.target', '/dev/null'),
                           'suspend.target is masked')
 
+    def test_executable_unit_or_drop_in_fails(self):
+        for name in ('usr/lib/systemd/system/example.path',
+                     'usr/lib/systemd/user/drkonqi-sentry-postman.path.d/50-aurora-ordering.conf',
+                     'etc/systemd/system/example.service'):
+            with self.subTest(name=name):
+                self.assert_fails('minimal', lambda root: write(root / name, '[Unit]\n', mode=0o755),
+                                  f'/{name} is marked executable')
+                self.temporary.cleanup()
+                self.temporary = tempfile.TemporaryDirectory()
+                self.base = Path(self.temporary.name)
+
+    def test_plain_units_and_drop_ins_pass(self):
+        root = self.desktop_root('minimal')
+        write(root / 'usr/lib/systemd/system/example.service', '[Service]\n', mode=0o644)
+        write(root / 'usr/lib/systemd/system/example.service.d/50-example.conf', '[Unit]\n', mode=0o644)
+        result = self.check('--profile', 'minimal', '--root', str(root))
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn('units: ok', result.stdout)
+
     def test_core_with_an_early_uuid_search_fails(self):
         self.assert_fails('minimal', lambda root: write(self.base / 'esp/EFI/BOOT/BOOTAA64.EFI',
                                                          f'MZ\0/EFI/BOOT\0search.fs_uuid {BOOT} root\0'.encode()),
