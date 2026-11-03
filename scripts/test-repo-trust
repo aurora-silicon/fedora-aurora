@@ -91,19 +91,50 @@ out=$(dnf5 offline-upgrade download --refresh < /dev/null 2>&1 || true)
 # PackageKit, which KDE Discover uses.
 mkdir -p /run/dbus
 dbus-daemon --system --fork --nopidfile
-/usr/lib/polkit-1/polkitd --no-debug > /dev/null 2>&1 &
-polkitd=$!
-/usr/libexec/packagekitd > /dev/null 2>&1 &
-packagekitd=$!
-for _ in {1..120}; do
-  busctl --system status org.freedesktop.PackageKit > /dev/null 2>&1 && break
-  sleep 0.5
-done
-pkcon -p refresh force < /dev/null > /dev/null || fail 'pkcon refresh failed'
-pkcon -p get-updates < /dev/null | grep -q 'aurora-trust-probe-2-1\.noarch (aurora)' ||
-  fail 'PackageKit did not offer the Aurora update'
-kill "$packagekitd" "$polkitd"
-wait "$packagekitd" "$polkitd" 2> /dev/null || true
+packagekit_offers() {
+  /usr/lib/polkit-1/polkitd --no-debug > /dev/null 2>&1 &
+  local polkitd=$!
+  /usr/libexec/packagekitd > /dev/null 2>&1 &
+  local packagekitd=$!
+  for _ in {1..120}; do
+    busctl --system status org.freedesktop.PackageKit > /dev/null 2>&1 && break
+    sleep 0.5
+  done
+  pkcon -p refresh force < /dev/null > /dev/null || fail "pkcon refresh failed ($1)"
+  pkcon -p get-updates < /dev/null | grep -q 'aurora-trust-probe-2-1\.noarch (aurora)' ||
+    fail "PackageKit did not offer the Aurora update ($1)"
+  kill "$packagekitd" "$polkitd"
+  wait "$packagekitd" "$polkitd" 2> /dev/null || true
+}
+packagekit_offers 'shipped repository file'
+
+# A dnf5 with auto_import_local_keys can check the metadata signature without
+# asking, so the check can return (docs/updates.md). Fedora's dnf5 5.4.6 lacks it.
+if dnf5 --dump-main-config 2> /dev/null | grep '^auto_import_local_keys' > /dev/null; then
+  mkdir -p /etc/dnf/repos.override.d
+  printf '[aurora]\nrepo_gpgcheck=1\n' > /etc/dnf/repos.override.d/99-metadata-check.repo
+  refresh 'metadata check'
+  grep -q "Automatically importing OpenPGP key .* for repository aurora" /var/log/dnf5.log ||
+    fail 'auto_import_local_keys did not import the metadata key'
+  dnf5 clean all > /dev/null
+  refresh 'metadata check after dnf clean all'
+  out=$(dnf upgrade --refresh --assumeno < /dev/null 2>&1 || true)
+  ! asked "$out" && offered "$out" || fail "dnf upgrade --assumeno with the metadata check: $out"
+  packagekit_offers 'metadata check'
+  # Metadata signed by another key is refused.
+  signature=$(dnf5 --dump-repo-config=aurora 2> /dev/null | sed -n 's|^baseurl = file://||p')/repodata/repomd.xml.asc
+  [[ -f $signature ]] || fail "no probe metadata signature at $signature"
+  cp "$signature" "$top/repomd.xml.asc"
+  gpg --batch --yes --local-user "$foreign" --armor --detach-sign -o "$signature" "${signature%.asc}"
+  rm -rf /var/cache/libdnf5/aurora-*
+  out=$(dnf -q --repo aurora repoquery aurora-trust-probe < /dev/null 2>&1 || true)
+  ! grep -q '^aurora-trust-probe' <<< "$out" || fail "metadata signed by another key was accepted: $out"
+  cp "$top/repomd.xml.asc" "$signature"
+  rm /etc/dnf/repos.override.d/99-metadata-check.repo
+  echo 'Metadata check: works without prompts; dnf5 has auto_import_local_keys (docs/updates.md)'
+else
+  echo "Metadata check: not run, dnf5 $(rpm -q --qf '%{VERSION}' libdnf5) has no auto_import_local_keys"
+fi
 
 # An interactive update asks only to confirm the transaction.
 printf 'y\n' | script -qec 'dnf upgrade aurora-trust-probe' /dev/null > "$top/interactive.log" 2>&1 || true
