@@ -320,7 +320,7 @@ class SpecTests(unittest.TestCase):
         self.assertIn("! grep -qs '^[[:space:]]*DeviceScale[[:space:]]*=' $conf", post)
         self.assertIn('DeviceScale=1$/d}', spec.split('%postun', 1)[1])
 
-    def run_theme_post(self, current):
+    def run_theme_post(self, current, cmdline=None):
         """Run the theme's %post and %posttrans against a fake Plymouth with CURRENT set."""
         spec = (ROOT / 'packages' / 'plymouth-theme-aurora' / 'plymouth-theme-aurora.spec').read_text()
         post = spec.split('\n%post\n', 1)[1].split('\n%posttrans\n', 1)[0]
@@ -339,13 +339,33 @@ class SpecTests(unittest.TestCase):
             dracut = tmp / 'bin/dracut'
             dracut.write_text(f'#!/bin/bash\necho "$@" >> {log}\n')
             dracut.chmod(0o755)
+            grubby = tmp / 'bin/grubby'
+            grubby.write_text(f'#!/bin/bash\necho "$@" >> {tmp / "grubby.log"}\n')
+            grubby.chmod(0o755)
+            if cmdline is not None:
+                (tmp / 'etc/kernel').mkdir()
+                (tmp / 'etc/kernel/cmdline').write_text(cmdline + '\n')
             def render(script):
-                return (script.replace('%{_bindir}', str(tmp / 'bin')).replace('%{_sysconfdir}', str(tmp / 'etc'))
+                return (script.replace('%{_bindir}', str(tmp / 'bin')).replace('%{_sbindir}', str(tmp / 'bin'))
+                        .replace('%{_sysconfdir}', str(tmp / 'etc'))
                         .replace('%{_localstatedir}', str(tmp / 'var')).replace('/run/systemd/system', str(tmp)))
             env = dict(os.environ, PATH=f"{tmp / 'bin'}:{os.environ['PATH']}")
             for script in (post, posttrans):
                 subprocess.run(['bash', '-euc', render(script)], check=True, env=env)
+            self.grubby = (tmp / 'grubby.log').read_text() if (tmp / 'grubby.log').exists() else ''
             return state.read_text(), log.read_text() if log.exists() else ''
+
+    def test_theme_keeps_a_serial_console_from_forcing_the_text_view(self):
+        # The Neo's device tree names its DockChannel UART as stdout-path; with it as a
+        # console Plymouth shows only its details view, passphrase prompt included.
+        for cmdline, expected in (
+                ('root=UUID=x ro rhgb quiet user4k=on', '--update-kernel=ALL --args=plymouth.ignore-serial-consoles'),
+                ('root=UUID=x ro rhgb quiet plymouth.ignore-serial-consoles', ''),
+                ('root=UUID=x ro quiet', ''),
+                (None, '')):
+            with self.subTest(cmdline=cmdline):
+                self.run_theme_post('aurora', cmdline)
+                self.assertEqual(self.grubby.strip(), expected)
 
     def test_theme_replaces_only_a_stock_default_and_rebuilds_the_initramfs(self):
         for stock in ('', 'bgrt', 'spinner', 'charge'):
