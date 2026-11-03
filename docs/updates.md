@@ -48,6 +48,42 @@ and `/boot/dtb` link, and the `15-update-m1n1.install` plugin rewrites the ESP S
 updates trigger `update-m1n1` through RPM file triggers on `/usr/lib64/m1n1` and
 `/usr/share/uboot/apple_m1`.
 
+## Repository metadata check
+
+`repo_gpgcheck` stays off until Fedora ships a dnf5 with `auto_import_local_keys` (upstream e2e9b949 and
+04683e76, October 2026; Fedora 44 and 45 have 5.4.6, and no release has it yet). dnf5 5.4.6 offers no
+clean way to trust the metadata key without asking:
+
+- **Pre-seeding the keyring.** dnf5 keeps the key in `<cachedir>/<repoid>-<hash>/pubring`, where the
+  hash comes from the resolved baseurl. `dnf clean all` leaves it, because it removes the cache directory
+  only once it is empty. But only dnf itself can seed it without writing librepo's key files by hand, and
+  only with `-y`, and every new URL starts empty: a release upgrade, a channel switch, and each cache
+  (root's, every user's, PackageKit's, dnf5daemon's). Seeding from the image build or a drop-in for
+  `dnf5-makecache.service` would leave a window after each of these in which every non-interactive
+  refresh fails (`skip_if_unavailable=False`).
+- **An option.** `assumeyes` is the only setting the command line's key callback reads, and in
+  `dnf.conf` it would also answer every transaction prompt.
+- **Carrying the upstream change.** The six upstream commits cherry-pick onto 5.4.6.0 without conflicts
+  and only add to the library's API. But an Aurora dnf5 in the `priority=1` repository would hide every
+  later Fedora dnf5 update until Aurora rebuilt it (Fedora shipped 5.4.5 and 5.4.6 ten days apart),
+  nothing here tracks Fedora's packages, every system with the repository, Fedora Asahi Remix included,
+  would have to take Aurora's package manager, and a Fedora dnf5 without the option would bring the prompt
+  back.
+
+When a Fedora dnf5 with the option reaches Fedora 44, the steps below are enough. They were tried with a
+scratch build of 5.4.6.0 plus those commits: refreshes without a terminal, after `dnf clean all` and with
+the keyring deleted imported the key without asking, and so did PackageKit.
+
+1. In `packages/aurora-repos/aurora-override.repo`, set `repo_gpgcheck=1` and keep
+   `auto_import_local_keys=1`. The key stays at `file:///etc/pki/rpm-gpg/RPM-GPG-KEY-aurora`, inside
+   the directories the option trusts, spelled as it requires.
+2. In `aurora-repos.spec`, add `Requires: libdnf5 >= <that version>`, so no system has the check
+   without the option, and bump the release.
+3. Leave the KIWI Aurora repository at `package_gpgcheck`: KIWI writes no `gpgkey` into its repository
+   files, so it has no key to import for the metadata.
+4. Update the tests: `tests/test_specs.py` expects the override, and `scripts/test-repo-trust` already
+   runs every refresh with the metadata check when the installed dnf5 has the option.
+
 ## Workflows
 
 | Workflow | Trigger | Does |
