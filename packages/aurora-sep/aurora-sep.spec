@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 19%{?dist}
+Release: 20%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -37,6 +37,9 @@ BuildRequires: selinux-policy-devel make bzip2
 Requires: coreutils fprintd keyutils kmod python3 util-linux grep findutils gawk
 Requires: libfprint(aurora-sep) = 5
 Requires: fprintd(aurora-sep) = 1
+# A password re-arms Touch ID after a lockout: the PAM module the vendor
+# profile puts after pam_unix, and its service.
+Requires: aurora-touchid-rearm
 # Holds the packaged kernel to one with the module-based SEP driver, and
 # leaves a kernel installed outside RPM alone; the units skip a kernel
 # without a loadable apple_sep.
@@ -113,7 +116,7 @@ echo "%ghost %dir $vendor" >authselect-vendor.files
 for f in %{_datadir}/authselect/default/local/* .aurora-sep; do
     name=${f##*/}
     case $name in
-    system-auth|.aurora-sep) touch %{buildroot}$vendor/$name ;;
+    system-auth|password-auth|.aurora-sep) touch %{buildroot}$vendor/$name ;;
     *) ln -s $f %{buildroot}$vendor/$name ;;
     esac
     echo "%ghost $vendor/$name" >>authselect-vendor.files
@@ -166,8 +169,10 @@ fi
 %posttrans selinux
 %selinux_relabel_post -s %{selinuxtype}
 # udev labels the device when the driver creates it; label one that exists.
-if selinuxenabled 2>/dev/null && [ -c /dev/sep-bio ]; then
-    restorecon /dev/sep-bio || :
+if selinuxenabled 2>/dev/null; then
+    for d in /dev/sep-bio /dev/sep-bio-rearm; do
+        [ -c "$d" ] && restorecon "$d" || :
+    done
 fi
 # The loader runs in its own domain from 1-18; label an installed copy now so
 # the next boot starts it there.
@@ -186,7 +191,8 @@ if selinuxenabled 2>/dev/null; then
              /var/lib/aurora-sep-host-state.bin \
              /var/lib/aurora-sep-xart-owned.bin \
              /var/lib/aurora-sep-xart-allow-once.bin \
-             /var/lib/aurora-sep-xart-policy-previous.bin; do
+             /var/lib/aurora-sep-xart-policy-previous.bin \
+             /var/lib/aurora-sep-touchid-lockout.bin; do
         [ -f "$f" ] && restorecon -F "$f" || :
     done
 fi
@@ -220,6 +226,14 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-20
+- A password re-arms Touch ID after a lockout: the vendor profile's
+  system-auth and password-auth run pam_aurora_touchid straight after a
+  pam_unix success (aurora-touchid-rearm), and keep pam_unix's result.
+- SELinux 1.4.0: label /dev/sep-bio-rearm, the driver's lockout record and
+  aurora-touchid-rearm's socket, and confine aurora-touchid-rearm to its own
+  domain.
+
 * Tue Nov 03 2026 Aurora Silicon contributors - 1-19
 - Offer Touch ID to sudo and polkit as well as the lock screen, and not to the
   console login, su or ssh: authselect's "local" profile is replaced by a

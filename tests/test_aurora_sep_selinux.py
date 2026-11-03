@@ -18,6 +18,7 @@ STATE = [
     'aurora-sep-refkey.bin', 'aurora-sep-refkey-v2.bin',
     'aurora-sep-host-state.bin', 'aurora-sep-xart-owned.bin',
     'aurora-sep-xart-allow-once.bin', 'aurora-sep-xart-policy-previous.bin',
+    'aurora-sep-touchid-lockout.bin',
 ]
 
 
@@ -58,7 +59,8 @@ class SelinuxModuleTests(unittest.TestCase):
 
     def test_state_access_is_scoped(self):
         allowed = set(re.findall(r'allow\s+(\w+)\s+aurora_sep_state_t:', self.te))
-        self.assertEqual(allowed, {'kernel_t', 'init_t', 'fprintd_t', 'kmod_t'})
+        self.assertEqual(allowed, {'kernel_t', 'init_t', 'fprintd_t', 'kmod_t',
+                                   'aurora_touchid_rearm_t'})
         self.assertRegex(self.te, r'allow init_t aurora_sep_state_t:file read_file_perms;')
 
     def test_the_loader_runs_in_its_own_domain(self):
@@ -89,6 +91,22 @@ class SelinuxModuleTests(unittest.TestCase):
         self.assertIn('restorecon -F "$f"', post)
         for verb in ('rm ', 'mv ', 'cp ', 'truncate', '>"$f"'):
             self.assertNotIn(verb, post)
+
+
+class TouchIdRearmPolicyTests(unittest.TestCase):
+    def setUp(self):
+        self.te = (PKG / 'aurora_sep.te').read_text()
+        self.fc = (PKG / 'aurora_sep.fc').read_text()
+
+    def test_only_the_rearm_domain_opens_the_rearm_device(self):
+        users = set(re.findall(r'allow\s+(\w+)\s+aurora_sep_rearm_device_t:', self.te))
+        self.assertEqual(users, {'aurora_touchid_rearm_t'})
+        self.assertIn('/dev/sep-bio-rearm\t-c\tgen_context(system_u:object_r:aurora_sep_rearm_device_t,s0)', self.fc)
+
+    def test_the_rearm_service_runs_in_its_own_domain(self):
+        self.assertIn('init_daemon_domain(aurora_touchid_rearm_t, aurora_touchid_rearm_exec_t)', self.te)
+        self.assertIn('/usr/libexec/aurora-touchid-rearm\t--\tgen_context(system_u:object_r:aurora_touchid_rearm_exec_t,s0)', self.fc)
+        self.assertNotIn('unconfined_domain(aurora_touchid_rearm_t)', self.te)
 
 
 def hint_harness():
