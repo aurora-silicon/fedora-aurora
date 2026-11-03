@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 20%{?dist}
+Release: 21%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -226,6 +226,12 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Wed Nov 04 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-21
+- SELinux 1.4.1: aurora-touchid-rearm runs with NoNewPrivileges, so allow
+  systemd's bounded transition into its domain and its pam_unix's into
+  chkpwd_t. Without them the helper ran as init_t and could not open
+  /dev/sep-bio-rearm, and the password never verified.
+
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-20
 - A password re-arms Touch ID after a lockout: the vendor profile's
   system-auth and password-auth run pam_aurora_touchid straight after a

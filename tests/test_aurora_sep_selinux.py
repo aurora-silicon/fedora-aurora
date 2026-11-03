@@ -108,6 +108,19 @@ class TouchIdRearmPolicyTests(unittest.TestCase):
         self.assertIn('/usr/libexec/aurora-touchid-rearm\t--\tgen_context(system_u:object_r:aurora_touchid_rearm_exec_t,s0)', self.fc)
         self.assertNotIn('unconfined_domain(aurora_touchid_rearm_t)', self.te)
 
+    def test_the_rearm_service_keeps_no_new_privileges(self):
+        # aurora-touchid-rearm@.service sets NoNewPrivileges=yes. Under it,
+        # SELinux allows a domain transition only when it is bounded or
+        # allowed by process2 nnp_transition: systemd's into the helper's
+        # domain, and the helper's pam_unix into unix_chkpwd's.
+        self.assertIn('init_nnp_daemon_domain(aurora_touchid_rearm_t)', self.te)
+        self.assertIn('auth_nnp_domtrans_chkpwd(aurora_touchid_rearm_t)', self.te)
+        self.assertIn('auth_use_pam(aurora_touchid_rearm_t)', self.te)
+        # No blanket nnp rule for any other domain.
+        self.assertEqual(re.findall(r'nnp_(?:daemon_domain|domtrans_\w+)\((\w+)\)', self.te),
+                         ['aurora_touchid_rearm_t', 'aurora_touchid_rearm_t'])
+        self.assertNotRegex(self.te, r'process2')
+
 
 def hint_harness():
     script = (PKG / 'aurora-sep-ready').read_text()

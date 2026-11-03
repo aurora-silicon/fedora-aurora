@@ -1,4 +1,4 @@
-policy_module(aurora_sep, 1.4.0)
+policy_module(aurora_sep, 1.4.1)
 
 ########################################
 #
@@ -29,6 +29,9 @@ dev_node(aurora_sep_rearm_device_t)
 type aurora_touchid_rearm_t;
 type aurora_touchid_rearm_exec_t;
 init_daemon_domain(aurora_touchid_rearm_t, aurora_touchid_rearm_exec_t)
+# The unit runs with NoNewPrivileges=yes, so systemd needs the bounded
+# transition into this domain.
+init_nnp_daemon_domain(aurora_touchid_rearm_t)
 
 # Its socket, which every PAM stack that accepted a password connects to.
 type aurora_touchid_rearm_var_run_t;
@@ -145,6 +148,8 @@ files_search_var_lib(aurora_touchid_rearm_t)
 
 # The password is checked again through its own PAM service.
 auth_use_pam(aurora_touchid_rearm_t)
+# pam_unix runs unix_chkpwd, still under NoNewPrivileges.
+auth_nnp_domtrans_chkpwd(aurora_touchid_rearm_t)
 auth_read_shadow(aurora_touchid_rearm_t)
 logging_send_syslog_msg(aurora_touchid_rearm_t)
 logging_send_audit_msgs(aurora_touchid_rearm_t)
