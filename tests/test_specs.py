@@ -155,6 +155,26 @@ class SpecTests(unittest.TestCase):
         self.assertIn('%{_prefix}/lib/dracut/modules.d/91aurora-usb4/', core_files)
         config = (ROOT / 'packages' / 'kernel-aurora' / 'config').read_text()
         self.assertIn('CONFIG_USB4_APPLE_SOC=m', config.splitlines())
+    def test_initramfs_coldplugs_the_display_first(self):
+        # F45's initramfs pivots before udev reaches the display; a pre-trigger
+        # hook coldplugs it (and its suppliers) ahead of systemd-udev-trigger.
+        d = ROOT / 'packages' / 'aurora-platform'
+        setup = (d / 'early-kms-module-setup.sh').read_text()
+        self.assertRegex(setup, r"(?m)^\s+hostonly='' instmods appledrm$")
+        self.assertRegex(setup, r'(?m)^\s+inst_hook pre-trigger \d+ "\$moddir/aurora-early-kms\.sh"$')
+        hook = (d / 'aurora-early-kms.sh').read_text()
+        self.assertIn("*Capple,display-subsystem*|*Capple,dcp*)", hook)
+        self.assertIn('supplier:*', hook)
+        self.assertIn('udevadm trigger --action=add --subsystem-match=drm --settle', hook)
+        self.assertNotRegex(hook, r'(?m)^\s*modprobe ')
+        subprocess.run(['sh', '-n', str(d / 'aurora-early-kms.sh')], check=True)
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: early-kms-module-setup\.sh$')
+        self.assertRegex(text, r'(?m)^Source\d+: aurora-early-kms\.sh$')
+        self.assertIn('/lib/dracut/modules.d/91aurora-early-kms/module-setup.sh', text)
+        self.assertIn('/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh', text)
+        core_files = text.split('%files core', 1)[1].split('%changelog', 1)[0]
+        self.assertIn('%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/', core_files)
     def test_aura_ships_both_stage1_forms_from_the_stage1_build(self):
         spec = (ROOT / 'packages' / 'aura' / 'aura.spec').read_text()
         # Both come from the Stage 1 build, before `make clean` rebuilds for Stage 2.
