@@ -1,6 +1,6 @@
 Name: plymouth-theme-aurora
 Version: 1
-Release: 4%{?dist}
+Release: 5%{?dist}
 Summary: Aurora boot splash: the bootloader's logo, kept in place, with the distribution's branding
 # The spinner, password entry and watermark images come from the distribution's
 # spinner theme (ImageDir); this package adds the script and aura's logos.
@@ -61,16 +61,34 @@ python3 %{SOURCE108} %{_sourcedir}
 
 %post
 conf=%{_sysconfdir}/plymouth/plymouthd.conf
-# Make Aurora the splash unless the owner already chose a theme.
-if ! grep -qs '^[[:space:]]*Theme[[:space:]]*=' $conf; then
-  %{_bindir}/plymouth-set-default-theme aurora || :
-fi
+# Make Aurora the splash while the current one is a stock Fedora default (none
+# chosen, or bgrt, spinner or charge, which Fedora's own scriptlets set), on new
+# images and on installs updated from before this theme. Any other theme is the
+# owner's choice and stays.
+case "$(%{_bindir}/plymouth-set-default-theme 2>/dev/null)" in
+  ''|bgrt|spinner|charge)
+    if %{_bindir}/plymouth-set-default-theme aurora; then
+      mkdir -p %{_localstatedir}/lib/rpm-state
+      touch %{_localstatedir}/lib/rpm-state/plymouth-theme-aurora-initrd
+    fi ;;
+esac
 # The theme draws in device pixels, so the logo matches aura's to the pixel;
 # Plymouth's own 2x scale on Retina panels would double it. An owner's own
 # DeviceScale wins.
 if [ "$(%{_bindir}/plymouth-set-default-theme 2>/dev/null)" = aurora ] &&
    ! grep -qs '^[[:space:]]*DeviceScale[[:space:]]*=' $conf; then
   sed -i '/^[[:space:]]*\[Daemon\][[:space:]]*$/a # Set by plymouth-theme-aurora, which draws in device pixels\nDeviceScale=1' $conf || :
+fi
+
+%posttrans
+# The splash runs from the initramfs. Rebuild it once after switching on a
+# running system; an image build makes its own initramfs afterwards.
+flag=%{_localstatedir}/lib/rpm-state/plymouth-theme-aurora-initrd
+if [ -e $flag ]; then
+  rm -f $flag
+  if [ -d /run/systemd/system ]; then
+    dracut -f --regenerate-all >/dev/null 2>&1 || :
+  fi
 fi
 
 %postun
@@ -94,6 +112,11 @@ fi
 %{_prefix}/lib/dracut/modules.d/96aurora-plymouth
 
 %changelog
+* Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-5
+- Switch to the Aurora splash on update when the current theme is a stock
+  default (bgrt, spinner or charge) and rebuild the initramfs; an owner's
+  other theme stays.
+
 * Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-4
 - Keep the logo at aura's physical position when notch rows are hidden.
 - Read the live device tree before Plymouth starts on each boot.

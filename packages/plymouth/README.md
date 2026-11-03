@@ -1,6 +1,6 @@
 # Plymouth terminal input carry
 
-This carries Fedora 44 Plymouth 24.004.60 and Fedora 45 Plymouth 26.134.222
+This carries Plymouth 26.134.222 on Fedora 44 and Fedora 45
 with nonblocking terminal input and script keyboard lifetime fixes. Fedora's subpackage names and existing patches are
 retained. Build with `scripts/build-rpm plymouth` on Fedora aarch64.
 
@@ -25,8 +25,9 @@ complete line, and close/reopen cleanup. It requires no physical console.
 
 - [Fedora 45 packaging, commit 790078d](https://src.fedoraproject.org/rpms/plymouth/tree/790078d)
   provides the spec, charge theme descriptor and two existing patches.
-  The combined carry uses `6%{?dist}.aurora3`; Fedora 44 uses
-  `24%{?dist}.aurora1`.
+  Both Fedora 44 and Fedora 45 build it as `6%{?dist}.aurora4`. Fedora 44
+  must not go back to 24.004.60: the published Fedora 44 repository already
+  carries 26.134.222-6, and an older build would never install on update.
 - [Plymouth 26.134.222](https://gitlab.freedesktop.org/plymouth/plymouth/-/tree/1aacf818fd5d1b6a7695546eb08fcbc46893dd0b)
   is pinned by commit and archive SHA-256 in `sources.json`. The archive
   also matches Fedora's published SHA-512.
@@ -62,6 +63,6 @@ fix that guarantees nonblocking terminal keyboard reads.
 ## Script splash renderer removal
 
 The carry also fixes keyboard lifetime during renderer removal on Fedora 44
-and 45. The recipe selects the distribution's existing source version. See
+and 45, both on 26.134.222. See
 [KEYBOARD-LIFETIME.md](KEYBOARD-LIFETIME.md) for the cause, source provenance,
 regression checks, package dependency, and rollback requirements.
