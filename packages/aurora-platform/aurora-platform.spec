@@ -88,9 +88,10 @@ install -Dm755 %{SOURCE107} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora
 %changelog
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-15
 - Coldplug the display first in the initramfs (91aurora-early-kms): trigger
-  the Apple display subsystem, its DCPs and the DRM cards before the rest of
-  the coldplug. On Fedora 45 the initramfs pivoted before udev reached them,
-  so appledrm never loaded there and Plymouth waited for the real root.
+  the Apple display subsystem, its DCPs, their device-link suppliers and the
+  DRM cards before the rest of the coldplug. On Fedora 45 the initramfs
+  pivoted before udev reached them, so appledrm never loaded there and
+  Plymouth waited for the real root.
 
 * Mon Nov 02 2026 DjDeveloperr <hey@djdev.me> - 44-14
 - Carry the USB4/Thunderbolt router (thunderbolt_apple) in the initramfs
