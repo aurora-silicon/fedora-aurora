@@ -1,8 +1,8 @@
 # FEX on Aurora
 
 This is FEX built from Aurora's fork (https://github.com/aurora-silicon/fex),
-packaged under Fedora's fex-emu names so that it replaces Fedora's build.
-`dnf install fex` and `dnf install fex-emu` both install it.
+packaged under Fedora's fex-emu names so that it replaces Fedora's build:
+`dnf install fex-emu` installs it. (Fedora's `fex` is an unrelated tool.)
 
 ## 4 KiB pages
 

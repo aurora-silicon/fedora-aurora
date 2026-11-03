@@ -396,17 +396,32 @@ class SpecTests(unittest.TestCase):
                     subprocess.run(['sh', '-ec', script], env=env, check=True)
                     self.assertEqual(log.read_text(), '--update-kernel=ALL --args=user4k=on\n' if called else '')
     def test_fex_replaces_fedoras_under_its_names(self):
-        # dnf resolves `fex` and `fex-emu` by name; the Aurora repository's
-        # priority then picks these over Fedora's (whose `fex` is unrelated).
+        # dnf resolves `fex-emu` by name; the Aurora repository's priority then
+        # picks these over Fedora's. `fex` stays Fedora's unrelated tool.
         spec = (ROOT / 'packages' / 'fex-emu' / 'fex-emu.spec').read_text()
         self.assertRegex(spec, r'(?m)^Name:\s+fex-emu$')
         self.assertRegex(spec, r'(?m)^Release:\s+\d+%\{\?dist\}\.aurora$')
         self.assertGreaterEqual(int(re.search(r'(?m)^Version:\s+(\d+)$', spec).group(1)), 2604)
-        for name in ('-n fex', 'filesystem', 'devel', 'utils', 'thunks'):
+        self.assertNotRegex(spec, r'(?m)^%package\s+-n fex$')
+        self.assertNotRegex(spec, r'(?m)^Provides:\s+fex(\s|$)')
+        for name in ('filesystem', 'devel', 'utils', 'thunks'):
             self.assertRegex(spec, rf'(?m)^%package\s+{re.escape(name)}$')
         self.assertRegex(spec, r'(?m)^Requires:\s+%\{name\}%\{\?_isa\} = %\{version\}-%\{release\}$')
         repo = (ROOT / 'packages' / 'aurora-repos' / 'aurora.repo').read_text()
         self.assertIn('\npriority=1\n', repo)
+
+    def test_binfmt_dispatcher_runs_fex_in_a_4k_tree(self):
+        d = ROOT / 'packages' / 'fex-emu'
+        conf = (d / '50-aurora-fex.toml').read_text()
+        self.assertIn('path = "/usr/libexec/fex-emu/fex-userpages"', conf)
+        self.assertIn('use_muvm = false', conf)
+        self.assertNotIn('FEXInterpreter"', conf)
+        wrapper = (d / 'fex-userpages').read_text()
+        self.assertIn('exec /usr/bin/userpages 4k /usr/bin/FEX "$@"', wrapper)
+        subprocess.run(['sh', '-n', str(d / 'fex-userpages')], check=True)
+        spec = (d / 'fex-emu.spec').read_text()
+        self.assertIn('%{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml\n', spec.split('%files\n', 1)[1])
+        self.assertRegex(spec, r'(?m)^Requires:\s+aurora-userpages$')
 
     def test_fex_submodules_are_pinned_with_the_fork(self):
         spec = (ROOT / 'packages' / 'fex-emu' / 'fex-emu.spec').read_text()

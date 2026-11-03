@@ -1,6 +1,6 @@
 # FEX from Aurora's fork, under Fedora's fex-emu package names so it replaces
-# Fedora's build, plus `fex` so that `dnf install fex` gets it too (Fedora's
-# own `fex` is an unrelated field-extraction tool). Derived from Fedora's
+# Fedora's build. The name `fex` stays Fedora's (an unrelated field-extraction
+# tool). Derived from Fedora's
 # fex-emu.spec (f44, FEX 2604); the sysroot, its macros and the toolchain files
 # are Fedora's. The fork's submodules are pinned as extra sources in
 # sources.json at the gitlinks of %%{commit}.
@@ -36,6 +36,10 @@ Source3:    fex-sysroot-%{sysroot_version}.tar.gz
 Source4:    toolchain_x86_32.cmake
 Source5:    toolchain_x86_64.cmake
 Source6:    build-fex-sysroot.sh
+# binfmt-dispatcher (Fedora Asahi Remix) registers last and would send x86
+# programs to FEXInterpreter in muvm; Aurora runs FEX in a 4 KiB page tree.
+Source7:    fex-userpages
+Source8:    50-aurora-fex.toml
 SourceLicense: %{fex_license} %{sysroot_license}
 
 # Bundled dependencies are git submodules upstream; each is pinned in
@@ -96,7 +100,7 @@ Requires:       %{name}-filesystem = %{version}-%{release}
 Recommends:     %{name}-thunks = %{version}-%{release}
 %endif
 # 4 KiB page process trees on Aurora's 16 KiB kernels.
-Recommends:     aurora-userpages
+Requires:       aurora-userpages
 Recommends:     fex-emu-rootfs-fedora
 Recommends:     erofs-fuse
 Recommends:     erofs-utils
@@ -116,15 +120,6 @@ FEX runs x86 and x86-64 Linux programs on an AArch64 host. This build comes
 from Aurora's fork. It uses the hardware TSO memory model when the kernel
 offers it, and runs in the 4 KiB page process trees that Aurora kernels
 provide (see README.aurora).
-
-%package     -n fex
-Summary:        FEX x86 and x86-64 emulator (Aurora build)
-Requires:       %{name}%{?_isa} = %{version}-%{release}
-
-%description -n fex
-Installs FEX, the x86 and x86-64 emulator, from Aurora's fork (fex-emu). The
-`fex` name lets `dnf install fex` find the emulator; it does not ship
-Fedora's unrelated `fex` field-extraction tool.
 
 %package        filesystem
 Summary:        FEX rootfs and overlay filesystem
@@ -209,6 +204,8 @@ install -Ddpm0755 %{buildroot}%{_datadir}/fex-emu/overlays/
 %if !%{with thunks}
 rm %{buildroot}%{_datadir}/fex-emu/ThunksDB.json
 %endif
+install -Dm755 %{SOURCE7} %{buildroot}%{_libexecdir}/fex-emu/fex-userpages
+install -Dm644 %{SOURCE8} %{buildroot}%{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml
 
 %check
 # The installed tools report the fork's identity.
@@ -237,9 +234,9 @@ fi
 %{_binfmtdir}/FEX-x86_64.conf
 %{_datadir}/fex-emu/AppConfig/
 %{_mandir}/man1/FEX.1*
-
-%files -n fex
-%doc README.aurora
+%{_libexecdir}/fex-emu/
+%dir %{_prefix}/lib/binfmt-dispatcher.d
+%{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml
 
 %files filesystem
 %dir %{_datadir}/fex-emu/
@@ -269,4 +266,5 @@ fi
   io_uring for x86-64 guests behind ring restrictions, one compile per
   guest entry when threads miss on it together, multiblock stops at padding
   after a call), replacing Fedora's fex-emu 2604.
-- Ship `fex` so that `dnf install fex` installs the emulator.
+- binfmt-dispatcher runs x86 programs with FEX in a 4 KiB page tree
+  (userpages) instead of FEXInterpreter in muvm.
