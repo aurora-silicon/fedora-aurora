@@ -64,6 +64,20 @@ class BuildImportTests(unittest.TestCase):
         self.assertEqual(self.run_import(), 1)
         self.assertEqual(len(list((self.root / 'output').rglob('*.rpm'))), 2)
 
+    def test_nosource_recipe_is_imported_as_source_not_installable_binary(self):
+        source = next(self.artifacts.rglob('*.src.rpm'))
+        renamed = source.with_name(source.name.replace('.src.rpm', '.nosrc.rpm'))
+        source.rename(renamed)
+        receipt = next(self.artifacts.rglob('manifests/example.json'))
+        data = json.loads(receipt.read_text())
+        for record in data['artifacts']:
+            if record['filename'] == source.name:
+                record['filename'] = renamed.name
+        receipt.write_text(json.dumps(data))
+        self.assertEqual(self.run_import(), 1)
+        self.assertTrue((self.root / 'output/srpms' / renamed.name).is_file())
+        self.assertFalse((self.root / 'output/rpms' / renamed.name).exists())
+
     def test_x86_receipt_is_accepted_only_for_a_declared_x86_recipe(self):
         receipt = next(self.artifacts.rglob('manifests/example.json'))
         data = json.loads(receipt.read_text())
@@ -147,3 +161,9 @@ class BuildImportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'build tooling changed'):
             module.import_build(self.repo, self.metadata, self.artifacts, self.root/'output',
                                 'aurora-silicon/fedora-aurora', matching_only=True)
+
+    def test_changed_flatpak_repository_builder_is_not_reused(self):
+        (self.repo / 'scripts/build-flatpak-gl-repo').write_text('changed GL payload builder\n')
+        self.commit('changed Flatpak builder')
+        with self.assertRaisesRegex(ValueError, 'build tooling changed'):
+            self.run_import()

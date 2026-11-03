@@ -1,0 +1,43 @@
+name: UPower Fedora 45
+on:
+  pull_request:
+    paths:
+      - sources.json
+      - packages/upower-aurora/**
+      - scripts/test-upower-upgrade
+      - .github/workflows/upower-fedora45.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  upower:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Build Fedora 45 RPMs and run the complete test suite
+        run: |
+          set -euo pipefail
+          docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src \
+            registry.fedoraproject.org/fedora:45 bash -euxo pipefail -c '
+              dnf install -y rpm-build dnf5-plugins python3 git tar gzip coreutils findutils
+              AURORA_INSTALL_BUILDDEPS=1 AURORA_BUILD_JOBS=8 bash scripts/build-rpm upower-aurora
+            ' 2>&1 | tee build-fedora45.log
+      - name: Upgrade from stock 1.91.5 and roll back to stock
+        run: |
+          set -euo pipefail
+          docker run --rm --platform linux/arm64 -v "$PWD:/src:ro" \
+            registry.fedoraproject.org/fedora:45 bash /src/scripts/test-upower-upgrade /src/out/rpms \
+            2>&1 | tee upgrade-fedora45.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: upower-fedora45
+          path: |
+            out/rpms/*.rpm
+            out/srpms/*.rpm
+            out/manifests/*.json
+            out/build/upower-aurora/BUILD/**/meson-logs/
+            *-fedora45.log

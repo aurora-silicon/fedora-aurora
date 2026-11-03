@@ -1,8 +1,8 @@
-NAME="Fedora Aurora Remix"
+NAME="Aurora Fedora Remix"
 VERSION="44"
 ID=fedora
 VERSION_ID=44
-PRETTY_NAME="Fedora Aurora Remix 44"
+PRETTY_NAME="Aurora Fedora Remix 44"
 ANSI_COLOR="0;38;2;129;95;255"
 LOGO=aurora-logo-icon
 HOME_URL="https://aurorasilicon.org"

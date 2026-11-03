@@ -1,0 +1,15 @@
+#!/bin/bash
+# Build as an unprivileged user with working Flatpak/bubblewrap sandbox support.
+set -euo pipefail
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+archive=${1:?destination tar path}
+work=${AURORA_FLATPAK_GL_WORK:-$root/out/flatpak-gl}
+mkdir -p "$work" "$(dirname "$archive")"
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+for branch in 25.08 26.08; do
+  flatpak install --user --noninteractive -y --arch=aarch64 flathub \
+    org.freedesktop.Platform//"$branch" org.freedesktop.Sdk//"$branch" \
+    org.freedesktop.Sdk.Extension.llvm22//"$branch"
+  bash "$root/packages/aurora-flatpak-gl/build-extension.sh" "$branch" "$work/repo" "$work/$branch"
+done
+tar -cf "$archive" -C "$work" repo

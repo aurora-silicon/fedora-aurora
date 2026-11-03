@@ -170,8 +170,8 @@ def assemble(args):
                                                     'updated_at': now}, indent=2, sort_keys=True) + '\n')
     items = ''.join(f'<li>{c}: <code>baseurl=https://aurorasilicon.org/fedora-aurora/44/{c}/aarch64</code> '
                     f'({target[c]})</li>' for c in CHANNELS if target[c])
-    (site / 'index.html').write_text(f'<!doctype html><title>Fedora Aurora Remix</title>'
-                                     f'<h1>Fedora Aurora Remix RPM repositories</h1><ul>{items}</ul>\n')
+    (site / 'index.html').write_text(f'<!doctype html><title>Aurora Fedora Remix</title>'
+                                     f'<h1>Aurora Fedora Remix RPM repositories</h1><ul>{items}</ul>\n')
     Path(args.state_out).write_text(json.dumps(new_state, indent=2) + '\n')
     lines = [f'## {args.channel}: {current[args.channel] or "(none)"} -> {tag}', '']
     lines += [f'- {c}: `{target[c]}` (attestation: {provenance[c]})' for c in CHANNELS if target[c]]

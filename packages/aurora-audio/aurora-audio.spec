@@ -1,33 +1,63 @@
-%global commit b2da7512e9bfcd5837355d2393f3c43219acf6b9
+%global commit d957fabbacbe7dd67b39f052b2ff21edea7ee038
 Name: aurora-audio
 Version: 4.1
-Release: 3%{?dist}
+Release: 7%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
 Source0: aurora-audio-%{commit}.tar.gz
+Source1: module-setup.sh
 BuildArch: noarch
 BuildRequires: make
-Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplumber bankstown lv2-triforce lsp-plugins-lv2 speakersafetyd speakerguardd
+# Fedora Asahi installs carry asahi-audio, which ships the same files.
+Provides: asahi-audio = %{version}-%{release}
+Conflicts: asahi-audio
+Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplumber >= 0.5.16 bankstown lv2-triforce lsp-plugins-lv2 speakersafetyd speakerguardd
 
 %description
 Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n asahi-audio-b2da7512e9bfcd5837355d2393f3c43219acf6b9
+%autosetup -n asahi-audio-d957fabbacbe7dd67b39f052b2ff21edea7ee038
 
 %build
 
 %install
 make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
+install -Dm755 %{SOURCE1} %{buildroot}%{_prefix}/lib/dracut/modules.d/90aurora-audio/module-setup.sh
 
 %files
 %license LICENSE
 %{_datadir}/asahi-audio/
 %{_datadir}/wireplumber/
 %{_datadir}/pipewire/
+%{_prefix}/lib/dracut/modules.d/90aurora-audio/
 
 %changelog
+* Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-7
+- Move to asahi-audio d957fab: the built-in headphone sink of every Mac
+  keeps the volume and mute the user set on it across boots, also with
+  nothing plugged in (aurora-silicon/asahi-audio#15).
+- Require WirePlumber 0.5.16 or later. Older versions lose the stored mute
+  of the speaker filter sink at every boot.
+
+* Wed Oct 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-6
+- Carry snd-seq in the initramfs. appledrm brings snd-pcm there, and
+  Fedora's dist-alsa.conf loads snd-seq with it, which failed at every boot.
+
+* Wed Oct 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-5
+- Move to asahi-audio f513878: the J616 and J700 microphone graphs boost
+  to match the M1 and M2 graphs (aurora-silicon/asahi-audio#12), and every
+  microphone graph presents its processed channel as MONO, so stereo
+  clients hear it in both ears (#13).
+
+* Sat Oct 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-4
+- Move to asahi-audio 78803e1: the J616s speaker graph and headphone jack
+  priorities (aurora-silicon/asahi-audio#8), and the J700 speaker graph's
+  +3 dB make-up gain with a brick-wall limiter (#7).
+- Provide and conflict with asahi-audio, so a Fedora Asahi install can move
+  to this package.
+
 * Mon Oct 19 2026 Aurora Silicon <hey@djdev.me> - 4.1-3
 - Require PipeWire LV2 support to load the speaker DSP profiles.
 

@@ -1,0 +1,44 @@
+#!/bin/bash
+# Run as root only in a disposable Fedora 45 container with candidate RPMs.
+set -euo pipefail
+candidate=${1:?directory containing upower RPMs}
+packages=(upower upower-libs upower-devel)
+dnf install -y python3-rpm "${packages[@]}"
+rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' "${packages[@]}" > /tmp/upower-stock.txt
+cat /tmp/upower-stock.txt
+python3 - "$candidate" <<'PY'
+import glob, rpm, sys
+transaction = rpm.TransactionSet()
+for name in ('upower', 'upower-libs', 'upower-devel'):
+    installed = next(iter(transaction.dbMatch('name', name)))
+    candidates = []
+    for path in glob.glob(sys.argv[1] + '/*.rpm'):
+        with open(path, 'rb') as stream:
+            header = transaction.hdrFromFdno(stream)
+        if header['name'] == name:
+            candidates.append(header)
+    assert len(candidates) == 1, (name, len(candidates))
+    candidate = candidates[0]
+    def evr(header):
+        return (str(header['epoch'] or 0), header['version'], header['release'])
+    assert installed['version'] == '1.91.5', evr(installed)
+    assert rpm.labelCompare(evr(candidate), evr(installed)) > 0, (name, evr(candidate), evr(installed))
+PY
+# Existing configuration and persisted user choice must survive both transactions.
+printf '\n# upgrade-test-preserved\n' >> /etc/UPower/UPower.conf
+mkdir -p /var/lib/upower
+printf '1' > /var/lib/upower/charging-threshold-status
+sha256sum /etc/UPower/UPower.conf /var/lib/upower/charging-threshold-status > /tmp/upower-state.sha256
+rpms=("$candidate"/upower-1.91.5-*.aarch64.rpm "$candidate"/upower-libs-1.91.5-*.aarch64.rpm "$candidate"/upower-devel-1.91.5-*.aarch64.rpm)
+dnf install -y "${rpms[@]}"
+for package in "${packages[@]}"; do
+  test "$(rpm -q --qf '%{EPOCHNUM}:%{VERSION}' "$package")" = 1:1.91.5
+done
+sha256sum --check /tmp/upower-state.sha256
+# The CLI version query requires a running system bus and daemon.
+# Runtime D-Bus behavior is covered by the full umockdev suite in %check.
+# Restrict the transaction to Fedora repositories so Aurora's epoch cannot win.
+dnf --repo=fedora --repo=updates distro-sync -y "${packages[@]}"
+rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' "${packages[@]}" > /tmp/upower-rollback.txt
+diff -u /tmp/upower-stock.txt /tmp/upower-rollback.txt
+sha256sum --check /tmp/upower-state.sha256

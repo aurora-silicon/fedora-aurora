@@ -419,6 +419,10 @@ def ci_state(repository, sha, workflows):
     return overall, states
 
 
+def main_head(repository):
+    return lib.gh_api(f'repos/{repository}/commits/main')['sha']
+
+
 def head_commit_is_bot(repository, sha):
     commit = lib.gh_api(f'repos/{repository}/commits/{sha}')
     author = (commit.get('author') or {}).get('login', '')
@@ -533,7 +537,7 @@ def open_pr_command(args, workflows):
     if archives:
         pins = load_pins(ROOT)
         expected = {archive_filename(key, pin['commit'], pin): pin['sha256'] for key, pin in pins.items()
-                    if 'sha256' in pin}
+                    if 'sha256' in pin and pin.get('redistribute_source', True)}
         verified = [path for path in archives if expected.get(path.name) == lib.sha256_file(path)]
         upload_mirror(repository, verified)
     subprocess.run(['git', '-C', str(ROOT), 'push', '--quiet', '--force', 'origin', f'HEAD:refs/heads/{branch}'],
@@ -572,6 +576,15 @@ def merge_command(args, workflows):
     if not record or record.get('head') != head or not head_commit_is_bot(repository, head):
         lib.log(f'PR #{pr["number"]} head is not the tracker\'s recorded commit; a maintainer decides.')
         return
+    # CI ran on the proposal as planned on record['base']. If main has moved
+    # since, a change that landed in between (a new lockstep recipe, say) was
+    # never checked against it: leave the merge to the next plan, which
+    # replans on the new main and refreshes the PR.
+    main = main_head(repository)
+    if record.get('base') != main:
+        lib.log(f'PR #{pr["number"]} was planned on {record.get("base")} but main is {main}; '
+                'the next run replans it.')
+        return
     state, states = ci_state(repository, head, workflows)
     lib.log(f'PR #{pr["number"]} CI: {state} {states}')
     if state != 'success':
@@ -604,7 +617,7 @@ def mirror_command(args, adapter=None):
     pins = load_pins(ROOT)
     wanted = {}
     for key, pin in sorted(pins.items()):
-        if pin.get('sha256') and pin.get('source_url') and pin.get('commit'):
+        if pin.get('redistribute_source', True) and pin.get('sha256') and pin.get('source_url') and pin.get('commit'):
             wanted[archive_filename(key, pin['commit'], pin)] = pin
     # Archives pinned outside sources.json (adapter.extra_archives()).
     extra = getattr(adapter, 'extra_archives', None)
