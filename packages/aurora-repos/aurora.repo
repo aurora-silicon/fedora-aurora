@@ -1,7 +1,10 @@
 [aurora]
 name=Aurora Silicon for Fedora
-baseurl=https://aurorasilicon.org/fedora-aurora/44/testing/aarch64
+baseurl=https://aurorasilicon.org/fedora-aurora/$releasever/testing/aarch64
 enabled=1
 gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-aurora
 priority=1
+# Fail rather than skip: a release with no Aurora repository must stop an
+# upgrade instead of installing it without Aurora's packages.
+skip_if_unavailable=False

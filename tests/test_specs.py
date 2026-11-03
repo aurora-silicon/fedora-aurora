@@ -169,8 +169,10 @@ class SpecTests(unittest.TestCase):
         spec = (d / 'aurora-repos.spec').read_text()
         self.assertEqual((d / 'RPM-GPG-KEY-aurora').read_bytes(), (ROOT / 'keys' / 'RPM-GPG-KEY-aurora').read_bytes())
         repo = (d / 'aurora.repo').read_text()
-        self.assertIn('baseurl=https://aurorasilicon.org/fedora-aurora/44/testing/aarch64\n', repo)
-        for line in ['gpgcheck=1', 'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-aurora']:
+        # The installed release picks its repository, and a release without
+        # one stops a refresh or upgrade instead of dropping Aurora.
+        self.assertIn('baseurl=https://aurorasilicon.org/fedora-aurora/$releasever/testing/aarch64\n', repo)
+        for line in ['gpgcheck=1', 'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-aurora', 'skip_if_unavailable=False']:
             self.assertIn('\n' + line + '\n', repo)
         self.assertNotIn('repo_gpgcheck', repo)
         # Fedora 44's dnf5 cannot trust a metadata key without a prompt, and an

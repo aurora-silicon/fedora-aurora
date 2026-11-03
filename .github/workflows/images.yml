@@ -36,7 +36,7 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm --privileged -v /dev:/dev -v /run/udev:/run/udev:ro -v "$PWD:/src" -w /src \
-            -e AURORA_REPOSITORY_URL="https://aurorasilicon.org/fedora-aurora/44/$CHANNEL/aarch64" \
+            -e AURORA_REPOSITORY_URL="https://aurorasilicon.org/fedora-aurora/\$releasever/$CHANNEL/aarch64" \
             registry.fedoraproject.org/fedora:44 bash -euo pipefail -c '
               dnf install -y kiwi-cli kiwi-systemdeps distribution-gpg-keys git gnupg2 python3 xz zstd btrfs-progs cryptsetup util-linux cpio e2fsprogs
               bash scripts/build-image "$1"

@@ -15,7 +15,7 @@ python3 images/configure.py \
   --upstream upstream-kiwi \
   --output out/fedora-kde \
   --profile fedora-kde \
-  --repository-url https://aurorasilicon.org/fedora-aurora/44/testing/aarch64 \
+  --repository-url 'https://aurorasilicon.org/fedora-aurora/$releasever/testing/aarch64' \
   --signing-key keys/RPM-GPG-KEY-aurora \
   --signing-key-fingerprint D6C974933C41AACE00AE3C4591B639B8C6A77AC1
 ```

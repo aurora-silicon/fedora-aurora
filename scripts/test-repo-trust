@@ -19,6 +19,9 @@ for name in aurora foreign; do
 done
 aurora=$(fingerprint aurora@example.org)
 foreign=$(fingerprint foreign@example.org)
+# The feed's layout; the shipped baseurl picks the tree for $releasever.
+. /etc/os-release
+feed=feed/$VERSION_ID/testing/aarch64
 
 probe() { # name version repo [signing key]
   mkdir -p "$top/SPECS" "$top/$3"
@@ -40,19 +43,19 @@ SPEC
   fi
 }
 probe aurora-trust-probe 1 base
-probe aurora-trust-probe 2 aurora "$aurora"
-probe aurora-trust-unsigned 1 aurora
-probe aurora-trust-foreign 1 aurora "$foreign"
-for repo in base aurora; do createrepo_c -q "$top/$repo"; done
+probe aurora-trust-probe 2 "$feed" "$aurora"
+probe aurora-trust-unsigned 1 "$feed"
+probe aurora-trust-foreign 1 "$feed" "$foreign"
+for repo in base "$feed"; do createrepo_c -q "$top/$repo"; done
 # Signed metadata, as the Aurora feed publishes it.
-gpg --batch --local-user "$aurora" --armor --detach-sign "$top/aurora/repodata/repomd.xml"
+gpg --batch --local-user "$aurora" --armor --detach-sign "$top/$feed/repodata/repomd.xml"
 
 # The shipped repository, override and key, pointed at the probes; the image
 # imports the key into the rpm database.
 shopt -s nullglob
 sed -i 's/^enabled=1/enabled=0/' /etc/yum.repos.d/*.repo /usr/share/dnf5/repos.d/*.repo
 shopt -u nullglob
-sed "s|^baseurl=.*|baseurl=file://$top/aurora|" "$source/aurora.repo" > /etc/yum.repos.d/aurora.repo
+sed "s|^baseurl=https://aurorasilicon.org/fedora-aurora/|baseurl=file://$top/feed/|" "$source/aurora.repo" > /etc/yum.repos.d/aurora.repo
 install -Dm644 "$source/aurora-override.repo" /usr/share/dnf5/repos.override.d/50-aurora.repo
 gpg --armor --export "$aurora" > /etc/pki/rpm-gpg/RPM-GPG-KEY-aurora
 rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-aurora
@@ -60,6 +63,8 @@ printf '[probe-base]\nname=probe base\nbaseurl=file://%s/base\ngpgcheck=0\n' "$t
 dnf install -y -q --repo probe-base aurora-trust-probe > /dev/null 2>&1
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
+[[ $(dnf -q --repo aurora repoinfo aurora 2>/dev/null) == *"file://$top/$feed"* ]] ||
+  fail "aurora.repo does not resolve to the $VERSION_ID repository"
 asked() { grep -qE 'Importing OpenPGP key|signature verification error|Signing key not found' <<< "$1"; }
 offered() { grep -qE "^ *aurora-trust-probe +noarch +(0:)?2-1 +aurora " <<< "$1"; }
 
@@ -110,4 +115,13 @@ for name in aurora-trust-unsigned aurora-trust-foreign; do
   if out=$(dnf install -y "$name" < /dev/null 2>&1); then fail "$name was installed"; fi
   grep -q "OpenPGP check for package \"$name-" <<< "$out" || fail "$name refused for another reason: $out"
 done
-echo 'Aurora repository: no key prompts; unsigned and foreign packages refused'
+# An upgrade to a release that has no Aurora repository yet stops, rather
+# than going ahead without Aurora's packages or replacing them with Fedora's.
+next=$((VERSION_ID + 1))
+for command in "makecache --refresh" "system-upgrade download --allowerasing --assumeno"; do
+  if out=$(dnf5 --releasever="$next" $command < /dev/null 2>&1); then
+    fail "dnf5 $command went ahead without an Aurora $next repository: $out"
+  fi
+  grep -q 'for repository "aurora"' <<< "$out" || fail "dnf5 $command failed for another reason: $out"
+done
+echo 'Aurora repository: no key prompts; unsigned and foreign packages refused; a release without it stops'
