@@ -313,12 +313,51 @@ class SpecTests(unittest.TestCase):
         self.assertIn('branding_source = Image("watermark.png");', script)
         spec = (d / 'plymouth-theme-aurora.spec').read_text()
         post = spec.split('%post', 1)[1].split('%postun', 1)[0]
-        # An owner's own theme choice in /etc wins over the package default.
-        self.assertIn("if ! grep -qs '^[[:space:]]*Theme[[:space:]]*=' $conf; then", post)
+        # Only a stock Fedora default gives way; an owner's other theme stays.
+        self.assertIn("''|bgrt|spinner|charge)", post)
         # Plymouth's 2x scale would double the logo; the theme runs at scale 1.
         self.assertIn('DeviceScale=1', post)
         self.assertIn("! grep -qs '^[[:space:]]*DeviceScale[[:space:]]*=' $conf", post)
         self.assertIn('DeviceScale=1$/d}', spec.split('%postun', 1)[1])
+
+    def run_theme_post(self, current):
+        """Run the theme's %post and %posttrans against a fake Plymouth with CURRENT set."""
+        spec = (ROOT / 'packages' / 'plymouth-theme-aurora' / 'plymouth-theme-aurora.spec').read_text()
+        post = spec.split('\n%post\n', 1)[1].split('\n%posttrans\n', 1)[0]
+        posttrans = spec.split('\n%posttrans\n', 1)[1].split('\n%postun\n', 1)[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            (tmp / 'bin').mkdir()
+            (tmp / 'etc/plymouth').mkdir(parents=True)
+            (tmp / 'etc/plymouth/plymouthd.conf').write_text('[Daemon]\n' + (f'Theme={current}\n' if current else ''))
+            state = tmp / 'theme'
+            state.write_text(current or 'bgrt')
+            log = tmp / 'dracut.log'
+            fake = tmp / 'bin/plymouth-set-default-theme'
+            fake.write_text(f'#!/bin/bash\n[[ $# -eq 0 ]] && exec cat {state}\nprintf %s "$1" > {state}\n')
+            fake.chmod(0o755)
+            dracut = tmp / 'bin/dracut'
+            dracut.write_text(f'#!/bin/bash\necho "$@" >> {log}\n')
+            dracut.chmod(0o755)
+            def render(script):
+                return (script.replace('%{_bindir}', str(tmp / 'bin')).replace('%{_sysconfdir}', str(tmp / 'etc'))
+                        .replace('%{_localstatedir}', str(tmp / 'var')).replace('/run/systemd/system', str(tmp)))
+            env = dict(os.environ, PATH=f"{tmp / 'bin'}:{os.environ['PATH']}")
+            for script in (post, posttrans):
+                subprocess.run(['bash', '-euc', render(script)], check=True, env=env)
+            return state.read_text(), log.read_text() if log.exists() else ''
+
+    def test_theme_replaces_only_a_stock_default_and_rebuilds_the_initramfs(self):
+        for stock in ('', 'bgrt', 'spinner', 'charge'):
+            theme, dracut = self.run_theme_post(stock)
+            self.assertEqual(theme, 'aurora', stock)
+            self.assertEqual(dracut.strip(), '-f --regenerate-all', stock)
+
+    def test_theme_keeps_the_owners_choice(self):
+        for chosen in ('solar', 'details', 'aurora'):
+            theme, dracut = self.run_theme_post(chosen)
+            self.assertEqual(theme, chosen)
+            self.assertEqual(dracut, '')
 
     def test_kernel_ships_the_page_size_launcher_from_its_own_source(self):
         spec = (ROOT / 'packages' / 'kernel-aurora' / 'kernel-aurora.spec').read_text()
