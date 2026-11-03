@@ -1,8 +1,8 @@
-%global commit d9d5b3fa7c0a2bf3612deb2cf125709f07837fd5
+%global commit 6e127f8b2191c11dc7a584c363660610fc793c5f
 %global selinuxtype targeted
 Name: aurora-firstboot
 Version: 0.1.13
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-platform
@@ -80,6 +80,10 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/aurora_firstboot.pp
 
 %changelog
+* Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 0.1.13-2
+- Put aura's Mach-O Stage 1 boot object on the ESP as aurora/stage1.macho,
+  for the installer to boot M4 and later Macs from (aurora-platform 6e127f8).
+
 * Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 0.1.13-1
 - Grow the encrypted root filesystem during the conversion, and run
   systemd-growfs only when a Btrfs filesystem has room to grow. On an
