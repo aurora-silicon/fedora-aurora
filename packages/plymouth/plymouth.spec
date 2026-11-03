@@ -5,7 +5,7 @@ Version: 24.004.60
 Release: 24%{?dist}.aurora1
 %else
 Version: 26.134.222
-Release: 6%{?dist}.aurora2
+Release: 6%{?dist}.aurora3
 %endif
 License: GPL-2.0-or-later
 URL: http://www.freedesktop.org/wiki/Software/Plymouth
@@ -131,6 +131,9 @@ Patch: 0001-ply-device-manager-fix-default-XKB-keymap-fallback-o.patch
 
 %endif
 Patch: 0001-ply-terminal-Keep-terminal-input-nonblocking.patch
+# Show the splash as soon as udevd runs instead of after the whole coldplug
+# has been queued; plymouthd follows udev add events and needs neither.
+Patch: 0001-systemd-units-Start-plymouthd-without-waiting-for-coldplug.patch
 Source2: test-terminal-input.c
 Source3: test-keyboard-lifetime.c
 Source4: test-script-keyboard.c
@@ -562,11 +565,18 @@ fi
 %files system-theme
 
 %changelog
-* Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 24.004.60-24.aurora1
-- Retain Fedora 44's source and patches with the keyboard lifetime fix.
+* Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.134.222-6.aurora3
+- Fix renderer keyboard removal and script keyboard lifetime, on top of
+  the plymouth-start ordering of 26.134.222-6.aurora2.
 
-* Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.134.222-6.aurora2
-- Fix renderer keyboard removal and script keyboard lifetime.
+* Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 24.004.60-24.aurora1
+- Retain Fedora 44's source and patches with the keyboard lifetime fix and
+  the plymouth-start ordering.
+
+* Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.134.222-6.aurora2
+- Order plymouth-start.service after systemd-udevd.service and
+  dracut-pre-trigger.service instead of systemd-udev-trigger.service, so
+  the splash no longer waits for the coldplug to be queued
 
 * Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.134.222-6.aurora1
 - Keep terminal keyboard reads nonblocking with a separate input descriptor

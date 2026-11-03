@@ -14,15 +14,24 @@ import xml.etree.ElementTree as ET
 
 
 HERE = Path(__file__).resolve().parent
+# The image keeps aurora-repos's file, so a later aurora-repos can replace it.
+REPOSITORY_FILE = HERE.parent / "packages/aurora-repos/aurora.repo"
 PROFILES = {
     "fedora-kde": "Workstation-KDE",
     "fedora-gnome": "Workstation-GNOME",
     "fedora-minimal": "Minimal",
 }
+DEFAULT_TARGETS = {
+    "fedora-kde": "graphical.target",
+    "fedora-gnome": "graphical.target",
+    "fedora-minimal": "multi-user.target",
+}
 # The RPM producer must implement these Fedora-native package contracts.
 PACKAGES = {
     "components/boot.xml": ("BootCore", [
         "kernel-aurora", "kernel-aurora-modules-extra", "aura", "uboot-aurora",
+        # userpages 4k COMMAND; kernel-aurora requires it on installed systems too.
+        "aurora-userpages",
     ]),
     "components/base.xml": ("Common", [
         "aurora-release", "aurora-repos", "aurora-logos", "aurora-platform", "aurora-remix-scripts",
@@ -38,9 +47,21 @@ PACKAGES = {
     # Desktop images boot to the Aurora splash: aura's logo, kept still, with a spinner.
     "components/desktop-environments.xml": ("DesktopCommon", ["plymouth-theme-aurora"]),
 }
+# Fedora's imsettings turns itself off on GNOME and Plasma, but its autostart
+# entry still runs there and fails on every login. Both desktops configure
+# input methods themselves.
+EXCLUDED = {
+    "components/desktop-environments.xml": ("DesktopCommon", [
+        "imsettings", "imsettings-libs", "imsettings-gsettings", "imsettings-plasma",
+        "im-chooser", "im-chooser-common",
+    ]),
+}
 # Quiet by default: the splash (desktops) or a clean console, with failures
 # still reported. systemd shows status only when a unit fails or stalls.
 QUIET_BOOT = ["quiet", "loglevel=3", "rd.udev.log_level=3", "systemd.show_status=auto"]
+# Per-process 4K userspace pages. aurora-userpages adds the same argument on
+# installed systems; an owner turns it off with user4k=off.
+USER_PAGES = ["user4k=on"]
 ESP_FSCK = '''
 # Check the ESP at boot (fsck pass 2), like Fedora's installer.
 gawk -i inplace '$2 == "/boot/efi" && $3 == "vfat" { if ($5 == "") $5 = 0; $6 = 2 } { print $0 }' /etc/fstab
@@ -91,6 +112,10 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
     if (url.scheme != "https" or not url.hostname or url.username or url.password
             or url.query or url.fragment or any(c.isspace() for c in repository_url)):
         raise ValueError("repository URL must be an HTTPS base URL without credentials or query")
+    # The installed system resolves it for its own release, so an upgrade
+    # moves to that release's repository.
+    if "$releasever" not in url.path:
+        raise ValueError("repository URL must contain $releasever")
     if not key.is_file() or key.is_symlink():
         raise ValueError("repository signing key must be a regular file")
     fingerprint = fingerprint.upper()
@@ -123,10 +148,18 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
             if parent.tag == "type" and parent.get("image") == "oem":
                 parent.set("rootfs_label", "AURORA_ROOT")
                 arguments = parent.get("kernelcmdline", "").split()
-                arguments += [argument for argument in QUIET_BOOT if argument not in arguments]
+                arguments += [argument for argument in QUIET_BOOT + USER_PAGES if argument not in arguments]
                 parent.set("kernelcmdline", " ".join(arguments))
             if parent.tag == "systemdisk":
                 parent.set("name", "aurora")
+            if parent.tag == "repository":
+                # KIWI writes gpgcheck=0 into a repository's file unless asked,
+                # which overrides rpm-check-signatures. Its <signing> keys are
+                # in the image rpm database before the first package.
+                if parent.find("source/signing") is None:
+                    raise ValueError(f"upstream repository {parent.get('alias')} has no signing key; "
+                                     "review the integration")
+                parent.set("package_gpgcheck", "true")
             for node in list(parent):
                 if node.tag == "package" and node.get("name") in REPLACED:
                     parent.remove(node)
@@ -151,14 +184,19 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
             node.set("from", "this://./repositories/aurora.xml")
     write_xml(tree, destination / "config.xml")
 
-    for name, (selected_profile, packages) in PACKAGES.items():
+    for (name, (selected_profile, packages)), tag in [
+            *((item, "package") for item in PACKAGES.items()),
+            *((item, "ignore") for item in EXCLUDED.items())]:
         path = destination / name
         tree = ET.parse(path)
+        if tag == "ignore" and not any(node.get("name") == selected_profile
+                                       for node in tree.iter("profile")):
+            raise ValueError(f"upstream {selected_profile} profile changed; review the integration")
         group = ET.SubElement(tree.getroot(), "packages", {
             "type": "image", "profiles": selected_profile,
         })
         for package in packages:
-            ET.SubElement(group, "package", {"name": package})
+            ET.SubElement(group, tag, {"name": package})
         write_xml(tree, path)
 
     key_bytes = key.read_bytes()
@@ -169,29 +207,49 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
     # KIWI resolves description-local signing keys before the root filesystem exists.
     (destination / key_name).write_bytes(key_bytes)
     repository = ET.Element("image")
+    # Package signatures are checked as for the Fedora repositories above.
     node = ET.SubElement(repository, "repository", {
         "type": "rpm-md", "alias": "aurora", "sourcetype": "baseurl", "priority": "1",
+        "package_gpgcheck": "true",
     })
     origin = ET.SubElement(node, "source", {"path": repository_url.rstrip("/")})
     ET.SubElement(origin, "signing", {"key": (destination.resolve() / key_name).as_uri()})
     write_xml(ET.ElementTree(repository), destination / "repositories/aurora.xml")
+    repo_text, baseurls = re.subn(r"(?m)^baseurl=.*$", lambda _: f"baseurl={repository_url.rstrip('/')}",
+                                  REPOSITORY_FILE.read_text())
+    if baseurls != 1 or f"gpgkey=file:///etc/pki/rpm-gpg/{key_name}\n" not in repo_text:
+        raise ValueError("aurora-repos repository file changed; review the integration")
     repo_dir = destination / "root/etc/yum.repos.d"
     repo_dir.mkdir(parents=True, exist_ok=True)
-    (repo_dir / "aurora.repo").write_text(
-        "[aurora]\nname=Aurora Silicon for Fedora\n"
-        f"baseurl={repository_url.rstrip('/')}\nenabled=1\n"
-        f"gpgcheck=1\nrepo_gpgcheck=1\ngpgkey=file:///etc/pki/rpm-gpg/{key_name}\npriority=1\n"
-    )
+    (repo_dir / "aurora.repo").write_text(repo_text)
     config = destination / "config.sh"
     text = config.read_text()
     if "kernel-16k-core" not in text:
         raise ValueError("upstream kernel selection changed; review the integration")
     text = text.replace("kernel-16k-core", "kernel-aurora-core")
+    # Aurora ships no Fedora Asahi first-boot swap or extras unit to enable.
+    text, enabled = re.subn(
+        r"(?m)(?:^##.*\n)*^systemctl enable asahi-(?:setup-swap|extras)-firstboot\.service\n", "", text)
+    if enabled != 2:
+        raise ValueError("upstream first-boot units changed; review the integration")
     if text.count("\nexit 0\n") != 1:
         raise ValueError("upstream image configuration exit changed; review the integration")
     # Check the RPM's preset result inside the assembled image. A build must
     # fail before exporting an image that will omit peripheral admission.
-    text = text.replace("\nexit 0\n", '''
+    checks = '''
+# systemd applies every preset on the first boot, before / is writable, and
+# can change nothing then. Bring the image to its preset state now; the
+# installer image is checked for this again when it is sealed.
+systemctl preset-all
+if [[ "$(systemctl get-default)" != @DEFAULT_TARGET@ ]]; then
+    echo 'The image must boot to @DEFAULT_TARGET@' >&2
+    exit 1
+fi
+if [[ -e /etc/xdg/autostart/imsettings-start.desktop ]]; then
+    echo 'imsettings would fail to start on every login' >&2
+    exit 1
+fi
+
 # Desktop images create the owner with the desktop's own setup, after Aurora
 # has protected the disk on the boot splash.
 if [[ -f /usr/lib/systemd/system/plasma-setup.service &&
@@ -218,6 +276,13 @@ if [[ -f /usr/share/plymouth/themes/aurora/aurora.plymouth &&
     exit 1
 fi
 
+# The first install from the Aurora repository must not ask to trust its key.
+rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-aurora
+if ! rpmkeys --list @SIGNING_FINGERPRINT@ >/dev/null; then
+    echo 'The Aurora signing key must be in the image rpm database' >&2
+    exit 1
+fi
+
 # Reject stale repository images before they can reach installation.
 shopt -s nullglob
 kernel_configs=(/usr/lib/modules/*/config)
@@ -237,14 +302,13 @@ if [[ "$(systemctl is-enabled aurora-peripherals.service)" != enabled ]]; then
     exit 1
 fi
 
-# Every profile ships the SSH server with remote login off. Re-apply the
-# presets now that every package is installed, so install order cannot
-# leave it on, and refuse an image that would still start it.
+# Every profile ships the SSH server with remote login off. The presets
+# applied above decide that whatever the install order; refuse an image that
+# would still start it.
 if ! rpm -q openssh-server >/dev/null; then
     echo 'Every Aurora image must ship openssh-server' >&2
     exit 1
 fi
-systemctl preset sshd.service sshd.socket
 for unit in sshd.service sshd.socket; do
     if [[ "$(systemctl is-enabled "$unit" || true)" != disabled ]]; then
         echo "$unit must be off by default in the image" >&2
@@ -252,8 +316,16 @@ for unit in sshd.service sshd.socket; do
     fi
 done
 
+# Every profile runs programs with 4K pages out of the box (userpages 4k).
+if ! rpm -q aurora-userpages >/dev/null; then
+    echo 'Every Aurora image must ship the userpages launcher' >&2
+    exit 1
+fi
+
 exit 0
-''')
+'''
+    checks = checks.replace("@DEFAULT_TARGET@", DEFAULT_TARGETS[profile])
+    text = text.replace("\nexit 0\n", checks.replace("@SIGNING_FINGERPRINT@", fingerprint))
     config.write_text(text)
     receipt = {
         "schema": 1, "distribution": "Aurora Fedora Remix",
@@ -268,6 +340,7 @@ exit 0
                    "root_subvolume": "root", "home_subvolume": "home",
                    "boot_manager": "grub2", "initramfs": "dracut"},
         "packages": {name: packages for name, (_, packages) in PACKAGES.items()},
+        "excluded_packages": {name: packages for name, (_, packages) in EXCLUDED.items()},
         "build_command": ["kiwi-ng", "--target-arch=aarch64", "--type=oem", f"--profile={PROFILES[profile]}",
                           "system", "build", "--description", str(destination.resolve()),
                           "--target-dir", str(destination.resolve().with_name(destination.name + "-image"))],

@@ -1,13 +1,10 @@
 Name: aurora-remix-scripts
 Version: 44
-Release: 7%{?dist}
+Release: 8%{?dist}
 Summary: Aurora Fedora Remix first-boot integration
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
 BuildArch: noarch
-Source0: aurora-firstboot
-Source1: asahi-setup-swap-firstboot.service
-Source2: asahi-extras-firstboot.service
 Source4: complete-plasma-setup
 Source5: aurora-display-manager-setup.conf
 Requires: bash systemd util-linux coreutils python3 aurora-firstboot >= 0.1.8
@@ -16,25 +13,23 @@ Provides: fedora-asahi-remix-scripts
 Conflicts: fedora-asahi-remix-scripts
 
 %description
-Initial swap and target-device integration for Aurora Fedora Remix.
+Plasma Setup integration for Aurora Fedora Remix.
 
 %prep
 %build
 %install
-install -Dm755 %{SOURCE0} %{buildroot}%{_libexecdir}/aurora/firstboot
-install -Dm644 %{SOURCE1} %{buildroot}%{_unitdir}/asahi-setup-swap-firstboot.service
-install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/asahi-extras-firstboot.service
 install -Dm755 %{SOURCE4} %{buildroot}%{_libexecdir}/aurora/complete-plasma-setup
 install -Dm644 %{SOURCE5} %{buildroot}%{_unitdir}/display-manager.service.d/aurora-plasma-setup.conf
 
 %files
-%{_libexecdir}/aurora/firstboot
-%{_unitdir}/asahi-setup-swap-firstboot.service
-%{_unitdir}/asahi-extras-firstboot.service
 %{_libexecdir}/aurora/complete-plasma-setup
 %{_unitdir}/display-manager.service.d/aurora-plasma-setup.conf
 
 %changelog
+* Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 44-8
+- Drop the first-boot swap and extras units. They only disabled
+  themselves, and the presets systemd applies on the first boot turn
+  them off.
 * Fri Oct 30 2026 Aurora Silicon <hey@djdev.me> - 44-7
 - Name the distribution Aurora Fedora Remix in the package text and in the
   first-boot unit descriptions.

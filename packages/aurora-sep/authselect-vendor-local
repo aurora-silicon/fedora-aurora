@@ -1,0 +1,92 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Keep authselect's vendor "local" profile: the installed default "local"
+# profile with one change. With with-fingerprint on, its system-auth offers a
+# fingerprint to every service that includes it, the console login and su
+# among them. Here system-auth offers it only to the services named below;
+# the lock screens keep fingerprint through fingerprint-auth, and every other
+# file is a link to the default profile. authselect reads a vendor profile in
+# place of the default one of the same name, so the selected profile and its
+# features stay as they are.
+#
+# The copy is rebuilt whenever this package or authselect is installed or
+# updated, so it follows the installed authselect. When the default profile no
+# longer has the expected fingerprint line, the vendor copy is removed and
+# authselect's own profile applies. "--remove" removes it.
+set -eu
+
+default=${AURORA_AUTHSELECT_DEFAULT:-/usr/share/authselect/default/local}
+vendor=${AURORA_AUTHSELECT_VENDOR:-/usr/share/authselect/vendor/local}
+share=${vendor%/vendor/*}
+services=sudo:sudo-i:polkit-1
+marker=.aurora-sep
+
+log() {
+    echo "authselect-vendor-local: $*" >&2
+}
+
+# authselect applies a changed profile at boot only when this checksum
+# changes; compute it as authselect's own package does.
+refresh() {
+    if [ -d "$share" ] && [ -w "$share" ]; then
+        { find "$share" -mindepth 2 -type f -printf '%P\n' -exec sha256sum {} + |
+            sha256sum >"$share/checksum"; } 2>/dev/null || :
+    fi
+    if [ -z "${AURORA_AUTHSELECT_NO_APPLY:-}" ] && command -v authselect >/dev/null 2>&1 &&
+        [ -e /etc/authselect/authselect.conf ]; then
+        # Rewrites the generated files, as authselect's own package does.
+        authselect apply-changes >/dev/null 2>&1 ||
+            log "authselect apply-changes did not run; see 'authselect check'"
+    fi
+}
+
+remove() {
+    rm -rf "$vendor"
+}
+
+# A copy this script did not write is left alone (an empty one is ours).
+if [ -d "$vendor" ] && [ ! -e "$vendor/$marker" ] && [ -n "$(ls -A "$vendor")" ]; then
+    log "$vendor is not Aurora's; leaving it alone"
+    exit 0
+fi
+
+if [ "${1:-}" = --remove ]; then
+    remove
+    refresh
+    exit 0
+fi
+
+if [ ! -f "$default/system-auth" ]; then
+    log "no default local profile in $default"
+    remove
+    exit 0
+fi
+
+new=$vendor.new
+rm -rf "$new"
+mkdir -p "$new"
+for f in "$default"/*; do
+    [ "${f##*/}" = system-auth ] && continue
+    ln -s "$f" "$new/${f##*/}"
+done
+guard="auth        [success=1 default=ignore]                   pam_succeed_if.so service notin $services quiet {include if \"with-fingerprint\"}"
+if ! awk -v guard="$guard" '
+    /^auth[ \t]+sufficient[ \t]+pam_fprintd\.so([ \t].*)?\{include if "with-fingerprint"\}[ \t]*$/ {
+        print guard
+        n++
+    }
+    { print }
+    END { exit n != 1 }
+' "$default/system-auth" >"$new/system-auth"; then
+    log "$default/system-auth does not have the expected pam_fprintd line; using authselect's own profile"
+    rm -rf "$new"
+    remove
+    refresh
+    exit 0
+fi
+chmod 0644 "$new/system-auth"
+printf 'Written by %s; rebuilt from %s.\n' "$0" "$default" >"$new/$marker"
+rm -rf "$vendor"
+mv "$new" "$vendor"
+refresh
