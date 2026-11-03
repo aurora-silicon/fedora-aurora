@@ -27,10 +27,46 @@ def link(path, target):
     os.symlink(target, path)
 
 
+# Touch ID as Aurora ships it: fingerprint for sudo, polkit and the lock
+# screen, the password everywhere else; a short power-button press suspends.
+GUARD = 'auth [success=1 default=ignore] pam_succeed_if.so service notin sudo:sudo-i:polkit-1 quiet\n'
+SYSTEM_AUTH = ('auth required pam_env.so\n' + GUARD + 'auth sufficient pam_fprintd.so\n'
+               'auth sufficient pam_unix.so nullok\nauth required pam_deny.so\n')
+PASSWORD_AUTH = 'auth required pam_env.so\nauth sufficient pam_unix.so nullok\nauth required pam_deny.so\n'
+FINGERPRINT_AUTH = 'auth [success=done default=bad] pam_fprintd.so\nauth required pam_deny.so\n'
+LOGIND = '[Login]\nHandlePowerKey=suspend\nHandlePowerKeyLongPress=poweroff\n'
+POWERDEVIL = ''.join(f'[{group}][SuspendAndShutdown]\nPowerButtonAction=1\n'
+                     for group in ('AC', 'Battery', 'LowBattery'))
+
+
+def touchid_files(etc, profile, system_auth=SYSTEM_AUTH):
+    pam = etc / 'pam.d'
+    write(pam / 'system-auth', system_auth)
+    write(pam / 'password-auth', PASSWORD_AUTH)
+    write(pam / 'fingerprint-auth', FINGERPRINT_AUTH)
+    for name in ('sudo', 'polkit-1'):
+        write(pam / name, 'auth include system-auth\n')
+    for name in ('login', 'su'):
+        write(pam / name, 'auth substack system-auth\n')
+    write(pam / 'sshd', 'auth substack password-auth\n')
+    services = {'gnome': {'gdm-fingerprint': 'fingerprint-auth', 'gdm-password': 'password-auth'},
+                'kde': {'kde-fingerprint': 'fingerprint-auth', 'kde': 'password-auth',
+                        'plasmalogin': 'password-auth'}}
+    for name, stack in services.get(profile, {}).items():
+        write(pam / name, f'auth substack {stack}\n')
+    write(etc / 'systemd/logind.conf.d/50-aurora-sep.conf', LOGIND)
+    if profile == 'kde':
+        write(etc / 'xdg/powerdevilrc', POWERDEVIL)
+
+
 class CheckBasicsTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.base = Path(self.temporary.name)
+
+    def fresh(self):
+        self.temporary.cleanup()
+        self.setUp()
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -46,6 +82,7 @@ class CheckBasicsTests(unittest.TestCase):
         write(root / 'usr/lib/locale/locale-archive', b'\0en_US.utf8\0')
         link(e / 'systemd/system/multi-user.target.wants/NetworkManager.service',
              '/usr/lib/systemd/system/NetworkManager.service')
+        touchid_files(e, profile)
         if profile == 'gnome':
             write(u / 'bin/kgx', mode=0o755)
             write(u / 'share/applications/org.gnome.Console.desktop')
@@ -200,10 +237,83 @@ class CheckBasicsTests(unittest.TestCase):
         write(root / sw.lstrip('/') / 'share/applications/org.gnome.Console.desktop')
         write(root / sw.lstrip('/') / 'bin/gnome-control-center', mode=0o755)
         write(root / sw.lstrip('/') / 'share/backgrounds/gnome/adwaita-l.jxl')
+        touchid_files(root / etc.lstrip('/'), 'gnome')
         result = self.check('--profile', 'gnome', '--root', str(root), '--system', system, *self.boot())
         self.assertEqual(result.returncode, 0, result.stdout)
         write(root / etc.lstrip('/') / 'locale.conf', 'LANG=C\n')
         self.assertNotEqual(self.check('--profile', 'gnome', '--root', str(root), '--system', system).returncode, 0)
+
+    def test_fingerprint_at_the_console_login_and_su_fails(self):
+        def mutate(root):
+            write(root / 'etc/pam.d/system-auth', SYSTEM_AUTH.replace(GUARD, ''))
+        self.assert_fails('minimal', mutate, 'login offers a fingerprint; su offers a fingerprint')
+
+    def test_sudo_and_polkit_without_fingerprint_fail(self):
+        def mutate(root):
+            write(root / 'etc/pam.d/system-auth', PASSWORD_AUTH)
+        self.assert_fails('gnome', mutate, 'sudo does not offer a fingerprint; polkit-1 does not offer a fingerprint')
+
+    def test_fingerprint_that_replaces_the_password_fails(self):
+        def mutate(root):
+            write(root / 'etc/pam.d/sudo', 'auth required pam_fprintd.so\nauth include system-auth\n')
+        self.assert_fails('minimal', mutate, 'sudo has no password after the fingerprint')
+
+    def test_fingerprint_at_the_login_screen_fails(self):
+        def mutate(root):
+            write(root / 'etc/pam.d/plasmalogin', 'auth substack system-auth\n')
+            write(root / 'etc/pam.d/system-auth', SYSTEM_AUTH.replace('notin sudo:', 'notin plasmalogin:sudo:'))
+        self.assert_fails('kde', mutate, 'plasmalogin offers a fingerprint')
+
+    def test_lock_screen_without_fingerprint_fails(self):
+        self.assert_fails('gnome', lambda root: write(root / 'etc/pam.d/fingerprint-auth', PASSWORD_AUTH),
+                          'gdm-fingerprint does not offer a fingerprint')
+
+    def test_vendor_pam_directory_is_read(self):
+        def mutate(root):
+            (root / 'etc/pam.d/polkit-1').unlink()
+            write(root / 'usr/lib/pam.d/polkit-1', 'auth required pam_unix.so\n')
+        self.assert_fails('minimal', mutate, 'polkit-1 does not offer a fingerprint')
+
+    def test_authselect_profile_is_checked_with_fingerprint_on(self):
+        stock = ('auth required pam_env.so\n'
+                 'auth sufficient pam_fprintd.so {include if "with-fingerprint"}\n'
+                 'auth sufficient pam_unix.so {if not "without-nullok":nullok}\nauth required pam_deny.so\n')
+        vendor = stock.replace('auth sufficient pam_fprintd.so', GUARD.rstrip('\n') +
+                               ' {include if "with-fingerprint"}\nauth sufficient pam_fprintd.so')
+        fingerprint = ('auth required pam_debug.so auth=authinfo_unavail {exclude if "with-fingerprint"}\n'
+                       '{continue if "with-fingerprint"}\n' + FINGERPRINT_AUTH)
+
+        def profile(root, system_auth):
+            write(root / 'etc/authselect/authselect.conf', 'local\nwith-silent-lastlog\n')
+            for name, text in (('system-auth', system_auth), ('password-auth', PASSWORD_AUTH),
+                               ('fingerprint-auth', fingerprint)):
+                write(root / f'usr/share/authselect/vendor/local/{name}', text)
+                # What authselect wrote with the feature still off.
+                write(root / f'etc/authselect/{name}', PASSWORD_AUTH if name != 'fingerprint-auth' else
+                      'auth required pam_debug.so auth=authinfo_unavail\n')
+                (root / f'etc/pam.d/{name}').unlink()
+                link(root / f'etc/pam.d/{name}', f'/etc/authselect/{name}')
+
+        root = self.desktop_root('gnome')
+        profile(root, vendor)
+        result = self.check('--profile', 'gnome', '--root', str(root))
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.fresh()
+        root = self.desktop_root('gnome')
+        profile(root, stock)
+        result = self.check('--profile', 'gnome', '--root', str(root))
+        self.assertIn('login offers a fingerprint', result.stdout)
+
+    def test_power_key_that_powers_off_fails(self):
+        self.assert_fails('minimal', lambda root: (root / 'etc/systemd/logind.conf.d/50-aurora-sep.conf').unlink(),
+                          'logind HandlePowerKey=(default), not suspend')
+        self.fresh()
+        self.assert_fails('gnome', lambda root: write(root / 'etc/systemd/logind.conf.d/90-local.conf',
+                          '[Login]\nHandlePowerKey=poweroff\n'), 'logind HandlePowerKey=poweroff, not suspend')
+
+    def test_plasma_power_button_must_suspend(self):
+        self.assert_fails('kde', lambda root: (root / 'etc/xdg/powerdevilrc').unlink(),
+                          'Plasma AC power button action is the logout screen, not suspend')
 
     def flatpak_gl(self, root, commit=MESA, host=MESA, branches=('25.08', '26.08')):
         """A root with the host Mesa and GL.aurora as aurora-flatpak-gl installs it."""
