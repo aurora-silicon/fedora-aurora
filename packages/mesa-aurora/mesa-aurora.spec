@@ -1,8 +1,8 @@
-%global commit 1fec35719fbdac348a0c404bfb9019b8bc64eb6e
+%global commit 05ddb00f5ca9d0e153d987fed6454f21902ee1c8
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 17%{?dist}.aurora
+Release: 18%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -200,6 +200,10 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-18
+- Track aurora-silicon/mesa aurora-wip at 05ddb00.
+- Upstream head: Merge pull request #155 from aurora-silicon/fix/agx-ro-addr-const
+
 * Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-17
 - Track aurora-silicon/mesa aurora-wip at 1fec357.
 - Upstream head: Merge pull request #154 from aurora-silicon/fix/hk-sparse-alias-lto
