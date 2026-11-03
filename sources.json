@@ -248,5 +248,14 @@
     "archive_file": "plymouth-26.134.222.tar.bz2",
     "archive_root": "plymouth-26.134.222",
     "sha256": "043f21b27c50ed70d0638a318460e747e5a12cc2af1bce960858b7a63b981ecc"
+  },
+  "lsp-plugins": {
+    "repository": "https://github.com/lsp-plugins/lsp-plugins",
+    "commit": "4c5da8224af1abc279adcb959d9e932130024333",
+    "version": "1.2.29",
+    "source_url": "https://github.com/lsp-plugins/lsp-plugins/releases/download/1.2.29/lsp-plugins-src-1.2.29.tar.gz",
+    "archive_root": "lsp-plugins",
+    "archive_file": "lsp-plugins-src-1.2.29.tar.gz",
+    "sha256": "404297c3add879c508db06d5119e11efc1d0473527d2a69ed39ec77c1d1972f2"
   }
 }
