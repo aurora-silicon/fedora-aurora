@@ -175,6 +175,43 @@ class SpecTests(unittest.TestCase):
         self.assertIn('/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh', text)
         core_files = text.split('%files core', 1)[1].split('%changelog', 1)[0]
         self.assertIn('%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/', core_files)
+    def test_grub_console_migration_runs_once_and_keeps_hand_made_configs(self):
+        script = ROOT / 'packages' / 'aurora-platform' / 'aurora-grub-console'
+        spec = (ROOT / 'packages' / 'aurora-platform' / 'aurora-platform.spec').read_text()
+        self.assertIn('%{_libexecdir}/aurora/aurora-grub-console || :',
+                      spec.split('%posttrans core', 1)[1].split('%files', 1)[0])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            # A stand-in grub2-mkconfig that renders the terminal setting.
+            (bindir / 'grub2-mkconfig').write_text(
+                '#!/bin/sh\n. "$AURORA_GRUB_DEFAULTS"\n'
+                'out="terminal_output $GRUB_TERMINAL_OUTPUT"\n'
+                'if [ "${1:-}" = -o ]; then echo "$out" > "$2"; else echo "$out"; fi\n')
+            (bindir / 'grub2-mkconfig').chmod(0o755)
+            conf, cfg, state = root / 'grub', root / 'grub.cfg', root / 'state' / 'applied'
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", AURORA_GRUB_DEFAULTS=str(conf),
+                       AURORA_GRUB_CFG=str(cfg), AURORA_GRUB_STATE=str(state))
+            run = lambda: subprocess.run(['sh', str(script)], env=env, check=True, capture_output=True, text=True)
+            # A hand-maintained grub.cfg is left alone, and the migration stays pending.
+            conf.write_text('GRUB_TIMEOUT=5\nGRUB_TERMINAL_OUTPUT="gfxterm"\n')
+            cfg.write_text('custom\n')
+            self.assertIn('leaving GRUB_TERMINAL_OUTPUT=gfxterm', run().stderr)
+            self.assertIn('GRUB_TERMINAL_OUTPUT="gfxterm"', conf.read_text())
+            self.assertEqual(cfg.read_text(), 'custom\n')
+            self.assertFalse(state.exists())
+            # A generated grub.cfg: switch to the console and regenerate, once.
+            cfg.write_text('terminal_output gfxterm\n')
+            run()
+            self.assertIn('GRUB_TERMINAL_OUTPUT="console"\n', conf.read_text())
+            self.assertIn('GRUB_TIMEOUT=5\n', conf.read_text())
+            self.assertEqual(cfg.read_text(), 'terminal_output console\n')
+            self.assertTrue(state.exists())
+            # The owner chooses gfxterm again: it stays.
+            conf.write_text('GRUB_TERMINAL_OUTPUT="gfxterm"\n')
+            run()
+            self.assertEqual(conf.read_text(), 'GRUB_TERMINAL_OUTPUT="gfxterm"\n')
     def test_aura_ships_both_stage1_forms_from_the_stage1_build(self):
         spec = (ROOT / 'packages' / 'aura' / 'aura.spec').read_text()
         # Both come from the Stage 1 build, before `make clean` rebuilds for Stage 2.
