@@ -46,7 +46,8 @@ must be booted with user4k=on (the default on Aurora images).
 %prep
 %autosetup -n aurora-steam-native-%{commit}
 find . -name __pycache__ -prune -exec rm -rf {} +
-sed -e 's,@LIBDIR@,%{lib},' -e 's,@USERPAGES@,%{_bindir}/userpages,' %{SOURCE1} > steam
+sed -e 's,@LIBDIR@,%{lib},' -e 's,@USERPAGES@,%{_bindir}/userpages,' \
+    -e 's|@USER4K_HINT@|turn it on with sudo grubby --update-kernel=ALL --args=user4k=on and reboot|' %{SOURCE1} > steam
 
 %build
 
@@ -70,6 +71,7 @@ install -Dm644 share/icons/hicolor/scalable/apps/org.aurorasilicon.Play.svg %{bu
 desktop-file-validate %{buildroot}%{_datadir}/applications/steam.desktop
 desktop-file-validate %{buildroot}%{_datadir}/applications/org.aurorasilicon.Play.desktop
 bash -n %{buildroot}%{_bindir}/steam
+if grep -n '@[A-Z0-9_]*@' %{buildroot}%{_bindir}/steam; then exit 1; fi
 grep -q '^userpages=${AURORA_USERPAGES_LAUNCHER:-%{_bindir}/userpages}$' %{buildroot}%{_bindir}/steam
 grep -q '^lib=%{lib}$' %{buildroot}%{_bindir}/steam
 for t in tests/test-steam-native4k-launch-env.py tests/test-offline-installer.py tests/test-aurora-play-settings.py; do

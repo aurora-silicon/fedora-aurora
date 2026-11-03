@@ -396,7 +396,7 @@ class SpecTests(unittest.TestCase):
         self.assertIn("s,@USERPAGES@,%{_bindir}/userpages,", spec)
         wrapper = (d / 'steam').read_text()
         self.assertIn('userpages=${AURORA_USERPAGES_LAUNCHER:-@USERPAGES@}\nexport AURORA_USERPAGES_LAUNCHER=$userpages\n', wrapper)
-        self.assertIn('"$userpages" 4k /bin/true', wrapper)
+        self.assertIn('"$userpages" 4k true', wrapper)
         self.assertIn('exec "$lib/bin/steam-native4k" "$@"', wrapper)
         subprocess.run(['bash', '-n', str(d / 'steam')], check=True)
 
@@ -421,7 +421,8 @@ class SpecTests(unittest.TestCase):
             userpages.write_text('#!/bin/sh\n[ "$1" = 4k ] && [ -z "$NO_USER4K" ]\n')
             userpages.chmod(0o755)
             wrapper = root / 'steam'
-            wrapper.write_text((d / 'steam').read_text().replace('@LIBDIR@', str(lib)).replace('@USERPAGES@', str(userpages)))
+            wrapper.write_text((d / 'steam').read_text().replace('@LIBDIR@', str(lib)).replace('@USERPAGES@', str(userpages))
+                               .replace('@USER4K_HINT@', 'user4k=on hint'))
             wrapper.chmod(0o755)
             env = {'HOME': str(home), 'PATH': os.environ['PATH'], 'USER': 'test'}
             for _ in range(2):

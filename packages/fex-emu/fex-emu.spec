@@ -6,7 +6,7 @@
 # sources.json at the gitlinks of %%{commit}.
 %global commit 3f4ee4277f11b1986a5edf8ecc9c2c4169830bd4
 %global shortcommit %(c=%{commit}; echo ${c:0:7})
-%global fex_describe FEX-2610-19-g%{shortcommit}
+%global fex_describe FEX-%{version}-aurora-g%{shortcommit}
 
 # FEX upstream only supports building with clang
 %global toolchain clang
@@ -226,7 +226,6 @@ fi
 %{_bindir}/FEX
 %{_bindir}/FEXBash
 %{_bindir}/FEXGetConfig
-%{_bindir}/FEXInterpreter
 %{_bindir}/FEXOfflineCompiler
 %{_bindir}/FEXpidof
 %{_bindir}/FEXServer
