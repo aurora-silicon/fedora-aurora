@@ -53,6 +53,13 @@ class ConfigureTests(unittest.TestCase):
                 f'<packages type="image" profiles="{profile}"><namedCollection name="input-methods"/>'
                 '</packages></image>')
         (cls.source / "repositories/asahi.xml").write_text("<image/>")
+        (cls.source / "repositories/core.xml").write_text("<image>" + "".join(
+            f'<repository type="rpm-md" alias="{alias}" sourcetype="metalink">'
+            f'<source path="https://mirrors.fedoraproject.org/metalink?repo={repo}&amp;arch=$basearch">'
+            '<signing key="file:///usr/share/distribution-gpg-keys/fedora/RPM-GPG-KEY-fedora-$releasever-primary"/>'
+            '</source></repository>'
+            for alias, repo in (("fedora", "fedora-$releasever"), ("updates", "updates-released-f$releasever")))
+            + "</image>")
         (cls.source / "root/etc").mkdir()
         (cls.source / "root/etc/fstab.script").write_text(
             "#!/bin/sh\n"
@@ -235,6 +242,27 @@ class ConfigureTests(unittest.TestCase):
                 self.assertEqual(log.read_text().splitlines(), [
                     "rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-aurora",
                     f"rpmkeys --list {self.fingerprint}"])
+
+    def test_image_build_checks_fedora_package_signatures(self):
+        out = self.root / "fedora-signatures"
+        self.prepare(out)
+        repositories = {node.get("alias"): node for path in (out / "repositories").glob("*.xml")
+                        for node in ET.parse(path).getroot().iter("repository")}
+        self.assertEqual(set(repositories), {"fedora", "updates", "aurora"})
+        for alias, node in repositories.items():
+            with self.subTest(alias=alias):
+                self.assertEqual(node.get("package_gpgcheck"), "true")
+                self.assertIsNotNone(node.find("source/signing"))
+        self.assertEqual(repositories["fedora"].find("source/signing").get("key"),
+                         "file:///usr/share/distribution-gpg-keys/fedora/RPM-GPG-KEY-fedora-$releasever-primary")
+
+        def unsigned(source):
+            path = source / "repositories/core.xml"
+            path.write_text(re.sub(r"<signing [^>]*/>", "", path.read_text(), count=1))
+
+        source, lock = self.variant("upstream-unsigned", unsigned)
+        with self.assertRaisesRegex(ValueError, "fedora has no signing key"):
+            self.prepare(self.root / "rejected-unsigned", source=source, lock=lock)
 
     def test_requires_the_aurora_repos_repository_file(self):
         changed = self.root / "changed.repo"

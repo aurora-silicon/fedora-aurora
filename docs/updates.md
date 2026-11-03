@@ -24,7 +24,9 @@ repository and every Aurora update in it. The setting is a dnf5 repository overr
 locally. Once Fedora's dnf5 has `auto_import_local_keys`, which the override already sets, the metadata
 check can come back. The image imports the key into its rpm database (`config.sh` checks it), so the
 first Aurora install does not ask either, and the image build checks every Aurora package against it
-(`package_gpgcheck` in the KIWI repository).
+(`package_gpgcheck` in the KIWI repository). The build checks Fedora's packages the same way, against
+the KIWI description's Fedora key (`distribution-gpg-keys`, the same key as `fedora-gpg-keys`), and
+`configure.py` refuses an upstream repository that has no key.
 
 Fedora Asahi Remix sets `allow_vendor_change=False`. Images built before `aurora-release` 44-7 have no
 policies, so their first `dnf upgrade` brings the policies (`aurora-release` and `aurora-repos` carry no
