@@ -1,9 +1,9 @@
-%global commit f1534999589662d5a0fd84b8a4b2b0f886661930
+%global commit 40199edaa5cc9f4927b1619e20bdc1f5212d57f6
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 14%{?dist}.aurora
+Release: 15%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -99,6 +99,10 @@ fi
 %dir /usr/lib/modules/%{krel}/kernel
 
 %changelog
+* Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-15
+- Track aurora-silicon/linux integration/aurora at 40199ed.
+- Upstream head: Merge pull request #898 from aurora-silicon/integration/rosetta-features
+
 * Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-14
 - Track aurora-silicon/linux integration/aurora at f153499 (fleet14p:
   the J614s device tree with its speakers off, H16 and H17 Neural Engine
