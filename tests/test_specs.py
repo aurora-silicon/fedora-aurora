@@ -452,4 +452,96 @@ class SpecTests(unittest.TestCase):
                         cmdline.write_text(content)
                     subprocess.run(['sh', '-ec', script], env=env, check=True)
                     self.assertEqual(log.read_text(), '--update-kernel=ALL --args=user4k=on\n' if called else '')
+    def test_fex_replaces_fedoras_under_its_names(self):
+        # dnf resolves `fex-emu` by name; the Aurora repository's priority then
+        # picks these over Fedora's. `fex` stays Fedora's unrelated tool.
+        spec = (ROOT / 'packages' / 'fex-emu' / 'fex-emu.spec').read_text()
+        self.assertRegex(spec, r'(?m)^Name:\s+fex-emu$')
+        self.assertRegex(spec, r'(?m)^Release:\s+\d+%\{\?dist\}\.aurora$')
+        self.assertGreaterEqual(int(re.search(r'(?m)^Version:\s+(\d+)$', spec).group(1)), 2604)
+        self.assertNotRegex(spec, r'(?m)^%package\s+-n fex$')
+        self.assertNotRegex(spec, r'(?m)^Provides:\s+fex(\s|$)')
+        for name in ('filesystem', 'devel', 'utils', 'thunks'):
+            self.assertRegex(spec, rf'(?m)^%package\s+{re.escape(name)}$')
+        self.assertRegex(spec, r'(?m)^Requires:\s+%\{name\}%\{\?_isa\} = %\{version\}-%\{release\}$')
+        repo = (ROOT / 'packages' / 'aurora-repos' / 'aurora.repo').read_text()
+        self.assertIn('\npriority=1\n', repo)
+
+    def test_binfmt_dispatcher_runs_fex_in_a_4k_tree(self):
+        d = ROOT / 'packages' / 'fex-emu'
+        conf = (d / '50-aurora-fex.toml').read_text()
+        self.assertIn('path = "/usr/libexec/fex-emu/fex-userpages"', conf)
+        self.assertIn('use_muvm = false', conf)
+        self.assertNotIn('FEXInterpreter"', conf)
+        wrapper = (d / 'fex-userpages').read_text()
+        self.assertIn('exec /usr/bin/userpages 4k /usr/bin/FEX "$@"', wrapper)
+        subprocess.run(['sh', '-n', str(d / 'fex-userpages')], check=True)
+        spec = (d / 'fex-emu.spec').read_text()
+        self.assertIn('%{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml\n', spec.split('%files\n', 1)[1])
+        self.assertRegex(spec, r'(?m)^Requires:\s+aurora-userpages$')
+
+    def test_fex_submodules_are_pinned_with_the_fork(self):
+        spec = (ROOT / 'packages' / 'fex-emu' / 'fex-emu.spec').read_text()
+        pin = json.loads((ROOT / 'sources.json').read_text())['fex-emu']
+        self.assertEqual(pin['repository'], 'https://github.com/aurora-silicon/fex')
+        self.assertRegex(spec, rf'(?m)^%global commit {pin["commit"]}$')
+        self.assertIn(f'%autosetup -N -n {pin["archive_root"].replace(pin["commit"], "%{commit}")}', spec)
+        bundled = {name: record for name, record in pin['extra_sources'].items() if name != 'fex-sysroot'}
+        declared = re.findall(r'(?m)^Source1\d\d:\s+(\S+)$', spec)
+        self.assertEqual(sorted(declared), sorted(f'{name}-{record["commit"]}.tar.gz' for name, record in bundled.items()))
+        unpacked = re.findall(r'(?m)^unpack %\{SOURCE(1\d\d)\} \S+$', spec)
+        self.assertEqual(len(unpacked), len(declared))
+        sysroot = pin['extra_sources']['fex-sysroot']
+        version = re.search(r'(?m)^%global sysroot_version (\S+)$', spec).group(1)
+        self.assertEqual(sysroot['archive_file'], f'fex-sysroot-{version}.tar.gz')
+
+    def test_steam_is_the_native_arm64_launcher(self):
+        d = ROOT / 'packages' / 'aurora-steam-native'
+        spec = (d / 'aurora-steam-native.spec').read_text()
+        self.assertRegex(spec, r'(?m)^%package -n steam$')
+        files = spec.split('%files -n steam', 1)[1].split('%changelog', 1)[0]
+        self.assertIn('%{_bindir}/steam\n', files)
+        for requirement in ('aurora-userpages', 'fex-emu', 'gtk2'):
+            self.assertRegex(spec, rf'(?m)^Requires: {requirement}$')
+        # Fedora installs the launcher on PATH, not where the upstream default looks.
+        self.assertIn("s,@USERPAGES@,%{_bindir}/userpages,", spec)
+        wrapper = (d / 'steam').read_text()
+        self.assertIn('userpages=${AURORA_USERPAGES_LAUNCHER:-@USERPAGES@}\nexport AURORA_USERPAGES_LAUNCHER=$userpages\n', wrapper)
+        self.assertIn('"$userpages" 4k true', wrapper)
+        self.assertIn('exec "$lib/bin/steam-native4k" "$@"', wrapper)
+        subprocess.run(['bash', '-n', str(d / 'steam')], check=True)
+
+    def test_steam_wrapper_installs_once_then_starts_the_client(self):
+        d = ROOT / 'packages' / 'aurora-steam-native'
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            lib, home = root / 'lib', root / 'home'
+            (lib / 'bin').mkdir(parents=True)
+            home.mkdir()
+            log = root / 'log'
+            (lib / 'install-steam-arm64.py').write_text(
+                'import os, pathlib, sys\n'
+                'home = pathlib.Path(os.environ["HOME"])\n'
+                'client = home / "client/steamrtarm64"; client.mkdir(parents=True)\n'
+                '(client / "steam").write_text(""); (client / "steam").chmod(0o755)\n'
+                '(home / ".steam").mkdir(); (home / ".steam/root").symlink_to(home / "client")\n'
+                f'open({str(log)!r}, "a").write("install " + " ".join(sys.argv[1:]) + "\\n")\n')
+            (lib / 'bin/steam-native4k').write_text(f'#!/bin/sh\necho "start $AURORA_USERPAGES_LAUNCHER $*" >> {log}\n')
+            (lib / 'bin/steam-native4k').chmod(0o755)
+            userpages = root / 'userpages'
+            userpages.write_text('#!/bin/sh\n[ "$1" = 4k ] && [ -z "$NO_USER4K" ]\n')
+            userpages.chmod(0o755)
+            wrapper = root / 'steam'
+            wrapper.write_text((d / 'steam').read_text().replace('@LIBDIR@', str(lib)).replace('@USERPAGES@', str(userpages))
+                               .replace('@USER4K_HINT@', 'user4k=on hint'))
+            wrapper.chmod(0o755)
+            env = {'HOME': str(home), 'PATH': os.environ['PATH'], 'USER': 'test'}
+            for _ in range(2):
+                subprocess.run([str(wrapper), '-silent'], env=env, check=True, capture_output=True)
+            lines = log.read_text().splitlines()
+            self.assertEqual(lines[0], f'install --prefix {home}/.local/state/aurora-steam-native/prefix')
+            self.assertEqual(lines[1:], [f'start {userpages} -silent'] * 2)
+            result = subprocess.run([str(wrapper)], env={**env, 'NO_USER4K': '1'}, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+            self.assertIn('user4k=on', result.stderr)
 if __name__ == '__main__': unittest.main()
