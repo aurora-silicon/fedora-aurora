@@ -1,6 +1,6 @@
 Name: aurora-platform
 Version: 44
-Release: 15%{?dist}
+Release: 16%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -22,6 +22,7 @@ Source104: 60-aurora-dmi-vendor.hwdb
 Source105: usb4-module-setup.sh
 Source106: early-kms-module-setup.sh
 Source107: aurora-early-kms.sh
+Source108: aurora-grub-console
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -73,6 +74,11 @@ install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwd
 install -Dm755 %{SOURCE105} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-usb4/module-setup.sh
 install -Dm755 %{SOURCE106} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/module-setup.sh
 install -Dm755 %{SOURCE107} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh
+install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-console
+
+%posttrans core
+# Fedora's flicker-free GRUB output, once per system; see the script.
+%{_libexecdir}/aurora/aurora-grub-console || :
 
 %files
 %{_docdir}/aurora-platform/
@@ -84,8 +90,15 @@ install -Dm755 %{SOURCE107} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
 %{_prefix}/lib/dracut/modules.d/91aurora-early-kms/
+%{_libexecdir}/aurora/aurora-grub-console
 
 %changelog
+* Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-16
+- Switch GRUB_TERMINAL_OUTPUT from gfxterm to the console once per system
+  (aurora-grub-console), so GRUB no longer clears the boot logo. A
+  hand-maintained grub.cfg is left alone, and an owner who chooses gfxterm
+  again keeps it.
+
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-15
 - Coldplug the display first in the initramfs (91aurora-early-kms): trigger
   the Apple display subsystem, its DCPs, their device-link suppliers and the
