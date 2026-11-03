@@ -13,7 +13,7 @@ revision=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["comm
 git -C "$upstream" checkout --detach "$revision"
 python3 "$root/images/configure.py" --upstream "$upstream" \
   --output "$root/out/$profile-description" --profile "$profile" \
-  --repository-url "${AURORA_REPOSITORY_URL:-https://aurorasilicon.org/fedora-aurora/44/testing/aarch64}" \
+  --repository-url "${AURORA_REPOSITORY_URL:-https://aurorasilicon.org/fedora-aurora/\$releasever/testing/aarch64}" \
   --signing-key "$root/keys/RPM-GPG-KEY-aurora" \
   --signing-key-fingerprint "$(cat "$root/keys/fingerprint.txt")"
 python3 - "$root/out/$profile-description/aurora-image.json" <<'PY'

@@ -1,6 +1,6 @@
 Name: aurora-platform
 Version: 44
-Release: 13%{?dist}
+Release: 14%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -19,6 +19,7 @@ Source101: aurora-platform-core.conf
 Source102: 50-after-swapfile.conf
 Source103: 61-aurora-dmi-id.rules
 Source104: 60-aurora-dmi-vendor.hwdb
+Source105: usb4-module-setup.sh
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -67,6 +68,7 @@ install -Dm644 %{SOURCE101} %{buildroot}%{_sysconfdir}/dnf/protected.d/aurora-pl
 install -Dm644 %{SOURCE102} %{buildroot}%{_unitdir}/var-swap-swapfile2.swap.d/50-after-swapfile.conf
 install -Dm644 %{SOURCE103} %{buildroot}%{_udevrulesdir}/61-aurora-dmi-id.rules
 install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
+install -Dm755 %{SOURCE105} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-usb4/module-setup.sh
 
 %files
 %{_docdir}/aurora-platform/
@@ -76,8 +78,15 @@ install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwd
 %{_unitdir}/var-swap-swapfile2.swap.d/
 %{_udevrulesdir}/61-aurora-dmi-id.rules
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
+%{_prefix}/lib/dracut/modules.d/91aurora-usb4/
 
 %changelog
+* Mon Nov 02 2026 DjDeveloperr <hey@djdev.me> - 44-14
+- Carry the USB4/Thunderbolt router (thunderbolt_apple) in the initramfs
+  next to the Type-C port controllers that dracut-asahi carries. Without
+  it the ports probe without their router, and a Thunderbolt dock came up
+  as USB 2.0 hubs after a LUKS prompt that waited more than ten seconds.
+
 * Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-13
 - Require aurora-repos from aurora-platform-core: a Fedora Asahi Remix
   system with Aurora's hardware services gets the Aurora repository and the

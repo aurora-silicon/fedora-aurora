@@ -65,7 +65,7 @@ The factory-record reader and the sealed-record rebuild are Erik Bourget's
 work. Read XART-SAFETY.md for persistent identity ownership constraints and
 OS-IDENTITY.md for running Linux beside macOS.
 
-## Readiness and choices
+## Readiness
 
 On a Mac with a reader, `aurora-sep-ready.service` opens `/dev/sep-bio` before
 fprintd starts, which restores the enrolled fingerprints. It reports Touch ID
@@ -75,22 +75,54 @@ blocked it logs the reason and the documented `xart_guard=0` opt-out and fails
 the unit; when that cannot be told yet it logs "matching UNVERIFIED".
 
 The Aurora libfprint build keeps the full upstream driver set and adds the SEP
-biometric interface. This package does not edit PAM, replace password login or
-change the power-button action. On Fedora, fingerprints stay unused until
-`sudo authselect enable-feature with-fingerprint`, and `aurora-sep-ready` logs
-that command once per boot while it is off. Use the desktop's fingerprint
-enrollment flow once hardware qualification is complete. Module reload cannot
-repeat the secure enclave handoff; driver updates take effect after a full
-reboot.
+biometric interface. Module reload cannot repeat the secure enclave handoff;
+driver updates take effect after a full reboot.
 
-Two choices are left to the owner. GNOME Shell offers fingerprint only on the
-lock screen; `sudo systemctl enable aurora-sep-greeter-fingerprint.service`
-also offers it at the login screen from the next boot (it needs `gresource`
-from glib2-devel, and a fingerprint login cannot unlock the keyring). The
-Touch ID sensor is the power button, and outside GNOME a short press powers
-off; to make it suspend instead, copy
-`/usr/share/doc/aurora-sep/logind-aurora-sep.conf` to
-`/etc/systemd/logind.conf.d/50-aurora-sep.conf`.
+## Where Touch ID is used
+
+Enrol a finger in GNOME Settings > Users or in KDE System Settings > Users
+(or with `fprintd-enroll`). Touch ID is then offered here:
+
+| Where | Accepts |
+|---|---|
+| Lock screen | a fingerprint or the password |
+| `sudo`, polkit authentication dialogs | a fingerprint or the password |
+| Login screen (GDM, Plasma Login) | the password |
+| Text console login, `su`, ssh | the password |
+
+The login screen asks for the password because a session started with a
+fingerprint cannot unlock the keyring or KWallet. GNOME can offer fingerprint
+there as well: `sudo systemctl enable aurora-sep-greeter-fingerprint.service`
+does it from the next boot (it needs `gresource` from glib2-devel).
+
+authselect's `with-fingerprint` feature turns fingerprint on.
+`aurora-sep-ready` turns it on once on a Mac with a sensor, so that GNOME
+Settings shows Fingerprint Login; `sudo authselect disable-feature
+with-fingerprint` turns it off for good. authselect's own `local` profile puts
+the fingerprint in `system-auth`, which the console login and `su` include as
+well. This package keeps a vendor copy of that profile in
+`/usr/share/authselect/vendor/local`, which authselect reads in place of its
+own: `system-auth` there offers the fingerprint only to `sudo`, `sudo -i` and
+polkit, and every other file is a link to authselect's. The lock screens keep
+using `fingerprint-auth`. The copy is rebuilt from the installed authselect
+whenever this package or authselect is installed or updated, and the PAM files
+are then regenerated with `authselect apply-changes`, as authselect's own
+package does. To offer the fingerprint elsewhere, select a custom profile
+(`authselect create-profile`).
+
+## Power button
+
+The Touch ID sensor is the power button. A short press suspends and a 5 s
+press powers off, through `/usr/lib/systemd/logind.conf.d/50-aurora-sep.conf`
+at the console, on the login screens and on minimal installs. GNOME sessions
+handle the button themselves (power-button-action, suspend by default). In
+Plasma sessions PowerDevil handles it, and `/etc/xdg/powerdevilrc` makes a
+short press suspend; holding the button for a second opens the logout screen.
+To change logind's choice, add a file of the same name, or one that sorts
+after it, to `/etc/systemd/logind.conf.d/`; in Plasma, change it per user in
+System Settings > Power Management.
+
+## SELinux
 
 The `aurora-sep-selinux` subpackage, installed wherever the targeted policy is,
 labels only `/dev/sep-bio` with a dedicated device type and permits fprintd to

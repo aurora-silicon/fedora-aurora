@@ -1,0 +1,158 @@
+#!/bin/bash
+# Checks inside a disposable Fedora container that aurora-repos's repository
+# refreshes and offers updates on every dnf5 path without a key prompt, and
+# that unsigned or foreign packages are still refused. A throwaway key signs
+# the probe packages and their metadata in place of Aurora's.
+# usage: test-repo-trust <aurora-repos source dir>
+set -euo pipefail
+source=${1:?aurora-repos source directory required}
+dnf install -y -q rpm-build rpm-sign createrepo_c gnupg2 util-linux-script \
+  dnf5-plugins PackageKit dbus-daemon polkit >/dev/null
+
+top=/var/tmp/repo-trust
+export GNUPGHOME=$top/gnupg
+mkdir -p -m 0700 "$GNUPGHOME"
+fingerprint() { gpg --with-colons --list-keys "$1" | awk -F: '/^fpr:/ { print $10; exit }'; }
+for name in aurora foreign; do
+  gpg --batch --pinentry-mode loopback --passphrase '' \
+    --quick-generate-key "$name probe <$name@example.org>" ed25519 sign 0 2>/dev/null
+done
+aurora=$(fingerprint aurora@example.org)
+foreign=$(fingerprint foreign@example.org)
+# The feed's layout; the shipped baseurl picks the tree for $releasever.
+. /etc/os-release
+feed=feed/$VERSION_ID/testing/aarch64
+
+probe() { # name version repo [signing key]
+  mkdir -p "$top/SPECS" "$top/$3"
+  cat > "$top/SPECS/$1.spec" <<SPEC
+Name: $1
+Version: $2
+Release: 1
+Summary: repository trust probe
+License: MIT
+BuildArch: noarch
+%description
+probe
+%files
+SPEC
+  rpmbuild -bb --quiet --define "_topdir $top" --define "_rpmdir $top/$3" "$top/SPECS/$1.spec"
+  if [[ -n ${4:-} ]]; then
+    rpmsign --addsign --define "_openpgp_sign_id $4" --define '_gpg_sign_cmd_extra_args --batch' \
+      "$top/$3/noarch/$1-$2-1.noarch.rpm" >/dev/null
+  fi
+}
+probe aurora-trust-probe 1 base
+probe aurora-trust-probe 2 "$feed" "$aurora"
+probe aurora-trust-unsigned 1 "$feed"
+probe aurora-trust-foreign 1 "$feed" "$foreign"
+for repo in base "$feed"; do createrepo_c -q "$top/$repo"; done
+# Signed metadata, as the Aurora feed publishes it.
+gpg --batch --local-user "$aurora" --armor --detach-sign "$top/$feed/repodata/repomd.xml"
+
+# The shipped repository, override and key, pointed at the probes; the image
+# imports the key into the rpm database.
+shopt -s nullglob
+sed -i 's/^enabled=1/enabled=0/' /etc/yum.repos.d/*.repo /usr/share/dnf5/repos.d/*.repo
+shopt -u nullglob
+sed "s|^baseurl=https://aurorasilicon.org/fedora-aurora/|baseurl=file://$top/feed/|" "$source/aurora.repo" > /etc/yum.repos.d/aurora.repo
+install -Dm644 "$source/aurora-override.repo" /usr/share/dnf5/repos.override.d/50-aurora.repo
+gpg --armor --export "$aurora" > /etc/pki/rpm-gpg/RPM-GPG-KEY-aurora
+rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-aurora
+printf '[probe-base]\nname=probe base\nbaseurl=file://%s/base\ngpgcheck=0\n' "$top" > /etc/yum.repos.d/probe-base.repo
+dnf install -y -q --repo probe-base aurora-trust-probe > /dev/null 2>&1
+
+fail() { echo "FAIL: $*" >&2; exit 1; }
+[[ $(dnf -q --repo aurora repoinfo aurora 2>/dev/null) == *"file://$top/$feed"* ]] ||
+  fail "aurora.repo does not resolve to the $VERSION_ID repository"
+asked() { grep -qE 'Importing OpenPGP key|signature verification error|Signing key not found' <<< "$1"; }
+offered() { grep -qE "^ *aurora-trust-probe +noarch +(0:)?2-1 +aurora " <<< "$1"; }
+
+# The makecache timer and any other refresh that nobody can answer, also with
+# a locally changed repository file that still asks for the metadata check.
+refresh() {
+  rm -rf /var/cache/libdnf5/aurora-*
+  out=$(dnf5 makecache < /dev/null 2>&1) || fail "makecache failed: $out"
+  ! asked "$out" || fail "makecache asked about a key ($1): $out"
+  dnf -q -C --repo aurora repoquery aurora-trust-probe < /dev/null | grep -qx 'aurora-trust-probe-0:2-1.noarch' ||
+    fail "a non-interactive refresh lost the Aurora repository ($1)"
+}
+cp /etc/yum.repos.d/aurora.repo "$top/aurora.repo"
+echo 'repo_gpgcheck=1' >> /etc/yum.repos.d/aurora.repo
+refresh 'changed repository file'
+cp "$top/aurora.repo" /etc/yum.repos.d/aurora.repo
+refresh 'shipped repository file'
+
+out=$(dnf upgrade --refresh --assumeno < /dev/null 2>&1 || true)
+! asked "$out" && offered "$out" || fail "dnf upgrade --assumeno: $out"
+out=$(dnf5 offline-upgrade download --refresh < /dev/null 2>&1 || true)
+! asked "$out" && offered "$out" || fail "dnf5 offline-upgrade download: $out"
+
+# PackageKit, which KDE Discover uses.
+mkdir -p /run/dbus
+dbus-daemon --system --fork --nopidfile
+packagekit_offers() {
+  /usr/lib/polkit-1/polkitd --no-debug > /dev/null 2>&1 &
+  local polkitd=$!
+  /usr/libexec/packagekitd > /dev/null 2>&1 &
+  local packagekitd=$!
+  for _ in {1..120}; do
+    busctl --system status org.freedesktop.PackageKit > /dev/null 2>&1 && break
+    sleep 0.5
+  done
+  pkcon -p refresh force < /dev/null > /dev/null || fail "pkcon refresh failed ($1)"
+  pkcon -p get-updates < /dev/null | grep -q 'aurora-trust-probe-2-1\.noarch (aurora)' ||
+    fail "PackageKit did not offer the Aurora update ($1)"
+  kill "$packagekitd" "$polkitd"
+  wait "$packagekitd" "$polkitd" 2> /dev/null || true
+}
+packagekit_offers 'shipped repository file'
+
+# A dnf5 with auto_import_local_keys can check the metadata signature without
+# asking, so the check can return (docs/updates.md). Fedora's dnf5 5.4.6 lacks it.
+if dnf5 --dump-main-config 2> /dev/null | grep '^auto_import_local_keys' > /dev/null; then
+  mkdir -p /etc/dnf/repos.override.d
+  printf '[aurora]\nrepo_gpgcheck=1\n' > /etc/dnf/repos.override.d/99-metadata-check.repo
+  refresh 'metadata check'
+  grep -q "Automatically importing OpenPGP key .* for repository aurora" /var/log/dnf5.log ||
+    fail 'auto_import_local_keys did not import the metadata key'
+  dnf5 clean all > /dev/null
+  refresh 'metadata check after dnf clean all'
+  out=$(dnf upgrade --refresh --assumeno < /dev/null 2>&1 || true)
+  ! asked "$out" && offered "$out" || fail "dnf upgrade --assumeno with the metadata check: $out"
+  packagekit_offers 'metadata check'
+  # Metadata signed by another key is refused.
+  signature=$(dnf5 --dump-repo-config=aurora 2> /dev/null | sed -n 's|^baseurl = file://||p')/repodata/repomd.xml.asc
+  [[ -f $signature ]] || fail "no probe metadata signature at $signature"
+  cp "$signature" "$top/repomd.xml.asc"
+  gpg --batch --yes --local-user "$foreign" --armor --detach-sign -o "$signature" "${signature%.asc}"
+  rm -rf /var/cache/libdnf5/aurora-*
+  out=$(dnf -q --repo aurora repoquery aurora-trust-probe < /dev/null 2>&1 || true)
+  ! grep -q '^aurora-trust-probe' <<< "$out" || fail "metadata signed by another key was accepted: $out"
+  cp "$top/repomd.xml.asc" "$signature"
+  rm /etc/dnf/repos.override.d/99-metadata-check.repo
+  echo 'Metadata check: works without prompts; dnf5 has auto_import_local_keys (docs/updates.md)'
+else
+  echo "Metadata check: not run, dnf5 $(rpm -q --qf '%{VERSION}' libdnf5) has no auto_import_local_keys"
+fi
+
+# An interactive update asks only to confirm the transaction.
+printf 'y\n' | script -qec 'dnf upgrade aurora-trust-probe' /dev/null > "$top/interactive.log" 2>&1 || true
+rpm -q aurora-trust-probe-2-1 > /dev/null || fail "interactive dnf upgrade: $(cat "$top/interactive.log")"
+! asked "$(cat "$top/interactive.log")" || fail "dnf upgrade asked about a key: $(cat "$top/interactive.log")"
+
+# Package signatures are still enforced.
+for name in aurora-trust-unsigned aurora-trust-foreign; do
+  if out=$(dnf install -y "$name" < /dev/null 2>&1); then fail "$name was installed"; fi
+  grep -q "OpenPGP check for package \"$name-" <<< "$out" || fail "$name refused for another reason: $out"
+done
+# An upgrade to a release that has no Aurora repository yet stops, rather
+# than going ahead without Aurora's packages or replacing them with Fedora's.
+next=$((VERSION_ID + 1))
+for command in "makecache --refresh" "system-upgrade download --allowerasing --assumeno"; do
+  if out=$(dnf5 --releasever="$next" $command < /dev/null 2>&1); then
+    fail "dnf5 $command went ahead without an Aurora $next repository: $out"
+  fi
+  grep -q 'for repository "aurora"' <<< "$out" || fail "dnf5 $command failed for another reason: $out"
+done
+echo 'Aurora repository: no key prompts; unsigned and foreign packages refused; a release without it stops'
