@@ -247,25 +247,7 @@
     "source_url": "https://gitlab.freedesktop.org/plymouth/plymouth/-/archive/26.134.222/plymouth-26.134.222.tar.bz2",
     "archive_file": "plymouth-26.134.222.tar.bz2",
     "archive_root": "plymouth-26.134.222",
-    "sha256": "043f21b27c50ed70d0638a318460e747e5a12cc2af1bce960858b7a63b981ecc",
-    "extra_sources": {
-      "plymouth-24": {
-        "repository": "https://gitlab.freedesktop.org/plymouth/plymouth",
-        "commit": "d6e6366d622962dce02d8c7e4ab814f54a202509",
-        "version": "24.004.60",
-        "source_url": "https://gitlab.freedesktop.org/plymouth/plymouth/-/archive/24.004.60/plymouth-24.004.60.tar.bz2",
-        "archive_file": "plymouth-24.004.60.tar.bz2",
-        "archive_root": "plymouth-24.004.60",
-        "sha256": "78db38bf378975b14d5e714b9667f4b4992e3da1907851d750e902b710481e25"
-      },
-      "spinner-update": {
-        "repository": "https://gitlab.freedesktop.org/plymouth/plymouth",
-        "commit": "1a01883fa2659bfb5e7417e1d5bd8d287a2cac36",
-        "source_url": "https://src.fedoraproject.org/repo/pkgs/plymouth/spinner-update.tar.gz/sha512/5e5a0482e4640857389a14fbc032ccf8dbe756511589d218b12195c7136363b973a352e9fecabcaa464641233319d6bb83b879123f77252d031add51ae77feb9/spinner-update.tar.gz",
-        "archive_file": "spinner-update.tar.gz",
-        "sha256": "400e9588f335b18197f0c1545e43ffe5b6ede24685fb0abcd803017ca6e666b2"
-      }
-    }
+    "sha256": "043f21b27c50ed70d0638a318460e747e5a12cc2af1bce960858b7a63b981ecc"
   },
   "fex-emu": {
     "repository": "https://github.com/aurora-silicon/fex",
