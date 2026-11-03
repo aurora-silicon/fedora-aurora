@@ -156,10 +156,35 @@ class ConfigureTests(unittest.TestCase):
         types = {path.stem: ET.parse(path).getroot().find("preferences/type")
                  for path in (out / "platforms").glob("*.xml")}
         self.assertEqual(types["workstation"].get("kernelcmdline"),
-                         "rhgb quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto")
+                         "rhgb quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto user4k=on")
         self.assertEqual(types["minimal"].get("kernelcmdline"),
-                         "quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto")
+                         "quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto user4k=on")
         self.assertEqual(types["minimal"].get("rootfs_label"), "AURORA_ROOT")
+
+    def test_every_profile_ships_the_page_size_launcher(self):
+        for profile in configure.PROFILES:
+            with self.subTest(profile=profile):
+                out = self.root / f"userpages-{profile}"
+                self.prepare(out, profile=profile)
+                names = {n.get("name") for p in out.rglob("*.xml")
+                         for n in ET.parse(p).getroot().iter("package")}
+                self.assertIn("aurora-userpages", names)
+                arguments = {argument for p in (out / "platforms").glob("*.xml")
+                             for node in ET.parse(p).getroot().iter("type")
+                             for argument in node.get("kernelcmdline", "").split()}
+                self.assertIn("user4k=on", arguments)
+        script = (self.root / "userpages-fedora-minimal/config.sh").read_text()
+        check = script[script.index("# Every profile runs programs with 4K pages"):script.rindex("\nexit 0\n")]
+        bindir = self.root / "userpages-bin"
+        bindir.mkdir()
+        (bindir / "rpm").write_text('#!/bin/sh\n[ "$*" = "-q aurora-userpages" ] && [ "$FAKE_INSTALLED" = 1 ]\n')
+        (bindir / "rpm").chmod(0o755)
+        for installed in ("1", "0"):
+            with self.subTest(installed=installed):
+                env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", FAKE_INSTALLED=installed)
+                result = subprocess.run(["bash", "-euo", "pipefail", "-c", check], env=env,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, installed == "1", result.stderr)
 
     def test_esp_is_checked_at_boot(self):
         out = self.root / "esp-fsck"
