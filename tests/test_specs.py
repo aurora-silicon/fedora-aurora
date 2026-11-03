@@ -4,6 +4,7 @@ from pathlib import Path
 import os
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -13,7 +14,7 @@ class SpecTests(unittest.TestCase):
         pins = json.loads((ROOT / 'sources.json').read_text())
         for spec in (ROOT / 'packages').glob('*/*.spec'):
             extras = pins.get(spec.parent.name, {}).get('extra_sources', {})
-            fetched = {f"{name}-{record['commit']}.tar.gz" for name, record in extras.items()}
+            fetched = {record.get("archive_file", f"{name}-{record['commit']}.tar.gz") for name, record in extras.items()}
             with self.subTest(spec=spec.name):
                 for kind, value in re.findall(r'^(Source\d*|Patch\d*):\s+(\S+)', spec.read_text(), re.M):
                     if '%{' not in value and not value.startswith('http') and value not in fetched:
@@ -289,6 +290,36 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(core, r'(?m)^Requires: aurora-repos$')
         build = (ROOT / 'scripts' / 'build-rpm').read_text()
         self.assertIn('[[ $package == aurora-release || $package == aurora-repos ]] && vendor=()', build)
+    def test_splash_keeps_the_bootloader_logo_in_place(self):
+        # aura draws its 128 or 256 px logo at ((w - size) / 2, (h - size) / 2) on
+        # black; the splash draws the same images the same way, in device pixels.
+        d = ROOT / 'packages' / 'plymouth-theme-aurora'
+        for size in (128, 256):
+            logo = (d / f'aurora-logo-{size}.png').read_bytes()
+            self.assertEqual(logo[:8], b'\x89PNG\r\n\x1a\n')
+            self.assertEqual(struct.unpack('>II', logo[16:24]), (size, size))
+        theme = dict(line.split('=', 1) for line in (d / 'aurora.plymouth').read_text().splitlines()
+                     if '=' in line and not line.startswith('#'))
+        self.assertEqual(theme['ModuleName'], 'script')
+        # The distribution's spinner theme: its spinner, entry and watermark, which
+        # initramfs generators copy as the theme's ImageDir.
+        self.assertEqual(theme['ImageDir'], '/usr/share/plymouth/themes/spinner')
+        self.assertEqual(theme['ScriptFile'], '/run/plymouth/aurora.script')
+        script = (d / 'aurora.script').read_text()
+        self.assertIn('logo_image[1] = Image("../aurora/aurora-logo-128.png");', script)
+        self.assertIn('logo_image[2] = Image("../aurora/aurora-logo-256.png");', script)
+        self.assertIn('return Math.Int((w - size) / 2);', script)
+        self.assertIn('d.y + place_logo_y(d.w, d.h, logo.GetHeight()), 1);', script)
+        self.assertIn('branding_source = Image("watermark.png");', script)
+        spec = (d / 'plymouth-theme-aurora.spec').read_text()
+        post = spec.split('%post', 1)[1].split('%postun', 1)[0]
+        # An owner's own theme choice in /etc wins over the package default.
+        self.assertIn("if ! grep -qs '^[[:space:]]*Theme[[:space:]]*=' $conf; then", post)
+        # Plymouth's 2x scale would double the logo; the theme runs at scale 1.
+        self.assertIn('DeviceScale=1', post)
+        self.assertIn("! grep -qs '^[[:space:]]*DeviceScale[[:space:]]*=' $conf", post)
+        self.assertIn('DeviceScale=1$/d}', spec.split('%postun', 1)[1])
+
     def test_kernel_ships_the_page_size_launcher_from_its_own_source(self):
         spec = (ROOT / 'packages' / 'kernel-aurora' / 'kernel-aurora.spec').read_text()
         main = spec.split('%package core', 1)[0]

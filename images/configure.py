@@ -44,6 +44,8 @@ PACKAGES = {
         # Fedora's SSH server, on every profile; aurora-release presets it off.
         "openssh-server",
     ]),
+    # Desktop images boot to the Aurora splash: aura's logo, kept still, with a spinner.
+    "components/desktop-environments.xml": ("DesktopCommon", ["plymouth-theme-aurora"]),
 }
 # Fedora's imsettings turns itself off on GNOME and Plasma, but its autostart
 # entry still runs there and fails on every login. Both desktops configure
@@ -266,6 +268,11 @@ fi
 if [[ -f /usr/lib/systemd/system/plymouth-quit.service &&
       ! -f /usr/lib/systemd/system/plymouth-quit.service.d/aurora-firstboot.conf ]]; then
     echo 'The boot splash must stay up for the first-boot disk-password prompt' >&2
+    exit 1
+fi
+if [[ -f /usr/share/plymouth/themes/aurora/aurora.plymouth &&
+      "$(plymouth-set-default-theme)" != aurora ]]; then
+    echo 'Desktop images must boot to the Aurora splash' >&2
     exit 1
 fi
 
