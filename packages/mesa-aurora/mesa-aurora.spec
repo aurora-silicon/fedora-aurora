@@ -1,8 +1,8 @@
-%global commit 9ac5875c80d122f150d4cfeff2b5d790407f6491
+%global commit c208afc352e9d4c10ee71c883a369a9079dd7d84
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 17%{?dist}.aurora
+Release: 16%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -200,10 +200,6 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
-* Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-17
-- Track aurora-silicon/mesa aurora-wip at 9ac5875.
-- Upstream head: Merge pull request #118 from jgoyvaerts/pr/hk-g17p-elide-msaa
-
 * Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-16
 - Also provide the arch-specific mesa-filesystem(aarch-64), which libva
   requires, so mesa-aurora-filesystem can replace Fedora's package in the
