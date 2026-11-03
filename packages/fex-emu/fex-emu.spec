@@ -179,10 +179,13 @@ CPPINC="/$(cd sysroot; ls -d usr/include/c++/*)"
 sed -i "s,%%CPPINC%%,$CPPINC,g" toolchain_*.cmake
 
 %build
+# FEX tunes for the build machine by default (-mcpu from its /proc/cpuinfo),
+# which crashes with SIGILL on Apple CPUs when CI builds on Neoverse.
 %cmake -G Ninja \
     -DCMAKE_BUILD_TYPE=release \
     -DENABLE_OFFLINE_TELEMETRY=OFF \
     -DENABLE_CCACHE=OFF \
+    -DTUNE_CPU=none \
     -DOVERRIDE_VERSION=%{fex_describe} \
     -DOVERRIDE_HASH=%{commit} \
 %if %{with thunks}
