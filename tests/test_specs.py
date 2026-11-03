@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -69,6 +70,67 @@ class SpecTests(unittest.TestCase):
         text = (d / 'aurora-release.spec').read_text()
         self.assertRegex(text, r'(?m)^Source\d+: 80-aurora-image\.preset$')
         self.assertIn('%{buildroot}/usr/lib/systemd/system-preset/80-aurora-image.preset', text)
+    def test_system_fixes_install_the_desktop_drop_ins(self):
+        d = ROOT / 'packages' / 'aurora-release'
+        text = (d / 'aurora-release.spec').read_text()
+        files = text.split('%files -n aurora-system-fixes', 1)[1].split('%changelog', 1)[0]
+        for source, target in (('drkonqi-ordering.conf', '%{buildroot}%{_userunitdir}/$unit.d/50-aurora-ordering.conf'),
+                               ('nm-dispatcher-persist.conf', '%{buildroot}%{_unitdir}/NetworkManager-dispatcher.service.d/50-aurora-persist.conf'),
+                               ('plasma-setup-xdg-autostart.conf', '%{buildroot}%{_tmpfilesdir}/plasma-setup-xdg-autostart.conf')):
+            self.assertRegex(text, rf'(?m)^Source\d+: {re.escape(source)}$')
+            self.assertIn(target, text)
+        self.assertIn('for unit in drkonqi-coredump-cleanup.timer drkonqi-sentry-postman.path; do', text)
+        for path in ('%{_userunitdir}/drkonqi-*.d/50-aurora-ordering.conf',
+                     '%{_unitdir}/NetworkManager-dispatcher.service.d/50-aurora-persist.conf',
+                     '%{_tmpfilesdir}/plasma-setup-xdg-autostart.conf'):
+            self.assertIn(path, files)
+
+    def test_drkonqi_units_keep_shutdown_ordering_only(self):
+        # KDE bug 528003: the units order themselves after the targets their
+        # default dependencies put them before.
+        unit = configparser.ConfigParser(strict=False)
+        unit.optionxform = str
+        unit.read_string((ROOT / 'packages/aurora-release/drkonqi-ordering.conf').read_text())
+        self.assertEqual(dict(unit['Unit']), {'DefaultDependencies': 'no', 'Conflicts': 'shutdown.target',
+                                              'Before': 'shutdown.target'})
+
+    def test_nm_dispatcher_persists_until_networkmanager_stops(self):
+        lines = [line for line in (ROOT / 'packages/aurora-release/nm-dispatcher-persist.conf').read_text().splitlines()
+                 if line and not line.startswith('#')]
+        # Fedora installs the dispatcher in libexec.
+        self.assertEqual(lines, ['[Unit]', 'Before=NetworkManager.service', '[Service]', 'ExecStart=',
+                                 'ExecStart=/usr/libexec/nm-dispatcher --persist'])
+
+    def test_plasma_setup_autostart_entry_is_not_executable(self):
+        # Mode adjustments run in file name order: the fix must follow
+        # plasma-setup's own recursive 0750.
+        fix = ROOT / 'packages/aurora-release/plasma-setup-xdg-autostart.conf'
+        self.assertGreater(fix.name, 'plasma-setup-tmpfiles.conf')
+        tmpfiles = shutil.which('systemd-tmpfiles')
+        if not tmpfiles:
+            self.skipTest('systemd-tmpfiles is not installed')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'usr/share/plasma-setup').mkdir(parents=True)
+            (root / 'usr/share/plasma-setup/plasma-setup.desktop').write_text('[Desktop Entry]\n')
+            (root / 'usr/share/plasma-setup/plasma-setup.desktop').chmod(0o644)
+            config = root / 'usr/lib/tmpfiles.d'
+            config.mkdir(parents=True)
+            # plasma-setup 6.8.2's lines; ownership is left out so that this
+            # runs unprivileged.
+            (config / 'plasma-setup-tmpfiles.conf').write_text(
+                'd /run/plasma-setup - - - - -\n'
+                'C /run/plasma-setup/.config/autostart/plasma-setup.desktop - - - - '
+                '/usr/share/plasma-setup/plasma-setup.desktop\n'
+                'Z /run/plasma-setup 0750 - - - -\n')
+            (config / fix.name).write_bytes(fix.read_bytes())
+            (root / 'run').mkdir()
+            result = subprocess.run([tmpfiles, f'--root={root}', '--create'], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            entry = root / 'run/plasma-setup/.config/autostart/plasma-setup.desktop'
+            self.assertEqual(entry.stat().st_mode & 0o777, 0o640)
+            self.assertEqual((root / 'run/plasma-setup').stat().st_mode & 0o777, 0o750)
+
     def test_remix_scripts_ship_no_first_boot_units(self):
         d = ROOT / 'packages' / 'aurora-remix-scripts'
         text = (d / 'aurora-remix-scripts.spec').read_text()

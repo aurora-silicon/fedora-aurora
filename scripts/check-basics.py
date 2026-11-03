@@ -13,6 +13,7 @@ filesystems the installer writes):
   network    NetworkManager is enabled; desktops ship its settings UI
   lid        logind still suspends on lid close; sleep is not masked
   GL         factory images leave Mesa driver selection automatic
+  units      no unit file or drop-in is executable (systemd warns every boot)
   flatpak-gl (--flatpak-gl) Flatpak apps get the host Mesa: GL.aurora is
              installed for every runtime branch, built from the host Mesa
              commit, and selected ahead of Flathub's GL.default
@@ -254,6 +255,25 @@ def check_lid(root):
     return None
 
 
+UNIT_SUFFIXES = ('.service', '.socket', '.target', '.path', '.timer', '.mount', '.automount',
+                 '.swap', '.slice', '.scope', '.device')
+
+
+def check_unit_modes(root):
+    for directory in (f'{root.usr}/lib/systemd/system', f'{root.usr}/lib/systemd/user',
+                      f'{root.etc}/systemd/system', f'{root.etc}/systemd/user'):
+        base = root.path(directory)
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob('*')):
+            drop_in = path.suffix == '.conf' and path.parent.name.endswith('.d')
+            if path.is_symlink() or not path.is_file() or not (drop_in or path.suffix in UNIT_SUFFIXES):
+                continue
+            if path.stat().st_mode & 0o111:
+                return f'{directory}/{path.relative_to(base)} is marked executable'
+    return None
+
+
 def boot_reader(args):
     if args.boot_dir:
         base = Path(args.boot_dir)
@@ -340,6 +360,7 @@ def main():
             checks.append(('wallpaper', check_wallpaper(root, args.profile)))
         checks.append(('network', check_network(root, args.profile)))
         checks.append(('lid', check_lid(root)))
+        checks.append(('units', check_unit_modes(root)))
     if args.esp:
         checks.append(('boot', check_boot(args)))
     failures = [(name, problem) for name, problem in checks if problem]
