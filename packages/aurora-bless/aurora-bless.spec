@@ -1,7 +1,7 @@
-%global commit 727b5895db67bd40aa66c41485c6a8f482d2a917
+%global commit 903a6304fd1b0ad40ef81956f4c9abfbfbac4d5a
 Name: aurora-bless
 Version: 0.4.4
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Apple Silicon startup volume selector with Neo NVRAM support
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-bless
@@ -15,7 +15,7 @@ BuildRequires: rust cargo
 Apple Silicon startup volume selector with Neo NVRAM support. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aurora-bless-727b5895db67bd40aa66c41485c6a8f482d2a917
+%autosetup -n aurora-bless-903a6304fd1b0ad40ef81956f4c9abfbfbac4d5a
 
 %build
 cargo build --locked --release -p asahi-bless
@@ -33,5 +33,10 @@ ln -s aurora-bless %{buildroot}%{_bindir}/asahi-bless
 %{_bindir}/asahi-bless
 
 %changelog
+* Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 0.4.4-2
+- Pin aurora-bless 903a6304 (asahi-bless 0.4.4-neo.2, apple-nvram 0.4.0): Neo
+  NVRAM writes work on GigaDevice flash and take the scoped write
+  opt-in, so bless works on fresh installs.
+
 * Sun Oct 18 2026 Aurora Silicon <hey@djdev.me> - 1
 - Initial Fedora Aurora package.

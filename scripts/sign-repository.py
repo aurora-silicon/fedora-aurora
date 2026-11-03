@@ -22,6 +22,15 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 
 
+def asset_name(filename):
+    """The file name an RPM is published under. The packages are served as
+    GitHub release assets, and GitHub stores a name's other characters as
+    '.' (aura-1.0.0~b1-1.fc44.aarch64.rpm became aura-1.0.0.b1-1...), so
+    a repository listing the RPM's own name pointed at a missing asset.
+    assemble-repository.py maps a base snapshot's names the same way."""
+    return re.sub(r'[^A-Za-z0-9._-]', '.', filename)
+
+
 def archive_metadata(site, snapshot):
     """Retain the exact signed DNF metadata without duplicating package assets."""
     if not re.fullmatch(r'testing-[A-Za-z0-9._-]+', snapshot):
@@ -99,6 +108,8 @@ def main():
     for package in packages:
         if package.is_symlink() or not re.fullmatch(r"[A-Za-z0-9_.+~-]+\.rpm", package.name):
             parser.error("unsafe RPM input")
+    if len({asset_name(package.name) for package in packages}) != len(packages):
+        parser.error("two RPMs would share one release asset name")
     credentials = (json.load(sys.stdin) if args.credentials_stdin else {
         "key": os.environ["FEDORA_RPM_SIGNING_KEY"],
         "passphrase": os.environ["FEDORA_RPM_SIGNING_PASSPHRASE"],
@@ -130,7 +141,7 @@ def main():
         run("rpmkeys", "--import", str(public_key))
         manifest = []
         for package in packages:
-            target = destination / package.name
+            target = destination / asset_name(package.name)
             shutil.copyfile(package, target)
             run("rpmsign", "--define", f"_gpg_path {home}",
                 "--define", f"_openpgp_sign_id {expected}",

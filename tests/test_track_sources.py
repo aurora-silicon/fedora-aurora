@@ -1,6 +1,7 @@
 import datetime
 import importlib.util
 import json
+import re
 from pathlib import Path
 import shutil
 import sys
@@ -35,12 +36,13 @@ class FedoraSpecTests(unittest.TestCase):
 
     def test_aura_bumps_release_and_records_a_changelog_entry(self):
         before = int(module.tl.spec_field(self.spec('aura'), 'Release').split('%')[0])
+        version = module.tl.spec_field(self.spec('aura'), 'Version')
         notes = module.update_recipe(self.root, self.item('aura'), TODAY)
         text = self.spec('aura')
         self.assertIn(f'%global commit {NEW}\n', text)
         self.assertIn(f'%autosetup -n aura-{NEW}\n', text)
         self.assertEqual(int(module.tl.spec_field(text, 'Release').split('%')[0]), before + 1)
-        self.assertIn(f'%changelog\n* Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 0.1.0-{before + 1}\n'
+        self.assertIn(f'%changelog\n* Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - {version}-{before + 1}\n'
                       f'- Track aurora-silicon/x main at {NEW[:7]}.\n', text)
         self.assertEqual(notes, [])
 
@@ -62,6 +64,31 @@ class FedoraSpecTests(unittest.TestCase):
         item = self.item('mesa-aurora', version='26.3.0', upstream_version='26.3.0-devel')
         module.update_recipe(self.root, item, TODAY)
         self.assertEqual(module.tl.spec_field(self.spec('mesa-aurora'), 'Version'), '26.3.0')
+
+    def test_mesa_moves_the_flatpak_gl_package_with_it(self):
+        name = module.FLATPAK_GL
+        shutil.copytree(ROOT / 'packages' / name, self.root / 'packages' / name)
+        module.update_recipe(self.root, self.item('mesa-aurora', version='26.3.0'), TODAY)
+        host, gl = self.spec('mesa-aurora'), self.spec(name)
+        self.assertIn(f'%{{!?commit:%global commit {NEW}}}\n', gl)
+        self.assertIn('%{!?host_version:%global host_version '
+                      + module.tl.spec_field(host, 'Version') + '}\n', gl)
+        self.assertIn('%{!?host_release:%global host_release '
+                      + module.tl.spec_field(host, 'Release') + '}\n', gl)
+        self.assertTrue(any(re.fullmatch(pattern, f'packages/{name}/{name}.spec')
+                            for pattern in module.PATCH_PATHS))
+
+    def test_a_release_label_is_dropped_when_the_pin_moves(self):
+        spec = self.root / 'packages/aura/aura.spec'
+        head, marker, history = spec.read_text().partition('\n%changelog\n')
+        head = head.replace('Name: aura\n', '# Tagged release.\n%global release_tag 9.9.9\nName: aura\n', 1)
+        spec.write_text(head + marker + history)
+        module.update_recipe(self.root, self.item('aura'), TODAY)
+        text = self.spec('aura')
+        self.assertNotIn('%global release_tag', text)
+        self.assertNotIn('# Tagged release.', text)
+        self.assertIn('Name: aura\n', text)
+        self.assertIn('%{?release_tag:AURA_VERSION_TAG=%{release_tag}}', text)
 
     def test_changelog_history_is_never_rewritten(self):
         spec = self.root / 'packages/aura/aura.spec'

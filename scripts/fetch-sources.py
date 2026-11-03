@@ -21,6 +21,12 @@ MIRROR = "https://github.com/aurora-silicon/fedora-aurora/releases/download/sour
 
 def fetch(name, destination):
     record = json.loads((ROOT / "sources.json").read_text())[name]
+    for extra_name, extra in record.get("extra_sources", {}).items():
+        fetch_record(extra_name, extra, destination)
+    return fetch_record(name, record, destination)
+
+
+def fetch_record(name, record, destination):
     expected = record.get("sha256")
     if not expected:
         raise ValueError(f"{name}: source archive has not been hash-pinned")
@@ -37,7 +43,7 @@ def fetch(name, destination):
         shutil.copyfile(cache, target)
     if not target.exists():
         mirror = os.environ.get("AURORA_SOURCE_MIRROR", MIRROR)
-        urls = ([f"{mirror.rstrip('/')}/{filename}"] if mirror else []) + [record["source_url"]]
+        urls = ([f"{mirror.rstrip('/')}/{filename}"] if mirror and record.get("redistribute_source", True) else []) + [record["source_url"]]
         try:
             updatelib.download(urls, target, sha256=expected, token=os.environ.get("GH_TOKEN"))
         except RuntimeError as error:

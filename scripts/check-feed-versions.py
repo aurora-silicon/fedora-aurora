@@ -58,7 +58,7 @@ def repository_versions(directory):
 def rpm_versions(directory):
     versions = {}
     for path in sorted(directory.glob('*.rpm')):
-        if path.name.endswith('.src.rpm'):
+        if path.name.endswith(('.src.rpm', '.nosrc.rpm')):
             continue
         row = subprocess.check_output(['rpm', '-qp', '--qf', '%{NAME}\t%{ARCH}\t%{EPOCHNUM}\t%{VERSION}\t%{RELEASE}',
                                        str(path)], text=True).split('\t')

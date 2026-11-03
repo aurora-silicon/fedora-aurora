@@ -1,0 +1,74 @@
+#!/bin/bash
+# Checks aurora-repos's dnf5 vendor change policies inside a disposable
+# Fedora container, with vendor changes switched off as Fedora Asahi Remix
+# does. Probe packages stand in for Fedora's, Asahi's and Aurora's builds.
+# usage: test-vendor-change <aurora-repos source dir>
+set -euo pipefail
+policies=${1:?aurora-repos source directory required}
+dnf install -y -q rpm-build createrepo_c >/dev/null
+mkdir -p /usr/share/dnf5/libdnf.conf.d
+printf '[main]\nallow_vendor_change=False\n' > /usr/share/dnf5/libdnf.conf.d/30-test-sticky-vendors.conf
+dnf5 --dump-main-config | grep -x 'allow_vendor_change = 0'
+
+top=/var/tmp/vendor-probes
+probe() { # name version vendor repo
+  mkdir -p "$top/SPECS" "$top/$4"
+  cat > "$top/SPECS/$1.spec" <<SPEC
+Name: $1
+Version: $2
+Release: 1
+Summary: vendor change probe
+License: MIT
+BuildArch: noarch
+%description
+probe
+%files
+SPEC
+  rpmbuild -bb --quiet --define "_topdir $top" --define "_rpmdir $top/$4" ${3:+--define "vendor $3"} "$top/SPECS/$1.spec"
+}
+# Installed state: Fedora's package, an Asahi package, Aurora builds without a vendor.
+probe fedora-probe 1 'Fedora Project' old
+probe asahi-probe 1 'Fedora Copr - group @asahi' old
+probe kinfocenter 1 '' old
+probe powerdevil 1 '' old
+probe unrelated-probe 1 '' old
+# Updates: Aurora replaces Fedora and Asahi; Fedora replaces Aurora's dropped
+# and unvendored builds; a vendorless package Aurora never shipped stays put.
+probe fedora-probe 2 'Aurora Silicon' new
+probe asahi-probe 2 'Aurora Silicon' new
+probe kinfocenter 2 'Aurora Silicon' new
+probe powerdevil 2 'Fedora Project' new
+probe unrelated-probe 2 'Fedora Project' new
+for repo in old new; do createrepo_c -q "$top/$repo"; done
+cat > /etc/yum.repos.d/probes.repo <<REPO
+[probes-old]
+name=probes old
+baseurl=file://$top/old
+gpgcheck=0
+[probes-new]
+name=probes new
+baseurl=file://$top/new
+gpgcheck=0
+enabled=0
+REPO
+probes=(fedora-probe asahi-probe kinfocenter powerdevil unrelated-probe)
+dnf install -y -q --repo=probes-old "${probes[@]}"
+state() { rpm -q --qf '%{NAME} %{VERSION} %{VENDOR}\n' "${probes[@]}"; }
+
+# Without the policies every vendor change is held back.
+dnf upgrade -y -q --repo=probes-new
+state | tee /tmp/held
+test "$(awk '$2 == 2' /tmp/held | wc -l)" = 0
+
+# With them, a plain upgrade makes exactly the allowed changes.
+install -Dm644 "$policies/aurora-vendors.conf" /usr/share/dnf5/vendors.d/aurora.conf
+install -Dm644 "$policies/aurora-vendors-asahi.conf" /usr/share/dnf5/vendors.d/aurora-asahi.conf
+install -Dm644 "$policies/aurora-vendors-unvendored.conf" /usr/share/dnf5/vendors.d/aurora-unvendored.conf
+dnf upgrade -y -q --repo=probes-new
+state | tee /tmp/allowed
+grep -qx 'fedora-probe 2 Aurora Silicon' /tmp/allowed
+grep -qx 'asahi-probe 2 Aurora Silicon' /tmp/allowed
+grep -qx 'kinfocenter 2 Aurora Silicon' /tmp/allowed
+grep -qx 'powerdevil 2 Fedora Project' /tmp/allowed
+grep -qx 'unrelated-probe 1 (none)' /tmp/allowed
+echo "vendor change policies: PASS"
