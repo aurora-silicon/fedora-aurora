@@ -62,6 +62,12 @@ QUIET_BOOT = ["quiet", "loglevel=3", "rd.udev.log_level=3", "systemd.show_status
 # Per-process 4K userspace pages. aurora-userpages adds the same argument on
 # installed systems; an owner turns it off with user4k=off.
 USER_PAGES = ["user4k=on"]
+# A graphical splash (rhgb) must not give way to a serial console. Without
+# console=, the kernel also takes the device tree's stdout-path as a console
+# (the Neo's DockChannel UART, ttyDC0), and Plymouth then forces its text
+# "details" view on every display, the disk passphrase prompt included.
+# The serial console keeps the kernel's messages.
+GRAPHICAL_SPLASH = ["plymouth.ignore-serial-consoles"]
 ESP_FSCK = '''
 # Check the ESP at boot (fsck pass 2), like Fedora's installer.
 gawk -i inplace '$2 == "/boot/efi" && $3 == "vfat" { if ($5 == "") $5 = 0; $6 = 2 } { print $0 }' /etc/fstab
@@ -148,7 +154,8 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
             if parent.tag == "type" and parent.get("image") == "oem":
                 parent.set("rootfs_label", "AURORA_ROOT")
                 arguments = parent.get("kernelcmdline", "").split()
-                arguments += [argument for argument in QUIET_BOOT + USER_PAGES if argument not in arguments]
+                extra = QUIET_BOOT + USER_PAGES + (GRAPHICAL_SPLASH if "rhgb" in arguments else [])
+                arguments += [argument for argument in extra if argument not in arguments]
                 parent.set("kernelcmdline", " ".join(arguments))
             if parent.tag == "systemdisk":
                 parent.set("name", "aurora")

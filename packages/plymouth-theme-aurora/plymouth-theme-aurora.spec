@@ -1,6 +1,6 @@
 Name: plymouth-theme-aurora
 Version: 1
-Release: 5%{?dist}
+Release: 6%{?dist}
 Summary: Aurora boot splash: the bootloader's logo, kept in place, with the distribution's branding
 # The spinner, password entry and watermark images come from the distribution's
 # spinner theme (ImageDir); this package adds the script and aura's logos.
@@ -32,6 +32,7 @@ BuildRequires: python3
 BuildRequires: systemd-rpm-macros
 Requires: coreutils
 Requires: dracut
+Requires(posttrans): grubby
 
 %description
 The Aurora boot splash. aura (the bootloader) draws the Aurora logo centred on a
@@ -81,6 +82,17 @@ if [ "$(%{_bindir}/plymouth-set-default-theme 2>/dev/null)" = aurora ] &&
 fi
 
 %posttrans
+# Without console=, the kernel also makes the device tree's stdout-path a
+# console (the Neo's DockChannel UART, ttyDC0), and Plymouth then forces its
+# text "details" view on every display, the disk passphrase prompt included.
+# Images are built with plymouth.ignore-serial-consoles next to rhgb; add it
+# to an installed system's boot entries and future kernels. The kernel keeps
+# the serial console.
+cmdline=%{_sysconfdir}/kernel/cmdline
+if [ -f $cmdline ] && grep -qE '(^|[[:space:]])rhgb([[:space:]]|$)' $cmdline &&
+   ! grep -qE '(^|[[:space:]])plymouth\.ignore-serial-consoles([[:space:]]|$)' $cmdline; then
+  %{_sbindir}/grubby --update-kernel=ALL --args=plymouth.ignore-serial-consoles || :
+fi
 # The splash runs from the initramfs. Rebuild it once after switching on a
 # running system; an image build makes its own initramfs afterwards.
 flag=%{_localstatedir}/lib/rpm-state/plymouth-theme-aurora-initrd
@@ -112,6 +124,11 @@ fi
 %{_prefix}/lib/dracut/modules.d/96aurora-plymouth
 
 %changelog
+* Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-6
+- Add plymouth.ignore-serial-consoles to installed systems that boot with
+  rhgb: the Neo's DockChannel console made Plymouth show its text view, so
+  the splash and the graphical disk passphrase entry never appeared.
+
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-5
 - Switch to the Aurora splash on update when the current theme is a stock
   default (bgrt, spinner or charge) and rebuild the initramfs; an owner's
