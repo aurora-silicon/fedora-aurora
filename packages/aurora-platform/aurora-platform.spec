@@ -1,6 +1,6 @@
 Name: aurora-platform
 Version: 44
-Release: 14%{?dist}
+Release: 15%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -20,6 +20,8 @@ Source102: 50-after-swapfile.conf
 Source103: 61-aurora-dmi-id.rules
 Source104: 60-aurora-dmi-vendor.hwdb
 Source105: usb4-module-setup.sh
+Source106: early-kms-module-setup.sh
+Source107: aurora-early-kms.sh
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -69,6 +71,8 @@ install -Dm644 %{SOURCE102} %{buildroot}%{_unitdir}/var-swap-swapfile2.swap.d/50
 install -Dm644 %{SOURCE103} %{buildroot}%{_udevrulesdir}/61-aurora-dmi-id.rules
 install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 install -Dm755 %{SOURCE105} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-usb4/module-setup.sh
+install -Dm755 %{SOURCE106} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/module-setup.sh
+install -Dm755 %{SOURCE107} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh
 
 %files
 %{_docdir}/aurora-platform/
@@ -79,8 +83,16 @@ install -Dm755 %{SOURCE105} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora
 %{_udevrulesdir}/61-aurora-dmi-id.rules
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
+%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/
 
 %changelog
+* Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-15
+- Coldplug the display first in the initramfs (91aurora-early-kms): trigger
+  the Apple display subsystem, its DCPs, their device-link suppliers and the
+  DRM cards before the rest of the coldplug. On Fedora 45 the initramfs
+  pivoted before udev reached them, so appledrm never loaded there and
+  Plymouth waited for the real root.
+
 * Mon Nov 02 2026 DjDeveloperr <hey@djdev.me> - 44-14
 - Carry the USB4/Thunderbolt router (thunderbolt_apple) in the initramfs
   next to the Type-C port controllers that dracut-asahi carries. Without
