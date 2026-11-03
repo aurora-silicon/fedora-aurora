@@ -18,7 +18,7 @@
 
 Name:       fex-emu
 Version:    2610
-Release:    1%{?dist}.aurora
+Release:    2%{?dist}.aurora
 Summary:    Fast usermode x86 and x86-64 emulator for ARM64
 
 # FEX itself is MIT, see below for the bundled libraries
@@ -40,6 +40,12 @@ Source6:    build-fex-sysroot.sh
 # programs to FEXInterpreter in muvm; Aurora runs FEX in a 4 KiB page tree.
 Source7:    fex-userpages
 Source8:    50-aurora-fex.toml
+# The stock guest root filesystem (fex-emu-rootfs-fedora) mounted below the
+# Aurora x86 Mesa layer of mesa-aurora-fex-guest, the Steam FEX graphics
+# provider; without a lower layer that provider never mounted.
+Source9:    usr-share-guestos-fex\x2dmesa.mount
+Source10:   50-aurora-fex-rootfs.conf
+Source11:   aurora-fex-provider-up
 SourceLicense: %{fex_license} %{sysroot_license}
 
 # Bundled dependencies are git submodules upstream; each is pinned in
@@ -73,6 +79,7 @@ BuildRequires:  python3
 BuildRequires:  python3-setuptools
 BuildRequires:  sed
 BuildRequires:  systemd-rpm-macros
+BuildRequires:  systemd
 BuildRequires:  catch-devel
 BuildRequires:  fmt-devel
 BuildRequires:  libepoxy-devel
@@ -206,6 +213,10 @@ rm %{buildroot}%{_datadir}/fex-emu/ThunksDB.json
 %endif
 install -Dm755 %{SOURCE7} %{buildroot}%{_libexecdir}/fex-emu/fex-userpages
 install -Dm644 %{SOURCE8} %{buildroot}%{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml
+install -Dm644 '%{SOURCE9}' '%{buildroot}%{_unitdir}/usr-share-guestos-fex\x2dmesa.mount'
+install -Dm644 %{SOURCE10} %{buildroot}%{_unitdir}/aurora-fex-mesa.service.d/50-aurora-fex-rootfs.conf
+install -d %{buildroot}%{_datadir}/guestos/fex-mesa
+install -Dm755 %{SOURCE11} %{buildroot}%{_libexecdir}/fex-emu/aurora-fex-provider-up
 
 %check
 # The installed tools report the fork's identity.
@@ -219,6 +230,13 @@ done
 if [ $1 -eq 0 ]; then
 /bin/systemctl try-restart systemd-binfmt.service
 fi
+
+%posttrans
+%{_libexecdir}/fex-emu/aurora-fex-provider-up
+%triggerin -- fex-emu-rootfs-fedora
+%{_libexecdir}/fex-emu/aurora-fex-provider-up
+%triggerin -- mesa-aurora-fex-guest
+[ $2 -gt 1 ] || %{_libexecdir}/fex-emu/aurora-fex-provider-up
 
 %files
 %license LICENSE
@@ -236,6 +254,10 @@ fi
 %{_mandir}/man1/FEX.1*
 %{_libexecdir}/fex-emu/
 %dir %{_prefix}/lib/binfmt-dispatcher.d
+%{_unitdir}/usr-share-guestos-fex*.mount
+%{_unitdir}/aurora-fex-mesa.service.d/50-aurora-fex-rootfs.conf
+%dir %{_datadir}/guestos
+%dir %{_datadir}/guestos/fex-mesa
 %{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml
 
 %files filesystem
@@ -261,6 +283,11 @@ fi
 %endif
 
 %changelog
+* Wed Nov 04 2026 Ryan Murray <ryan@aurorasilicon.org> - 2610-2.aurora
+- Mount the stock FEX guest root filesystem (fex-emu-rootfs-fedora) at
+  /usr/share/guestos/fex-mesa below mesa-aurora-fex-guest's Aurora Mesa
+  layer, so Steam's FEX titles get the G17P Mesa on a fresh install.
+
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 2610-1.aurora
 - FEX from aurora-silicon/fex main at 3f4ee42 (FEX-2610 and 19 commits:
   io_uring for x86-64 guests behind ring restrictions, one compile per
