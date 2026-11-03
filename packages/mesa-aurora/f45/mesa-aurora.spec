@@ -1,9 +1,9 @@
-%global commit 9fe179df8bf1cec359d9e452fc9dfa8680285698
+%global commit 05ddb00f5ca9d0e153d987fed6454f21902ee1c8
 %global debug_package %{nil}
 Name: mesa-aurora
 Epoch: 1
 Version: 26.3.0
-Release: 14%{?dist}.aurora
+Release: 18%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -26,6 +26,17 @@ Aurora's native Asahi Gallium and Honeykrisp drivers. Compiler tools are built
 first; GL/Vulkan drivers do not link to LLVM or SPIRV-Tools. Rusticl OpenCL
 is packaged separately with its compiler runtime dependencies.
 
+%package -n mesa-aurora-filesystem
+Summary: Aurora Mesa driver filesystem
+Provides: mesa-filesystem = %{epoch}:%{version}-%{release}
+Provides: mesa-filesystem%{?_isa} = %{epoch}:%{version}-%{release}
+Provides: mesa-dri-filesystem = %{epoch}:%{version}-%{release}
+Provides: mesa-dri-filesystem%{?_isa} = %{epoch}:%{version}-%{release}
+Obsoletes: mesa-filesystem < %{epoch}:%{version}-%{release}
+
+%description -n mesa-aurora-filesystem
+Filesystem directories shared by Aurora Mesa's OpenGL and Vulkan drivers.
+
 %package -n mesa-aurora-dri-drivers
 Summary: Aurora Mesa OpenGL, EGL and GBM
 Provides: mesa-dri-drivers = %{epoch}:%{version}-%{release}
@@ -46,6 +57,7 @@ Obsoletes: mesa-libGL < %{epoch}:%{version}-%{release}
 Obsoletes: mesa-libgbm < %{epoch}:%{version}-%{release}
 Obsoletes: mesa-libglapi < %{epoch}:%{version}-%{release}
 Obsoletes: mesa-libgallium < %{epoch}:%{version}-%{release}
+Requires: mesa-aurora-filesystem%{?_isa} = %{epoch}:%{version}-%{release}
 Requires: libglvnd-egl libglvnd-glx
 
 %description -n mesa-aurora-dri-drivers
@@ -56,6 +68,7 @@ Summary: Aurora Honeykrisp Vulkan driver
 Provides: mesa-vulkan-drivers = %{epoch}:%{version}-%{release}
 Provides: mesa-vulkan-drivers%{?_isa} = %{epoch}:%{version}-%{release}
 Obsoletes: mesa-vulkan-drivers < %{epoch}:%{version}-%{release}
+Requires: mesa-aurora-filesystem%{?_isa} = %{epoch}:%{version}-%{release}
 Requires: vulkan-loader
 
 %description -n mesa-aurora-vulkan-drivers
@@ -174,6 +187,10 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 
 %files -n mesa-aurora-dri-drivers -f dri.files
 %files -n mesa-aurora-vulkan-drivers -f vulkan.files
+%files -n mesa-aurora-filesystem
+%dir %{_libdir}/dri
+%dir %{_datadir}/drirc.d
+
 %files -n mesa-aurora-vulkan-lavapipe
 %{_libdir}/libvulkan_lvp.so
 %{_datadir}/vulkan/icd.d/lvp_icd.aarch64.json
@@ -185,9 +202,30 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
-* Sat Oct 31 2026 Aurora Silicon <hey@djdev.me> - 1:26.3.0-14
-- Pin Mesa to aurora-wip including mesa#122; keep consumer metadata aligned.
-- Build and test Fedora 45 candidates with epoch 1 for coherent upgrades.
+* Tue Nov 03 2026 Aurora Silicon <noreply@aurorasilicon.org> - 1:26.3.0-18
+- Follow the Fedora 44 recipe at 05ddb00 (mesa-aurora-filesystem included); Fedora 45 keeps
+  epoch 1 and pkgconfig(libclc).
+
+* Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-18
+- Track aurora-silicon/mesa aurora-wip at 05ddb00.
+- Upstream head: Merge pull request #155 from aurora-silicon/fix/agx-ro-addr-const
+
+* Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-17
+- Track aurora-silicon/mesa aurora-wip at 1fec357.
+- Upstream head: Merge pull request #154 from aurora-silicon/fix/hk-sparse-alias-lto
+
+* Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-16
+- Also provide the arch-specific mesa-filesystem(aarch-64), which libva
+  requires, so mesa-aurora-filesystem can replace Fedora's package in the
+  KDE and GNOME images.
+
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-14
+- Track aurora-silicon/mesa aurora-wip at c208afc.
+- Upstream head: Merge pull request #126 from aurora-silicon/aurora/kernel-identity
+- Accept the "aurora" kernel DRM name next to "asahi" and ship aurora_dri.so.
+
+* Sun Nov 01 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-15
+- Own the Mesa driver filesystem and replace Fedora's stock mesa-filesystem.
 
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-13
 - Rebuild in lockstep with the mesa-aurora-fex-guest upgrade fix.

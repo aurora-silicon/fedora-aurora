@@ -134,7 +134,8 @@ class ReleaseTests(unittest.TestCase):
     def test_fedora45_uses_existing_graphics_and_mutter_sources_without_changing_44(self):
         old, new = fedoralib.sources(ROOT, 44), fedoralib.sources(ROOT, 45)
         self.assertEqual(old, json.loads((ROOT / 'sources.json').read_text()))
-        self.assertEqual(new['mesa-aurora']['commit'], '9fe179df8bf1cec359d9e452fc9dfa8680285698')
+        # Fedora 45 Mesa tracks the same aurora-wip pin as Fedora 44.
+        self.assertEqual(new['mesa-aurora'], old['mesa-aurora'])
         self.assertEqual(new['mesa-aurora'], new['mesa-aurora-fex-guest'])
         self.assertEqual(new['mutter']['version'], '51.1')
         for name in fedoralib.package_names(ROOT):

@@ -210,13 +210,16 @@ class SpecTests(unittest.TestCase):
         import fedoralib
         host = fedoralib.recipe_files(ROOT, 'mesa-aurora', 45)['mesa-aurora.spec'].read_text()
         pin = fedoralib.sources(ROOT, 45)['mesa-aurora']
+        self.assertEqual(pin, fedoralib.sources(ROOT, 44)['mesa-aurora'])
         self.assertIn('%global commit ' + pin['commit'], host)
         self.assertRegex(host, r'(?m)^Epoch: 1$')
-        self.assertRegex(host, r'(?m)^Release: 14%\{\?dist\}.aurora$')
+        f44 = fedoralib.recipe_files(ROOT, 'mesa-aurora', 44)['mesa-aurora.spec'].read_text()
+        release = re.search(r'(?m)^Release: (\d+)%\{\?dist\}\.aurora$', f44).group(1)
+        self.assertRegex(host, r'(?m)^Release: ' + release + r'%\{\?dist\}.aurora$')
         for name in ('mesa-aurora-fex-guest', 'aurora-flatpak-gl'):
             text = fedoralib.recipe_files(ROOT, name, 45)[name + '.spec'].read_text()
             self.assertIn('%global commit ' + pin['commit'], text)
-            self.assertIn('%global host_release 14%{?dist}.aurora', text)
+            self.assertIn('%global host_release ' + release + '%{?dist}.aurora', text)
         guest = fedoralib.recipe_files(ROOT, 'mesa-aurora-fex-guest', 45)['mesa-aurora-fex-guest.spec'].read_text()
         self.assertIn('Requires: mesa-dri-drivers = %{epoch}:%{version}-%{release}', guest)
         self.assertIn('Requires: mesa-vulkan-drivers = %{epoch}:%{version}-%{release}', guest)

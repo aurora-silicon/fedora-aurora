@@ -11,9 +11,9 @@
 #            --define 'host_release 0.12.aurora.borealis.<12-hex>%%{?dist}' ...
 # Both lines provide mesa-dri-drivers and mesa-vulkan-drivers at their own
 # version-release, which is what this package requires.
-%{!?commit:%global commit 9fe179df8bf1cec359d9e452fc9dfa8680285698}
+%{!?commit:%global commit 05ddb00f5ca9d0e153d987fed6454f21902ee1c8}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 14%{?dist}.aurora}
+%{!?host_release:%global host_release 18%{?dist}.aurora}
 %{!?host_epoch:%global host_epoch 1}
 %global debug_package %{nil}
 # Fedora's x86_64 build flags carry -m64 and would turn the i686 build into a
@@ -53,7 +53,7 @@ AutoReqProv: no
 Requires: mesa-dri-drivers = %{epoch}:%{version}-%{release}
 Requires: mesa-vulkan-drivers = %{epoch}:%{version}-%{release}
 Requires: util-linux-core
-BuildRequires: gcc gcc-c++ meson ninja-build pkgconf-pkg-config bison flex glslang pkgconfig(libclc)
+BuildRequires: gcc gcc-c++ meson ninja-build pkgconf-pkg-config bison flex glslang libclc
 BuildRequires: python3-mako python3-pyyaml python3-packaging python3-pycparser python3-ply
 BuildRequires: spirv-headers-devel wayland-protocols-devel systemd-rpm-macros file
 BuildRequires: llvm-devel(x86-64) clang-devel(x86-64)
@@ -202,9 +202,17 @@ fi
 %{_presetdir}/80-aurora-fex-mesa.preset
 
 %changelog
-* Sat Oct 31 2026 Aurora Silicon <hey@djdev.me> - 1:26.3.0-14
-- Pin Mesa to aurora-wip including mesa#122; keep consumer metadata aligned.
-- Build and test Fedora 45 candidates with epoch 1 for coherent upgrades.
+* Tue Nov 03 2026 Aurora Silicon <noreply@aurorasilicon.org> - 1:26.3.0-18.aurora
+- Follow the Fedora 44 recipe; Fedora 45 keeps the host epoch 1.
+
+* Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-16.aurora
+- Move in lockstep with mesa-aurora 26.3.0-16.
+
+* Sun Nov 01 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-15.aurora
+- Move in lockstep with mesa-aurora 26.3.0-15.
+
+* Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-14.aurora
+- Move in lockstep with mesa-aurora 26.3.0-14.
 
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-13.aurora
 - Unmount the guest overlay during upgrades; RPM cannot relabel its mount point.

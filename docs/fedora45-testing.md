@@ -14,13 +14,13 @@ inputs with files in `packages/<name>/f45/` overlaid where present. Each overlay
 `sources.json` replaces only its named source pins. Build receipts record the
 selected files, including the release-specific pins, and identify Fedora 45.
 
-The graphics overlays reuse Ryan's candidates from [PR #90](https://github.com/aurora-silicon/fedora-aurora/pull/90):
-Mesa commit `9fe179df8bf1cec359d9e452fc9dfa8680285698`, epoch 1, release 14, the
-matching FEX guest and Flatpak GL recipe. The Flatpak builder uses the same
-release-specific Mesa source pin. Fedora 45 exports also retain `aurora_dri.so` as a relative alias
+The Mesa and FEX guest overlays follow the Fedora 44 recipes and their `sources.json`
+pin, so both releases build the same aurora-wip commit and release. Fedora 45 adds
+epoch 1 (Provides, Obsoletes and the guest's host Requires carry it) for coherent
+upgrades, and `pkgconfig(libclc)`. The Flatpak GL extension uses the Fedora 44
+recipe unchanged. Fedora 45 exports also retain `aurora_dri.so` as a relative alias
 to the Asahi loader in the candidate's DRIL layout; all payload checks remain
-required. Fedora 44 retains its existing Mesa commit,
-release and capabilities.
+required.
 
 The Mutter overlay reuses `packages/mutter/f45` from [PR #74](https://github.com/aurora-silicon/fedora-aurora/pull/74),
 including its current 51.1 release 5 and patches. The existing Touch ID and UPower
