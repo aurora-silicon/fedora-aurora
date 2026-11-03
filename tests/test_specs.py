@@ -381,8 +381,7 @@ class SpecTests(unittest.TestCase):
         unpacked = re.findall(r'(?m)^unpack %\{SOURCE(1\d\d)\} \S+$', spec)
         self.assertEqual(len(unpacked), len(declared))
         sysroot = pin['extra_sources']['fex-sysroot']
-        version = re.search(r'(?m)^%global sysroot_version (\S+)$',
-                            (ROOT / 'packages' / 'fex-emu' / 'fex-sysroot-macros.inc').read_text()).group(1)
+        version = re.search(r'(?m)^%global sysroot_version (\S+)$', spec).group(1)
         self.assertEqual(sysroot['archive_file'], f'fex-sysroot-{version}.tar.gz')
 
     def test_steam_is_the_native_arm64_launcher(self):
