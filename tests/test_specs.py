@@ -1,6 +1,7 @@
 import configparser
 import json
 from pathlib import Path
+import os
 import re
 import shutil
 import subprocess
@@ -268,4 +269,40 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(core, r'(?m)^Requires: aurora-repos$')
         build = (ROOT / 'scripts' / 'build-rpm').read_text()
         self.assertIn('[[ $package == aurora-release || $package == aurora-repos ]] && vendor=()', build)
+    def test_kernel_ships_the_page_size_launcher_from_its_own_source(self):
+        spec = (ROOT / 'packages' / 'kernel-aurora' / 'kernel-aurora.spec').read_text()
+        main = spec.split('%package core', 1)[0]
+        # Unversioned, so an older installed kernel never holds back the launcher.
+        self.assertRegex(main, r'(?m)^Requires: aurora-userpages$')
+        package = spec.split('%package -n aurora-userpages', 1)[1].split('%description -n aurora-userpages', 1)[0]
+        self.assertNotIn('installonlypkg', package)
+        self.assertIn('\nmake -C tools/aurora-userpages\n', spec.split('%build', 1)[1].split('%install', 1)[0])
+        self.assertIn('install -Dm755 tools/aurora-userpages/userpages %{buildroot}%{_bindir}/userpages', spec)
+        files = spec.split('%files -n aurora-userpages', 1)[1].split('%changelog', 1)[0]
+        self.assertIn('%{_bindir}/userpages\n', files)
+        self.assertIn('%{_docdir}/aurora-userpages/\n', files)
+
+    def test_page_size_launcher_turns_user4k_on_and_keeps_an_owner_choice(self):
+        spec = (ROOT / 'packages' / 'kernel-aurora' / 'kernel-aurora.spec').read_text()
+        scriptlet = spec.split('%posttrans -n aurora-userpages\n', 1)[1].split('\n%', 1)[0]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            (bindir / 'grubby').write_text('#!/bin/sh\necho "$*" >> "$GRUBBY_LOG"\n')
+            (bindir / 'grubby').chmod(0o755)
+            cmdline, log = root / 'cmdline', root / 'grubby.log'
+            script = scriptlet.replace('/etc/kernel/cmdline', str(cmdline))
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", GRUBBY_LOG=str(log))
+            for content, called in ((None, False), ('root=UUID=r ro quiet\n', True),
+                                    ('root=UUID=r ro user4k=off quiet\n', False),
+                                    ('root=UUID=r ro quiet user4k=on\n', False)):
+                with self.subTest(cmdline=content):
+                    log.write_text('')
+                    if content is None:
+                        cmdline.unlink(missing_ok=True)
+                    else:
+                        cmdline.write_text(content)
+                    subprocess.run(['sh', '-ec', script], env=env, check=True)
+                    self.assertEqual(log.read_text(), '--update-kernel=ALL --args=user4k=on\n' if called else '')
 if __name__ == '__main__': unittest.main()

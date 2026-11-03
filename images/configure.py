@@ -30,6 +30,8 @@ DEFAULT_TARGETS = {
 PACKAGES = {
     "components/boot.xml": ("BootCore", [
         "kernel-aurora", "kernel-aurora-modules-extra", "aura", "uboot-aurora",
+        # userpages 4k COMMAND; kernel-aurora requires it on installed systems too.
+        "aurora-userpages",
     ]),
     "components/base.xml": ("Common", [
         "aurora-release", "aurora-repos", "aurora-logos", "aurora-platform", "aurora-remix-scripts",
@@ -55,6 +57,9 @@ EXCLUDED = {
 # Quiet by default: the splash (desktops) or a clean console, with failures
 # still reported. systemd shows status only when a unit fails or stalls.
 QUIET_BOOT = ["quiet", "loglevel=3", "rd.udev.log_level=3", "systemd.show_status=auto"]
+# Per-process 4K userspace pages. aurora-userpages adds the same argument on
+# installed systems; an owner turns it off with user4k=off.
+USER_PAGES = ["user4k=on"]
 ESP_FSCK = '''
 # Check the ESP at boot (fsck pass 2), like Fedora's installer.
 gawk -i inplace '$2 == "/boot/efi" && $3 == "vfat" { if ($5 == "") $5 = 0; $6 = 2 } { print $0 }' /etc/fstab
@@ -141,7 +146,7 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
             if parent.tag == "type" and parent.get("image") == "oem":
                 parent.set("rootfs_label", "AURORA_ROOT")
                 arguments = parent.get("kernelcmdline", "").split()
-                arguments += [argument for argument in QUIET_BOOT if argument not in arguments]
+                arguments += [argument for argument in QUIET_BOOT + USER_PAGES if argument not in arguments]
                 parent.set("kernelcmdline", " ".join(arguments))
             if parent.tag == "systemdisk":
                 parent.set("name", "aurora")
@@ -303,6 +308,12 @@ for unit in sshd.service sshd.socket; do
         exit 1
     fi
 done
+
+# Every profile runs programs with 4K pages out of the box (userpages 4k).
+if ! rpm -q aurora-userpages >/dev/null; then
+    echo 'Every Aurora image must ship the userpages launcher' >&2
+    exit 1
+fi
 
 exit 0
 '''
