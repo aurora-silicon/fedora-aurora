@@ -283,9 +283,14 @@ class SpecTests(unittest.TestCase):
         text = (d / 'aurora-platform.spec').read_text()
         core = text.split('%package core', 1)[1].split('%description core', 1)[0]
         requires = ' '.join(re.findall(r'^Requires:\s+(.+)$', core, re.M)).split()
-        for name in ['update-m1n1', 'dracut-asahi', 'asahi-fwupdate', 'speakersafetyd',
-                     'speakerguardd', 'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise']:
+        for name in ['update-m1n1', 'dracut-asahi', 'asahi-fwupdate',
+                     'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise']:
             self.assertIn(name, requires)
+        # Speaker protection: the current daemons, or the speakerguardd 1.0
+        # opt-in in their place; dnf picks the recommended current ones.
+        for name in ['speakersafetyd', 'speakerguardd']:
+            self.assertRegex(core, r'(?m)^Requires: \(' + name + r' or speakerguardd-v2-replace-legacy\)$')
+        self.assertRegex(core, r'(?m)^Recommends: speakersafetyd speakerguardd$')
         for name in requires:
             self.assertFalse(name.startswith(('kernel', 'uboot', 'm1n1')) or name == 'aura', name)
         self.assertNotIn('aurora-release', requires)
@@ -295,6 +300,32 @@ class SpecTests(unittest.TestCase):
         self.assertEqual((d / 'aurora-platform-core.conf').read_text().split(), ['aurora-platform-core'])
         self.assertIn('protected.d/aurora-platform-core.conf', text.split('%files core', 1)[1])
         self.assertRegex(text, r'(?m)^Requires: aurora-platform-core = %\{version\}-%\{release\}$')
+    def test_speakerguardd_v2_is_parallel_and_opt_in(self):
+        d = ROOT / 'packages' / 'speakerguardd-v2'
+        text = (d / 'speakerguardd-v2.spec').read_text()
+        main = text.split('%package selinux', 1)[0]
+        optin = text.split('%package replace-legacy', 1)[1].split('%description replace-legacy', 1)[0]
+        # The preview installs beside the 0.1 daemon and speakersafetyd.
+        self.assertNotRegex(main, r'(?m)^(Conflicts|Obsoletes|Provides):')
+        self.assertIn('%{_libexecdir}/speakerguardd-v2/speakerguardd', text)
+        self.assertIn('%{_unitdir}/speakerguardd-v2.service', text)
+        self.assertIn('%{_libdir}/lv2/sgv2.lv2/', text)
+        # Only the clearly named opt-in conflicts with them. It never obsoletes
+        # or provides them, so dnf cannot choose it on its own.
+        self.assertRegex(optin, r'(?m)^Conflicts: speakerguardd < 1\.0\.0~$')
+        self.assertRegex(optin, r'(?m)^Conflicts: speakersafetyd$')
+        self.assertNotRegex(optin, r'(?m)^(Obsoletes|Provides):')
+        self.assertEqual((d / '50-speakerguardd-v2.preset').read_text().split('\n')[1], 'enable speakerguardd-v2.service')
+        self.assertIn('%{_presetdir}/50-speakerguardd-v2.preset', text.split('%files replace-legacy', 1)[1])
+        # The SELinux module labels the program where this package installs it.
+        fc = (d / 'speakerguardd.fc').read_text()
+        self.assertIn('/usr/libexec/speakerguardd-v2/speakerguardd\t--\tgen_context(system_u:object_r:speakerguardd_exec_t,s0)', fc)
+        self.assertIn('/run/speakerguardd(/.*)?', fc)
+        # aurora-audio accepts the opt-in too, and recommends the current daemons.
+        audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
+        for name in ['speakersafetyd', 'speakerguardd']:
+            self.assertRegex(audio, r'(?m)^Requires: \(' + name + r' or speakerguardd-v2-replace-legacy\)$')
+        self.assertRegex(audio, r'(?m)^Recommends: speakersafetyd speakerguardd$')
     def test_aurora_repos_owns_the_repository_key_and_vendor_policies(self):
         d = ROOT / 'packages' / 'aurora-repos'
         spec = (d / 'aurora-repos.spec').read_text()

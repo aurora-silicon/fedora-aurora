@@ -1,6 +1,6 @@
 Name: aurora-platform
 Version: 44
-Release: 16%{?dist}
+Release: 17%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -39,7 +39,11 @@ Obsoletes: asahi-platform-metapackage-core < 1
 Obsoletes: asahi-platform-metapackage-audio < 1
 Conflicts: asahi-platform-metapackage < 1
 Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
-Requires: speakersafetyd speakerguardd
+Requires: (speakersafetyd or speakerguardd-v2-replace-legacy)
+Requires: (speakerguardd or speakerguardd-v2-replace-legacy)
+# dnf prefers a recommended provider; without these it would choose the
+# opt-in, which satisfies both Requires above at once.
+Recommends: speakersafetyd speakerguardd
 Requires: aurora-audio alsa-ucm-conf-aurora
 # BlueZ 5.86 attempts an empty default-parameter transaction at startup.
 # 5.87 includes the upstream empty-TLV fix; retain real error reporting.
@@ -93,6 +97,11 @@ install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-consol
 %{_libexecdir}/aurora/aurora-grub-console
 
 %changelog
+* Wed Nov 04 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-17
+- Accept speakerguardd-v2-replace-legacy, the opt-in switch to speakerguardd
+  1.0, in place of speakersafetyd and speakerguardd 0.1. They stay the
+  default: both are recommended, so dnf picks them on every install.
+
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-16
 - Switch GRUB_TERMINAL_OUTPUT from gfxterm to the console once per system
   (aurora-grub-console), so GRUB no longer clears the boot logo. A
