@@ -1,0 +1,2 @@
+# Installed only by speakerguardd-v2-replace-legacy, the opt-in switch.
+enable speakerguardd-v2.service
