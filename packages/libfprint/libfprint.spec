@@ -14,8 +14,7 @@ Name:           libfprint
 Version:        1.94.100
 # Keep the Aurora driver/account gate ahead of stock Fedora updates.
 Epoch:          1
-# Keep aurora7: this is a native rebuild of the same v4/v5 driver.
-Release:        1%{?dist}.aurora7
+Release:        1%{?dist}.aurora8
 Summary:        Toolkit for fingerprint scanner
 
 # Automatically converted from old format: LGPLv2+ - review is highly recommended.
@@ -52,6 +51,8 @@ Patch1002:      0003-hide-lid-covered-readers-while-the-lid-is-closed.patch
 # Validate enrolment bindings and use the ioctl layout for the running kernel.
 Patch1003:      0004-aurora-refuse-unbound-enrollment.patch
 Patch1004:      0005-aurora-support-v4-and-v5.patch
+# Paired with fprintd's apple-sep no-GC guard below.
+Patch1005:      0006-aurora-report-fingerprint-storage-full.patch
 
 BuildRequires:  meson
 BuildRequires:  gcc
@@ -75,6 +76,8 @@ BuildRequires:  umockdev >= 0.13.2
 BuildRequires:  selinux-policy-devel
 BuildRequires:  bzip2
 
+# DATA_FULL must never reach a daemon that may collect another OS's print.
+Requires:       fprintd(aurora-no-enroll-gc) >= 1
 Provides:       libfprint(aurora-sep) = 4
 Provides:       libfprint(aurora-sep) = 5
 # Pull in the SELinux module wherever the targeted policy is installed.
@@ -180,6 +183,9 @@ python3 %{SOURCE1003} libfprint/drivers/aurora/aurora.c %{SOURCE1000}
 %{_datadir}/installed-tests/libfprint-2/
 
 %changelog
+* Wed Nov 04 2026 Aurora Silicon contributors - 1:1.94.100-1.aurora8
+- Report full fingerprint storage with the paired fprintd no-GC guard
+
 * Sat Oct 31 2026 Aurora Silicon contributors - 1:1.94.100-1.aurora7
 - Build natively for Fedora 45 and upgrade stock and fc44 Aurora packages
 - Qualify matching subpackage dependencies with the epoch
