@@ -321,6 +321,20 @@ class SpecTests(unittest.TestCase):
         fc = (d / 'speakerguardd.fc').read_text()
         self.assertIn('/usr/libexec/speakerguardd-v2/speakerguardd\t--\tgen_context(system_u:object_r:speakerguardd_exec_t,s0)', fc)
         self.assertIn('/run/speakerguardd(/.*)?', fc)
+        self.assertIn('/var/lib/speakerguardd(/.*)?', fc)
+        # The policy itself is upstream's, from the pinned tree.
+        self.assertFalse((d / 'speakerguardd.te').exists())
+        self.assertIn('cp -p packaging/selinux/%{modulename}.te .', text)
+        # The self-check is a hard prerequisite of the supervisor.
+        self.assertIn("grep -qx 'Requires=speakerguardd-v2-selfcheck.service' speakerguardd-v2.service", text)
+        self.assertIn('%{_unitdir}/speakerguardd-v2-selfcheck.service', text.split('%files', 1)[1])
+        # The board gate ships with the opt-in, on every unit it enables.
+        files_optin = text.split('%files replace-legacy', 1)[1]
+        for u in ['%{_unitdir}/speakerguardd-v2.service.d', '%{_unitdir}/speakerguardd-v2-selfcheck.service.d',
+                  '%{_userunitdir}/speakerguardd-v2-session.service.d']:
+            self.assertIn(u + '/50-qualified-board.conf', files_optin)
+        gate = (d / 'speakerguardd-v2-gate').read_text()
+        self.assertRegex(gate, r'(?m)^QUALIFIED="j616s"$')
         # aurora-audio accepts the opt-in too, and recommends the current daemons.
         audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
         for name in ['speakersafetyd', 'speakerguardd']:
