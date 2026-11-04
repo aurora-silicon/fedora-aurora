@@ -1,7 +1,7 @@
 Summary: Graphical Boot Animation and Logger
 Name: plymouth
 Version: 26.134.222
-Release: 6%{?dist}.aurora2
+Release: 6%{?dist}.aurora5
 License: GPL-2.0-or-later
 URL: http://www.freedesktop.org/wiki/Software/Plymouth
 
@@ -17,15 +17,23 @@ Patch: 0001-ply-device-manager-Fix-race-in-fb_device_has_drm_dev.patch
 Patch: 0001-ply-device-manager-fix-default-XKB-keymap-fallback-o.patch
 
 Patch: 0001-ply-terminal-Keep-terminal-input-nonblocking.patch
+# Show the splash as soon as udevd runs instead of after the whole coldplug
+# has been queued; plymouthd follows udev add events and needs neither.
+Patch: 0001-systemd-units-Start-plymouthd-without-waiting-for-coldplug.patch
 Source2: test-terminal-input.c
-
+Source3: test-keyboard-lifetime.c
+Source4: test-script-keyboard.c
+Source5: check-keyboard-lifetime.sh
+Source6: test-drm-sdr.c
 # The DRM master can hand off before the HDR compositor closes its file.
 Patch: 0002-drm-Reset-inherited-HDR-connector-state-before-SDR.patch
-Source3: test-drm-sdr.c
+Patch: 0001-Fix-splash-keyboard-lifetime.patch
+BuildRequires: xorg-x11-server-Xvfb
+BuildRequires: font(cantarell)
 
 BuildRequires: meson
 BuildRequires: system-logos
-BuildRequires: gcc libtool
+BuildRequires: gcc libtool git
 BuildRequires: pkgconfig(libdrm)
 BuildRequires: pkgconfig(libevdev)
 BuildRequires: pkgconfig(libudev)
@@ -47,6 +55,9 @@ Requires: %{name}-scripts = %{version}-%{release}
 # For keyboard layouts
 Requires: xkeyboard-config
 Suggests: logrotate
+# Aurora installs boot to aura's splash; an update brings it to installs made
+# before the theme existed. Minimal images carry no Plymouth and so no theme.
+Recommends: plymouth-theme-aurora
 
 %description
 Plymouth provides an attractive graphical boot animation in
@@ -114,6 +125,8 @@ It provides the ability to render text on graphical boot splashes.
 Summary: Plymouth "script" plugin
 Requires: %{name} = %{version}-%{release}
 Requires: %{name}-graphics-libs = %{version}-%{release}
+
+Provides: plymouth(script-keyboard-lifetime) = 1
 
 %description plugin-script
 This package contains the "script" boot splash plugin for
@@ -253,7 +266,8 @@ find -type f -exec sed -i -e 's/Cantarell/Red Hat Text/g' {} \;
 %meson_build
 
 %check
-# The 26.134.222 release predates the upstream Meson test harness.
+bash %{SOURCE5} "$PWD" "$PWD/%{_vpath_builddir}" "%{_sourcedir}"
+# These releases predate the upstream Meson test harness.
 # Compile the same PTY regression against the libraries just built.
 %{__cc} -D_GNU_SOURCE -Wall -Wextra -Werror \
     -I. -Isrc/libply -Isrc/libply-splash-core \
@@ -262,16 +276,18 @@ find -type f -exec sed -i -e 's/Cantarell/Red Hat Text/g' {} \;
     -Wl,-rpath,$PWD/%{_vpath_builddir}/src/libply-splash-core \
     -Wl,-rpath,$PWD/%{_vpath_builddir}/src/libply \
     -lply-splash-core -lply
-./test-terminal-input
+timeout 15s ./test-terminal-input
+echo "Plymouth terminal-input PTY regression passed"
 %{__cc} -D_GNU_SOURCE -Wall \
     -I. -Isrc/libply -Isrc/libply-splash-core \
     $(pkg-config --cflags libdrm libevdev) \
-    %{SOURCE3} -o test-drm-sdr \
+    %{SOURCE6} -o test-drm-sdr \
     -L%{_vpath_builddir}/src/libply-splash-core -L%{_vpath_builddir}/src/libply \
     -Wl,-rpath,$PWD/%{_vpath_builddir}/src/libply-splash-core \
     -Wl,-rpath,$PWD/%{_vpath_builddir}/src/libply \
     -lply-splash-core -lply $(pkg-config --libs libdrm libevdev) -lm
-./test-drm-sdr
+timeout 15s ./test-drm-sdr
+
 
 %install
 %meson_install
@@ -447,9 +463,29 @@ fi
 %files system-theme
 
 %changelog
-* Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.134.222-6.aurora2
+* Wed Nov 04 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.134.222-6.aurora5
 - Clear inherited HDR metadata and colorspace before presenting the SDR splash
 - Test DRM handoffs, cloned outputs and failed commits without hardware
+
+* Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.134.222-6.aurora4
+- Build 26.134.222 on Fedora 44 too. The 24.004.60 carry came back with
+  the theme merge and would have downgraded the published
+  26.134.222-6.aurora2, which also left the theme without the
+  keyboard-lifetime Provides it needs on Fedora 44.
+- Recommend plymouth-theme-aurora, so updated installs get the Aurora splash.
+
+* Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.134.222-6.aurora3
+- Fix renderer keyboard removal and script keyboard lifetime, on top of
+  the plymouth-start ordering of 26.134.222-6.aurora2.
+
+* Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 24.004.60-24.aurora1
+- Retain Fedora 44's source and patches with the keyboard lifetime fix and
+  the plymouth-start ordering.
+
+* Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.134.222-6.aurora2
+- Order plymouth-start.service after systemd-udevd.service and
+  dracut-pre-trigger.service instead of systemd-udev-trigger.service, so
+  the splash no longer waits for the coldplug to be queued
 
 * Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.134.222-6.aurora1
 - Keep terminal keyboard reads nonblocking with a separate input descriptor

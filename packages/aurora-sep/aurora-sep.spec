@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 17%{?dist}
+Release: 19%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -29,10 +29,12 @@ Source18: logind-aurora-sep.conf
 Source19: OS-IDENTITY.md
 Source20: aurora-touchid-setup.service
 Source21: touchid-setup-needed
+Source22: authselect-vendor-local
+Source23: powerdevilrc
 BuildArch: noarch
-BuildRequires: systemd-rpm-macros fprintd
+BuildRequires: systemd-rpm-macros fprintd authselect-libs
 BuildRequires: selinux-policy-devel make bzip2
-Requires: coreutils fprintd keyutils kmod python3 util-linux grep
+Requires: coreutils fprintd keyutils kmod python3 util-linux grep findutils gawk
 Requires: libfprint(aurora-sep) = 5
 Requires: fprintd(aurora-sep) = 1
 # Holds the packaged kernel to one with the module-based SEP driver, and
@@ -51,7 +53,10 @@ also prepares per-device calibration, activates Touch ID before fprintd starts
 and lets fprintd use the Aurora libfprint driver. Touch ID is reported ready
 only when the sensor attached, the fingerprints were restored and a match can
 save its state. Initialization runs in the background without holding up the
-desktop. Password authentication and power-button policy are unchanged.
+desktop. A fingerprint or the password unlocks the lock screen and answers
+sudo and polkit; the login screen, the console login, su and ssh ask for the
+password. A short press of the power button, which is the Touch ID sensor,
+suspends.
 
 %package selinux
 Summary: SELinux policy module for the Apple SEP fingerprint device
@@ -69,7 +74,7 @@ device as device_t, which fprintd may not open.
 
 %prep
 %setup -q -c -T
-cp -p %{SOURCE3} %{SOURCE4} %{SOURCE19} %{SOURCE18} .
+cp -p %{SOURCE3} %{SOURCE4} %{SOURCE19} .
 cp -p %{SOURCE13} %{SOURCE14} .
 
 %build
@@ -96,6 +101,24 @@ install -Dpm0755 %{SOURCE9} %{buildroot}%{_libexecdir}/aurora/extract-mesa-calib
 install -Dpm0755 %{SOURCE15} %{buildroot}%{_libexecdir}/aurora-sep-sensor-present
 install -Dpm0644 %{SOURCE10} %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-sep.conf
 install -Dpm0644 %{SOURCE2} %{buildroot}%{_unitdir}/fprintd.service.d/aurora-sep.conf
+install -Dpm0644 %{SOURCE18} %{buildroot}%{_prefix}/lib/systemd/logind.conf.d/50-aurora-sep.conf
+install -Dpm0644 %{SOURCE23} %{buildroot}%{_sysconfdir}/xdg/powerdevilrc
+# The vendor authselect profile is built at install time from the installed
+# authselect (see authselect-vendor-local); list its files as ghosts.
+install -Dpm0755 %{SOURCE22} %{buildroot}%{_libexecdir}/aurora/authselect-vendor-local
+vendor=%{_datadir}/authselect/vendor/local
+install -d %{buildroot}$vendor
+# A ghost directory too: an empty vendor profile would hide the default one.
+echo "%ghost %dir $vendor" >authselect-vendor.files
+for f in %{_datadir}/authselect/default/local/* .aurora-sep; do
+    name=${f##*/}
+    case $name in
+    system-auth|.aurora-sep) touch %{buildroot}$vendor/$name ;;
+    *) ln -s $f %{buildroot}$vendor/$name ;;
+    esac
+    echo "%ghost $vendor/$name" >>authselect-vendor.files
+done
+grep -qx "%ghost $vendor/system-auth" authselect-vendor.files
 grep -qx 'ExecStart=%{_libexecdir}/fprintd' %{_unitdir}/fprintd.service
 sed 's|@FPRINTD@|%{_libexecdir}/fprintd|' %{SOURCE7} \
     >%{buildroot}%{_unitdir}/fprintd.service.d/50-aurora-sep-no-timeout.conf
@@ -105,6 +128,11 @@ echo 'enable aurora-sep.timer' >%{buildroot}%{_presetdir}/80-aurora-sep.preset
 install -Dpm0644 %{modulename}.pp.bz2 \
     %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2
 
+%triggerin -- authselect-libs
+# Rebuild the vendor authselect profile from the installed default profile
+# whenever either package is installed or updated.
+%{_libexecdir}/aurora/authselect-vendor-local || :
+
 %post
 %systemd_post aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service
 
@@ -112,6 +140,14 @@ install -Dpm0644 %{modulename}.pp.bz2 \
 %systemd_preun aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service
 
 %postun
+if [ "$1" -eq 0 ] && [ -e %{_sysconfdir}/authselect/authselect.conf ]; then
+    # Back to authselect's own profile, as its package does after a profile
+    # change; files authselect added since are not ghosts, so remove them too.
+    rm -rf %{_datadir}/authselect/vendor/local
+    find %{_datadir}/authselect -mindepth 2 -type f -printf '%%P\n' -exec sha256sum {} + |
+        sha256sum >%{_datadir}/authselect/checksum 2>/dev/null || :
+    authselect apply-changes >/dev/null 2>&1 || :
+fi
 # The handoff is once per boot, so do not restart the loader on upgrade.
 %systemd_postun aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service
 
@@ -133,6 +169,11 @@ fi
 if selinuxenabled 2>/dev/null && [ -c /dev/sep-bio ]; then
     restorecon /dev/sep-bio || :
 fi
+# The loader runs in its own domain from 1-18; label an installed copy now so
+# the next boot starts it there.
+if selinuxenabled 2>/dev/null && [ -f %{_libexecdir}/aurora-sep-load ]; then
+    restorecon %{_libexecdir}/aurora-sep-load || :
+fi
 # Move the driver's state files from var_lib_t to their own type. Only the
 # labels change: the files are never moved, rewritten or removed.
 if selinuxenabled 2>/dev/null; then
@@ -150,14 +191,17 @@ if selinuxenabled 2>/dev/null; then
     done
 fi
 
-%files
-%doc README.md XART-SAFETY.md OS-IDENTITY.md logind-aurora-sep.conf
+%files -f authselect-vendor.files
+%doc README.md XART-SAFETY.md OS-IDENTITY.md
 %{_libexecdir}/aurora-sep-load
 %{_libexecdir}/aurora-sep-ready
 %{_libexecdir}/aurora-sep-greeter-fingerprint
 %{_sbindir}/aurora-touchid-setup
 %{_libexecdir}/aurora/touchid-setup-needed
 %{_libexecdir}/aurora/extract-mesa-calibration
+%{_libexecdir}/aurora/authselect-vendor-local
+%{_prefix}/lib/systemd/logind.conf.d/50-aurora-sep.conf
+%config(noreplace) %{_sysconfdir}/xdg/powerdevilrc
 %{_libexecdir}/aurora-sep-sensor-present
 %{_prefix}/lib/dracut/dracut.conf.d/90-aurora-sep.conf
 %{_prefix}/lib/modprobe.d/aurora-sep-load.conf
@@ -176,6 +220,25 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 03 2026 Aurora Silicon contributors - 1-19
+- Offer Touch ID to sudo and polkit as well as the lock screen, and not to the
+  console login, su or ssh: authselect's "local" profile is replaced by a
+  vendor copy whose system-auth offers a fingerprint only to sudo, sudo-i and
+  polkit-1. The copy is rebuilt from the installed authselect whenever either
+  package changes, and existing installs regenerate their PAM files.
+- Install the logind power-key drop-in instead of shipping it as
+  documentation: a short press suspends, a 5 s press powers off.
+- Default Plasma's power button to suspend; holding it still opens the logout
+  screen.
+
+* Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-18
+- SELinux: run aurora-sep-load in its own domain, aurora_sep_load_t, with the
+  same unconfined access it had as unconfined_service_t. Its probe keys then
+  carry that label, and a root process that lists /proc/keys while the probe
+  runs (the GDM session worker at an automatic login) is still denied view
+  of them, but the denial is no longer logged. This removes the boot AVC on
+  Macs where GDM starts before the probe ends.
+
 * Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-17
 - SELinux: give the driver's state files in /var/lib their own type,
   aurora_sep_state_t, label them so when the kernel creates them, relabel

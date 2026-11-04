@@ -1,0 +1,11 @@
+# Aurora: binfmt-dispatcher runs x86 programs with FEX directly, in a 4 KiB
+# page process tree (userpages), instead of in a muvm microVM. FEX-2610 has no
+# FEXInterpreter, and an x86 root filesystem is optional for static programs.
+[defaults]
+log_level = "warn"
+
+[interpreters.fex]
+name = "FEX"
+path = "/usr/libexec/fex-emu/fex-userpages"
+required_paths = ["/usr/bin/FEX", "/usr/bin/userpages"]
+use_muvm = false

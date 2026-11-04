@@ -1,9 +1,9 @@
 %global debug_package %{nil}
-%global commit 241540a6ea6f7847551d90a9db1f763199578263
+%global commit 8b15096337e97f934438e1e7f3e96182440351dc
 # Tagged release; preserve its label in the source archive build.
-%global release_tag 1.0.0b2
+%global release_tag 1.0.0b4
 Name: aura
-Version: 1.0.0~b2
+Version: 1.0.0~b4
 Release: 1%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
@@ -19,7 +19,7 @@ Requires: update-m1n1 uboot-aurora
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-241540a6ea6f7847551d90a9db1f763199578263
+%autosetup -n aura-8b15096337e97f934438e1e7f3e96182440351dc
 
 %build
 export RUSTC_BOOTSTRAP=1
@@ -27,6 +27,7 @@ make %{?_smp_mflags} BUILDSTD=1 RELEASE=1 CHAINLOADING=1 USE_CLANG=1 BUILTIN_LOG
 mkdir -p ../aurora-stage1
 cp build/aura.bin ../aurora-stage1/aura-raw.bin
 cp build/aura.macho ../aurora-stage1/aura.macho
+cp build/aura-boot.macho ../aurora-stage1/aura-boot.macho
 make clean
 make %{?_smp_mflags} BUILDSTD=1 RELEASE=1 CHAINLOADING=1 ESP_STAGE2=1 USE_CLANG=1 BUILTIN_LOGO=aurora %{?release_tag:AURA_VERSION_TAG=%{release_tag}}
 
@@ -34,6 +35,7 @@ make %{?_smp_mflags} BUILDSTD=1 RELEASE=1 CHAINLOADING=1 ESP_STAGE2=1 USE_CLANG=
 install -Dm644 build/aura.bin %{buildroot}%{_libdir}/m1n1/m1n1.bin
 install -Dm644 build/aura.bin %{buildroot}/usr/lib/asahi-boot/m1n1.bin
 install -Dm644 ../aurora-stage1/aura-raw.bin %{buildroot}%{_datadir}/aura/stage1/aura-raw.bin
+install -Dm644 ../aurora-stage1/aura-boot.macho %{buildroot}%{_datadir}/aura/stage1/aura-boot.macho
 install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/aura.macho
 
 %files
@@ -43,6 +45,17 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 1.0.0~b4-1
+- Pin aura v1.0.0b4 (8b150963): the monitor decides by the probe on every
+  chip, so Mach-O mode runs it on every M4-and-later Mac.
+
+* Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 1.0.0~b3-1
+- Pin aura v1.0.0b3 (1b4d11cb): opt-in FEAT_NV2 virtualization and PSCI on
+  the MacBook Neo, the ANE firmware preload hand-off on the M4 Pro and
+  A18 Pro, and a quiet console once the monitor runs the OS.
+- Ship the Stage 1 Mach-O boot object as aura/stage1/aura-boot.macho, the
+  form the installer boots on M4 and later Macs.
+
 * Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 1.0.0~b2-1
 - Pin aura v1.0.0b2 (241540a6), a VERSION-only bump over a9cad94e.
 

@@ -169,9 +169,11 @@ restored() {
 # fprintd answers only what PAM asks it. Where authselect manages PAM (Fedora),
 # fingerprints stay unused until its with-fingerprint feature is on, and its
 # GNOME settings then hide and lock Fingerprint Login. On a Mac with a sensor,
-# turn the feature on once so that the option is there; whether to enrol and
-# use a finger stays the user's choice. The marker records that this was done,
-# so a later "authselect disable-feature with-fingerprint" is never undone.
+# turn the feature on once so that the option is there: the lock screens, sudo
+# and polkit then take a finger (the vendor profile keeps it from the console
+# login and su, see authselect-vendor-local). Whether to enrol and use a finger
+# stays the user's choice. The marker records that this was done, so a later
+# "authselect disable-feature with-fingerprint" is never undone.
 pam_hint() {
     command -v authselect >/dev/null 2>&1 || return 0
     features=$(authselect current --raw 2>/dev/null) || return 0

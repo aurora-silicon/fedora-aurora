@@ -10,9 +10,9 @@
 #            --define 'host_release 0.12.aurora.borealis.<12-hex>%%{?dist}' ...
 # Both lines provide mesa-dri-drivers and mesa-vulkan-drivers at their own
 # version-release, which is what this package requires.
-%{!?commit:%global commit c208afc352e9d4c10ee71c883a369a9079dd7d84}
+%{!?commit:%global commit 05ddb00f5ca9d0e153d987fed6454f21902ee1c8}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 16%{?dist}.aurora}
+%{!?host_release:%global host_release 18%{?dist}.aurora}
 %global debug_package %{nil}
 # Fedora's x86_64 build flags carry -m64 and would turn the i686 build into a
 # second x86_64 one; meson's release buildtype sets the optimisation instead.

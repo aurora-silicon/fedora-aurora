@@ -61,6 +61,24 @@ class SelinuxModuleTests(unittest.TestCase):
         self.assertEqual(allowed, {'kernel_t', 'init_t', 'fprintd_t', 'kmod_t'})
         self.assertRegex(self.te, r'allow init_t aurora_sep_state_t:file read_file_perms;')
 
+    def test_the_loader_runs_in_its_own_domain(self):
+        for path in ('/usr/libexec/aurora-sep-load', '/usr/local/sbin/aurora-sep-load'):
+            hits = [c for r, k, c in self.contexts() if r.match(path)]
+            self.assertEqual(hits, ['gen_context(system_u:object_r:aurora_sep_load_exec_t,s0)'], path)
+        self.assertIn('init_daemon_domain(aurora_sep_load_t, aurora_sep_load_exec_t)', self.te)
+        self.assertRegex(self.te, r"optional_policy\(`\n\tunconfined_domain\(aurora_sep_load_t\)\n'\)")
+
+    def test_other_domains_only_stop_logging_the_view_of_probe_keys(self):
+        # Hiding the probe keys from /proc/keys listings is intended; only the
+        # log line goes. No domain gains any access to them.
+        self.assertEqual(re.findall(r'^dontaudit .*$', self.te, re.M),
+                         ['dontaudit domain aurora_sep_load_t:key view;'])
+        self.assertNotRegex(self.te, r'allow\s+\S+\s+\S+:key')
+
+    def test_upgrade_labels_an_installed_loader(self):
+        post = self.spec[self.spec.index('%posttrans selinux'):self.spec.index('%files')]
+        self.assertIn('restorecon %{_libexecdir}/aurora-sep-load', post)
+
     def test_no_apostrophe_breaks_an_m4_quoted_block(self):
         for block in re.findall(r"optional_policy\(`(.*?)\n'\)", self.te, re.S):
             self.assertNotIn("'", block.replace("')", ''))

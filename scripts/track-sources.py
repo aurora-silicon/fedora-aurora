@@ -16,11 +16,14 @@ import trackerlib as tl  # noqa: E402
 import updatelib as lib  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-RECIPES = {'kernel-aurora': 'kernel-aurora', 'aura': 'aura', 'mesa-aurora': 'mesa-aurora'}
+RECIPES = {'kernel-aurora': 'kernel-aurora', 'aura': 'aura', 'mesa-aurora': 'mesa-aurora',
+           'fex-emu': 'fex-emu', 'aurora-steam-native': 'aurora-steam-native'}
 KINDS = {'kernel-aurora': 'kernel', 'mesa-aurora': 'mesa'}
 CI_WORKFLOWS = ['rpms.yml', 'checks.yml']
 # The only files a tracker proposal may change.
-PATCH_PATHS = [r'sources\.json', r'packages/(kernel-aurora|aura|mesa-aurora|mesa-aurora-fex-guest|aurora-flatpak-gl)/[^/]+\.spec']
+PATCH_PATHS = [r'sources\.json', r'packages/(kernel-aurora|aura|mesa-aurora|mesa-aurora-fex-guest|aurora-flatpak-gl|fex-emu|aurora-steam-native)/[^/]+\.spec']
+# fex-emu tracks by hand (merge: manual): its submodules are pinned as
+# extra_sources at the fork's gitlinks and a reviewer moves them with it.
 # The FEX guest Mesa and the Flatpak GL extension move in lockstep with the
 # host Mesa (tests/test_specs.py).
 GUEST = 'mesa-aurora-fex-guest'

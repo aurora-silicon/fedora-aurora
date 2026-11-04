@@ -1,9 +1,9 @@
-%global commit e1524e6135e9cdb47f124cdf11c757470f0443c8
+%global commit 21f7ffcf2e5b3974b3c9cd06e6da4361a9c91667
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 12%{?dist}.aurora
+Release: 16%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -16,6 +16,8 @@ BuildRequires: make gcc gcc-c++ clang llvm lld rust rust-src rustfmt cargo bindg
 BuildRequires: bc bison flex dtc openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
 Requires: kernel-aurora-core = %{version}-%{release}
 Requires: kernel-aurora-modules-extra = %{version}-%{release}
+# Not versioned: older installed kernels must not hold back its updates.
+Requires: aurora-userpages
 Provides: kernel-16k = %{version}-%{release}
 Provides: installonlypkg(kernel)
 
@@ -43,6 +45,17 @@ Provides: kernel-16k-modules-extra = %{version}-%{release}
 %description modules-extra
 Matching modules for the Aurora kernel.
 
+%package -n aurora-userpages
+Summary: Run programs with 4K userspace pages on the Aurora kernel
+Requires: grubby
+
+%description -n aurora-userpages
+The userpages launcher runs a program and its descendants with another
+userspace page size, such as 4K pages on the 16K Aurora kernel:
+userpages 4k COMMAND. It is built from the kernel source, whose private
+prctl interface it uses. Installing it adds user4k=on to the kernel command
+line; an owner's user4k=off is kept.
+
 %prep
 %autosetup -p1 -n linux-%{commit}
 cp %{SOURCE1} .config
@@ -60,6 +73,8 @@ python3 %{SOURCE5} arch/arm64/configs/asahi.config %{SOURCE4} .config
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" rustavailable
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" %{?_smp_mflags} Image modules dtbs
 [ "$(make -s LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" kernelrelease)" = "%{krel}" ]
+# The launcher includes this tree's prctl.h, so its numbers match the kernel.
+make -C tools/aurora-userpages
 
 %install
 export ARCH=arm64 RUSTC_BOOTSTRAP=1
@@ -74,6 +89,8 @@ find %{buildroot}/usr/lib/modules/%{krel} -type f -name '*.ko' > modules.files
 sed -i 's@%{buildroot}@@' modules.files
 find %{buildroot}/usr/lib/modules/%{krel} -maxdepth 1 -type f ! -name vmlinuz ! -name config ! -name System.map >> metadata.files
 sed -i 's@%{buildroot}@@' metadata.files
+install -Dm755 tools/aurora-userpages/userpages %{buildroot}%{_bindir}/userpages
+install -Dm644 tools/aurora-userpages/README.rst %{buildroot}%{_docdir}/aurora-userpages/README.rst
 
 %posttrans core
 if [ -x /usr/bin/kernel-install ]; then
@@ -83,6 +100,13 @@ fi
 %preun core
 if [ "$1" = 0 ] && [ -x /usr/bin/kernel-install ]; then
   /usr/bin/kernel-install remove %{krel} || :
+fi
+
+%posttrans -n aurora-userpages
+# Images are built with user4k=on; add it to an installed system's boot
+# entries and future kernels. Any user4k= the owner has set stays.
+if [ -f /etc/kernel/cmdline ] && ! grep -qE '(^|[[:space:]])user4k=' /etc/kernel/cmdline; then
+  grubby --update-kernel=ALL --args=user4k=on || :
 fi
 
 %files
@@ -98,7 +122,49 @@ fi
 %files modules-extra -f modules.files
 %dir /usr/lib/modules/%{krel}/kernel
 
+%files -n aurora-userpages
+%license COPYING
+%{_bindir}/userpages
+%{_docdir}/aurora-userpages/
+
 %changelog
+* Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-16
+- Track aurora-silicon/linux integration/aurora at 21f7ffc (fleet15: the
+  Neo DRAM floor while ProRes encodes, H16 ANE dynamic power gating held
+  off across back-to-back requests, and the Apple KVM system registers
+  kept in encoding order so KVM initialises). The configuration gains
+  the Apple x86 flags, x86 FP, FP preserve and AMX options from the
+  shared hardware fragment.
+
+* Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-15
+- Track aurora-silicon/linux integration/aurora at 40199ed.
+- Upstream head: Merge pull request #898 from aurora-silicon/integration/rosetta-features
+- Add aurora-userpages: the userpages launcher from this kernel source,
+  required by kernel-aurora, and user4k=on on the kernel command line, so
+  per-process 4K userspace pages work out of the box. user4k=off turns
+  them off.
+
+* Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-14
+- Track aurora-silicon/linux integration/aurora at f153499 (fleet14p:
+  the J614s device tree with its speakers off, H16 and H17 Neural Engine
+  sleep, Neo AVE mailbox wake and ProRes/JPEG performance, the J616s
+  thermal switch-on fix, brcmfmac suspend and escan fixes, T6041 PMGR
+  banks, T6000 GFX resume wait, the late USB4 router and the DCP compact
+  service re-announce, the boot NOR flash parts of the J616s and the
+  J700 GigaDevice for NVRAM writes, the J616s ANE shared-memory stall
+  fix, Neo GPU recovery that keeps other clients alive, whole-word T6000
+  DCS commands, ALS colour temperature and the M2 Pro/Max second-install
+  keybag).
+
+* Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-13
+- Track aurora-silicon/linux aurora-wip at 0652b3b: the Type-C ports take a
+  USB4 router that binds after the deferred-probe timeout, keybag creation
+  may rewrite its shared xART record (Touch ID on a second Linux install),
+  NVRAM writes on the J616s and J700 boot NOR parts, the J614s M4 Pro
+  MacBook Pro, H16/H17 Neural Engine sleep, the ambient-light colour
+  temperature as in_colortemp_input, Wi-Fi suspend and scan fixes, and PMGR,
+  AVE and DCP fixes.
+
 * Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-12
 - Track aurora-silicon/linux aurora-wip at e1524e6 (fleet14l: HEVC 10-bit
   decode, ProRes and JPEG encoders, the M4 Pro PMU RTC wake alarm and the
