@@ -3,7 +3,7 @@
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 17%{?dist}.aurora
+Release: 18%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -27,7 +27,12 @@ Macs, including MacBook Neo. Matching DTBs and modules are built together.
 
 %package core
 Summary: Aurora kernel image and device trees
-Requires: coreutils kmod dracut grubby update-m1n1 aura
+Requires: coreutils kmod dracut grubby update-m1n1
+# SN012776 amp settings come from the DT that aura 1.0.0b5 fills in
+# (https://github.com/aurora-silicon/linux/pull/981,
+# https://github.com/aurora-silicon/aura/pull/75); under an older Stage 2
+# the speakers stay off.
+Requires: aura >= 1.0.0~b5
 Provides: kernel-uname-r = %{krel}
 Provides: installonlypkg(kernel)
 Provides: kernel-16k-core = %{version}-%{release}
@@ -128,6 +133,13 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Fri Nov 06 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-18
+- Require aura 1.0.0~b5 or later. This kernel takes each SN012776 amp's
+  level, brownout and DC blocker settings from the DT that aura 1.0.0b5
+  fills in; with an older Stage 2 its speakers stay off. The dependency
+  pulls in aura on a kernel-only upgrade, and update-m1n1 writes the new
+  Stage 2 in the same transaction.
+
 * Thu Nov 05 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-17
 - Track aurora-silicon/linux integration/aurora at 2661d71: a T6020
   Thunderbolt-dock display that drops HPD while its CRTC stays on is
