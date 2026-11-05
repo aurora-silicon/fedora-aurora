@@ -1,4 +1,4 @@
-%global commit ba25746dc9ee5e38b7b9347bac2fd364a21e3d2e
+%global commit 727076b83eb65b0162317a9e2fa0ba850df1f5ca
 Name: aurora-kbd-light
 Version: 0.1.0
 Release: 1%{?dist}
@@ -13,7 +13,8 @@ BuildRequires: gcc make systemd-rpm-macros
 %description
 Drives the keyboard backlight of an Apple silicon MacBook from its ambient
 light sensor, the way macOS does: brightest in the dark, fading out as the
-room gets brighter and off in daylight, and off with the lid closed. A change
+room gets brighter and off in daylight, and off with the lid closed or the
+displays asleep. A change
 made from the desktop's slider or by its idle dimming is respected. Settings
 are in /etc/default/aurora-kbd-light.
 
@@ -44,5 +45,5 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/80-aurora-kbd-light.preset
 
 %changelog
 * Thu Nov 05 2026 DjDeveloperr <hey@djdev.me> - 0.1.0-1
-- Package kbd-light ba25746dc9ee: the keyboard backlight follows the ambient
-  light sensor.
+- Package kbd-light 727076b83eb6: the keyboard backlight follows the ambient
+  light sensor, and is off while the displays sleep.
