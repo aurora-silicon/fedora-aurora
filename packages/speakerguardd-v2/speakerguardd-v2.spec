@@ -1,4 +1,4 @@
-%global commit c9dcc8ce7bf1560d000f46a1f5c057a5be44e3bf
+%global commit 3c18a3527055145bc8b98e82c00b5deb4ca9a42f
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261105
 %global selinuxtype targeted
@@ -216,9 +216,11 @@ fi
 %{_userunitdir}/speakerguardd-v2-session.service.d/50-qualified-board.conf
 
 %changelog
-* Thu Nov 05 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.1.20261105gitc9dcc8ce7bf1
-- Move to the integrated v2 tree (c9dcc8ce7bf1: speakerguardd#41, and #42,
-  under which a derivable board never falls back to a hand map): the
+* Thu Nov 05 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.1.20261105git3c18a3527055
+- Move to the integrated v2 tree (3c18a3527055: speakerguardd#41, #42 and
+  #43). Under #42 a derivable board never falls back to a hand map. Under
+  #43 the closed loop relaxes only on a board proven for it (the J616s
+  family) and runs capped elsewhere.: the
   engine with spp3 at parity, the supervisor, the session helper and the
   first-boot wiring self-check.
 - Ship speakerguardd-v2-selfcheck.service as a hard prerequisite of the
