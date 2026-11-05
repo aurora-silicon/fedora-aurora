@@ -1,8 +1,8 @@
-%global commit 05ddb00f5ca9d0e153d987fed6454f21902ee1c8
+%global commit c1753704ed733e6e77fdf8ce6ac83fbf7c5e59d5
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 18%{?dist}.aurora
+Release: 19%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -200,6 +200,11 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Thu Nov 05 2026 Michal S. <michal_stopyra@icloud.com> - 26.3.0-19
+- Include the merged Wayland drawable lifetime fix and unmatched-release
+  handling (mesa#138).
+- Keep native, FEX guest and Flatpak Mesa sources and releases coordinated.
+
 * Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-18
 - Track aurora-silicon/mesa aurora-wip at 05ddb00.
 - Upstream head: Merge pull request #155 from aurora-silicon/fix/agx-ro-addr-const
