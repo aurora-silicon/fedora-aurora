@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / 'scripts'))
 import updatelib as lib  # noqa: E402
+import fedoralib  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location('importer', ROOT / 'scripts/import-rpm-build.py')
 importer = importlib.util.module_from_spec(_spec)
@@ -43,7 +44,10 @@ def unpack(archive, destination):
         entries.extractall(destination)
 
 
-def collect(plan, repository, output, downloads):
+def collect(plan, repository, output, downloads, fedora=44):
+    fedora = fedoralib.release(fedora)
+    if plan.get("fedora", 44) != fedora:
+        raise ValueError("Build plan belongs to another Fedora release")
     if plan.get('schema') != 1 or plan.get('action') != 'publish':
         raise ValueError('the build plan is not publishable')
     if plan['head'] != lib.git(ROOT, 'rev-parse', 'HEAD'):
@@ -57,7 +61,7 @@ def collect(plan, repository, output, downloads):
         for name in group['packages']:
             item = plan['packages'][name]
             artifact = lib.gh_api(f'repos/{repository}/actions/artifacts/{item["artifact"]}')
-            if (artifact.get('workflow_run', {}).get('id') != int(run) or artifact['name'] != 'rpm-' + name
+            if (artifact.get('workflow_run', {}).get('id') != int(run) or artifact['name'] != fedoralib.artifact(name, fedora)
                     or artifact['expired'] or artifact['digest'] != item['digest']):
                 raise ValueError(f'{name}: artifact {item["artifact"]} is not the planned output of run {run}')
             archive = downloads / f'{artifact["id"]}.zip'
@@ -66,16 +70,16 @@ def collect(plan, repository, output, downloads):
                                stdout=stream, check=True)
             if 'sha256:' + lib.sha256_file(archive) != artifact['digest']:
                 raise ValueError(f'{name}: artifact digest mismatch')
-            unpack(archive, artifacts / ('rpm-' + name))
+            unpack(archive, artifacts / fedoralib.artifact(name, fedora))
             archive.unlink()
             if attests(metadata['head_sha']):
-                for rpm in sorted((artifacts / ('rpm-' + name) / 'out').glob('*rpms/*.rpm')):
+                for rpm in sorted((artifacts / fedoralib.artifact(name, fedora) / 'out').glob('*rpms/*.rpm')):
                     subprocess.run(['gh', 'attestation', 'verify', str(rpm), '--repo', repository,
                                     '--signer-workflow', f'{repository}/.github/workflows/rpms.yml',
                                     '--source-digest', metadata['head_sha'], '--deny-self-hosted-runners'],
                                    check=True, stdout=subprocess.DEVNULL)
         count = importer.import_build(ROOT, metadata, artifacts, output, repository, matching_only=False,
-                                      packages=set(group['packages']))
+                                      packages=set(group['packages']), fedora=fedora)
         if count != len(group['packages']):
             raise ValueError(f'run {run}: expected {len(group["packages"])} packages, imported {count}')
         shutil.rmtree(artifacts)
@@ -85,6 +89,7 @@ def collect(plan, repository, output, downloads):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--fedora-release', type=int, choices=fedoralib.RELEASES, default=44)
     parser.add_argument('--plan', type=Path, required=True)
     parser.add_argument('--repository', required=True)
     parser.add_argument('--output', type=Path, required=True)
@@ -93,7 +98,7 @@ def main():
     if args.output.exists():
         parser.error('use a fresh output directory')
     args.downloads.mkdir(parents=True, exist_ok=True)
-    builds = collect(json.loads(args.plan.read_text()), args.repository, args.output, args.downloads)
+    builds = collect(json.loads(args.plan.read_text()), args.repository, args.output, args.downloads, args.fedora_release)
     print(f'Authenticated {sum(len(g["packages"]) for g in json.loads(args.plan.read_text())["runs"])} '
           f'package builds from {len(builds)} native run(s)')
 

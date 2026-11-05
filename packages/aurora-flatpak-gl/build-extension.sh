@@ -31,6 +31,15 @@ sed -e "s/@BRANCH@/$branch/g" -e "s/@COMMIT@/$commit/g" -e "s/@SHA256@/$sha256/g
   "$here/org.freedesktop.Platform.GL.aurora.yml.in" > "$manifest"
 flatpak-builder --arch=aarch64 --disable-rofiles-fuse --force-clean \
   --state-dir="$work/state" "$work/build" "$manifest"
+# The F45 candidate uses Mesa's DRIL loader names. Preserve Aurora's
+# compatibility entry point as an in-payload alias to that same Asahi loader.
+if [[ ${AURORA_FEDORA_RELEASE:-44} == 45 ]]; then
+  dri_payload=$work/build/files/lib/dri
+  if [[ ! -e $dri_payload/aurora_dri.so ]]; then
+    test -f "$dri_payload/asahi_dri.so"
+    ln -s asahi_dri.so "$dri_payload/aurora_dri.so"
+  fi
+fi
 python3 - "$work/build/metadata" <<'PY'
 import sys
 path = sys.argv[1]

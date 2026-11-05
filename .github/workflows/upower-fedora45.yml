@@ -7,6 +7,12 @@ on:
       - scripts/test-upower-upgrade
       - .github/workflows/upower-fedora45.yml
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ci-candidates:
+        description: Validate the current rpms.yml run's Fedora 45 outputs
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -17,7 +23,12 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: inputs.ci-candidates
+        with:
+          name: rpm-f45-upower-aurora
       - name: Build Fedora 45 RPMs and run the complete test suite
+        if: ${{ !inputs.ci-candidates }}
         run: |
           set -euo pipefail
           docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src \
