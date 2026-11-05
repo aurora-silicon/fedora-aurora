@@ -1,4 +1,4 @@
-%global commit b1f60b81e975d9e79409b4f0295a5050beb4d93a
+%global commit c9dcc8ce7bf1560d000f46a1f5c057a5be44e3bf
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261105
 %global selinuxtype targeted
@@ -216,15 +216,16 @@ fi
 %{_userunitdir}/speakerguardd-v2-session.service.d/50-qualified-board.conf
 
 %changelog
-* Thu Nov 05 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.1.20261105gitb1f60b81e975
-- Move to the integrated v2 tree (b1f60b81e975, speakerguardd#41): the
+* Thu Nov 05 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.1.20261105gitc9dcc8ce7bf1
+- Move to the integrated v2 tree (c9dcc8ce7bf1: speakerguardd#41, and #42,
+  under which a derivable board never falls back to a hand map): the
   engine with spp3 at parity, the supervisor, the session helper and the
   first-boot wiring self-check.
 - Ship speakerguardd-v2-selfcheck.service as a hard prerequisite of the
   supervisor (Requires= and After=), and the session helper as a user unit.
 - Build upstream's SELinux policy module (packaging/selinux), with this
   package's file contexts, now also for /var/lib/speakerguardd.
-- The opt-in's units start only on a board that qualified on 1.0 (J616s);
+- The opt-in's units start only on a board that qualified on 1.0 (J616s, J316s, J413);
   elsewhere the journal says why and the kernel's safe level holds.
 
 * Wed Nov 04 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.1.20261104gitf06b9697e648

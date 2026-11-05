@@ -334,7 +334,7 @@ class SpecTests(unittest.TestCase):
                   '%{_userunitdir}/speakerguardd-v2-session.service.d']:
             self.assertIn(u + '/50-qualified-board.conf', files_optin)
         gate = (d / 'speakerguardd-v2-gate').read_text()
-        self.assertRegex(gate, r'(?m)^QUALIFIED="j616s"$')
+        self.assertRegex(gate, r'(?m)^QUALIFIED="j616s j316s j413"$')
         # aurora-audio accepts the opt-in too, and recommends the current daemons.
         audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
         for name in ['speakersafetyd', 'speakerguardd']:
