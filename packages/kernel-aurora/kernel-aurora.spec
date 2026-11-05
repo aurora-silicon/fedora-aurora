@@ -1,9 +1,9 @@
-%global commit 21f7ffcf2e5b3974b3c9cd06e6da4361a9c91667
+%global commit 2661d71e16bf538156001bd9e93bafcd60855c85
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 16%{?dist}.aurora
+Release: 17%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -128,6 +128,16 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Thu Nov 05 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-17
+- Track aurora-silicon/linux integration/aurora at 2661d71: a T6020
+  Thunderbolt-dock display that drops HPD while its CRTC stays on is
+  power-cycled, so it comes back after wake or unblank (#959), and M1/M2
+  panel backlight changes fade over 250 ms on DAC firmware (#983). Also
+  M4 MacBook Air audio, suspend-to-idle, USB4 and external displays,
+  T6041/J616c bring-up, display processors started concurrently, critical
+  thermal trips confirmed over consecutive samples, and SN012776 amp setup
+  from the ADT.
+
 * Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-16
 - Track aurora-silicon/linux integration/aurora at 21f7ffc (fleet15: the
   Neo DRAM floor while ProRes encodes, H16 ANE dynamic power gating held
