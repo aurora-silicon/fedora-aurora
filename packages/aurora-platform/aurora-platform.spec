@@ -1,6 +1,6 @@
 Name: aurora-platform
 Version: 44
-Release: 17%{?dist}
+Release: 18%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -48,6 +48,7 @@ Requires: aurora-audio alsa-ucm-conf-aurora
 # 5.87 includes the upstream empty-TLV fix; retain real error reporting.
 Requires: bluez >= 5.87
 Requires: aurora-camera-denoise
+Requires: aurora-kbd-light
 # The Aurora repository with its key and dnf vendor policies, so a Fedora
 # Asahi Remix system with these services keeps following Aurora's builds.
 Requires: aurora-repos
@@ -57,8 +58,9 @@ The Apple Silicon hardware services that every Aurora system needs: the
 boot.bin assembler (update-m1n1), vendor firmware in the initramfs
 (dracut-asahi), firmware refresh (asahi-fwupdate), speaker protection
 (speakersafetyd and speakerguardd), the Aurora audio graphs and UCM
-profiles, and the noise filter for the built-in camera
-(aurora-camera-denoise). It installs no kernel, bootloader or release
+profiles, the noise filter for the built-in camera
+(aurora-camera-denoise), and the keyboard backlight that follows the ambient
+light sensor (aurora-kbd-light). It installs no kernel, bootloader or release
 identity, so it fits a Fedora Asahi Remix install whose kernel and boot
 chain are managed separately. It replaces asahi-platform-metapackage, whose
 -core subpackage requires the stock kernel-16k, and is protected from removal
@@ -96,10 +98,14 @@ install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-consol
 %{_libexecdir}/aurora/aurora-grub-console
 
 %changelog
-* Wed Nov 04 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-17
+* Thu Nov 05 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-18
 - Require speakerguardd-v2 beside speakersafetyd and speakerguardd 0.1. Its
   fleet gate starts exactly one stack per boot; on a kernel without the v2
   interface (every fleet kernel today) that is the older daemons, as before.
+
+* Thu Nov 05 2026 DjDeveloperr <hey@djdev.me> - 44-17
+- Require aurora-kbd-light, so the keyboard backlight follows the ambient
+  light sensor as on macOS.
 
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-16
 - Switch GRUB_TERMINAL_OUTPUT from gfxterm to the console once per system

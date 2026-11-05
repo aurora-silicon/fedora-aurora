@@ -284,7 +284,8 @@ class SpecTests(unittest.TestCase):
         core = text.split('%package core', 1)[1].split('%description core', 1)[0]
         requires = ' '.join(re.findall(r'^Requires:\s+(.+)$', core, re.M)).split()
         for name in ['update-m1n1', 'dracut-asahi', 'asahi-fwupdate',
-                     'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise']:
+                     'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise',
+                     'aurora-kbd-light']:
             self.assertIn(name, requires)
         # Speaker protection: both stacks on every Mac; the fleet gate starts one.
         self.assertRegex(core, r'(?m)^Requires: speakersafetyd speakerguardd speakerguardd-v2$')
