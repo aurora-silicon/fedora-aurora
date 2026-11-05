@@ -1,4 +1,4 @@
-%global commit ebab1e0f7c4eeb0293b170690487f2f53bdd1481
+%global commit 4cffd19b102df19530af60500e2b9e90fe5c07c9
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261105
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.1.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.2.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -94,8 +94,8 @@ for f in speakerguardd-provision speakerguardd-gate speakerguardd-selfcheck spea
 done
 install -Dm644 packaging/session/wiring.py %{buildroot}$lx/wiring.py
 install -Dm644 packaging/session/gen.py %{buildroot}$lx/gen.py
-# The machine description and the fleet gate's data, unchanged from upstream.
-install -Dm644 packaging/session/machines.json %{buildroot}%{_datadir}/speakerguardd/machines.json
+# The fleet gate's data, unchanged from upstream. Every per-board value is
+# derived from the Mac's device tree and tuning at run time (wiring.py).
 install -Dm644 packaging/session/gate.json %{buildroot}%{_datadir}/speakerguardd/gate.json
 # The per-machine graphs, as reference data: provisioning generates the
 # machine's own from the self-check's record.
@@ -201,6 +201,16 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Thu Nov 05 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.2.20261105git4cffd19b102d
+- Move to 4cffd19b102d (speakerguardd#48 and #45). Every per-board value is
+  derived from the Mac's device tree and tuning at run time; machines.json
+  is gone and is no longer installed, and gate.json carries the qualified
+  boards per protection unit (spp3: J316s, J413, J616s).
+- The self-check unit no longer takes --machines; the v2 units read their
+  configuration optionally, so a board or kernel the gate skips is skipped
+  cleanly instead of failing at every boot and login.
+- test_provision.py passes when %%check runs as root.
+
 * Thu Nov 05 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.1.20261105gitebab1e0f7c4e
 - Move to ebab1e0f7c4e (speakerguardd#44): automatic provisioning at boot
   (the tuning compiled and bound to board, kernel, bundle and macOS build;

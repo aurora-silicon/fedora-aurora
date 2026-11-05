@@ -322,6 +322,9 @@ class SpecTests(unittest.TestCase):
         # The gate is upstream's, with upstream's data: no distribution copy.
         self.assertFalse((d / 'speakerguardd-v2-gate').exists())
         self.assertIn('install -Dm644 packaging/session/gate.json %{buildroot}%{_datadir}/speakerguardd/gate.json', text)
+        # Every per-board value is derived on the Mac (wiring.py): no machine table.
+        self.assertNotIn('machines.json', text.split('%install', 1)[1].split('%files', 1)[0])
+        self.assertIn('install -Dm644 packaging/session/wiring.py', text)
         for u in ['speakerguardd-v2.service', 'speakerguardd-v2-provision.service', 'speakerguardd-v2-selfcheck.service',
                   'speakerguardd-v2-seat.service']:
             self.assertIn(u, text.split('grep -qx "ExecCondition=$lx/speakerguardd-gate v2" $u', 1)[0])
