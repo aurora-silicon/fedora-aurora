@@ -49,7 +49,9 @@ is subject to the same release checks as an aarch64 RPM.
 ## Publication and channel state
 
 The `fedora-release` input defaults to `44` in both `publish.yml` and
-`deploy-snapshot.yml`. Automatic publication retains the Fedora 44 default.
+`deploy-snapshot.yml`. Automatic publication runs Fedora 44 first;
+`publish-fedora45.yml` then dispatches the same publication for Fedora 45, so
+both feeds follow every automatic run.
 Selecting `45` resolves only Fedora 45 artifacts and snapshots. Its first
 publication requires the complete set, since there is no Fedora 45 base
 snapshot to carry. A Fedora 44 snapshot cannot be used as its base.
