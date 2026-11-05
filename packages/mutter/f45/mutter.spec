@@ -205,7 +205,8 @@ trap 'status=$?; cp -a "%{_vpath_builddir}/meson-logs/." "$log_dir/"; rm -rf "$X
 # in turn across reruns of the same sources, passed on others): skip them,
 # as Fedora does for flaky tests. Every other test still gates the build.
 flaky='input-capture wayland-keyboard sloppy-focus-auto-raise closed-transient-no-input-parents-queued-default-focus-destroyed'
-tests=$(meson test -C %{_vpath_builddir} --no-rebuild --list | sed -n 's|^.* / ||p' | sort -u)
+# --list prints "suite - project:name" (or a bare name); keep the name.
+tests=$(meson test -C %{_vpath_builddir} --no-rebuild --list | awk 'NF {print $NF}' | sed 's/^.*://' | sort -u)
 for name in $flaky; do
   grep -qx "$name" <<< "$tests" || { echo "flaky test $name no longer exists" >&2; exit 1; }
 done
