@@ -1,4 +1,4 @@
-%global commit 4cffd19b102df19530af60500e2b9e90fe5c07c9
+%global commit a3c66c51e70c15eb927f40619906d4bcc2c90dd3
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261105
 %global selinuxtype targeted
@@ -201,15 +201,18 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
-* Thu Nov 05 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.2.20261105git4cffd19b102d
-- Move to 4cffd19b102d (speakerguardd#48 and #45). Every per-board value is
+* Thu Nov 05 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.2.20261105gita3c66c51e70c
+- Move to a3c66c51e70c (speakerguardd#48, #45, #49 and #50). Every per-board value is
   derived from the Mac's device tree and tuning at run time; machines.json
   is gone and is no longer installed, and gate.json carries the qualified
   boards per protection unit (spp3: J316s, J413, J616s).
 - The self-check unit no longer takes --machines; the v2 units read their
   configuration optionally, so a board or kernel the gate skips is skipped
   cleanly instead of failing at every boot and login.
-- test_provision.py passes when %%check runs as root.
+- test_provision.py passes when %%check runs as root and without
+  /usr/bin/env (speakerguardd#50).
+- aurora-speaker-tuning reads the installer's macOS 27 manifest fields
+  (speakerguardd#49).
 
 * Thu Nov 05 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.1.20261105gitebab1e0f7c4e
 - Move to ebab1e0f7c4e (speakerguardd#44): automatic provisioning at boot
