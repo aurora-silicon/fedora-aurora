@@ -1,0 +1,47 @@
+#!/bin/sh
+# Switch GRUB's output from gfxterm to the firmware console, once per system.
+#
+# `terminal_output gfxterm` sets a GOP mode and clears the screen even when
+# the menu stays hidden, so the logo that aura and U-Boot leave on screen goes
+# black before the kernel starts. Fedora's flicker-free boot keeps
+# GRUB_TERMINAL_OUTPUT="console", which leaves the screen alone while the menu
+# is hidden. Some Aurora systems were set up with gfxterm.
+#
+# This runs from aurora-platform-core's %posttrans. It changes only a
+# GRUB_TERMINAL_OUTPUT of "gfxterm" and does so only once: an owner who sets
+# gfxterm again afterwards keeps it. grub.cfg is regenerated only when it is
+# exactly what grub2-mkconfig produces today, so a hand-maintained grub.cfg is
+# never replaced; in that case nothing changes and the next update tries again.
+set -u
+conf=${AURORA_GRUB_DEFAULTS:-/etc/default/grub}
+cfg=${AURORA_GRUB_CFG:-/boot/grub2/grub.cfg}
+state=${AURORA_GRUB_STATE:-/var/lib/aurora/grub-console-applied}
+
+[ -e "$state" ] && exit 0
+command -v grub2-mkconfig > /dev/null || exit 0
+[ -f "$conf" ] && [ -f "$cfg" ] || exit 0
+mkdir -p "${state%/*}"
+if ! grep -Eq '^GRUB_TERMINAL_OUTPUT="?gfxterm"?[[:space:]]*$' "$conf"; then
+    touch "$state"
+    exit 0
+fi
+
+current=$(mktemp) || exit 0
+trap 'rm -f "$current"' EXIT
+if ! grub2-mkconfig > "$current" 2>/dev/null || ! cmp -s "$current" "$cfg"; then
+    echo "aurora-grub-console: $cfg is not what grub2-mkconfig generates; leaving GRUB_TERMINAL_OUTPUT=gfxterm" >&2
+    exit 0
+fi
+
+cp -p "$conf" "$conf.aurora-gfxterm"
+# Rewrite in place, keeping the file's owner, mode and SELinux label.
+sed 's/^GRUB_TERMINAL_OUTPUT=.*/GRUB_TERMINAL_OUTPUT="console"/' "$conf.aurora-gfxterm" > "$conf"
+if grub2-mkconfig -o "$cfg" > /dev/null 2>&1; then
+    touch "$state"
+else
+    # Put both back as they were.
+    cp -p "$conf.aurora-gfxterm" "$conf"
+    cp -p "$current" "$cfg"
+    echo "aurora-grub-console: grub2-mkconfig failed; nothing changed" >&2
+fi
+exit 0

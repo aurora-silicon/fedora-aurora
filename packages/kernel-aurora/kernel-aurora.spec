@@ -1,9 +1,9 @@
-%global commit 40199edaa5cc9f4927b1619e20bdc1f5212d57f6
+%global commit 21f7ffcf2e5b3974b3c9cd06e6da4361a9c91667
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 15%{?dist}.aurora
+Release: 16%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -128,6 +128,14 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-16
+- Track aurora-silicon/linux integration/aurora at 21f7ffc (fleet15: the
+  Neo DRAM floor while ProRes encodes, H16 ANE dynamic power gating held
+  off across back-to-back requests, and the Apple KVM system registers
+  kept in encoding order so KVM initialises). The configuration gains
+  the Apple x86 flags, x86 FP, FP preserve and AMX options from the
+  shared hardware fragment.
+
 * Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-15
 - Track aurora-silicon/linux integration/aurora at 40199ed.
 - Upstream head: Merge pull request #898 from aurora-silicon/integration/rosetta-features
