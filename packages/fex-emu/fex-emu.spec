@@ -4,7 +4,7 @@
 # fex-emu.spec (f44, FEX 2604); the sysroot, its macros and the toolchain files
 # are Fedora's. The fork's submodules are pinned as extra sources in
 # sources.json at the gitlinks of %%{commit}.
-%global commit 3f4ee4277f11b1986a5edf8ecc9c2c4169830bd4
+%global commit c2c22c6a3654695ad436527ccaf95626b339ef11
 %global shortcommit %(c=%{commit}; echo ${c:0:7})
 %global fex_describe FEX-%{version}-aurora-g%{shortcommit}
 
@@ -18,7 +18,7 @@
 
 Name:       fex-emu
 Version:    2610
-Release:    1%{?dist}.aurora
+Release:    2%{?dist}.aurora
 Summary:    Fast usermode x86 and x86-64 emulator for ARM64
 
 # FEX itself is MIT, see below for the bundled libraries
@@ -48,9 +48,9 @@ Source101:  cpp-optparse-9f94388a339fcbb0bc95c17768eb786c85988f6e.tar.gz
 Source102:  drm-headers-3e49836995c1dcb3df709440ad2f270b569c6a5f.tar.gz
 Source103:  jemalloc-8436195ad5e1bc347d9b39743af3d29abee59f06.tar.gz
 Source104:  range-v3-ca1388fb9da8e69314dda222dc7b139ca84e092f.tar.gz
-Source105:  rpmalloc-09142d726429416bfa7b459151515fe3ab7622dd.tar.gz
+Source105:  rpmalloc-ed227446afce6ff505b312bae1e10a3daaeeea39.tar.gz
 Source106:  Vulkan-Headers-ee2ec5fd83dafce291024683b50dc89219333076.tar.gz
-Source107:  vixl-585d860b12cdfc3a72f5fdad5e02e4d50a64c014.tar.gz
+Source107:  vixl-6561d40650885ad24fbd0aa0cdb20ccb4808d444.tar.gz
 Source108:  unordered_dense-3234af2c03549bc85656bfd3a86993bf1cd8aef1.tar.gz
 Provides:   bundled(cpp-optparse) = 0
 Provides:   bundled(kernel) = 6.17
@@ -261,6 +261,11 @@ fi
 %endif
 
 %changelog
+* Thu Nov 05 2026 DjDeveloperr <hey@djdev.me> - 2610-2.aurora
+- FEX from aurora-silicon/fex main at c2c22c6: the fork's commits rebased
+  onto FEX-Emu/FEX main of 2026-11-04, now including Apple APFLG (x86 PF
+  and AF kept in NZCV). vixl and rpmalloc follow upstream's new gitlinks.
+
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 2610-1.aurora
 - FEX from aurora-silicon/fex main at 3f4ee42 (FEX-2610 and 19 commits:
   io_uring for x86-64 guests behind ring restrictions, one compile per
