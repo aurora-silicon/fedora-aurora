@@ -39,11 +39,10 @@ Obsoletes: asahi-platform-metapackage-core < 1
 Obsoletes: asahi-platform-metapackage-audio < 1
 Conflicts: asahi-platform-metapackage < 1
 Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
-Requires: (speakersafetyd or speakerguardd-v2-replace-legacy)
-Requires: (speakerguardd or speakerguardd-v2-replace-legacy)
-# dnf prefers a recommended provider; without these it would choose the
-# opt-in, which satisfies both Requires above at once.
-Recommends: speakersafetyd speakerguardd
+# Both speaker protection stacks, on every Mac: speakerguardd-v2's fleet
+# gate starts exactly one of them per boot (v2 on a gated board whose kernel
+# has the v2 interface, the older daemons everywhere else).
+Requires: speakersafetyd speakerguardd speakerguardd-v2
 Requires: aurora-audio alsa-ucm-conf-aurora
 # BlueZ 5.86 attempts an empty default-parameter transaction at startup.
 # 5.87 includes the upstream empty-TLV fix; retain real error reporting.
@@ -98,9 +97,9 @@ install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-consol
 
 %changelog
 * Wed Nov 04 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-17
-- Accept speakerguardd-v2-replace-legacy, the opt-in switch to speakerguardd
-  1.0, in place of speakersafetyd and speakerguardd 0.1. They stay the
-  default: both are recommended, so dnf picks them on every install.
+- Require speakerguardd-v2 beside speakersafetyd and speakerguardd 0.1. Its
+  fleet gate starts exactly one stack per boot; on a kernel without the v2
+  interface (every fleet kernel today) that is the older daemons, as before.
 
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-16
 - Switch GRUB_TERMINAL_OUTPUT from gfxterm to the console once per system

@@ -286,11 +286,8 @@ class SpecTests(unittest.TestCase):
         for name in ['update-m1n1', 'dracut-asahi', 'asahi-fwupdate',
                      'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise']:
             self.assertIn(name, requires)
-        # Speaker protection: the current daemons, or the speakerguardd 1.0
-        # opt-in in their place; dnf picks the recommended current ones.
-        for name in ['speakersafetyd', 'speakerguardd']:
-            self.assertRegex(core, r'(?m)^Requires: \(' + name + r' or speakerguardd-v2-replace-legacy\)$')
-        self.assertRegex(core, r'(?m)^Recommends: speakersafetyd speakerguardd$')
+        # Speaker protection: both stacks on every Mac; the fleet gate starts one.
+        self.assertRegex(core, r'(?m)^Requires: speakersafetyd speakerguardd speakerguardd-v2$')
         for name in requires:
             self.assertFalse(name.startswith(('kernel', 'uboot', 'm1n1')) or name == 'aura', name)
         self.assertNotIn('aurora-release', requires)
@@ -300,46 +297,52 @@ class SpecTests(unittest.TestCase):
         self.assertEqual((d / 'aurora-platform-core.conf').read_text().split(), ['aurora-platform-core'])
         self.assertIn('protected.d/aurora-platform-core.conf', text.split('%files core', 1)[1])
         self.assertRegex(text, r'(?m)^Requires: aurora-platform-core = %\{version\}-%\{release\}$')
-    def test_speakerguardd_v2_is_parallel_and_opt_in(self):
+    def test_speakerguardd_v2_installs_everywhere_gated_by_board(self):
         d = ROOT / 'packages' / 'speakerguardd-v2'
         text = (d / 'speakerguardd-v2.spec').read_text()
         main = text.split('%package selinux', 1)[0]
-        optin = text.split('%package replace-legacy', 1)[1].split('%description replace-legacy', 1)[0]
-        # The preview installs beside the 0.1 daemon and speakersafetyd.
+        # Beside the 0.1 daemon and speakersafetyd: nothing replaces either,
+        # and there is no opt-in package any more.
         self.assertNotRegex(main, r'(?m)^(Conflicts|Obsoletes|Provides):')
+        self.assertNotIn('replace-legacy', text.split('%changelog', 1)[0])
         self.assertIn('%{_libexecdir}/speakerguardd-v2/speakerguardd', text)
-        self.assertIn('%{_unitdir}/speakerguardd-v2.service', text)
         self.assertIn('%{_libdir}/lv2/sgv2.lv2/', text)
-        # Only the clearly named opt-in conflicts with them. It never obsoletes
-        # or provides them, so dnf cannot choose it on its own.
-        self.assertRegex(optin, r'(?m)^Conflicts: speakerguardd < 1\.0\.0~$')
-        self.assertRegex(optin, r'(?m)^Conflicts: speakersafetyd$')
-        self.assertNotRegex(optin, r'(?m)^(Obsoletes|Provides):')
-        self.assertEqual((d / '50-speakerguardd-v2.preset').read_text().split('\n')[1], 'enable speakerguardd-v2.service')
-        self.assertIn('%{_presetdir}/50-speakerguardd-v2.preset', text.split('%files replace-legacy', 1)[1])
+        files = text.split('%files', 1)[1].split('%files selinux', 1)[0]
+        for u in ['speakerguardd-v2.service', 'speakerguardd-v2-provision.service', 'speakerguardd-v2-selfcheck.service',
+                  'speakerguardd-v2-seat.service', 'speakerguardd-v2-seat.path']:
+            self.assertIn('%{_unitdir}/' + u, files)
+        for u in ['speakerguardd-v2-session.service', 'speakerguardd-v2-graph.service']:
+            self.assertIn('%{_userunitdir}/' + u, files)
+        # The units are enabled by the package's presets; the gate decides.
+        preset = [l for l in (d / '50-speakerguardd-v2.preset').read_text().splitlines() if not l.startswith('#')]
+        self.assertEqual(preset, ['enable speakerguardd-v2.service', 'enable speakerguardd-v2-provision.service',
+                                  'enable speakerguardd-v2-selfcheck.service', 'enable speakerguardd-v2-seat.path'])
+        self.assertIn('%{_presetdir}/50-speakerguardd-v2.preset', files)
+        self.assertIn("enable speakerguardd-v2-graph.service\\nenable speakerguardd-v2-session.service", text)
+        # The gate is upstream's, with upstream's data: no distribution copy.
+        self.assertFalse((d / 'speakerguardd-v2-gate').exists())
+        self.assertIn('install -Dm644 packaging/session/gate.json %{buildroot}%{_datadir}/speakerguardd/gate.json', text)
+        for u in ['speakerguardd-v2.service', 'speakerguardd-v2-provision.service', 'speakerguardd-v2-selfcheck.service',
+                  'speakerguardd-v2-seat.service']:
+            self.assertIn(u, text.split('grep -qx "ExecCondition=$lx/speakerguardd-gate v2" $u', 1)[0])
+        # The older daemons carry the same gate, the other way round.
+        for u in ['speakersafetyd', 'speakerguardd']:
+            self.assertIn('%{_unitdir}/' + u + '.service.d/60-speakerguardd-v2-gate.conf', files)
+        self.assertIn('grep -qx "ExecCondition=$lx/speakerguardd-gate legacy" legacy-gate.conf', text)
+        # Provisioning and the self-check come before the supervisor.
+        self.assertIn("grep -qx 'Requires=speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service' speakerguardd-v2.service", text)
+        self.assertIn("grep -qx 'Requires=speakerguardd-v2-provision.service' speakerguardd-v2-selfcheck.service", text)
+        self.assertIn('python3 -I packaging/session/test_provision.py', text.split('%check', 1)[1].split('%install', 1)[0])
         # The SELinux module labels the program where this package installs it.
         fc = (d / 'speakerguardd.fc').read_text()
         self.assertIn('/usr/libexec/speakerguardd-v2/speakerguardd\t--\tgen_context(system_u:object_r:speakerguardd_exec_t,s0)', fc)
         self.assertIn('/run/speakerguardd(/.*)?', fc)
         self.assertIn('/var/lib/speakerguardd(/.*)?', fc)
-        # The policy itself is upstream's, from the pinned tree.
         self.assertFalse((d / 'speakerguardd.te').exists())
         self.assertIn('cp -p packaging/selinux/%{modulename}.te .', text)
-        # The self-check is a hard prerequisite of the supervisor.
-        self.assertIn("grep -qx 'Requires=speakerguardd-v2-selfcheck.service' speakerguardd-v2.service", text)
-        self.assertIn('%{_unitdir}/speakerguardd-v2-selfcheck.service', text.split('%files', 1)[1])
-        # The board gate ships with the opt-in, on every unit it enables.
-        files_optin = text.split('%files replace-legacy', 1)[1]
-        for u in ['%{_unitdir}/speakerguardd-v2.service.d', '%{_unitdir}/speakerguardd-v2-selfcheck.service.d',
-                  '%{_userunitdir}/speakerguardd-v2-session.service.d']:
-            self.assertIn(u + '/50-qualified-board.conf', files_optin)
-        gate = (d / 'speakerguardd-v2-gate').read_text()
-        self.assertRegex(gate, r'(?m)^QUALIFIED="j616s j316s"$')
-        # aurora-audio accepts the opt-in too, and recommends the current daemons.
+        # aurora-audio requires both stacks too.
         audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
-        for name in ['speakersafetyd', 'speakerguardd']:
-            self.assertRegex(audio, r'(?m)^Requires: \(' + name + r' or speakerguardd-v2-replace-legacy\)$')
-        self.assertRegex(audio, r'(?m)^Recommends: speakersafetyd speakerguardd$')
+        self.assertRegex(audio, r'(?m)^Requires: speakersafetyd speakerguardd speakerguardd-v2$')
     def test_aurora_repos_owns_the_repository_key_and_vendor_policies(self):
         d = ROOT / 'packages' / 'aurora-repos'
         spec = (d / 'aurora-repos.spec').read_text()

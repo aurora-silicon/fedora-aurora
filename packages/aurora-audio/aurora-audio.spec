@@ -13,11 +13,10 @@ BuildRequires: make
 Provides: asahi-audio = %{version}-%{release}
 Conflicts: asahi-audio
 Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplumber >= 0.5.16 bankstown lv2-triforce lsp-plugins-lv2
-Requires: (speakersafetyd or speakerguardd-v2-replace-legacy)
-Requires: (speakerguardd or speakerguardd-v2-replace-legacy)
-# dnf prefers a recommended provider; without these it would choose the
-# opt-in, which satisfies both Requires above at once.
-Recommends: speakersafetyd speakerguardd
+# Both speaker protection stacks, on every Mac: speakerguardd-v2's fleet
+# gate starts exactly one of them per boot (v2 on a gated board whose kernel
+# has the v2 interface, the older daemons everywhere else).
+Requires: speakersafetyd speakerguardd speakerguardd-v2
 
 %description
 Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source revision.
@@ -40,9 +39,9 @@ install -Dm755 %{SOURCE1} %{buildroot}%{_prefix}/lib/dracut/modules.d/90aurora-a
 
 %changelog
 * Wed Nov 04 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-8
-- Accept speakerguardd-v2-replace-legacy, the opt-in switch to speakerguardd
-  1.0, in place of speakersafetyd and speakerguardd 0.1. They stay the
-  default: both are recommended, so dnf picks them on every install.
+- Require speakerguardd-v2 beside speakersafetyd and speakerguardd 0.1. Its
+  fleet gate starts exactly one stack per boot; on a kernel without the v2
+  interface (every fleet kernel today) that is the older daemons, as before.
 
 * Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-7
 - Move to asahi-audio d957fab: the built-in headphone sink of every Mac

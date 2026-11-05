@@ -1,4 +1,4 @@
-%global commit 3c18a3527055145bc8b98e82c00b5deb4ca9a42f
+%global commit ebab1e0f7c4eeb0293b170690487f2f53bdd1481
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261105
 %global selinuxtype targeted
@@ -14,7 +14,6 @@ Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, 
 License: MIT
 URL: https://github.com/aurora-silicon/speakerguardd
 Source0: speakerguardd-v2-%{commit}.tar.gz
-Source1: speakerguardd-v2-gate
 Source2: speakerguardd.fc
 Source3: 50-speakerguardd-v2.preset
 Source4: README.md
@@ -25,9 +24,11 @@ BuildRequires: systemd-rpm-macros
 BuildRequires: selinux-policy-devel make bzip2
 Requires: (%{name}-selinux = %{version}-%{release} if selinux-policy-%{selinuxtype})
 Requires: pipewire-module-filter-chain-lv2
-# The self-check and the session helper: Python, the ALSA tools for the
-# silent switch test, and pw-link/pw-dump for the speaker graph.
-Requires: python3 alsa-utils pipewire-utils
+# Provisioning, the gate, the self-check and the session helper: Python,
+# the ALSA tools (the gate's interface probe and the silent switch test),
+# pw-link/pw-dump for the speaker graph, loginctl for the seat user and
+# restorecon for the state directory.
+Requires: python3 alsa-utils pipewire-utils systemd policycoreutils
 %{?systemd_requires}
 
 %description
@@ -36,13 +37,14 @@ macOS's does: the protection unit runs inside the PipeWire speaker graph as
 an LV2 plugin, with the amplifier's voltage and current sense as its second
 input where the Mac has it, driven by that Mac's own tuning bundle.
 
-It ships the supervisor, the first-boot wiring self-check (a hard
-prerequisite of the supervisor), the session helper, the sgv2 LV2 bundle and
-the aurora-speaker-tuning reader. It installs beside the 0.1 speakerguardd
-and speakersafetyd and changes nothing on its own: no unit is enabled, and no
-graph loads the plugin. Machines move to it only after they qualify, through
-the speakerguardd-v2-replace-legacy package, whose units start only on a
-qualified board.
+It ships the supervisor, provisioning (the parameter blob compiled from the
+Mac's tuning, the seat user, the configuration, the speaker graph), the
+first-boot wiring self-check, the session helper, the sgv2 LV2 bundle and the
+aurora-speaker-tuning reader. It installs on every Mac beside speakerguardd
+0.1 and speakersafetyd, and the fleet gate picks one stack per boot: v2 on a
+board gated for it whose kernel has the v2 interface, the older daemons
+everywhere else. The kernel is the switch: a fleet kernel without the
+interface keeps every Mac on the older daemons.
 
 %package selinux
 Summary: SELinux policy module for speakerguardd 1.0
@@ -55,33 +57,9 @@ Requires(postun): libselinux-utils policycoreutils
 
 %description selinux
 Confines the speakerguardd 1.0 supervisor in its own domain, speakerguardd_t,
-and labels its program and its runtime directory, where it publishes the
-plugin's parameters and engine page.
-
-%package replace-legacy
-Summary: Opt in: make speakerguardd 1.0 the speaker protection, replacing 0.1 and speakersafetyd
-BuildArch: noarch
-Requires: %{name} = %{version}-%{release}
-# Installing this package is the switch. It takes the place of both older
-# daemons, which must not hold the speaker interlock beside it.
-# - No Obsoletes: one in the repository would make every upgrade swap a
-#   machine over without asking, and a machine moves only once it qualifies.
-# - No Provides of speakerguardd or speakersafetyd either: dnf would then
-#   choose this package to satisfy a plain Requires on them, so a fresh
-#   install would get it unasked. aurora-audio and aurora-platform instead
-#   require (speakersafetyd or speakerguardd-v2-replace-legacy) and recommend
-#   the real daemons, which dnf then prefers.
-Conflicts: speakerguardd < 1.0.0~
-Conflicts: speakersafetyd
-%{?systemd_requires}
-
-%description replace-legacy
-Installing this package makes speakerguardd 1.0 the machine's speaker
-protection: it removes the 0.1 speakerguardd and speakersafetyd (install it
-with dnf --allowerasing) and enables speakerguardd-v2.service. Install
-it only on a machine that passed the 1.0 qualification; until then the
-machine keeps the protection it runs today. See
-%{_docdir}/%{name}/README.md.
+and labels its program, its runtime directory, where it publishes the
+plugin's parameters and engine page, and its state directory, where
+provisioning and the self-check keep the parameter blob and their records.
 
 %prep
 %autosetup -n speakerguardd-%{commit}
@@ -98,6 +76,7 @@ bzip2 -9 %{modulename}.pp
 
 %check
 cargo test --locked --release %{cargo_pkgs}
+python3 -I packaging/session/test_provision.py
 
 %install
 install -Dm755 target/release/speakerguardd %{buildroot}%{_libexecdir}/speakerguardd-v2/speakerguardd
@@ -109,78 +88,81 @@ install -pm755 target/release/libsgv2_lv2.so %{buildroot}%{_libdir}/lv2/sgv2.lv2
 if grep -ho 'lv2:binary <[^>]*>' %{buildroot}%{_libdir}/lv2/sgv2.lv2/*.ttl | grep -v '<libsgv2_lv2.so>'; then
     echo 'The sgv2 bundle names a library this package does not install' >&2; exit 1
 fi
-# The upstream units, under their own names so they install beside the 0.1
-# unit, with the programs where this package installs them.
 lx=%{_libexecdir}/speakerguardd-v2
-install -Dm755 packaging/session/speakerguardd-selfcheck %{buildroot}$lx/speakerguardd-selfcheck
-install -Dm755 packaging/session/speakerguardd-session %{buildroot}$lx/speakerguardd-session
+for f in speakerguardd-provision speakerguardd-gate speakerguardd-selfcheck speakerguardd-session; do
+    install -Dm755 packaging/session/$f %{buildroot}$lx/$f
+done
 install -Dm644 packaging/session/wiring.py %{buildroot}$lx/wiring.py
+install -Dm644 packaging/session/gen.py %{buildroot}$lx/gen.py
+# The machine description and the fleet gate's data, unchanged from upstream.
 install -Dm644 packaging/session/machines.json %{buildroot}%{_datadir}/speakerguardd/machines.json
-install -Dm755 %{SOURCE1} %{buildroot}$lx/speakerguardd-v2-gate
-# The per-machine graphs, as data: the opt-in's provisioning activates one.
+install -Dm644 packaging/session/gate.json %{buildroot}%{_datadir}/speakerguardd/gate.json
+# The per-machine graphs, as reference data: provisioning generates the
+# machine's own from the self-check's record.
 for f in packaging/pipewire/sgv2-*.conf; do
     install -Dpm644 $f %{buildroot}%{_datadir}/speakerguardd/pipewire/$(basename $f)
 done
 for f in packaging/wireplumber/60-sgv2-*.conf; do
     install -Dpm644 $f %{buildroot}%{_datadir}/speakerguardd/wireplumber/$(basename $f)
 done
-sed -e "s@^ExecStart=/usr/bin/speakerguardd @ExecStart=$lx/speakerguardd @" \
-    -e 's@speakerguardd-selfcheck\.service@speakerguardd-v2-selfcheck.service@g' \
-    packaging/systemd/speakerguardd.service > speakerguardd-v2.service
-sed -e "s@/usr/libexec/speakerguardd/speakerguardd-selfcheck@$lx/speakerguardd-selfcheck@" \
-    -e 's@^\(Before\|RequiredBy\)=speakerguardd\.service$@\1=speakerguardd-v2.service@' \
-    packaging/systemd/speakerguardd-selfcheck.service > speakerguardd-v2-selfcheck.service
-sed -e "s@^ExecStart=/usr/libexec/speakerguardd-session @ExecStart=$lx/speakerguardd-session @" \
-    packaging/systemd/speakerguardd-session.service > speakerguardd-v2-session.service
+# The upstream units, under their own names so they install beside the 0.1
+# unit, with the programs where this package installs them.
+rename_units() {
+    sed -e "s@/usr/libexec/speakerguardd/@$lx/@g" -e "s@^ExecStart=/usr/bin/speakerguardd @ExecStart=$lx/speakerguardd @" \
+        -e 's@\bspeakerguardd\(-[a-z]\+\)\?\.\(service\|path\)\b@speakerguardd-v2\1.\2@g' "$1"
+}
+for u in speakerguardd.service speakerguardd-provision.service speakerguardd-selfcheck.service \
+         speakerguardd-seat.service speakerguardd-seat.path speakerguardd-session.service speakerguardd-graph.service; do
+    rename_units packaging/systemd/$u > ${u/speakerguardd/speakerguardd-v2}
+done
 # Each rewrite must have taken, and no unit may chain to another daemon.
 grep -qx "ExecStart=$lx/speakerguardd \$SGV2_ARGS" speakerguardd-v2.service
-grep -qx 'Requires=speakerguardd-v2-selfcheck.service' speakerguardd-v2.service
-grep -q '^After=.*speakerguardd-v2-selfcheck.service' speakerguardd-v2.service
-grep -q "^ExecStart=$lx/speakerguardd-selfcheck run " speakerguardd-v2-selfcheck.service
-grep -qx 'Before=speakerguardd-v2.service' speakerguardd-v2-selfcheck.service
-grep -qx 'RequiredBy=speakerguardd-v2.service' speakerguardd-v2-selfcheck.service
+grep -qx 'Requires=speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service' speakerguardd-v2.service
+grep -q '^After=.*speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service' speakerguardd-v2.service
+grep -qx 'Requires=speakerguardd-v2-provision.service' speakerguardd-v2-selfcheck.service
+grep -qx 'Before=speakerguardd-v2-selfcheck.service speakerguardd-v2.service' speakerguardd-v2-provision.service
+grep -qx "ExecStart=$lx/speakerguardd-provision run" speakerguardd-v2-provision.service
+grep -qx "ExecStartPost=$lx/speakerguardd-provision activate --graph-unit speakerguardd-v2-graph.service" speakerguardd-v2-selfcheck.service
+grep -qx "ExecStart=$lx/speakerguardd-provision seat --unit speakerguardd-v2.service" speakerguardd-v2-seat.service
+grep -qx 'Unit=speakerguardd-v2-seat.service' speakerguardd-v2-seat.path
+grep -qx "ExecCondition=$lx/speakerguardd-provision is-seat" speakerguardd-v2-session.service
 grep -q "^ExecStart=$lx/speakerguardd-session " speakerguardd-v2-session.service
-if grep -Eq '^(OnFailure|OnSuccess)=|speakersafetyd|=speakerguardd\.service' speakerguardd-v2*.service; then
+for u in speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.service; do
+    grep -qx "ExecCondition=$lx/speakerguardd-gate v2" $u
+done
+if grep -Eq '^(OnFailure|OnSuccess)=|speakersafetyd|=speakerguardd\.service|/usr/libexec/speakerguardd/' speakerguardd-v2*.service speakerguardd-v2*.path; then
     echo 'A speakerguardd 1.0 unit chains to or names another daemon' >&2; exit 1
 fi
-install -Dm644 speakerguardd-v2.service %{buildroot}%{_unitdir}/speakerguardd-v2.service
-install -Dm644 speakerguardd-v2-selfcheck.service %{buildroot}%{_unitdir}/speakerguardd-v2-selfcheck.service
-# The session helper follows the user's PipeWire.
-install -Dm644 speakerguardd-v2-session.service %{buildroot}%{_userunitdir}/speakerguardd-v2-session.service
-# The board gate, in the opt-in only: on a board that has not qualified the
-# units do not start, and the journal says why.
-for u in speakerguardd-v2 speakerguardd-v2-selfcheck; do
-    install -d %{buildroot}%{_unitdir}/$u.service.d
-    printf '[Service]\nExecCondition=%s/speakerguardd-v2-gate\n' "$lx" > %{buildroot}%{_unitdir}/$u.service.d/50-qualified-board.conf
+for u in speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service \
+         speakerguardd-v2-seat.service speakerguardd-v2-seat.path; do
+    install -Dm644 $u %{buildroot}%{_unitdir}/$u
 done
-install -d %{buildroot}%{_userunitdir}/speakerguardd-v2-session.service.d
-printf '[Service]\nExecCondition=%s/speakerguardd-v2-gate\n' "$lx" > %{buildroot}%{_userunitdir}/speakerguardd-v2-session.service.d/50-qualified-board.conf
+for u in speakerguardd-v2-session.service speakerguardd-v2-graph.service; do
+    install -Dm644 $u %{buildroot}%{_userunitdir}/$u
+done
+# The older daemons start only where v2 does not run and the kernel has no
+# v2 interface: exactly one stack holds the speakers on each boot.
+sed -e "s@/usr/libexec/speakerguardd/@$lx/@g" packaging/systemd/legacy-gate.conf > legacy-gate.conf
+grep -qx "ExecCondition=$lx/speakerguardd-gate legacy" legacy-gate.conf
+for u in speakersafetyd speakerguardd; do
+    install -Dm644 legacy-gate.conf %{buildroot}%{_unitdir}/$u.service.d/60-speakerguardd-v2-gate.conf
+done
 install -Dpm644 %{SOURCE3} %{buildroot}%{_presetdir}/50-speakerguardd-v2.preset
 install -d %{buildroot}%{_userpresetdir}
-echo 'enable speakerguardd-v2-session.service' > %{buildroot}%{_userpresetdir}/50-speakerguardd-v2.preset
+printf 'enable speakerguardd-v2-graph.service\nenable speakerguardd-v2-session.service\n' > %{buildroot}%{_userpresetdir}/50-speakerguardd-v2.preset
 install -Dpm644 %{modulename}.pp.bz2 %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2
 
 %post
-%systemd_post speakerguardd-v2.service speakerguardd-v2-selfcheck.service
-%systemd_user_post speakerguardd-v2-session.service
+%systemd_post speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.path
+%systemd_user_post speakerguardd-v2-graph.service speakerguardd-v2-session.service
+# Say at once which stack this Mac runs.
+%{_libexecdir}/speakerguardd-v2/speakerguardd-gate explain --wait 0 || :
 %preun
-%systemd_preun speakerguardd-v2.service speakerguardd-v2-selfcheck.service
-%systemd_user_preun speakerguardd-v2-session.service
+%systemd_preun speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.path
+%systemd_user_preun speakerguardd-v2-graph.service speakerguardd-v2-session.service
 %postun
 %systemd_postun_with_restart speakerguardd-v2.service
-%systemd_postun speakerguardd-v2-selfcheck.service
-
-# The preset in this package enables the unit when it is installed.
-%post replace-legacy
-%systemd_post speakerguardd-v2.service speakerguardd-v2-selfcheck.service
-%systemd_user_post speakerguardd-v2-session.service
-# Say at once when this board will not start speakerguardd 1.0.
-%{_libexecdir}/speakerguardd-v2/speakerguardd-v2-gate || :
-%preun replace-legacy
-if [ "$1" -eq 0 ] && [ -x /usr/bin/systemctl ]; then
-    systemctl --no-reload disable speakerguardd-v2.service speakerguardd-v2-selfcheck.service >/dev/null 2>&1 || :
-    systemctl --no-reload --global disable speakerguardd-v2-session.service >/dev/null 2>&1 || :
-fi
+%systemd_postun speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.path
 
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
@@ -201,23 +183,39 @@ fi
 %{_libdir}/lv2/sgv2.lv2/
 %{_datadir}/speakerguardd/
 %{_unitdir}/speakerguardd-v2.service
+%{_unitdir}/speakerguardd-v2-provision.service
 %{_unitdir}/speakerguardd-v2-selfcheck.service
+%{_unitdir}/speakerguardd-v2-seat.service
+%{_unitdir}/speakerguardd-v2-seat.path
 %{_userunitdir}/speakerguardd-v2-session.service
+%{_userunitdir}/speakerguardd-v2-graph.service
+%dir %{_unitdir}/speakersafetyd.service.d
+%{_unitdir}/speakersafetyd.service.d/60-speakerguardd-v2-gate.conf
+%dir %{_unitdir}/speakerguardd.service.d
+%{_unitdir}/speakerguardd.service.d/60-speakerguardd-v2-gate.conf
+%{_presetdir}/50-speakerguardd-v2.preset
+%{_userpresetdir}/50-speakerguardd-v2.preset
 
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
-%files replace-legacy
-%{_presetdir}/50-speakerguardd-v2.preset
-%{_userpresetdir}/50-speakerguardd-v2.preset
-%{_unitdir}/speakerguardd-v2.service.d/50-qualified-board.conf
-%{_unitdir}/speakerguardd-v2-selfcheck.service.d/50-qualified-board.conf
-%{_userunitdir}/speakerguardd-v2-session.service.d/50-qualified-board.conf
-
 %changelog
+* Thu Nov 05 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.1.20261105gitebab1e0f7c4e
+- Move to ebab1e0f7c4e (speakerguardd#44): automatic provisioning at boot
+  (the tuning compiled and bound to board, kernel, bundle and macOS build;
+  the seat user resolved by name; the configuration and the speaker graph),
+  and the fleet gate, upstream's program with upstream's data.
+- Install everywhere, gate by board: aurora-platform and aurora-audio
+  require this package beside speakersafetyd and speakerguardd 0.1, its
+  units are enabled by preset, and the gate (ExecCondition of both stacks)
+  starts v2 on a gated board whose kernel has the v2 interface and the
+  older daemons everywhere else. The replace-legacy opt-in is gone; rollback
+  is booting a kernel without the v2 interface.
+- Run upstream's test_provision.py in %%check.
+
 * Thu Nov 05 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.1.20261105git3c18a3527055
-- Move to the integrated v2 tree (3c18a3527055: speakerguardd#41, #42 and
+- Move to the integrated v2 tree (ebab1e0f7c4e: speakerguardd#41, #42 and
   #43). Under #42 a derivable board never falls back to a hand map. Under
   #43 the closed loop relaxes only on a board proven for it (the J616s
   family) and runs capped elsewhere.: the
