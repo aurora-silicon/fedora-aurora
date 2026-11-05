@@ -18,7 +18,7 @@
 
 Name:       fex-emu
 Version:    2610
-Release:    1%{?dist}.aurora
+Release:    2%{?dist}.aurora
 Summary:    Fast usermode x86 and x86-64 emulator for ARM64
 
 # FEX itself is MIT, see below for the bundled libraries
@@ -40,6 +40,8 @@ Source6:    build-fex-sysroot.sh
 # programs to FEXInterpreter in muvm; Aurora runs FEX in a 4 KiB page tree.
 Source7:    fex-userpages
 Source8:    50-aurora-fex.toml
+# Builds the thunk generator against LLVM 23 (Fedora 45).
+Patch0:     0001-thunkgen-LLVM-23-has-no-FileManager-stat-cache.patch
 SourceLicense: %{fex_license} %{sysroot_license}
 
 # Bundled dependencies are git submodules upstream; each is pinned in
@@ -153,6 +155,7 @@ This package provides host library thunks for %{name}.
 
 %prep
 %autosetup -N -n fex-%{commit}
+%autopatch -p1
 cp -p %SOURCE1 .
 unpack() { mkdir -p "$2"; tar -xzf "$1" --strip-components=1 -C "$2"; }
 unpack %{SOURCE101} Source/Common/cpp-optparse
@@ -261,6 +264,10 @@ fi
 %endif
 
 %changelog
+* Thu Nov 05 2026 Ryan Murray <ryan@aurorasilicon.org> - 2610-2.aurora
+- Build the thunk generator with LLVM 23, which has no FileManager stat
+  cache to clear, so Fedora 45 builds FEX too.
+
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 2610-1.aurora
 - FEX from aurora-silicon/fex main at 3f4ee42 (FEX-2610 and 19 commits:
   io_uring for x86-64 guests behind ring restrictions, one compile per
