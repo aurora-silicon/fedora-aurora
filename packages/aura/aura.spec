@@ -4,7 +4,7 @@
 %global release_tag 1.0.0b5
 Name: aura
 Version: 1.0.0~b5
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -13,7 +13,8 @@ ExclusiveArch: aarch64
 BuildRequires: clang llvm lld rust rust-src cargo make python3
 Provides: m1n1 = 1.6.1
 Conflicts: m1n1
-Requires: update-m1n1 uboot-aurora
+# A Mach-O Mac needs the update-m1n1 that leaves boot.bin alone.
+Requires: update-m1n1 aurora-stage2-ctxr-slot uboot-aurora
 
 %description
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
@@ -45,6 +46,10 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Fri Nov 06 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b5-2
+- Require the update-m1n1 that writes m1n1/boot-ctxr.bin on Mach-O Macs and
+  leaves m1n1/boot.bin as it is.
+
 * Thu Nov 05 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~b5-1
 - Pin aura v1.0.0b5 (9a173ff5): each SN012776 speaker amp gets its brownout,
   DC blocker, speaker-config and amp-tx-zd-config from the ADT (aura #75).

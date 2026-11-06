@@ -48,6 +48,21 @@ and `/boot/dtb` link, and the `15-update-m1n1.install` plugin rewrites the ESP S
 updates trigger `update-m1n1` through RPM file triggers on `/usr/lib64/m1n1` and
 `/usr/share/uboot/apple_m1`.
 
+`update-m1n1` is Aurora's package (`packages/update-m1n1`), Fedora's script with the change below; the
+`priority=1` repository and the vendor policies move an installed system to it, and `aura` requires it.
+On a Mac that boots a Mach-O Stage 1 (`/proc/device-tree/compatible` names one of the chips in the
+installer's `AuraStage1Format.usesMachO`: T8130 and later, T6040 and later), it writes
+`m1n1/boot-ctxr.bin` instead of `m1n1/boot.bin`, keeping `boot-ctxr.bin.old`, with only this board's
+DTBs. It never touches `m1n1/boot.bin`: a Stage 1 with the CTXR window chainloads `boot-ctxr.bin`, and an
+older one keeps chainloading its frozen `boot.bin`, because it can't run an aura without the monitor. A
+frozen `boot.bin` also keeps its device trees, so such a Mac runs new kernels on old trees until it is
+re-enrolled. M1 to M3 Macs only ever use `boot.bin`.
+
+Without a device tree to read, as in an image build, `update-m1n1` writes `boot.bin` as before.
+`scripts/prepare-ctxr-stage2.py` then adds `boot-ctxr.bin`, a copy of it, to the image's ESP, and
+`boot-ctxr-<board>.bin`, a copy of `boot-<board>.bin`, for each Mach-O board. The installer picks the
+board's file over the combined one.
+
 ## Repository metadata check
 
 `repo_gpgcheck` stays off until Fedora ships a dnf5 with `auto_import_local_keys` (upstream e2e9b949 and

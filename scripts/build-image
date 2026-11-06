@@ -32,6 +32,8 @@ source_archive=("$root/out/finalizer-source/"aurora-firstboot-*.tar.gz)
 mkdir -p "$root/out/finalizer"
 tar -xzf "${source_archive[0]}" --strip-components=1 -C "$root/out/finalizer"
 bash "$root/out/finalizer/images/finalize-image" "${images[0]}" "$profile" "$root/out/$profile-installer"
+# A Stage 1 with the CTXR window chainloads these, on Mach-O Macs.
+python3 "$root/scripts/prepare-ctxr-stage2.py" "$root/out/$profile-installer/esp/m1n1"
 # Every image ships the basics (locale, terminal, wallpapers, network, lid
 # policy, GRUB finding /boot by UUID on the startup disk, Aurora Mesa for
 # Flatpak apps); a build that lacks one fails here instead of on a Mac. The
