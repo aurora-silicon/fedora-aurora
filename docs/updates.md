@@ -60,6 +60,10 @@ Such an aura moves the kernel into the CTXR window, which only a kernel built wi
 `aurora-ctxr-execmem`, which `kernel-aurora-core` provides when `kernel-aurora.spec` sets `ctxr_execmem` 1.
 Its `%build` checks that against the resolved configuration, so it can be set only with a kernel pin that
 has aurora-silicon/linux#985. `tests/test_update_m1n1.py` fails if `monitor_free` is set without it.
+RPM checks this per package, not per boot: `kernel-aurora` is install-only, so any installed
+`kernel-aurora-core` that provides `aurora-ctxr-execmem` satisfies aura, while older kernels without it stay
+installed and in the GRUB menu. Booting one of those with an aura that has no monitor would hit the faults
+this rule exists for, until dnf removes it as the install-only limit rotates kernels out.
 `packages/kernel-aurora/config` already carries `CONFIG_ARM64_CTXR_EXECMEM=y`; until the pin has the
 option, Kconfig drops it.
 
