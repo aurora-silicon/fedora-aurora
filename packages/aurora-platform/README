@@ -6,3 +6,9 @@ alsa-ucm-conf-aurora and aurora-camera-denoise). It installs no kernel or
 boot chain, replaces the Fedora Asahi metapackages and is protected from
 removal by dnf.
 aurora-platform adds the Aurora kernel, boot chain and release identity.
+
+Performance in tuned-ppd uses aurora-performance (schedutil, kernel boost
+policy), avoiding the stock performance governor's idle CPU frequency floor.
+Only the stock ppd.conf performance mapping is migrated; custom mappings and
+Power Saver are preserved. See docs/power-profiles.md in the source repository
+for upgrade handling, qualification and rollback.

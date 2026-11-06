@@ -298,6 +298,39 @@ class SpecTests(unittest.TestCase):
         self.assertIn("prefix: /usr/lib/aarch64-linux-gnu/GL/aurora", manifest)
         self.assertIn('priority=10', build)
         self.assertIn("['mesa-aurora']", build)
+    def test_platform_selinux_lets_init_inspect_the_initramfs_uevent_socket(self):
+        # systemd keeps udev's uevent socket from the initramfs, where it was
+        # made as kernel_t, and checks it after loading the policy.
+        d = ROOT / 'packages' / 'aurora-platform'
+        te = (d / 'aurora_platform.te').read_text()
+        self.assertIn('allow init_t kernel_t:netlink_kobject_uevent_socket getattr;', te)
+        self.assertEqual(re.findall(r'(?m)^allow .*$', te),
+                         ['allow init_t kernel_t:netlink_kobject_uevent_socket getattr;'])
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: aurora_platform\.te$')
+        core = text.split('%package core', 1)[1].split('%description core', 1)[0]
+        self.assertIn('Requires: (aurora-platform-selinux = %{version}-%{release} '
+                      'if selinux-policy-%{selinuxtype})', core)
+        files = text.split('%files selinux', 1)[1].split('%changelog', 1)[0]
+        self.assertIn('%{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2', files)
+    def test_irqbalance_runs_only_where_the_aic_can_steer(self):
+        d = ROOT / 'packages' / 'aurora-platform'
+        conf = (d / '50-aurora-irqbalance.conf').read_text()
+        lines = [l for l in conf.splitlines() if l.startswith('Condition')]
+        self.assertEqual(lines, ['ConditionFirmware=|!device-tree-compatible(apple,arm-platform)',
+                                 'ConditionFirmware=|device-tree-compatible(apple,t8103)'])
+        text = (d / 'aurora-platform.spec').read_text()
+        core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
+        self.assertIn('%{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf', core_files)
+    def test_mutter_leaves_the_render_only_gpu_card_alone(self):
+        d = ROOT / 'packages' / 'aurora-platform'
+        rules = [l for l in (d / '62-aurora-gpu-render-only.rules').read_text().splitlines()
+                 if l and not l.startswith('#')]
+        self.assertEqual(rules, ['SUBSYSTEM=="drm", KERNEL=="card[0-9]*", DRIVERS=="aurora", '
+                                 'TAG+="mutter-device-ignore"'])
+        text = (d / 'aurora-platform.spec').read_text()
+        core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
+        self.assertIn('%{_udevrulesdir}/62-aurora-gpu-render-only.rules', core_files)
     def test_platform_core_carries_no_kernel_or_boot_chain(self):
         d = ROOT / 'packages' / 'aurora-platform'
         text = (d / 'aurora-platform.spec').read_text()

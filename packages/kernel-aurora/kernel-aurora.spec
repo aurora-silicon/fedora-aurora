@@ -1,4 +1,4 @@
-%global commit 2661d71e16bf538156001bd9e93bafcd60855c85
+%global commit 9127278801dd524b72454ee54d2be370d22a4197
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -8,7 +8,7 @@
 %global ctxr_execmem 0
 Name: kernel-aurora
 Version: 7.3.0
-Release: 18%{?dist}.aurora
+Release: 19%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -147,6 +147,15 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Fri Nov 06 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-19
+- Track aurora-silicon/linux integration/aurora at 9127278. M1 Macs no
+  longer need apple_sep xart_guard=0 for Touch ID (#1049), an M1/M2 dock
+  keeps its USB when its display has no pipeline (#1023), and every
+  internal panel publishes an identity EDID (#1016). Also M4 MacBook Air
+  camera, Touch ID and 4K 120 Hz external displays, M4 Pro JPEG engines,
+  MacBook Air M5 NVMe, Wi-Fi, Bluetooth and GPU bring-up, the Mac mini M6
+  GPU backend, and the Neo's eUSB2 repeater and USB hub tuned like macOS.
+
 * Fri Nov 06 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-18
 - Require aura 1.0.0~b5 or later. This kernel takes each SN012776 amp's
   level, brownout and DC blocker settings from the DT that aura 1.0.0b5
