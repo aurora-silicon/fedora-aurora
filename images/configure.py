@@ -39,7 +39,7 @@ PACKAGES = {
         # Flatpak apps load GL and Vulkan from the runtime's GL extension, not
         # the host: without GL.aurora they run Flathub's GL.default Mesa.
         "aurora-flatpak-gl",
-        "aurora-firmware", "avd-fw", "upower", "alsa-ucm-conf-aurora", "aurora-audio", "speakerguardd",
+        "aurora-firmware", "avd-fw", "libva-v4l2-request", "upower", "alsa-ucm-conf-aurora", "aurora-audio", "speakerguardd",
         "speakersafetyd-aurora-profiles",
         # Fedora's SSH server, on every profile; aurora-release presets it off.
         "openssh-server",
