@@ -28,7 +28,7 @@ H.264, HEVC, VP9 and AV1 according to the capabilities reported by the kernel.
 %autosetup -n libva-v4l2_request-%{commit}
 
 %build
-%meson -Dvendor-string=Aurora
+%meson -Dvendor-string=Aurora -Dstrip=false
 %meson_build
 
 %check

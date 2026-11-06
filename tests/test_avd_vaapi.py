@@ -13,7 +13,7 @@ class AvdVaapiPackaging(unittest.TestCase):
         self.assertEqual(source["sha256"], "4a8970530a82bd2d29a9956f582365807b9bba64cedd710ee771a070a8c5356b")
         spec = (ROOT / "packages/libva-v4l2-request/libva-v4l2-request.spec").read_text()
         self.assertIn(f"%global commit {source['commit']}", spec)
-        self.assertIn("%meson -Dvendor-string=Aurora", spec)
+        self.assertIn("%meson -Dvendor-string=Aurora -Dstrip=false", spec)
         self.assertIn("ln -s v4l2_request_drv_video.so", spec)
         self.assertIn("%{_libdir}/dri/asahi_drv_video.so", spec)
 
