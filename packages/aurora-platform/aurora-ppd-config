@@ -1,0 +1,70 @@
+#!/usr/bin/python3
+"""Migrate only tuned-ppd's stock performance mapping on Aurora installs."""
+import configparser
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+
+
+def migrate(conf):
+    conf = Path(conf)
+    # A symlink is an administrator-managed configuration.
+    if conf.is_symlink() or not conf.is_file():
+        return False
+    original = conf.read_bytes()
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        parser.read_string(original.decode())
+    except (UnicodeError, configparser.Error):
+        return False
+    if parser.get("profiles", "performance", fallback=None) != "throughput-performance":
+        return False
+    # PPD requires an injective map on AC and battery. An administrator may
+    # already use our profile for another entry; do not make that config fail.
+    profiles = dict(parser["profiles"])
+    profiles["performance"] = "aurora-performance"
+    mappings = [profiles]
+    if parser.has_section("battery"):
+        mappings.append(profiles | dict(parser["battery"]))
+    if any(len(set(mapping.values())) != len(mapping) for mapping in mappings):
+        return False
+    section = None
+    updated = []
+    for line in original.splitlines(keepends=True):
+        stripped = line.strip()
+        if stripped.startswith(b"["):
+            section = stripped.split(b"]", 1)[0][1:]
+        if section == b"profiles" and line.rstrip(b"\r\n") == b"performance=throughput-performance":
+            line = line.replace(b"throughput-performance", b"aurora-performance")
+        updated.append(line)
+    content = b"".join(updated)
+    if content == original:
+        return False
+    # Keep the first pre-migration copy for inspection/rollback. Never clobber it.
+    backup = conf.with_name(conf.name + ".aurora-original")
+    if not os.path.lexists(backup):
+        shutil.copy2(conf, backup)
+    fd, name = tempfile.mkstemp(prefix=".aurora-ppd-", dir=conf.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # Preserve mode, owner and xattrs (including the SELinux context).
+        shutil.copystat(conf, name)
+        info = conf.stat()
+        os.chown(name, info.st_uid, info.st_gid)
+        os.replace(name, conf)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+    return True
+
+
+if __name__ == "__main__":
+    if migrate("/etc/tuned/ppd.conf") and Path("/run/systemd/system").is_dir():
+        # The mapping is read at startup; restart only an already active daemon.
+        # Its saved base profile is reapplied through the new map.
+        subprocess.run(["systemctl", "try-restart", "tuned-ppd.service"], check=False)

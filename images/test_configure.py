@@ -137,6 +137,7 @@ class ConfigureTests(unittest.TestCase):
                 self.assertIn("kernel-aurora", names)
                 self.assertIn("mesa-aurora-vulkan-drivers", names)
                 self.assertIn("aurora-flatpak-gl", names)
+                self.assertIn("libva-v4l2-request-avd", names)
                 exclusions = {n.get("name") for p in out.rglob("*.xml")
                               for n in ET.parse(p).getroot().iter("ignore")}
                 self.assertFalse(any(name.endswith("-firmware") for name in exclusions))

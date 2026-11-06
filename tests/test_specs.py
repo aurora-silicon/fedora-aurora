@@ -322,6 +322,15 @@ class SpecTests(unittest.TestCase):
         text = (d / 'aurora-platform.spec').read_text()
         core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
         self.assertIn('%{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf', core_files)
+    def test_mutter_leaves_the_render_only_gpu_card_alone(self):
+        d = ROOT / 'packages' / 'aurora-platform'
+        rules = [l for l in (d / '62-aurora-gpu-render-only.rules').read_text().splitlines()
+                 if l and not l.startswith('#')]
+        self.assertEqual(rules, ['SUBSYSTEM=="drm", KERNEL=="card[0-9]*", DRIVERS=="aurora", '
+                                 'TAG+="mutter-device-ignore"'])
+        text = (d / 'aurora-platform.spec').read_text()
+        core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
+        self.assertIn('%{_udevrulesdir}/62-aurora-gpu-render-only.rules', core_files)
     def test_platform_core_carries_no_kernel_or_boot_chain(self):
         d = ROOT / 'packages' / 'aurora-platform'
         text = (d / 'aurora-platform.spec').read_text()
