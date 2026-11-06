@@ -13,11 +13,12 @@ The RPM owns both files in libva's system driver directory:
 ```text
 /usr/lib64/dri/v4l2_request_drv_video.so
 /usr/lib64/dri/asahi_drv_video.so -> v4l2_request_drv_video.so
+/usr/lib64/dri/aurora_drv_video.so -> v4l2_request_drv_video.so
 ```
 
-The relative alias matches the render-node driver name, so normal applications
-select the bridge without `LIBVA_DRIVER_NAME`. The explicit name remains useful
-for diagnosis:
+The relative aliases match the older and current render-node driver names, so
+normal applications select the bridge without `LIBVA_DRIVER_NAME`. The explicit
+name remains useful for diagnosis:
 
 ```sh
 LIBVA_DRIVER_NAME=v4l2_request vainfo --display drm
@@ -50,6 +51,7 @@ client versions. Keep failed and fallback runs as evidence.
    ```sh
    rpm -q libva-v4l2-request-avd avd-fw kernel-aurora mesa-aurora-dri-drivers libva
    readlink /usr/lib64/dri/asahi_drv_video.so
+   readlink /usr/lib64/dri/aurora_drv_video.so
    env -u LIBVA_DRIVER_NAME vainfo --display drm
    LIBVA_DRIVER_NAME=v4l2_request LIBVA_V4L2_DIAG=json vainfo --display drm
    ```
@@ -91,8 +93,8 @@ client versions. Keep failed and fallback runs as evidence.
 
 ## Other distributions
 
-ALARM installs the driver under `/usr/lib/dri` with the same relative alias.
-NixOS places it in the graphics driver closure and exposes the same two names
-under `/run/opengl-driver/lib/dri`. Neither distribution sets a global driver
+ALARM installs the driver under `/usr/lib/dri` with the same relative aliases.
+NixOS places it in the graphics driver closure and exposes all three names under
+`/run/opengl-driver/lib/dri`. Neither distribution sets a global driver
 override. Removal of the package (or of the NixOS graphics package) is the
 complete rollback.
