@@ -35,14 +35,19 @@ environment overrides, or sandbox exceptions.
 %meson_install
 ln -s v4l2_request_drv_video.so \
   %{buildroot}%{_libdir}/dri/asahi_drv_video.so
+# Aurora kernels name the AGX render node driver "aurora".
+ln -s v4l2_request_drv_video.so \
+  %{buildroot}%{_libdir}/dri/aurora_drv_video.so
 
 %files
 %license COPYING
 %doc README.md docs/SUPPORT.md
 %{_libdir}/dri/v4l2_request_drv_video.so
 %{_libdir}/dri/asahi_drv_video.so
+%{_libdir}/dri/aurora_drv_video.so
 
 %changelog
 * Sat Nov 07 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.3.r11-1
 - Package the hardware-qualified AVD VA-API driver system-wide.
-- Select it automatically for the AGX render node through a relative alias.
+- Select it automatically for the AGX render node through relative aliases
+  for both render-node driver names (asahi, aurora).
