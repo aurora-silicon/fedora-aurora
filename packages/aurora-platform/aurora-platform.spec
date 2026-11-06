@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 19%{?dist}
+Release: 20%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -30,6 +30,8 @@ Source108: aurora-grub-console
 Source109: aurora_platform.te
 Source110: 50-aurora-irqbalance.conf
 Source111: 62-aurora-gpu-render-only.rules
+Source112: aurora-performance.conf
+Source113: aurora-ppd-config
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -56,6 +58,8 @@ Requires: aurora-kbd-light
 # The Aurora repository with its key and dnf vendor policies, so a Fedora
 # Asahi Remix system with these services keeps following Aurora's builds.
 Requires: aurora-repos
+Requires: tuned
+Requires: python3
 Requires: (aurora-platform-selinux = %{version}-%{release} if selinux-policy-%{selinuxtype})
 
 %description core
@@ -107,10 +111,18 @@ install -Dm755 %{SOURCE105} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora
 install -Dm755 %{SOURCE106} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/module-setup.sh
 install -Dm755 %{SOURCE107} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh
 install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-console
+install -Dm644 %{SOURCE112} %{buildroot}%{_prefix}/lib/tuned/profiles/aurora-performance/tuned.conf
+install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 
 %posttrans core
 # Fedora's flicker-free GRUB output, once per system; see the script.
 %{_libexecdir}/aurora/aurora-grub-console || :
+%{_libexecdir}/aurora/aurora-ppd-config || :
+
+# Also cover tuned-ppd installed/upgraded without an aurora-platform update.
+# The file remains owned by tuned-ppd as %%config(noreplace).
+%transfiletriggerin core -- %{_sysconfdir}/tuned/ppd.conf
+%{_libexecdir}/aurora/aurora-ppd-config || :
 
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
@@ -138,12 +150,20 @@ install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-consol
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
 %{_prefix}/lib/dracut/modules.d/91aurora-early-kms/
 %{_libexecdir}/aurora/aurora-grub-console
+%{_libexecdir}/aurora/aurora-ppd-config
+%dir %{_prefix}/lib/tuned/profiles/aurora-performance
+%{_prefix}/lib/tuned/profiles/aurora-performance/tuned.conf
 
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-20
+- Map tuned-ppd's stock performance profile to aurora-performance, using
+  schedutil without inherited boost writes. Preserve custom mappings and
+  recheck the stock line when tuned-ppd is installed or upgraded.
+
 * Fri Nov 06 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-19
 - Tag the GPU's render-only card mutter-device-ignore. It has no display
   engine, so GNOME Shell failed to open it as a display on every login and
