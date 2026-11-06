@@ -1,0 +1,49 @@
+From: Aurora contributors <noreply@aurora-silicon.org>
+Subject: [PATCH] Fedora 44 Firefox 157: opt-in V4L2 Request RDD policy
+
+Target dist-git: 1465e7dfc36e96ec3825c12f3dbed41c426e080d
+Build with --with avd_request. The default Fedora build is unchanged.
+
+--- a/firefox.spec
++++ b/firefox.spec
+@@ -1,3 +1,8 @@
++%bcond avd_request 0
++%if %{with avd_request}
++%global avd_release .avd1
++%endif
++
+ # Produce a build suitable for release, i.e. use PGO/LTO. You can turn it off
+ # when building locally to reduce build time.
+ %global release_build     1
+@@ -190,7 +195,7 @@
+ Summary:        Mozilla Firefox Web browser
+ Name:           firefox
+ Version:        157.0.1
+-Release:        1%{?dist}
++Release:        1%{?dist}%{?avd_release}
+ URL:            https://www.mozilla.org/firefox/
+ # Automatically converted from old format: MPLv1.1 or GPLv2+ or LGPLv2+ - review is highly recommended.
+ License:        LicenseRef-Callaway-MPLv1.1 OR GPL-2.0-or-later OR LicenseRef-Callaway-LGPLv2+
+@@ -238,6 +243,11 @@
+ Source50:       wasi-sdk-30.tar.gz
+ 
+ # Build patches
++%if %{with avd_request}
++Patch900:       0001-rdd-v4l2-request.patch
++BuildRequires:  kernel-headers >= 6.5
++%endif
++
+ Patch44:        build-arm-libopus.patch
+ Patch71:        0001-GLIBCXX-fix-for-GCC-12.patch
+ Patch78:        firefox-i686-build.patch
+@@ -551,6 +561,10 @@
+ %endif
+ %patch -P603 -p1 -b .inline
+ 
++%if %{with avd_request}
++%patch -P900 -p1
++%endif
++
+ rm -f .mozconfig
+ cp %{SOURCE10} .mozconfig
+ echo "ac_add_options --enable-default-toolkit=cairo-gtk3-wayland" >> .mozconfig
