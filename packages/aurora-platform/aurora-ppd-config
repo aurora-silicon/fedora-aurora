@@ -21,6 +21,15 @@ def migrate(conf):
         return False
     if parser.get("profiles", "performance", fallback=None) != "throughput-performance":
         return False
+    # PPD requires an injective map on AC and battery. An administrator may
+    # already use our profile for another entry; do not make that config fail.
+    profiles = dict(parser["profiles"])
+    profiles["performance"] = "aurora-performance"
+    mappings = [profiles]
+    if parser.has_section("battery"):
+        mappings.append(profiles | dict(parser["battery"]))
+    if any(len(set(mapping.values())) != len(mapping) for mapping in mappings):
+        return False
     section = None
     updated = []
     for line in original.splitlines(keepends=True):

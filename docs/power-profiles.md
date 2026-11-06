@@ -29,7 +29,9 @@ A small helper changes only the exact stock
 `performance=throughput-performance` line in `[profiles]` to
 `performance=aurora-performance`. Other settings, comments, battery overrides,
 custom performance mappings, malformed files and administrator symlinks are
-left alone. It retains the first original in `ppd.conf.aurora-original` and
+left alone. A migration that would make a custom AC or battery mapping
+ambiguous is also skipped: tuned-ppd requires one-to-one mappings.
+It retains the first original in `ppd.conf.aurora-original` and
 preserves file ownership, permissions and extended attributes on replacement.
 An active tuned-ppd is restarted after a change to consume the mapping and
 reapply its saved base profile; an inactive service is not started. Temporary

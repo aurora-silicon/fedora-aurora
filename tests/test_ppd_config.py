@@ -60,6 +60,17 @@ class PPDConfigTests(unittest.TestCase):
             self.assertEqual(self.conf.read_bytes(), original.replace(
                 b"performance=throughput-performance", b"performance=aurora-performance"))
 
+    def test_custom_ac_or_battery_mapping_cannot_become_ambiguous(self):
+        for original in (
+            STOCK.replace(b"balanced=balanced\n", b"balanced=aurora-performance\n"),
+            STOCK.replace(b"balanced=balanced-battery", b"balanced=aurora-performance"),
+        ):
+            with self.subTest(original=original):
+                self.conf.write_bytes(original)
+                self.assertFalse(ppd.migrate(self.conf))
+                self.assertEqual(self.conf.read_bytes(), original)
+                self.assertFalse(self.conf.with_suffix(".conf.aurora-original").exists())
+
     def test_reinstalled_stock_config_is_migrated_without_losing_original_backup(self):
         self.conf.write_bytes(STOCK)
         ppd.migrate(self.conf)
