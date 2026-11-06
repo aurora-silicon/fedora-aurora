@@ -34,11 +34,6 @@ devices exposed by the running kernel. A profile in `vainfo` proves negotiation,
 not correct pixels for every stream. Unsupported syntax must fall back or fail
 cleanly. High-10 H.264 remains opt-in upstream and is not enabled by the package.
 
-The Neo qualification on 2026-11-07 found H.264, HEVC, VP9 and AV1 VLD
-profiles. H.264 1080p, HEVC 1080p and AV1 4K frame MD5 output matched software;
-mpv selected `vaapi-copy`. Those results qualify the pinned driver/kernel pair,
-not every machine or media file.
-
 Fedora's `ffmpeg-free` does not contain H.264 or HEVC decoders. Consequently,
 native Fedora Firefox can use this driver for AV1 and VP9, while H.264/HEVC
 require a separately supplied full libavcodec. This package does not replace
