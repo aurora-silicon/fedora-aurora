@@ -5,13 +5,16 @@ dnf never installs an older build over a newer one, so such a package would
 silently never reach updated installs (as the Fedora 44 Plymouth 24.004 carry
 nearly did over the published 26.134.222). For every Fedora release the
 repository publishes, each source package in its primary metadata is compared
-with the EVR packages/<name>/<name>.spec builds for that release.
+with the EVR packages/<name>/<name>.spec (or that release's overlay) builds.
 
     check-published-evr.py [--base URL] [--release 44 --release 45] [--channel testing]
 """
 import argparse, gzip, io, lzma, re, subprocess, sys, urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import fedoralib  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 NS = {'r': 'http://linux.duke.edu/metadata/repo', 'c': 'http://linux.duke.edu/metadata/common',
@@ -157,13 +160,15 @@ def main():
     parser.add_argument('--release', action='append', default=None)
     parser.add_argument('--channel', default='testing')
     args = parser.parse_args()
-    specs = {}
-    for spec in sorted(ROOT.glob('packages/*/*.spec')):
-        m = re.search(r'^Name:\s*(\S+)', spec.read_text(), re.M)
-        if m:
-            specs[m.group(1)] = spec
     failures = []
     for release in args.release or ['44', '45']:
+        # A release's overlay (packages/<name>/f45/<name>.spec) replaces the base recipe.
+        specs = {}
+        for name in fedoralib.package_names(ROOT):
+            spec = fedoralib.recipe_files(ROOT, name, release)[name + '.spec']
+            m = re.search(r'^Name:\s*(\S+)', spec.read_text(), re.M)
+            if m:
+                specs[m.group(1)] = spec
         url = f'{args.base}/{release}/{args.channel}/aarch64'
         try:
             repo = published(url)
