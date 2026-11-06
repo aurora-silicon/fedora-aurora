@@ -416,5 +416,15 @@ class Recipes(unittest.TestCase):
         self.assertLess(ctxr, archive)
 
 
+    def test_image_build_adds_the_ctxr_files_only_with_the_marker(self):
+        text = (ROOT / 'scripts/build-image').read_text()
+        mount = text.index('"$installer/root.img" "$basics_root"')
+        guarded = text.index('if [[ -e $basics_root/usr/share/aura/monitor-free ]]; then\n'
+                             '  python3 "$root/scripts/prepare-ctxr-stage2.py"')
+        unmount = text.index('umount "$basics_root"')
+        self.assertLess(mount, guarded)
+        self.assertLess(guarded, unmount)
+        self.assertEqual(text.count('prepare-ctxr-stage2.py'), 1)
+
 if __name__ == '__main__':
     unittest.main()
