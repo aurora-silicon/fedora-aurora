@@ -1,9 +1,9 @@
-%global commit 2661d71e16bf538156001bd9e93bafcd60855c85
+%global commit e5ed737692b0ad07e212d210b568914b4fc01aca
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 18%{?dist}.aurora
+Release: 19%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -77,6 +77,10 @@ make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" olddefconfig
 python3 %{SOURCE5} arch/arm64/configs/asahi.config %{SOURCE4} .config
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" rustavailable
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" %{?_smp_mflags} Image modules dtbs
+# Stage 2 takes its DTBs from this kernel, not from the aura binary.
+for board in t6040-j614s t6040-j616s t6041-j616c; do
+    [ "$(fdtget -t s arch/arm64/boot/dts/apple/$board.dtb /dcp@402e00000/panel apple,color-gamut)" = display-p3 ] || exit 1
+done
 [ "$(make -s LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" kernelrelease)" = "%{krel}" ]
 # The launcher includes this tree's prctl.h, so its numbers match the kernel.
 make -C tools/aurora-userpages
@@ -133,6 +137,11 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Fri Nov 06 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-19
+- Refresh integration/aurora through linux #1021. The J614s, J616s and
+  J616c DTBs declare the panel Display P3 target. Check the built DTBs
+  before packaging so the next ESP Stage 2 refresh carries it.
+
 * Fri Nov 06 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-18
 - Require aura 1.0.0~b5 or later. This kernel takes each SN012776 amp's
   level, brownout and DC blocker settings from the DT that aura 1.0.0b5
