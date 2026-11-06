@@ -26,7 +26,7 @@ boards.conf. Users can turn it off in denoise.conf or mask the service.
 %autosetup -n camera-denoise-%{commit}
 
 %build
-%meson -Ddaemon=enabled -Dsystemduserunitdir=%{_userunitdir}
+%meson -Ddaemon=enabled -Dgpu=disabled -Dsystemduserunitdir=%{_userunitdir}
 %meson_build
 
 %check
@@ -62,7 +62,7 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_userpresetdir}/80-aurora-camera-denoise
 - Publish only formats the filter can fill: DMA-BUF-preferring clients
   (browsers, zero-copy players) now get a picture (camera-denoise#7).
 - Update to 456c567527d6, which also brings the optional Vulkan temporal
-  backend (CPU stays the default).
+  backend, left out of this package (-Dgpu=disabled); CPU is the default.
 
 * Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-4
 - Update to a929985764bc: when another program holds the camera, the filter
