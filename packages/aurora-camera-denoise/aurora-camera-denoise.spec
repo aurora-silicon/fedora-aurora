@@ -1,7 +1,7 @@
-%global commit a929985764bc03d1d3517c2a7e9b8dde918381b8
+%global commit 456c567527d6bbba27d0aaeec1199032e0ec88c3
 Name: aurora-camera-denoise
 Version: 0.1.0
-Release: 4%{?dist}
+Release: 5%{?dist}
 Summary: Noise filter for the built-in camera on Apple silicon
 License: MIT
 URL: https://github.com/aurora-silicon/camera-denoise
@@ -26,7 +26,7 @@ boards.conf. Users can turn it off in denoise.conf or mask the service.
 %autosetup -n camera-denoise-%{commit}
 
 %build
-%meson -Ddaemon=enabled -Dsystemduserunitdir=%{_userunitdir}
+%meson -Ddaemon=enabled -Dgpu=disabled -Dsystemduserunitdir=%{_userunitdir}
 %meson_build
 
 %check
@@ -51,6 +51,7 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_userpresetdir}/80-aurora-camera-denoise
 %doc README.md docs/
 %{_bindir}/aurora-camera-denoise
 %{_bindir}/aurora-camera-denoise-bench
+%{_bindir}/aurora-camera-denoise-compare
 %{_bindir}/aurora-camera-denoise-metrics
 %{_datadir}/aurora-camera-denoise/
 %dir %{_libdir}/aurora-camera-denoise
@@ -58,6 +59,12 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_userpresetdir}/80-aurora-camera-denoise
 %{_userpresetdir}/80-aurora-camera-denoise.preset
 
 %changelog
+* Fri Nov 06 2026 Aurora Silicon <ryan@aurorasilicon.org> - 0.1.0-5
+- Publish only formats the filter can fill: DMA-BUF-preferring clients
+  (browsers, zero-copy players) now get a picture (camera-denoise#7).
+- Update to 456c567527d6, which also brings the optional Vulkan temporal
+  backend, left out of this package (-Dgpu=disabled); CPU is the default.
+
 * Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-4
 - Update to a929985764bc: when another program holds the camera, the filter
   now retries until it is free instead of giving apps a black picture.
