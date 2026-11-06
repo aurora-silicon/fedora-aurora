@@ -121,7 +121,8 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 
 # Also cover tuned-ppd installed/upgraded without an aurora-platform update.
 # The file remains owned by tuned-ppd as %%config(noreplace).
-%transfiletriggerin core -- %{_sysconfdir}/tuned/ppd.conf
+# Transaction file triggers look up installed packages by directory prefix.
+%transfiletriggerin core -- %{_sysconfdir}/tuned/
 %{_libexecdir}/aurora/aurora-ppd-config || :
 
 %pre selinux

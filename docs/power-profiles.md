@@ -38,7 +38,8 @@ reapply its saved base profile; an inactive service is not started. Temporary
 profile holds can be released by this restart.
 
 The helper runs in core's `%posttrans` and a `%transfiletriggerin` on
-`/etc/tuned/ppd.conf`, covering a later tuned-ppd install or upgrade without
+`/etc/tuned/` (RPM indexes transaction triggers by directory prefix), covering
+a later tuned-ppd install or upgrade without
 requiring an Aurora package update. tuned-ppd keeps sole RPM ownership of its
 `%config(noreplace)` file. Existing local edits therefore retain RPM's normal
 `.rpmnew` handling, and a custom mapping stays custom. This is preferable to
