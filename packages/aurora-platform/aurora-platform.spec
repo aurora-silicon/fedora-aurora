@@ -28,6 +28,7 @@ Source106: early-kms-module-setup.sh
 Source107: aurora-early-kms.sh
 Source108: aurora-grub-console
 Source109: aurora_platform.te
+Source110: 50-aurora-irqbalance.conf
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -97,6 +98,7 @@ install -Dpm0644 %{modulename}.pp.bz2 \
 install -Dm644 %{SOURCE100} %{buildroot}%{_docdir}/aurora-platform/README
 install -Dm644 %{SOURCE101} %{buildroot}%{_sysconfdir}/dnf/protected.d/aurora-platform-core.conf
 install -Dm644 %{SOURCE102} %{buildroot}%{_unitdir}/var-swap-swapfile2.swap.d/50-after-swapfile.conf
+install -Dm644 %{SOURCE110} %{buildroot}%{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf
 install -Dm644 %{SOURCE103} %{buildroot}%{_udevrulesdir}/61-aurora-dmi-id.rules
 install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 install -Dm755 %{SOURCE105} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-usb4/module-setup.sh
@@ -126,6 +128,8 @@ install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-consol
 %files core
 %config(noreplace) %{_sysconfdir}/dnf/protected.d/aurora-platform-core.conf
 %{_unitdir}/var-swap-swapfile2.swap.d/
+%dir %{_unitdir}/irqbalance.service.d
+%{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf
 %{_udevrulesdir}/61-aurora-dmi-id.rules
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
@@ -142,6 +146,9 @@ install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-consol
   systems. It lets systemd inspect the kernel uevent socket it creates for
   udev in the initramfs and keeps over the switch to the real root, which
   logged an init_t getattr denial on every boot.
+- Start irqbalance only where interrupts can be steered: on other hardware
+  and on the M1. From the M1 Pro and M2 on the interrupt controller cannot
+  steer them, and irqbalance logged a failure for every PCIe MSI.
 
 * Thu Nov 05 2026 DjDeveloperr <hey@djdev.me> - 44-17
 - Require aurora-kbd-light, so the keyboard backlight follows the ambient

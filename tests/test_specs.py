@@ -313,6 +313,15 @@ class SpecTests(unittest.TestCase):
                       'if selinux-policy-%{selinuxtype})', core)
         files = text.split('%files selinux', 1)[1].split('%changelog', 1)[0]
         self.assertIn('%{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2', files)
+    def test_irqbalance_runs_only_where_the_aic_can_steer(self):
+        d = ROOT / 'packages' / 'aurora-platform'
+        conf = (d / '50-aurora-irqbalance.conf').read_text()
+        lines = [l for l in conf.splitlines() if l.startswith('Condition')]
+        self.assertEqual(lines, ['ConditionFirmware=|!device-tree-compatible(apple,arm-platform)',
+                                 'ConditionFirmware=|device-tree-compatible(apple,t8103)'])
+        text = (d / 'aurora-platform.spec').read_text()
+        core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
+        self.assertIn('%{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf', core_files)
     def test_platform_core_carries_no_kernel_or_boot_chain(self):
         d = ROOT / 'packages' / 'aurora-platform'
         text = (d / 'aurora-platform.spec').read_text()
