@@ -1,9 +1,9 @@
-%global commit 05ddb00f5ca9d0e153d987fed6454f21902ee1c8
+%global commit c1753704ed733e6e77fdf8ce6ac83fbf7c5e59d5
 %global debug_package %{nil}
 Name: mesa-aurora
 Epoch: 1
 Version: 26.3.0
-Release: 18%{?dist}.aurora
+Release: 19%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -202,6 +202,11 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Thu Nov 05 2026 Michal S. <michal_stopyra@icloud.com> - 1:26.3.0-19
+- Include the merged Wayland drawable lifetime fix and unmatched-release
+  handling (mesa#138).
+- Keep native, FEX guest and Flatpak Mesa sources and releases coordinated.
+
 * Tue Nov 03 2026 Aurora Silicon <noreply@aurorasilicon.org> - 1:26.3.0-18
 - Follow the Fedora 44 recipe at 05ddb00 (mesa-aurora-filesystem included); Fedora 45 keeps
   epoch 1 and pkgconfig(libclc).
