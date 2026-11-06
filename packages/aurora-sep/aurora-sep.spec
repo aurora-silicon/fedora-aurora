@@ -1,36 +1,20 @@
+%global commit afbac7c1a27de3e07c455fad819021d9d99a5813
 %global selinuxtype targeted
 %global modulename aurora_sep
 
 Name: aurora-sep
 Version: 1
-Release: 19%{?dist}
+Release: 20%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
-Source0: load-driver
-Source1: aurora-sep.service
-Source2: fprintd-aurora.conf
-Source3: README.md
-Source4: XART-SAFETY.md
-Source5: aurora-sep-ready
-Source6: aurora-sep-ready.service
-Source7: fprintd-no-timeout.conf.in
-Source8: aurora-touchid-setup
-Source9: extract-mesa-calibration
-Source10: 90-aurora-sep.conf
-Source11: aurora-sep.timer
-Source12: aurora-sep-load.conf
-Source13: aurora_sep.te
-Source14: aurora_sep.fc
-Source15: sensor-present
-Source16: aurora-sep-greeter-fingerprint
-Source17: aurora-sep-greeter-fingerprint.service
-Source18: logind-aurora-sep.conf
-Source19: OS-IDENTITY.md
-Source20: aurora-touchid-setup.service
-Source21: touchid-setup-needed
-Source22: authselect-vendor-local
-Source23: powerdevilrc
+# tools/aurora-sep from aurora-silicon/linux (see sources.json); only the
+# package's README, the authselect vendor profile and the Fedora drop-in are
+# kept here.
+Source0: aurora-sep-%{commit}.tar.gz
+Source1: README.md
+Source2: authselect-vendor-local
+Source3: aurora-sep-ready-offer.conf
 BuildArch: noarch
 BuildRequires: systemd-rpm-macros fprintd authselect-libs
 BuildRequires: selinux-policy-devel make bzip2
@@ -74,38 +58,48 @@ device as device_t, which fprintd may not open.
 
 %prep
 %setup -q -c -T
-cp -p %{SOURCE3} %{SOURCE4} %{SOURCE19} .
-cp -p %{SOURCE13} %{SOURCE14} .
+tar -xzf %{SOURCE0} --strip-components=3 linux-%{commit}/tools/aurora-sep
+cp -p %{SOURCE1} .
 
 %build
 %make_build -f %{_datadir}/selinux/devel/Makefile %{modulename}.pp
 bzip2 -9 %{modulename}.pp
 
 %install
-unit() {
-    install -Dpm0755 "$1" %{buildroot}%{_libexecdir}/"$3"
-    install -Dpm0644 "$2" %{buildroot}%{_unitdir}/"${2##*/}"
-    sed -i "s|/usr/local/sbin/$3|%{_libexecdir}/$3|" %{buildroot}%{_unitdir}/"${2##*/}"
-    if grep -q /usr/local %{buildroot}%{_unitdir}/"${2##*/}"; then exit 1; fi
+# Helpers go to %{_libexecdir}, the setup command to %{_sbindir}; the units
+# name them under /usr/local/sbin.
+units() {
+    for u in "$@"; do
+        sed -i -e "s|^\(Exec[A-Za-z]*=\)/usr/local/sbin/aurora-touchid-setup |\1%{_sbindir}/aurora-touchid-setup |" \
+            -e "s|^\(Exec[A-Za-z]*=\)/usr/local/sbin/|\1%{_libexecdir}/|" "$u"
+        if grep -q /usr/local "$u"; then exit 1; fi
+    done
 }
-unit %{SOURCE0} %{SOURCE1} aurora-sep-load
-unit %{SOURCE5} %{SOURCE6} aurora-sep-ready
-unit %{SOURCE16} %{SOURCE17} aurora-sep-greeter-fingerprint
-install -Dpm0644 %{SOURCE11} %{buildroot}%{_unitdir}/aurora-sep.timer
-install -Dpm0644 %{SOURCE12} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep-load.conf
-install -Dpm0755 %{SOURCE8} %{buildroot}%{_sbindir}/aurora-touchid-setup
-install -Dpm0755 %{SOURCE21} %{buildroot}%{_libexecdir}/aurora/touchid-setup-needed
-install -Dpm0644 %{SOURCE20} %{buildroot}%{_unitdir}/aurora-touchid-setup.service
-sed -i 's|^ExecStart=/usr/sbin/|ExecStart=%{_sbindir}/|' %{buildroot}%{_unitdir}/aurora-touchid-setup.service
-install -Dpm0755 %{SOURCE9} %{buildroot}%{_libexecdir}/aurora/extract-mesa-calibration
-install -Dpm0755 %{SOURCE15} %{buildroot}%{_libexecdir}/aurora-sep-sensor-present
-install -Dpm0644 %{SOURCE10} %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-sep.conf
-install -Dpm0644 %{SOURCE2} %{buildroot}%{_unitdir}/fprintd.service.d/aurora-sep.conf
-install -Dpm0644 %{SOURCE18} %{buildroot}%{_prefix}/lib/systemd/logind.conf.d/50-aurora-sep.conf
-install -Dpm0644 %{SOURCE23} %{buildroot}%{_sysconfdir}/xdg/powerdevilrc
+install -Dpm0755 load-driver %{buildroot}%{_libexecdir}/aurora-sep-load
+install -Dpm0755 aurora-sep-ready %{buildroot}%{_libexecdir}/aurora-sep-ready
+install -Dpm0755 aurora-sep-greeter-fingerprint %{buildroot}%{_libexecdir}/aurora-sep-greeter-fingerprint
+install -Dpm0755 sensor-present %{buildroot}%{_libexecdir}/aurora-sep-sensor-present
+install -Dpm0755 touchid-setup-needed %{buildroot}%{_libexecdir}/aurora-touchid-setup-needed
+install -Dpm0755 aurora-touchid-setup %{buildroot}%{_sbindir}/aurora-touchid-setup
+install -Dpm0755 aurora-sep-policy-change %{buildroot}%{_sbindir}/aurora-sep-policy-change
+install -Dpm0755 sep-bio-identities %{buildroot}%{_bindir}/sep-bio-identities
+install -Dpm0755 extract-mesa-calibration.py %{buildroot}%{_libexecdir}/aurora/extract-mesa-calibration
+for u in aurora-sep.service aurora-sep.timer aurora-sep-ready.service aurora-touchid-setup.service \
+         aurora-sep-greeter-fingerprint.service aurora-sep-greeter-refresh.service; do
+    install -Dpm0644 $u %{buildroot}%{_unitdir}/$u
+done
+install -Dpm0644 fprintd-aurora.conf %{buildroot}%{_unitdir}/fprintd.service.d/aurora-sep.conf
+units %{buildroot}%{_unitdir}/*.service %{buildroot}%{_unitdir}/fprintd.service.d/aurora-sep.conf
+# Fedora turns authselect's with-fingerprint feature on once (see
+# authselect-vendor-local).
+install -Dpm0644 %{SOURCE3} %{buildroot}%{_unitdir}/aurora-sep-ready.service.d/50-offer-fingerprint.conf
+install -Dpm0644 aurora-sep-load.conf %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep-load.conf
+install -Dpm0644 90-aurora-sep.conf %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-sep.conf
+install -Dpm0644 logind-aurora-sep.conf %{buildroot}%{_prefix}/lib/systemd/logind.conf.d/50-aurora-sep.conf
+install -Dpm0644 powerdevilrc %{buildroot}%{_sysconfdir}/xdg/powerdevilrc
 # The vendor authselect profile is built at install time from the installed
 # authselect (see authselect-vendor-local); list its files as ghosts.
-install -Dpm0755 %{SOURCE22} %{buildroot}%{_libexecdir}/aurora/authselect-vendor-local
+install -Dpm0755 %{SOURCE2} %{buildroot}%{_libexecdir}/aurora/authselect-vendor-local
 vendor=%{_datadir}/authselect/vendor/local
 install -d %{buildroot}$vendor
 # A ghost directory too: an empty vendor profile would hide the default one.
@@ -120,7 +114,7 @@ for f in %{_datadir}/authselect/default/local/* .aurora-sep; do
 done
 grep -qx "%ghost $vendor/system-auth" authselect-vendor.files
 grep -qx 'ExecStart=%{_libexecdir}/fprintd' %{_unitdir}/fprintd.service
-sed 's|@FPRINTD@|%{_libexecdir}/fprintd|' %{SOURCE7} \
+sed 's|@FPRINTD@|%{_libexecdir}/fprintd|' fprintd-no-timeout.conf.in \
     >%{buildroot}%{_unitdir}/fprintd.service.d/50-aurora-sep-no-timeout.conf
 install -d %{buildroot}%{_presetdir}
 # The greeter unit is not listed, so it stays off until enabled.
@@ -134,10 +128,10 @@ install -Dpm0644 %{modulename}.pp.bz2 \
 %{_libexecdir}/aurora/authselect-vendor-local || :
 
 %post
-%systemd_post aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service
+%systemd_post aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service aurora-sep-greeter-refresh.service
 
 %preun
-%systemd_preun aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service
+%systemd_preun aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service aurora-sep-greeter-refresh.service
 
 %postun
 if [ "$1" -eq 0 ] && [ -e %{_sysconfdir}/authselect/authselect.conf ]; then
@@ -149,7 +143,7 @@ if [ "$1" -eq 0 ] && [ -e %{_sysconfdir}/authselect/authselect.conf ]; then
     authselect apply-changes >/dev/null 2>&1 || :
 fi
 # The handoff is once per boot, so do not restart the loader on upgrade.
-%systemd_postun aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service
+%systemd_postun aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service aurora-sep-greeter-refresh.service
 
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
@@ -197,7 +191,9 @@ fi
 %{_libexecdir}/aurora-sep-ready
 %{_libexecdir}/aurora-sep-greeter-fingerprint
 %{_sbindir}/aurora-touchid-setup
-%{_libexecdir}/aurora/touchid-setup-needed
+%{_sbindir}/aurora-sep-policy-change
+%{_bindir}/sep-bio-identities
+%{_libexecdir}/aurora-touchid-setup-needed
 %{_libexecdir}/aurora/extract-mesa-calibration
 %{_libexecdir}/aurora/authselect-vendor-local
 %{_prefix}/lib/systemd/logind.conf.d/50-aurora-sep.conf
@@ -209,7 +205,10 @@ fi
 %{_unitdir}/aurora-sep-ready.service
 %{_unitdir}/aurora-touchid-setup.service
 %{_unitdir}/aurora-sep-greeter-fingerprint.service
+%{_unitdir}/aurora-sep-greeter-refresh.service
 %{_unitdir}/aurora-sep.timer
+%dir %{_unitdir}/aurora-sep-ready.service.d
+%{_unitdir}/aurora-sep-ready.service.d/50-offer-fingerprint.conf
 %dir %{_unitdir}/fprintd.service.d
 %{_unitdir}/fprintd.service.d/aurora-sep.conf
 %{_unitdir}/fprintd.service.d/50-aurora-sep-no-timeout.conf
@@ -220,6 +219,13 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-20
+- Take the loader, its units, the SELinux module and the Touch ID setup
+  from aurora-silicon/linux tools/aurora-sep instead of local copies; this
+  adds aurora-sep-greeter-refresh.service, aurora-sep-policy-change and
+  sep-bio-identities from there. The one-time authselect offer is now the
+  upstream opt-in, set by a drop-in
+
 * Tue Nov 03 2026 Aurora Silicon contributors - 1-19
 - Offer Touch ID to sudo and polkit as well as the lock screen, and not to the
   console login, su or ssh: authselect's "local" profile is replaced by a
