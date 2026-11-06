@@ -248,6 +248,19 @@ class SpecTests(unittest.TestCase):
                 continue
             with self.subTest(package=name):
                 self.assertEqual(sources[name]['commit'], match.group(1))
+
+    def test_avd_vaapi_driver_is_native_discoverable_without_global_overrides(self):
+        spec = (ROOT / 'packages/libva-v4l2-request-avd/libva-v4l2-request-avd.spec').read_text()
+        install = spec.split('%install', 1)[1].split('%files', 1)[0]
+        files = spec.split('%files', 1)[1].split('%changelog', 1)[0]
+        self.assertIn("-Dvendor-string='Fedora Aurora'", spec)
+        self.assertIn('-Ddriverdir=%{_libdir}/dri', spec)
+        self.assertIn('ln -s v4l2_request_drv_video.so', install)
+        self.assertIn('%{_libdir}/dri/asahi_drv_video.so', install)
+        self.assertIn('%{_libdir}/dri/v4l2_request_drv_video.so', files)
+        self.assertIn('%{_libdir}/dri/asahi_drv_video.so', files)
+        self.assertNotIn('LIBVA_DRIVER_NAME=', spec)
+        self.assertNotIn('MOZ_DISABLE_RDD_SANDBOX', spec)
     def test_flatpak_gl_moves_in_lockstep_with_the_host_mesa(self):
         def fields(name):
             text = (ROOT / 'packages' / name / (name + '.spec')).read_text()
