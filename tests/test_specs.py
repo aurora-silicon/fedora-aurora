@@ -261,6 +261,11 @@ class SpecTests(unittest.TestCase):
         self.assertIn('%{_libdir}/dri/asahi_drv_video.so', files)
         self.assertNotIn('LIBVA_DRIVER_NAME=', spec)
         self.assertNotIn('MOZ_DISABLE_RDD_SANDBOX', spec)
+        check = spec.split('%check', 1)[1].split('%install', 1)[0]
+        self.assertIn("grep -Ev ':(concurrent-tsan|resource-churn|hwguard)$'", check)
+        self.assertIn('meson test -C %{_vpath_builddir}', check)
+        self.assertNotIn('--no-suite', check)
+
     def test_flatpak_gl_moves_in_lockstep_with_the_host_mesa(self):
         def fields(name):
             text = (ROOT / 'packages' / name / (name + '.spec')).read_text()
