@@ -3,16 +3,17 @@
 import hashlib
 import json
 import platform
+import os
 from pathlib import Path
 import subprocess
 import sys
 
 root = Path(__file__).resolve().parents[1]
 name = sys.argv[1]
-inputs = {}
-for path in sorted((root / "packages" / name).iterdir()):
-    if path.is_file():
-        inputs[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
+sys.path.insert(0, str(root / 'scripts'))
+import fedoralib
+fedora = fedoralib.release(os.environ.get('AURORA_FEDORA_RELEASE', '44'))
+inputs = fedoralib.recipe_inputs(root, name, fedora)
 outputs = []
 for kind in ("RPMS", "SRPMS"):
     for path in sorted((root / "out/build" / name / kind).rglob("*.rpm")):
@@ -26,5 +27,6 @@ destination.mkdir(exist_ok=True)
 (destination / (name + ".json")).write_text(json.dumps({
     "schema": 1, "package": name, "succeeded": True, "architecture": platform.machine(),
     "recipe_inputs": inputs, "artifacts": outputs,
+    **({"fedora": fedora} if fedora != 44 else {}),
     "rpm": subprocess.check_output(["rpm", "--version"], text=True).strip(),
 }, indent=2) + "\n")

@@ -262,6 +262,26 @@ class SpecTests(unittest.TestCase):
         self.assertEqual(json.loads((ROOT / 'sources.json').read_text())['mesa-aurora']['commit'], gl[0])
         self.assertIn('aurora-mesa-commit.', gl[3])
         self.assertIn('aurora-mesa-commit.', (ROOT / 'packages' / 'aurora-flatpak-gl' / 'build-extension.sh').read_text())
+    def test_fedora45_graphics_are_pinned_and_versioned_together(self):
+        import sys
+        sys.path.insert(0, str(ROOT / 'scripts'))
+        import fedoralib
+        host = fedoralib.recipe_files(ROOT, 'mesa-aurora', 45)['mesa-aurora.spec'].read_text()
+        pin = fedoralib.sources(ROOT, 45)['mesa-aurora']
+        self.assertEqual(pin, fedoralib.sources(ROOT, 44)['mesa-aurora'])
+        self.assertIn('%global commit ' + pin['commit'], host)
+        self.assertRegex(host, r'(?m)^Epoch: 1$')
+        f44 = fedoralib.recipe_files(ROOT, 'mesa-aurora', 44)['mesa-aurora.spec'].read_text()
+        release = re.search(r'(?m)^Release: (\d+)%\{\?dist\}\.aurora$', f44).group(1)
+        self.assertRegex(host, r'(?m)^Release: ' + release + r'%\{\?dist\}.aurora$')
+        for name in ('mesa-aurora-fex-guest', 'aurora-flatpak-gl'):
+            text = fedoralib.recipe_files(ROOT, name, 45)[name + '.spec'].read_text()
+            self.assertIn('%global commit ' + pin['commit'], text)
+            self.assertIn('%global host_release ' + release + '%{?dist}.aurora', text)
+        guest = fedoralib.recipe_files(ROOT, 'mesa-aurora-fex-guest', 45)['mesa-aurora-fex-guest.spec'].read_text()
+        self.assertIn('Requires: mesa-dri-drivers = %{epoch}:%{version}-%{release}', guest)
+        self.assertIn('Requires: mesa-vulkan-drivers = %{epoch}:%{version}-%{release}', guest)
+
     def test_flatpak_gl_settings_name_the_files_the_extension_ships(self):
         d = ROOT / 'packages' / 'aurora-flatpak-gl'
         helper = (d / 'aurora-flatpak-gl').read_text()
@@ -284,7 +304,8 @@ class SpecTests(unittest.TestCase):
         core = text.split('%package core', 1)[1].split('%description core', 1)[0]
         requires = ' '.join(re.findall(r'^Requires:\s+(.+)$', core, re.M)).split()
         for name in ['update-m1n1', 'dracut-asahi', 'asahi-fwupdate', 'speakersafetyd',
-                     'speakerguardd', 'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise']:
+                     'speakerguardd', 'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise',
+                     'aurora-kbd-light']:
             self.assertIn(name, requires)
         for name in requires:
             self.assertFalse(name.startswith(('kernel', 'uboot', 'm1n1')) or name == 'aura', name)
@@ -303,6 +324,9 @@ class SpecTests(unittest.TestCase):
         # The installed release picks its repository, and a release without
         # one stops a refresh or upgrade instead of dropping Aurora.
         self.assertIn('baseurl=https://aurorasilicon.org/fedora-aurora/$releasever/testing/aarch64\n', repo)
+        for releasever in ('44', '45'):
+            self.assertIn(f'baseurl=https://aurorasilicon.org/fedora-aurora/{releasever}/testing/aarch64\n',
+                          repo.replace('$releasever', releasever))
         for line in ['gpgcheck=1', 'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-aurora', 'skip_if_unavailable=False']:
             self.assertIn('\n' + line + '\n', repo)
         self.assertNotIn('repo_gpgcheck', repo)

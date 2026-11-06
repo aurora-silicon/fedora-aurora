@@ -21,7 +21,9 @@ RECIPES = {'kernel-aurora': 'kernel-aurora', 'aura': 'aura', 'mesa-aurora': 'mes
 KINDS = {'kernel-aurora': 'kernel', 'mesa-aurora': 'mesa'}
 CI_WORKFLOWS = ['rpms.yml', 'checks.yml']
 # The only files a tracker proposal may change.
-PATCH_PATHS = [r'sources\.json', r'packages/(kernel-aurora|aura|mesa-aurora|mesa-aurora-fex-guest|aurora-flatpak-gl|fex-emu|aurora-steam-native)/[^/]+\.spec']
+PATCH_PATHS = [r'sources\.json', r'packages/(kernel-aurora|aura|mesa-aurora|mesa-aurora-fex-guest|aurora-flatpak-gl|fex-emu|aurora-steam-native)/(f45/)?[^/]+\.spec']
+# Fedora 45 overlays of a tracked recipe follow it to the same commit and Release.
+OVERLAYS = ('f45',)
 # fex-emu tracks by hand (merge: manual): its submodules are pinned as
 # extra_sources at the fork's gitlinks and a reviewer moves them with it.
 # The FEX guest Mesa and the Flatpak GL extension move in lockstep with the
@@ -63,24 +65,47 @@ def update_recipe(root, item, today):
     item['package_version'] = f'{new_version}-{dist.replace("%{?dist}", ".fc44")}'
     if lib.rpm_evr_compare(('0', new_version, str(release)), ('0', *previous)) <= 0:
         raise ValueError(f'{key}: {new_version}-{release} would not upgrade {"-".join(previous)}')
+    sync_overlays(root, RECIPES[key], item['old'], item['new'], new_version, dist, lines, today)
     if key == 'mesa-aurora':
         sync_fex_guest(root, item['new'], new_version, dist)
         sync_flatpak_gl(root, item['new'], new_version, dist)
     return notes
 
 
+def sync_overlays(root, name, old, new, version, release, lines, today):
+    """Move a release overlay's copy of a tracked recipe to the same commit, Version and Release."""
+    for overlay in OVERLAYS:
+        spec = root / 'packages' / name / overlay / f'{name}.spec'
+        if not spec.exists():
+            continue
+        head, marker, history = spec.read_text().partition('\n%changelog\n')
+        text = tl.replace_commit(head, old, new) + marker + history
+        text = re.sub(r'^(#.*\n)*%global release_tag \S+\n', '', text, flags=re.M)
+        if not re.search(rf'^%global commit {new}$', text, re.M):
+            raise ValueError(f'{name}/{overlay}: the spec does not pin %global commit to the new commit')
+        text = tl.set_spec_field(text, 'Version', version)
+        text = tl.set_spec_field(text, 'Release', release)
+        epoch = re.search(r'^Epoch:\s*(\d+)\s*$', text, re.M)
+        number = release.split('%')[0]
+        text = tl.add_spec_changelog(text, f'{epoch[1]}:{version}' if epoch else version, number, lines, today)
+        spec.write_text(text)
+
+
 def sync_host_macros(root, name, commit, version, release):
-    """Give a lockstep recipe the host Mesa's commit, Version and Release."""
+    """Give a lockstep recipe, and its release overlays, the host Mesa's commit, Version and Release."""
     spec = root / 'packages' / name / f'{name}.spec'
     if not spec.exists():
         return False
-    text = spec.read_text()
-    for macro, value in (('commit', commit), ('host_version', version), ('host_release', release)):
-        text, count = re.subn(rf'^%\{{!\?{macro}:%global {macro} \S+\}}$',
-                              lambda _: f'%{{!?{macro}:%global {macro} {value}}}', text, flags=re.M)
-        if count != 1:
-            raise ValueError(f'{name}: %{{{macro}}} is not pinned exactly once')
-    spec.write_text(text)
+    for path in [spec] + [root / 'packages' / name / o / f'{name}.spec' for o in OVERLAYS]:
+        if not path.exists():
+            continue
+        text = path.read_text()
+        for macro, value in (('commit', commit), ('host_version', version), ('host_release', release)):
+            text, count = re.subn(rf'^%\{{!\?{macro}:%global {macro} \S+\}}$',
+                                  lambda _: f'%{{!?{macro}:%global {macro} {value}}}', text, flags=re.M)
+            if count != 1:
+                raise ValueError(f'{path.relative_to(root)}: %{{{macro}}} is not pinned exactly once')
+        path.write_text(text)
     return True
 
 

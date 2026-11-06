@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / 'scripts'))
 import updatelib as lib  # noqa: E402
+import fedoralib  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location('importer', ROOT / 'scripts/import-rpm-build.py')
 importer = importlib.util.module_from_spec(_spec)
@@ -85,11 +86,17 @@ def newest_artifacts(repository, run_id, api=lib.gh_api):
     return newest
 
 
-def published_runs(repository, limit=30):
+def published_runs(repository, limit=30, fedora=44):
     """Native build IDs that published snapshots already include."""
-    releases = lib.gh_api(f'repos/{repository}/releases?per_page=100')
-    snapshots = sorted((r for r in releases if r['tag_name'].startswith('testing-') and not r['draft']),
-                       key=lambda r: r['created_at'], reverse=True)[:limit]
+    snapshots = []
+    # Another release's snapshots must not hide this release's base/history.
+    for page in range(1, 11):
+        releases = lib.gh_api(f'repos/{repository}/releases?per_page=100&page={page}')
+        snapshots.extend(r for r in releases if r['tag_name'].startswith(fedoralib.prefix(fedora))
+                         and (fedora != 44 or not r['tag_name'].startswith('testing-f45-')) and not r['draft'])
+        if len(snapshots) >= limit or len(releases) < 100:
+            break
+    snapshots = sorted(snapshots, key=lambda r: r['created_at'], reverse=True)[:limit]
     found = set()
     for release in snapshots:
         asset = next((a for a in release['assets'] if a['name'] == 'builds.json'), None)
@@ -100,7 +107,10 @@ def published_runs(repository, limit=30):
     return found, (snapshots[0]['tag_name'] if snapshots else None)
 
 
-def resolve(root, repository, runs, artifacts_for, published=frozenset(), base_release=None):
+def resolve(root, repository, runs, artifacts_for, published=frozenset(), base_release=None, fedora=44):
+    fedora = fedoralib.release(fedora)
+    if base_release:
+        fedoralib.snapshot(base_release, fedora)
     wanted = packages(root)
     chosen = {}
     for run in runs:
@@ -112,7 +122,7 @@ def resolve(root, repository, runs, artifacts_for, published=frozenset(), base_r
             continue
         artifacts = artifacts_for(run['id'])
         for name in sorted(names):
-            artifact = artifacts.get('rpm-' + name)
+            artifact = artifacts.get(fedoralib.artifact(name, fedora))
             if artifact:
                 chosen[name] = {'run': run['id'], 'head_sha': run['head_sha'], 'artifact': artifact['id'],
                                 'digest': artifact['digest'], 'bytes': artifact['size_in_bytes']}
@@ -130,22 +140,24 @@ def resolve(root, repository, runs, artifacts_for, published=frozenset(), base_r
         groups.setdefault(item['run'], []).append(name)
     return {'schema': 1, 'action': action, 'head': lib.git(root, 'rev-parse', 'HEAD'),
             'base_release': base_release, 'packages': chosen, 'carried': carried,
+            **({'fedora': fedora} if fedora != 44 else {}),
             'runs': [{'run': run, 'packages': sorted(names)} for run, names in sorted(groups.items())],
             'rebuild': carried if action == 'missing' else []}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--fedora-release', type=int, choices=fedoralib.RELEASES, default=44)
     parser.add_argument('--repository', required=True)
     parser.add_argument('--base-release', help='snapshot supplying unchanged packages (default: newest testing-*)')
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', args.repository):
         parser.error('--repository owner/name')
-    published, newest = published_runs(args.repository)
+    published, newest = published_runs(args.repository, fedora=args.fedora_release)
     plan = resolve(ROOT, args.repository, successful_runs(args.repository),
                    lambda run_id: newest_artifacts(args.repository, run_id), published,
-                   args.base_release or newest)
+                   args.base_release or newest, args.fedora_release)
     args.output.write_text(json.dumps(plan, indent=2) + '\n')
     lib.write_github_output(action=plan['action'], base_release=plan['base_release'] or '',
                             rebuild=' '.join(plan['rebuild']))

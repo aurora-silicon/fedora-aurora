@@ -6,6 +6,13 @@
 set -euo pipefail
 policies=${1:?aurora-repos source directory required}
 dnf install -y -q rpm-build createrepo_c >/dev/null
+release=$(rpm --eval '%{fedora}')
+[[ $release == 44 || $release == 45 ]]
+# Check the shipped URL in the same real libdnf5 configuration used below.
+install -Dm644 "$policies/aurora.repo" /etc/yum.repos.d/aurora.repo
+resolved=$(dnf5 --dump-repo-config=aurora)
+grep -F "baseurl = https://aurorasilicon.org/fedora-aurora/$release/testing/aarch64" <<< "$resolved"
+rm /etc/yum.repos.d/aurora.repo
 mkdir -p /usr/share/dnf5/libdnf.conf.d
 printf '[main]\nallow_vendor_change=False\n' > /usr/share/dnf5/libdnf.conf.d/30-test-sticky-vendors.conf
 dnf5 --dump-main-config | grep -x 'allow_vendor_change = 0'

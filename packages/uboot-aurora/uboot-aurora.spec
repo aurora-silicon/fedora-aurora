@@ -1,8 +1,8 @@
 %global debug_package %{nil}
-%global commit d30213eadcaa886f4206d7661b61bc6cf7837828
+%global commit 279c4afa4bbaf600af1c2f493c75d8aadc206243
 Name: uboot-aurora
 Version: 2026.07
-Release: 6%{?dist}
+Release: 7%{?dist}
 Summary: Aurora U-Boot for Apple Silicon
 License: GPL-2.0-or-later
 URL: https://github.com/aurora-silicon/u-boot
@@ -16,7 +16,7 @@ BuildRequires: gcc make bc bison flex dtc python3 python3-pyelftools swig openss
 Aurora U-Boot for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n u-boot-d30213eadcaa886f4206d7661b61bc6cf7837828
+%autosetup -n u-boot-279c4afa4bbaf600af1c2f493c75d8aadc206243
 
 %build
 make O=build-aurora apple_m1_defconfig
@@ -32,6 +32,9 @@ install -Dm644 build-aurora/u-boot-nodtb.bin %{buildroot}/usr/lib/asahi-boot/u-b
 /usr/lib/asahi-boot/u-boot-nodtb.bin
 
 %changelog
+* Thu Nov 05 2026 Michal S. <michal_stopyra@icloud.com> - 2026.07-7
+- Include the merged J614s retained MTP input handoff (u-boot#29).
+
 * Sun Nov 01 2026 Aurora Silicon <hey@djdev.me> - 2026.07-6
 - Track U-Boot aurora-wip at d30213e (u-boot PR 28 merged: boot speed,
   boot timings, SMBIOS identity, quiet boot), the U-Boot all four Aurora

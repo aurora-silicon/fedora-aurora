@@ -1,7 +1,7 @@
-%global commit d957fabbacbe7dd67b39f052b2ff21edea7ee038
+%global commit f1d596b9efeede884b28e3ad81fff24b22ba97a3
 Name: aurora-audio
 Version: 4.1
-Release: 7%{?dist}
+Release: 8%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
@@ -18,7 +18,7 @@ Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplu
 Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n asahi-audio-d957fabbacbe7dd67b39f052b2ff21edea7ee038
+%autosetup -n asahi-audio-f1d596b9efeede884b28e3ad81fff24b22ba97a3
 
 %build
 
@@ -34,6 +34,9 @@ install -Dm755 %{SOURCE1} %{buildroot}%{_prefix}/lib/dracut/modules.d/90aurora-a
 %{_prefix}/lib/dracut/modules.d/90aurora-audio/
 
 %changelog
+* Thu Nov 05 2026 Michal S. <michal_stopyra@icloud.com> - 4.1-8
+- Include the J614 microphone DSP graph and WirePlumber rule (asahi-audio#16).
+
 * Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-7
 - Move to asahi-audio d957fab: the built-in headphone sink of every Mac
   keeps the volume and mute the user set on it across boots, also with

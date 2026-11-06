@@ -43,6 +43,14 @@ class PayloadValidationTests(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             validator.validate_payload(self.root, COMMIT)
 
+    def test_dril_layout_requires_an_internal_aurora_compatibility_alias(self):
+        alias = self.root / 'lib/dri/aurora_dri.so'
+        alias.unlink()
+        with self.assertRaises(FileNotFoundError):
+            validator.validate_payload(self.root, COMMIT)
+        alias.symlink_to('asahi_dri.so')
+        validator.validate_payload(self.root, COMMIT)
+
     def test_wrong_architecture_is_rejected(self):
         self.write('lib/dri/asahi_dri.so', b'\x7fELF\x02\x01' + bytes(12) + struct.pack('<H', 62))
         with self.assertRaisesRegex(ValueError, 'not an AArch64'):
