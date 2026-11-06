@@ -248,5 +248,12 @@
     "archive_file": "plymouth-26.134.222.tar.bz2",
     "archive_root": "plymouth-26.134.222",
     "sha256": "043f21b27c50ed70d0638a318460e747e5a12cc2af1bce960858b7a63b981ecc"
+  },
+  "systemd": {
+    "version": "262",
+    "commit": "8cc40e0c5e9234bf45084751ac53b1fbfe70b492",
+    "source_url": "https://github.com/systemd/systemd/archive/v262/systemd-262.tar.gz",
+    "sha256": "6aa77506c0644aa67f940a48e3d3a7368601f787e4f249139516d353f107bcab",
+    "archive_file": "systemd-262.tar.gz"
   }
 }
