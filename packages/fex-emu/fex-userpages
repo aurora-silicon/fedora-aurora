@@ -1,0 +1,6 @@
+#!/bin/sh
+# Start FEX in a 4 KiB page process tree. binfmt_misc hands x86 programs to
+# FEX from whatever page size the caller has; on Aurora's 16 KiB kernels FEX
+# needs 4 KiB pages, and the tree keeps them for the programs FEX starts.
+[ "$(getconf PAGE_SIZE)" = 4096 ] && exec /usr/bin/FEX "$@"
+exec /usr/bin/userpages 4k /usr/bin/FEX "$@"

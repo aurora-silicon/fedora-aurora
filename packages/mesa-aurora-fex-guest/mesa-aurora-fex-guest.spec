@@ -10,9 +10,9 @@
 #            --define 'host_release 0.12.aurora.borealis.<12-hex>%%{?dist}' ...
 # Both lines provide mesa-dri-drivers and mesa-vulkan-drivers at their own
 # version-release, which is what this package requires.
-%{!?commit:%global commit 05ddb00f5ca9d0e153d987fed6454f21902ee1c8}
+%{!?commit:%global commit c1753704ed733e6e77fdf8ce6ac83fbf7c5e59d5}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 18%{?dist}.aurora}
+%{!?host_release:%global host_release 19%{?dist}.aurora}
 %global debug_package %{nil}
 # Fedora's x86_64 build flags carry -m64 and would turn the i686 build into a
 # second x86_64 one; meson's release buildtype sets the optimisation instead.
@@ -199,6 +199,11 @@ fi
 %{_presetdir}/80-aurora-fex-mesa.preset
 
 %changelog
+* Thu Nov 05 2026 Michal S. <michal_stopyra@icloud.com> - 26.3.0-19
+- Include the merged Wayland drawable lifetime fix and unmatched-release
+  handling (mesa#138).
+- Keep native, FEX guest and Flatpak Mesa sources and releases coordinated.
+
 * Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-16.aurora
 - Move in lockstep with mesa-aurora 26.3.0-16.
 

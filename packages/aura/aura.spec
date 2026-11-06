@@ -1,9 +1,9 @@
 %global debug_package %{nil}
-%global commit 8b15096337e97f934438e1e7f3e96182440351dc
+%global commit 9a173ff5bf6264d56fdc4a6d2dae96ed482cb195
 # Tagged release; preserve its label in the source archive build.
-%global release_tag 1.0.0b4
+%global release_tag 1.0.0b5
 Name: aura
-Version: 1.0.0~b4
+Version: 1.0.0~b5
 Release: 1%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
@@ -19,7 +19,7 @@ Requires: update-m1n1 uboot-aurora
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-8b15096337e97f934438e1e7f3e96182440351dc
+%autosetup -n aura-9a173ff5bf6264d56fdc4a6d2dae96ed482cb195
 
 %build
 export RUSTC_BOOTSTRAP=1
@@ -45,6 +45,11 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Thu Nov 05 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~b5-1
+- Pin aura v1.0.0b5 (9a173ff5): each SN012776 speaker amp gets its brownout,
+  DC blocker, speaker-config and amp-tx-zd-config from the ADT (aura #75).
+  Kernels with aurora-silicon/linux #981 need it for the speakers.
+
 * Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 1.0.0~b4-1
 - Pin aura v1.0.0b4 (8b150963): the monitor decides by the probe on every
   chip, so Mach-O mode runs it on every M4-and-later Mac.

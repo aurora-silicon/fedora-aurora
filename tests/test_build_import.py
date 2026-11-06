@@ -91,6 +91,43 @@ class BuildImportTests(unittest.TestCase):
                                        'recipe_inputs': {'example.spec': module.digest(self.recipe)}}))
         self.assertEqual(self.run_import(), 1)
 
+    def fedora45_artifact(self):
+        old = self.artifacts / 'rpm-example'
+        new = self.artifacts / 'rpm-f45-example'
+        old.rename(new)
+        receipt = new / 'out/manifests/example.json'
+        data = json.loads(receipt.read_text())
+        data['fedora'] = 45
+        for row in data['artifacts']:
+            source = next(new.rglob(row['filename']))
+            renamed = source.with_name(source.name.replace('-1-1.', '-1-1.fc45.'))
+            source.rename(renamed)
+            row['filename'] = renamed.name
+        receipt.write_text(json.dumps(data))
+        return receipt
+
+    def test_fedora45_import_is_explicit_and_never_enters_the_44_inventory(self):
+        self.fedora45_artifact()
+        with self.assertRaisesRegex(ValueError, 'no package receipts'):
+            self.run_import()
+        self.assertEqual(module.import_build(self.repo, self.metadata, self.artifacts, self.root / 'output',
+                                            'aurora-silicon/fedora-aurora', fedora=45), 1)
+        self.assertTrue(all('.fc45.' in p.name for p in (self.root / 'output').rglob('*.rpm')))
+
+    def test_fedora45_artifact_cannot_claim_a_fedora44_receipt_or_rpm(self):
+        receipt = self.fedora45_artifact()
+        data = json.loads(receipt.read_text())
+        receipt.write_text(json.dumps({**data, 'fedora': 44}))
+        with self.assertRaisesRegex(ValueError, 'another Fedora release'):
+            module.import_build(self.repo, self.metadata, self.artifacts, self.root / 'output',
+                                'aurora-silicon/fedora-aurora', fedora=45)
+        data['artifacts'][0]['filename'] = data['artifacts'][0]['filename'].replace('.fc45.', '.fc44.')
+        receipt.write_text(json.dumps(data))
+        with self.assertRaisesRegex(ValueError, 'another Fedora release'):
+            module.import_build(self.repo, self.metadata, self.artifacts, self.root / 'output',
+                                'aurora-silicon/fedora-aurora', fedora=45)
+        self.assertFalse((self.root / 'output').exists())
+
     def test_changed_recipe_is_not_reused(self):
         self.recipe.write_text('Name: example\nRelease: 2\n')
         self.commit('new recipe')

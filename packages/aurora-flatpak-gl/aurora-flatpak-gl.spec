@@ -17,9 +17,9 @@
 #
 # Source10 is mandatory. scripts/build-rpm builds it for both supported
 # runtimes (or consumes AURORA_FLATPAK_GL_REPO_TAR). Never publish settings alone.
-%{!?commit:%global commit 05ddb00f5ca9d0e153d987fed6454f21902ee1c8}
+%{!?commit:%global commit c1753704ed733e6e77fdf8ce6ac83fbf7c5e59d5}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 18%{?dist}.aurora}
+%{!?host_release:%global host_release 19%{?dist}.aurora}
 %global shortcommit %{sub %{commit} 1 12}
 %global debug_package %{nil}
 %global __requires_exclude_from ^%{_datadir}/aurora-flatpak-gl/
@@ -79,6 +79,11 @@ fi
 %{_datadir}/aurora-flatpak-gl/
 
 %changelog
+* Thu Nov 05 2026 Michal S. <michal_stopyra@icloud.com> - 26.3.0-19
+- Include the merged Wayland drawable lifetime fix and unmatched-release
+  handling (mesa#138).
+- Keep native, FEX guest and Flatpak Mesa sources and releases coordinated.
+
 * Mon Nov 02 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-16.aurora
 - Move in lockstep with mesa-aurora 26.3.0-16.
 
