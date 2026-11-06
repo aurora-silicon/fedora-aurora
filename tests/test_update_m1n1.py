@@ -8,6 +8,7 @@ import gzip
 import importlib.util
 import os
 from pathlib import Path
+import re
 import struct
 import subprocess
 import sys
@@ -98,18 +99,25 @@ class UpdateM1n1(unittest.TestCase):
         self.script.write_text(text)
         self.script.chmod(0o755)
         self.compatible = root / 'compatible'
+        self.window = root / 'window'
+        self.marker = root / 'monitor-free'
 
     def run_update(self, *args, shell='sh', **env):
         environment = dict(os.environ, PATH=f'{self.root / "bin"}:{os.environ["PATH"]}', LC_ALL='C',
                            SOURCE=str(self.root), DTBS=f'{self.dtbs}/*.dtb',
                            CONFIG=str(self.root / 'm1n1.conf'),
-                           AURORA_DEVICE_TREE_COMPATIBLE=str(self.compatible))
+                           AURORA_DEVICE_TREE_COMPATIBLE=str(self.compatible),
+                           AURORA_DEVICE_TREE_WINDOW=str(self.window),
+                           AURORA_MONITOR_FREE_MARKER=str(self.marker))
         environment.update(env)
         return subprocess.run([shell, str(self.script), *args], env=environment,
                               capture_output=True, text=True)
 
     def on(self, board, chip):
         self.compatible.write_bytes(compatible_file(board, chip))
+
+    def monitor_free(self):
+        self.marker.write_bytes(b'')
 
     def parts(self, trees, aura=AURA, options=b''):
         return aura + b''.join(self.TREES[name] for name in trees), UBOOT, options
@@ -127,7 +135,24 @@ class UpdateM1n1(unittest.TestCase):
         self.assertFalse((self.esp / 'm1n1/boot.bin.old').exists())
         self.assertFalse((self.esp / 'm1n1/boot.bin.new').exists())
 
-    def test_every_macho_chip_leaves_boot_bin_byte_identical(self):
+    def assert_updated_boot_bin(self, result):
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.read_parts(self.boot), self.parts(sorted(self.TREES)))
+        self.assertEqual((self.esp / 'm1n1/boot.bin.old').read_bytes(), FROZEN)
+        self.assertFalse(self.ctxr.exists())
+        self.assertNotIn('WARNING', result.stderr)
+        self.assertIn('m1n1/boot.bin', result.stdout)
+
+    def test_macho_without_the_marker_keeps_updating_boot_bin(self):
+        for chip in MACHO_CHIPS:
+            with self.subTest(chip):
+                self.boot.write_bytes(FROZEN)
+                (self.esp / 'm1n1/boot.bin.old').unlink(missing_ok=True)
+                self.on('j700', chip)
+                self.assert_updated_boot_bin(self.run_update())
+
+    def test_macho_with_the_marker_leaves_boot_bin_byte_identical(self):
+        self.monitor_free()
         for chip in MACHO_CHIPS:
             with self.subTest(chip):
                 self.on('j700', chip)
@@ -137,7 +162,29 @@ class UpdateM1n1(unittest.TestCase):
                 self.assert_frozen()
                 self.assertTrue(self.ctxr.is_file())
 
+    def test_a_mac_still_booting_the_frozen_file_is_told_what_to_do(self):
+        self.monitor_free()
+        self.on('j700', 't8140')
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('m1n1 updated', result.stdout)
+        self.assertIn('still boots m1n1/boot.bin', result.stderr)
+        self.assertIn('Utilities > Enroll Expanded Code Window', result.stderr)
+        self.assertIn('#enroll-expanded-code-window', result.stderr)
+
+    def test_a_mac_booting_the_ctxr_file_gets_no_warning(self):
+        self.monitor_free()
+        self.on('j700', 't8140')
+        self.window.write_bytes(b'\0' * 16)
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, '')
+        self.assertIn('m1n1 updated at', result.stdout)
+        self.assertIn('boot-ctxr.bin', result.stdout)
+        self.assert_frozen()
+
     def test_macho_stage2_holds_only_this_boards_trees_in_byte_order(self):
+        self.monitor_free()
         # Arch's sh is bash, which sorts globs by locale.
         for shell in ('sh', 'bash'):
             with self.subTest(shell):
@@ -151,12 +198,14 @@ class UpdateM1n1(unittest.TestCase):
                                  self.parts(['t6040-j616s-tether.dtb', 't6040-j616s.dtb']))
 
     def test_macho_board_name_is_matched_whole(self):
+        self.monitor_free()
         self.on('j616', 't6040')
         result = self.run_update()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('no device tree for j616', result.stderr)
 
     def test_macho_update_keeps_the_previous_ctxr_stage2(self):
+        self.monitor_free()
         self.on('j700', 't8140')
         self.assertEqual(self.run_update().returncode, 0)
         first = self.ctxr.read_bytes()
@@ -169,6 +218,7 @@ class UpdateM1n1(unittest.TestCase):
         self.assert_frozen()
 
     def test_macho_unchanged_stage2_keeps_the_rollback_copy(self):
+        self.monitor_free()
         self.on('j700', 't8140')
         self.assertEqual(self.run_update().returncode, 0)
         old = self.esp / 'm1n1/boot-ctxr.bin.old'
@@ -178,20 +228,25 @@ class UpdateM1n1(unittest.TestCase):
         self.assert_frozen()
 
     def test_macho_explicit_boot_bin_target_is_redirected(self):
+        self.monitor_free()
         self.on('j700', 't8140')
         self.assertEqual(self.run_update(str(self.boot)).returncode, 0)
         self.assert_frozen()
         self.assertTrue(self.ctxr.is_file())
 
     def test_macho_explicit_other_target_is_written_as_given(self):
+        self.monitor_free()
         self.on('j700', 't8140')
         other = self.root / 'other.bin'
-        self.assertEqual(self.run_update(str(other)).returncode, 0)
+        result = self.run_update(str(other))
+        self.assertEqual(result.returncode, 0)
+        self.assertNotIn('WARNING', result.stderr)
         self.assertEqual(self.read_parts(other), self.parts(['t8140-j700-ane-test.dtb', 't8140-j700.dtb']))
         self.assert_frozen()
         self.assertFalse(self.ctxr.exists())
 
     def test_macho_without_a_tree_for_the_board_changes_nothing(self):
+        self.monitor_free()
         self.on('j873g', 't8152')
         result = self.run_update()
         self.assertNotEqual(result.returncode, 0)
@@ -200,36 +255,40 @@ class UpdateM1n1(unittest.TestCase):
         self.assertFalse(self.ctxr.exists())
         self.assertFalse((self.esp / 'm1n1/boot-ctxr.bin.new').exists())
 
-    def test_earlier_chips_keep_updating_boot_bin_with_every_tree(self):
-        for chip in EARLIER_CHIPS:
-            with self.subTest(chip):
-                self.boot.write_bytes(FROZEN)
-                (self.esp / 'm1n1/boot.bin.old').unlink(missing_ok=True)
-                self.on('j274', chip)
-                result = self.run_update()
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(self.read_parts(self.boot), self.parts(sorted(self.TREES)))
-                self.assertEqual((self.esp / 'm1n1/boot.bin.old').read_bytes(), FROZEN)
-                self.assertFalse(self.ctxr.exists())
+    def test_earlier_chips_are_the_same_with_and_without_the_marker(self):
+        for marked in (False, True):
+            if marked:
+                self.monitor_free()
+            for chip in EARLIER_CHIPS:
+                with self.subTest(chip=chip, marked=marked):
+                    self.boot.write_bytes(FROZEN)
+                    (self.esp / 'm1n1/boot.bin.old').unlink(missing_ok=True)
+                    self.on('j274', chip)
+                    self.assert_updated_boot_bin(self.run_update())
 
     def test_earlier_chip_leaves_a_present_ctxr_file_alone(self):
+        self.monitor_free()
         self.on('j274', 't8103')
         self.ctxr.write_bytes(b'not ours')
         self.assertEqual(self.run_update().returncode, 0)
         self.assertEqual(self.ctxr.read_bytes(), b'not ours')
 
     def test_without_a_device_tree_it_writes_boot_bin_as_an_image_build_needs(self):
-        self.assertEqual(self.run_update(str(self.boot)).returncode, 0)
-        self.assertEqual(self.read_parts(self.boot), self.parts(sorted(self.TREES)))
-        self.assertFalse(self.ctxr.exists())
+        self.monitor_free()
+        self.assert_updated_boot_bin(self.run_update(str(self.boot)))
+
+    def test_an_image_build_on_a_macho_host_ignores_its_device_tree(self):
+        self.monitor_free()
+        self.on('j700', 't8140')
+        self.assert_updated_boot_bin(self.run_update(str(self.boot), AURORA_DEVICE_TREE_COMPATIBLE='/nonexistent'))
 
     def test_another_machine_is_treated_as_upstream_does(self):
+        self.monitor_free()
         self.compatible.write_bytes(b'linux,dummy-virt\0')
-        self.assertEqual(self.run_update().returncode, 0)
-        self.assertEqual(self.read_parts(self.boot), self.parts(sorted(self.TREES)))
-        self.assertFalse(self.ctxr.exists())
+        self.assert_updated_boot_bin(self.run_update())
 
     def test_fedoras_directory_form_selects_the_boards_trees(self):
+        self.monitor_free()
         apple = self.root / 'dtb/apple'
         apple.mkdir(parents=True)
         for name, data in self.TREES.items():
@@ -240,6 +299,7 @@ class UpdateM1n1(unittest.TestCase):
         self.assert_frozen()
 
     def test_m1n1_conf_options_reach_the_ctxr_stage2(self):
+        self.monitor_free()
         self.on('j700', 't8140')
         (self.root / 'm1n1.conf').write_text('chosen.bootargs=quiet\nnot an option\n')
         self.assertEqual(self.run_update().returncode, 0)
@@ -274,19 +334,26 @@ class PrepareCtxrStage2(unittest.TestCase):
         for name, data in before.items():
             self.assertEqual((self.m1n1 / name).read_bytes(), data)
 
+    def test_a_second_run_replaces_what_the_first_wrote(self):
+        prepare_ctxr.prepare(self.m1n1, self.m1n1)
+        (self.m1n1 / 'boot.bin').write_bytes(b'rebuilt combined')
+        prepare_ctxr.prepare(self.m1n1, self.m1n1)
+        self.assertEqual((self.m1n1 / 'boot-ctxr.bin').read_bytes(), b'rebuilt combined')
+
     def test_a_magic_inside_aura_is_not_mistaken_for_the_tree(self):
         path = self.m1n1 / 'boot-j700.bin'
         path.write_bytes(prepare_ctxr.DTB_MAGIC + b'\xff' * 60 + path.read_bytes())
         prepare_ctxr.prepare(self.m1n1, self.m1n1)
         self.assertTrue((self.m1n1 / 'boot-ctxr-j700.bin').is_file())
 
-    def test_refusals(self):
+    def test_an_image_build_refuses_any_problem(self):
         cases = {
             'missing required board': lambda: (self.m1n1 / 'boot-j614s.bin').unlink(),
             'board file without its tree': lambda: (self.m1n1 / 'boot-j700.bin').write_bytes(b'no tree'),
             'oversized board file': lambda: (self.m1n1 / 'boot-j700.bin').write_bytes(
-                board_image('j700', 't8140') + b'\0' * prepare_ctxr.MAX_BOARD_BYTES),
-            'existing output': lambda: (self.m1n1 / 'boot-ctxr.bin').write_bytes(b'stale'),
+                board_image('j700', 't8140') + b'\0' * prepare_ctxr.MAX_STAGE2_BYTES),
+            'oversized shared file': lambda: (self.m1n1 / 'boot.bin').write_bytes(
+                b'\0' * (prepare_ctxr.MAX_STAGE2_BYTES + 1)),
         }
         for name, change in cases.items():
             with self.subTest(name):
@@ -294,6 +361,16 @@ class PrepareCtxrStage2(unittest.TestCase):
                 change()
                 with self.assertRaises(ValueError):
                     prepare_ctxr.prepare(self.m1n1, self.m1n1)
+
+    def test_a_shared_file_at_the_limit_is_accepted(self):
+        (self.m1n1 / 'boot.bin').write_bytes(b'\0' * prepare_ctxr.MAX_STAGE2_BYTES)
+        self.assertIn('boot-ctxr.bin', prepare_ctxr.prepare(self.m1n1, self.m1n1))
+
+    def test_keep_going_only_leaves_out_the_file_with_the_problem(self):
+        (self.m1n1 / 'boot-j614s.bin').unlink()
+        (self.m1n1 / 'boot-j700.bin').write_bytes(board_image('j700', 't8140') + b'\0' * prepare_ctxr.MAX_STAGE2_BYTES)
+        written = prepare_ctxr.prepare(self.m1n1, self.m1n1, keep_going=True)
+        self.assertEqual(sorted(written), ['boot-ctxr-j616s.bin', 'boot-ctxr-j713.bin', 'boot-ctxr-j873g.bin', 'boot-ctxr.bin'])
 
     def test_chip_list_matches_the_update_tool(self):
         for chip in MACHO_CHIPS:
@@ -312,9 +389,36 @@ class Recipes(unittest.TestCase):
         self.assertIn('%{_kernel_install_dir}/15-update-m1n1.install', spec)
         self.assertIn('%transfiletriggerin -- /usr/lib/m1n1 /usr/lib64/m1n1 /usr/share/uboot/apple_m1 /etc/m1n1.conf', spec)
 
-    def test_aura_needs_the_package_that_writes_boot_ctxr(self):
+    def test_aura_needs_the_capability_only_this_package_provides(self):
         self.assertRegex(SPEC.read_text(), r'(?m)^Provides: aurora-stage2-ctxr-slot = 1$')
         self.assertRegex((ROOT / 'packages/aura/aura.spec').read_text(), r'(?m)^Requires: .*\baurora-stage2-ctxr-slot\b')
+
+    def marker_step(self):
+        text = (ROOT / 'packages/aura/aura.spec').read_text()
+        step = re.search(r'(?ms)^if \[ -f src/ctxr_exec\.c.*?^fi$', text)[0]
+        return step.replace('%{buildroot}', '$buildroot').replace('%{_datadir}', '/usr/share')
+
+    def test_the_aura_recipe_installs_the_marker_from_the_pinned_source(self):
+        marker = 'usr/share/aura/monitor-free'
+        cases = {'monitor': (('monitor.c',), False), 'monitor-free': (('ctxr_exec.c',), True),
+                 'both': (('monitor.c', 'ctxr_exec.c'), True), 'renamed': (('other.c',), True)}
+        for name, (files, expected) in cases.items():
+            with self.subTest(name), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                (root / 'src').mkdir()
+                for file in files:
+                    (root / 'src' / file).write_text('')
+                subprocess.run(['bash', '-euc', self.marker_step()], cwd=root, check=True,
+                               env=dict(os.environ, buildroot=str(root / 'pkg')))
+                self.assertEqual((root / 'pkg' / marker).exists(), expected)
+
+    def test_the_tool_and_the_recipe_agree_on_the_marker_path(self):
+        self.assertIn('/usr/share/aura/monitor-free', SCRIPT.read_text())
+
+    def test_image_build_ignores_the_builders_device_tree(self):
+        text = (ROOT / 'scripts/build-image').read_text()
+        export = text.index('export AURORA_DEVICE_TREE_COMPATIBLE=/nonexistent')
+        self.assertLess(export, text.index("subprocess.run(receipt['build_command']"))
 
     def test_image_build_adds_the_ctxr_files_after_the_finalizer(self):
         text = (ROOT / 'scripts/build-image').read_text()

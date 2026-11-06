@@ -35,6 +35,10 @@ make %{?_smp_mflags} BUILDSTD=1 RELEASE=1 CHAINLOADING=1 ESP_STAGE2=1 USE_CLANG=
 %install
 install -Dm644 build/aura.bin %{buildroot}%{_libdir}/m1n1/m1n1.bin
 install -Dm644 build/aura.bin %{buildroot}/usr/lib/asahi-boot/m1n1.bin
+# An aura without the monitor: update-m1n1 then stops writing boot.bin on Mach-O Macs.
+if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then
+  install -Dm644 /dev/null %{buildroot}%{_datadir}/aura/monitor-free
+fi
 install -Dm644 ../aurora-stage1/aura-raw.bin %{buildroot}%{_datadir}/aura/stage1/aura-raw.bin
 install -Dm644 ../aurora-stage1/aura-boot.macho %{buildroot}%{_datadir}/aura/stage1/aura-boot.macho
 install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/aura.macho
@@ -47,8 +51,10 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 
 %changelog
 * Fri Nov 06 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b5-2
-- Require the update-m1n1 that writes m1n1/boot-ctxr.bin on Mach-O Macs and
-  leaves m1n1/boot.bin as it is.
+- Require the update-m1n1 that can write m1n1/boot-ctxr.bin on Mach-O Macs and
+  leave m1n1/boot.bin as it is.
+- Ship /usr/share/aura/monitor-free when the pinned source has no monitor. That
+  is what turns those two behaviours on.
 
 * Thu Nov 05 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~b5-1
 - Pin aura v1.0.0b5 (9a173ff5): each SN012776 speaker amp gets its brownout,

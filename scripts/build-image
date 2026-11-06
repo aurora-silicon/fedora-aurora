@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+# An image serves every Mac, whichever one builds it.
+export AURORA_DEVICE_TREE_COMPATIBLE=/nonexistent
 profile=${1:?fedora-kde, fedora-gnome or fedora-minimal required}
 [[ $profile =~ ^fedora-(kde|gnome|minimal)$ ]] || exit 2
 [[ $(uname -m) == aarch64 && $(id -u) == 0 ]] || { echo 'Use a disposable privileged native AArch64 image builder' >&2; exit 2; }
