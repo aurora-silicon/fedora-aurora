@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / "scripts"))
 import updatelib  # noqa: E402
+import fedoralib  # noqa: E402
 
 # Verified copies of pinned archives (track-sources.yml keeps it complete).
 # Every byte is still checked against sources.json; the mirror only avoids
@@ -19,8 +20,8 @@ import updatelib  # noqa: E402
 MIRROR = "https://github.com/aurora-silicon/fedora-aurora/releases/download/source-cache"
 
 
-def fetch(name, destination):
-    record = json.loads((ROOT / "sources.json").read_text())[name]
+def fetch(name, destination, fedora=44):
+    record = fedoralib.sources(ROOT, fedora)[name]
     for extra_name, extra in record.get("extra_sources", {}).items():
         fetch_record(extra_name, extra, destination)
     return fetch_record(name, record, destination)
@@ -57,7 +58,8 @@ def fetch_record(name, record, destination):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("packages", nargs="+")
+    parser.add_argument("--fedora-release", type=int, choices=fedoralib.RELEASES, default=44)
     parser.add_argument("--output", type=Path, default=ROOT / "cache/sources")
     args = parser.parse_args()
     for name in args.packages:
-        print(fetch(name, args.output))
+        print(fetch(name, args.output, args.fedora_release))

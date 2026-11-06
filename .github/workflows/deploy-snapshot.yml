@@ -2,13 +2,18 @@ name: Deploy signed repository metadata to a channel
 on:
   workflow_dispatch:
     inputs:
+      fedora-release:
+        description: Fedora release (45 supports testing only)
+        type: choice
+        options: ['44', '45']
+        default: '44'
       channel:
         description: Update channel to change
         type: choice
         options: [testing, stable]
         default: testing
       release-tag:
-        description: Immutable signed snapshot (testing-*). For stable, empty promotes what testing serves
+        description: Immutable signed snapshot for the selected Fedora release. For 44 stable, empty promotes testing
         default: ''
       allow-downgrade:
         description: Allow a package version to go backwards (rollback); requires stable-promotion approval
@@ -20,6 +25,9 @@ on:
         default: false
   workflow_call:
     inputs:
+      fedora-release:
+        type: string
+        default: '44'
       channel:
         type: string
         required: true
@@ -49,6 +57,7 @@ jobs:
     permissions: {}
     steps:
       - env:
+          FEDORA_RELEASE: ${{ inputs.fedora-release || '44' }}
           CHANNEL: ${{ inputs.channel }}
           TAG: ${{ inputs.release-tag }}
         run: echo "Approved $CHANNEL change to ${TAG:-the current testing snapshot}." >> "$GITHUB_STEP_SUMMARY"
@@ -70,6 +79,7 @@ jobs:
         name: Authenticate every channel's snapshot and assemble the site
         env:
           GH_TOKEN: ${{ github.token }}
+          FEDORA_RELEASE: ${{ inputs.fedora-release || '44' }}
           CHANNEL: ${{ inputs.channel }}
           RELEASE_TAG: ${{ inputs.release-tag }}
           ALLOW_DOWNGRADE: ${{ inputs.allow-downgrade }}
@@ -78,10 +88,12 @@ jobs:
           set -euo pipefail
           flags=()
           [[ $ALLOW_DOWNGRADE != true ]] || flags=(--allow-downgrade)
-          python3 scripts/channel-site.py assemble --channel "$CHANNEL" --tag "$RELEASE_TAG" "${flags[@]}" \
+          python3 scripts/channel-site.py assemble --fedora-release "$FEDORA_RELEASE" --channel "$CHANNEL" --tag "$RELEASE_TAG" "${flags[@]}" \
             --min-soak-hours "$MIN_SOAK_HOURS" --site site --work "$RUNNER_TEMP/assemble" \
             --state-out channel-state.json | tee -a "$GITHUB_STEP_SUMMARY"
-          echo "tag=$(jq -r --arg c "$CHANNEL" '.channels[$c].tag' channel-state.json)" >> "$GITHUB_OUTPUT"
+          key=$CHANNEL
+          [[ $FEDORA_RELEASE == 44 ]] || key=$FEDORA_RELEASE/$CHANNEL
+          echo "tag=$(jq -r --arg c "$key" '.channels[$c].tag' channel-state.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: channel-state
@@ -122,14 +134,15 @@ jobs:
           name: channel-state
       - name: Record the channel change on the channels branch
         env:
+          FEDORA_RELEASE: ${{ inputs.fedora-release || '44' }}
           CHANNEL: ${{ inputs.channel }}
-        run: python3 scripts/channel-site.py record --channel "$CHANNEL" --state channel-state.json
+        run: python3 scripts/channel-site.py record --fedora-release "$FEDORA_RELEASE" --channel "$CHANNEL" --state channel-state.json
 
   images:
     # Optional (AUTO_IMAGES=true): rebuild the three images from the feed
     # testing now serves. Payloads and catalog adoption remain separate steps.
     needs: [assemble, record]
-    if: always() && needs.record.result == 'success' && inputs.channel == 'testing' && vars.AUTO_IMAGES == 'true'
+    if: always() && needs.record.result == 'success' && inputs.channel == 'testing' && (inputs.fedora-release == '44' || inputs.fedora-release == '') && vars.AUTO_IMAGES == 'true'
     runs-on: ubuntu-24.04
     permissions:
       actions: write

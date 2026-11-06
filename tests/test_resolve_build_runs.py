@@ -73,6 +73,31 @@ class ResolveTests(unittest.TestCase):
         self.commit()
         self.assertEqual(module.eligible_packages(self.root, self.run_record(1, self.first), REPOSITORY), set())
 
+    def test_published_snapshots_are_separate_for_each_fedora_release(self):
+        from unittest.mock import patch
+        releases = [{'tag_name': tag, 'created_at': stamp, 'draft': False, 'assets': []}
+                    for tag, stamp in [('testing-20261102.2', '2026-11-02T01:00:00Z'),
+                                       ('testing-f45-20261102.9', '2026-11-02T02:00:00Z')]]
+        with patch.object(module.lib, 'gh_api', return_value=releases):
+            self.assertEqual(module.published_runs(REPOSITORY), (set(), 'testing-20261102.2'))
+            self.assertEqual(module.published_runs(REPOSITORY, fedora=45), (set(), 'testing-f45-20261102.9'))
+        with self.assertRaisesRegex(ValueError, 'Fedora 45 snapshot'):
+            module.resolve(self.root, REPOSITORY, [], self.artifacts({}), set(), 'testing-f45-20261102.9')
+        with self.assertRaisesRegex(ValueError, 'this Fedora release'):
+            module.resolve(self.root, REPOSITORY, [], self.artifacts({}), set(), 'testing-20261102.2', fedora=45)
+
+    def test_f45_release_volume_cannot_hide_the_f44_base_snapshot(self):
+        from unittest.mock import patch
+        new = [{'tag_name': f'testing-f45-20261102.{n}', 'created_at': '2026-11-02T02:00:00Z',
+                'draft': False, 'assets': []} for n in range(100)]
+        old = {'tag_name': 'testing-20261102.7', 'created_at': '2026-11-02T01:00:00Z',
+               'draft': False, 'assets': []}
+        def api(endpoint):
+            return new if endpoint.endswith('&page=1') else [old]
+        with patch.object(module.lib, 'gh_api', side_effect=api) as read:
+            self.assertEqual(module.published_runs(REPOSITORY), (set(), old['tag_name']))
+            self.assertEqual(read.call_count, 2)
+
     def test_no_snapshot_and_no_builds_means_every_package_needs_a_build(self):
         plan = module.resolve(self.root, REPOSITORY, [], self.artifacts({}), set(), None)
         self.assertEqual(plan['action'], 'missing')

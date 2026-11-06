@@ -1,6 +1,6 @@
 Name: aurora-platform
 Version: 44
-Release: 15%{?dist}
+Release: 17%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -22,6 +22,7 @@ Source104: 60-aurora-dmi-vendor.hwdb
 Source105: usb4-module-setup.sh
 Source106: early-kms-module-setup.sh
 Source107: aurora-early-kms.sh
+Source108: aurora-grub-console
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -44,6 +45,7 @@ Requires: aurora-audio alsa-ucm-conf-aurora
 # 5.87 includes the upstream empty-TLV fix; retain real error reporting.
 Requires: bluez >= 5.87
 Requires: aurora-camera-denoise
+Requires: aurora-kbd-light
 # The Aurora repository with its key and dnf vendor policies, so a Fedora
 # Asahi Remix system with these services keeps following Aurora's builds.
 Requires: aurora-repos
@@ -53,8 +55,9 @@ The Apple Silicon hardware services that every Aurora system needs: the
 boot.bin assembler (update-m1n1), vendor firmware in the initramfs
 (dracut-asahi), firmware refresh (asahi-fwupdate), speaker protection
 (speakersafetyd and speakerguardd), the Aurora audio graphs and UCM
-profiles, and the noise filter for the built-in camera
-(aurora-camera-denoise). It installs no kernel, bootloader or release
+profiles, the noise filter for the built-in camera
+(aurora-camera-denoise), and the keyboard backlight that follows the ambient
+light sensor (aurora-kbd-light). It installs no kernel, bootloader or release
 identity, so it fits a Fedora Asahi Remix install whose kernel and boot
 chain are managed separately. It replaces asahi-platform-metapackage, whose
 -core subpackage requires the stock kernel-16k, and is protected from removal
@@ -73,6 +76,11 @@ install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwd
 install -Dm755 %{SOURCE105} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-usb4/module-setup.sh
 install -Dm755 %{SOURCE106} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/module-setup.sh
 install -Dm755 %{SOURCE107} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh
+install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-console
+
+%posttrans core
+# Fedora's flicker-free GRUB output, once per system; see the script.
+%{_libexecdir}/aurora/aurora-grub-console || :
 
 %files
 %{_docdir}/aurora-platform/
@@ -84,8 +92,19 @@ install -Dm755 %{SOURCE107} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
 %{_prefix}/lib/dracut/modules.d/91aurora-early-kms/
+%{_libexecdir}/aurora/aurora-grub-console
 
 %changelog
+* Thu Nov 05 2026 DjDeveloperr <hey@djdev.me> - 44-17
+- Require aurora-kbd-light, so the keyboard backlight follows the ambient
+  light sensor as on macOS.
+
+* Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-16
+- Switch GRUB_TERMINAL_OUTPUT from gfxterm to the console once per system
+  (aurora-grub-console), so GRUB no longer clears the boot logo. A
+  hand-maintained grub.cfg is left alone, and an owner who chooses gfxterm
+  again keeps it.
+
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-15
 - Coldplug the display first in the initramfs (91aurora-early-kms): trigger
   the Apple display subsystem, its DCPs, their device-link suppliers and the
