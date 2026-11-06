@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 18%{?dist}
+Release: 19%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -29,6 +29,7 @@ Source107: aurora-early-kms.sh
 Source108: aurora-grub-console
 Source109: aurora_platform.te
 Source110: 50-aurora-irqbalance.conf
+Source111: 62-aurora-gpu-render-only.rules
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -100,6 +101,7 @@ install -Dm644 %{SOURCE101} %{buildroot}%{_sysconfdir}/dnf/protected.d/aurora-pl
 install -Dm644 %{SOURCE102} %{buildroot}%{_unitdir}/var-swap-swapfile2.swap.d/50-after-swapfile.conf
 install -Dm644 %{SOURCE110} %{buildroot}%{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf
 install -Dm644 %{SOURCE103} %{buildroot}%{_udevrulesdir}/61-aurora-dmi-id.rules
+install -Dm644 %{SOURCE111} %{buildroot}%{_udevrulesdir}/62-aurora-gpu-render-only.rules
 install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 install -Dm755 %{SOURCE105} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-usb4/module-setup.sh
 install -Dm755 %{SOURCE106} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/module-setup.sh
@@ -131,6 +133,7 @@ install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-consol
 %dir %{_unitdir}/irqbalance.service.d
 %{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf
 %{_udevrulesdir}/61-aurora-dmi-id.rules
+%{_udevrulesdir}/62-aurora-gpu-render-only.rules
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
 %{_prefix}/lib/dracut/modules.d/91aurora-early-kms/
@@ -141,6 +144,12 @@ install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-consol
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Nov 06 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-19
+- Tag the GPU's render-only card mutter-device-ignore. It has no display
+  engine, so GNOME Shell failed to open it as a display on every login and
+  logged "Failed to open gpu" and a g_close EBADF. Mesa still renders on it
+  through the display card.
+
 * Fri Nov 06 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-18
 - Add aurora-platform-selinux, pulled in by aurora-platform-core on SELinux
   systems. It lets systemd inspect the kernel uevent socket it creates for
