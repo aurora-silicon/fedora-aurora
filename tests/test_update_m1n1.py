@@ -170,17 +170,39 @@ class UpdateM1n1(unittest.TestCase):
         self.assertIn('boot-ctxr.bin', result.stdout)
         self.assert_frozen()
 
+    def en_us(self):
+        """An en_US.UTF-8 locale that sorts these trees unlike C, built here when the system has none."""
+        environment = {'LC_ALL': 'en_US.UTF-8'}
+        names = subprocess.run(['locale', '-a'], capture_output=True, text=True).stdout.split()
+        if not any(name.lower().replace('-', '') == 'en_us.utf8' for name in names):
+            path = self.root / 'locales'
+            path.mkdir()
+            try:
+                subprocess.run(['localedef', '-i', 'en_US', '-f', 'UTF-8', str(path / 'en_US.UTF-8')],
+                               capture_output=True)
+            except OSError:
+                pass
+            if not (path / 'en_US.UTF-8').exists():
+                self.skipTest('en_US.UTF-8 is not installed and localedef could not build it')
+            environment['LOCPATH'] = str(path)
+        order = subprocess.run(['bash', '-c', 'printf "%s\\n" t6040-j616s*.dtb'], cwd=self.dtbs,
+                               env=dict(os.environ, **environment), capture_output=True, text=True).stdout
+        if order.split() != ['t6040-j616s.dtb', 't6040-j616s-tether.dtb']:
+            self.skipTest('this en_US.UTF-8 sorts the trees as C does, so it would prove nothing')
+        return environment
+
     def test_macho_stage2_holds_only_this_boards_trees_in_byte_order(self):
         self.monitor_free()
+        locale = self.en_us()
         # Arch's sh is bash, which sorts globs by locale.
         for shell in ('sh', 'bash'):
             with self.subTest(shell):
                 self.on('j700', 't8140')
-                self.assertEqual(self.run_update(shell=shell, LC_ALL='en_US.UTF-8').returncode, 0)
+                self.assertEqual(self.run_update(shell=shell, **locale).returncode, 0)
                 self.assertEqual(self.read_parts(self.ctxr),
                                  self.parts(['t8140-j700-ane-test.dtb', 't8140-j700.dtb']))
                 self.on('j616s', 't6040')
-                self.assertEqual(self.run_update(shell=shell, LC_ALL='en_US.UTF-8').returncode, 0)
+                self.assertEqual(self.run_update(shell=shell, **locale).returncode, 0)
                 self.assertEqual(self.read_parts(self.ctxr),
                                  self.parts(['t6040-j616s-tether.dtb', 't6040-j616s.dtb']))
 
@@ -188,8 +210,9 @@ class UpdateM1n1(unittest.TestCase):
         self.monitor_free()
         self.on('j616', 't6040')
         result = self.run_update()
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('no device tree for j616', result.stderr)
+        self.assertFalse(self.ctxr.exists())
 
     def test_macho_update_keeps_the_previous_ctxr_stage2(self):
         self.monitor_free()
@@ -233,14 +256,30 @@ class UpdateM1n1(unittest.TestCase):
         self.assertFalse(self.ctxr.exists())
 
     def test_macho_without_a_tree_for_the_board_changes_nothing(self):
+        # A warning, not a failure: kernel-install and the pacman hook run this.
         self.monitor_free()
         self.on('j873g', 't8152')
         result = self.run_update()
-        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('no device tree for j873g', result.stderr)
+        self.assertIn('left as it is', result.stderr)
         self.assert_frozen()
         self.assertFalse(self.ctxr.exists())
         self.assertFalse((self.esp / 'm1n1/boot-ctxr.bin.new').exists())
+
+    def test_a_ctxr_stage2_over_auras_slot_is_not_written(self):
+        self.monitor_free()
+        self.on('j700', 't8140')
+        self.assertEqual(self.run_update().returncode, 0)
+        first = self.ctxr.read_bytes()
+        (self.root / 'm1n1.bin').write_bytes(b'\0' * (16 << 20))
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('16 MiB', result.stderr)
+        self.assertEqual(self.ctxr.read_bytes(), first)
+        self.assertFalse((self.esp / 'm1n1/boot-ctxr.bin.new').exists())
+        self.assertFalse((self.esp / 'm1n1/boot-ctxr.bin.old').exists())
+        self.assert_frozen()
 
     def test_earlier_chips_are_the_same_with_and_without_the_marker(self):
         for marked in (False, True):
@@ -380,24 +419,64 @@ class Recipes(unittest.TestCase):
         self.assertRegex(SPEC.read_text(), r'(?m)^Provides: aurora-stage2-ctxr-slot = 1$')
         self.assertRegex((ROOT / 'packages/aura/aura.spec').read_text(), r'(?m)^Requires: .*\baurora-stage2-ctxr-slot\b')
 
-    def marker_step(self):
-        text = (ROOT / 'packages/aura/aura.spec').read_text()
-        step = re.search(r'(?ms)^if \[ -f src/ctxr_exec\.c.*?^fi$', text)[0]
-        return step.replace('%{buildroot}', '$buildroot').replace('%{_datadir}', '/usr/share')
+    def spec(self, package):
+        return (ROOT / 'packages' / package / (package + '.spec')).read_text()
 
-    def test_the_aura_recipe_installs_the_marker_from_the_pinned_source(self):
-        marker = 'usr/share/aura/monitor-free'
-        cases = {'monitor': (('monitor.c',), False), 'monitor-free': (('ctxr_exec.c',), True),
-                 'both': (('monitor.c', 'ctxr_exec.c'), True), 'renamed': (('other.c',), True)}
-        for name, (files, expected) in cases.items():
-            with self.subTest(name), tempfile.TemporaryDirectory() as temporary:
-                root = Path(temporary)
-                (root / 'src').mkdir()
-                for file in files:
-                    (root / 'src' / file).write_text('')
-                subprocess.run(['bash', '-euc', self.marker_step()], cwd=root, check=True,
-                               env=dict(os.environ, buildroot=str(root / 'pkg')))
-                self.assertEqual((root / 'pkg' / marker).exists(), expected)
+    def macro(self, package, name):
+        return int(re.search(rf'(?m)^%global {name} ([01])$', self.spec(package))[1])
+
+    def step(self, package, start, end):
+        """The lines of a spec from the one starting `start` to the next one equal to `end`."""
+        return re.search(rf'(?ms)^{re.escape(start)}.*?^{re.escape(end)}$', self.spec(package))[0]
+
+    def test_an_aura_without_the_monitor_needs_a_kernel_that_keeps_its_code_in_the_window(self):
+        # Both macros are checked against the pinned source and the resolved
+        # configuration when the packages build, so this is what they ship.
+        if self.macro('aura', 'monitor_free'):
+            self.assertEqual(self.macro('kernel-aurora', 'ctxr_execmem'), 1,
+                             'aura without the monitor needs CONFIG_ARM64_CTXR_EXECMEM=y')
+        config = (ROOT / 'packages/kernel-aurora/config').read_text().splitlines()
+        self.assertIn('CONFIG_ARM64_CTXR_EXECMEM=y', config)
+
+    def test_the_macros_become_the_requirement_and_its_provider(self):
+        self.assertIn('%if %{monitor_free}\nRequires: aurora-ctxr-execmem\n%endif\n', self.spec('aura'))
+        kernel = self.spec('kernel-aurora')
+        core = kernel.split('%package core', 1)[1].split('%package', 1)[0]
+        self.assertIn('%if %{ctxr_execmem}\nProvides: aurora-ctxr-execmem\n%endif\n', core)
+        self.assertIn('%if %{monitor_free}\ninstall -Dm644 /dev/null %{buildroot}%{_datadir}/aura/monitor-free\n%endif',
+                      self.spec('aura'))
+
+    def test_the_kernel_spec_refuses_a_macro_its_configuration_disagrees_with(self):
+        check = self.step('kernel-aurora', 'ctxr=0', 'fi')
+        for line, value, ok in (('CONFIG_ARM64_CTXR_EXECMEM=y', 1, True), ('', 0, True),
+                                ('CONFIG_ARM64_CTXR_EXECMEM=y', 0, False), ('', 1, False)):
+            with self.subTest(line=line, value=value), tempfile.TemporaryDirectory() as temporary:
+                (Path(temporary) / '.config').write_text(line + '\n')
+                result = subprocess.run(['sh', '-ec', check.replace('%{ctxr_execmem}', str(value))],
+                                        cwd=temporary, capture_output=True, text=True)
+                self.assertEqual(result.returncode == 0, ok, result.stderr)
+
+    def test_the_aura_spec_refuses_a_macro_the_pinned_source_disagrees_with(self):
+        check = self.step('aura', 'found=0', 'fi')
+        cases = {'monitor': (('monitor.c',), 0), 'monitor-free': (('ctxr_exec.c',), 1),
+                 'both': (('monitor.c', 'ctxr_exec.c'), 1), 'renamed': (('other.c',), 1)}
+        for name, (files, source) in cases.items():
+            for value in (0, 1):
+                with self.subTest(name, value=value), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    (root / 'src').mkdir()
+                    for file in files:
+                        (root / 'src' / file).write_text('')
+                    result = subprocess.run(['sh', '-ec', check.replace('%{monitor_free}', str(value))],
+                                            cwd=root, capture_output=True, text=True)
+                    self.assertEqual(result.returncode == 0, value == source, result.stderr)
+
+    def test_the_package_keeps_the_upstream_license(self):
+        spec = SPEC.read_text()
+        self.assertRegex(spec, r'(?m)^Source3: LICENSE$')
+        self.assertRegex(spec, r'(?m)^%license LICENSE$')
+        self.assertIn('Copyright The Asahi Linux Contributors',
+                      (ROOT / 'packages/update-m1n1/LICENSE').read_text())
 
     def test_the_tool_and_the_recipe_agree_on_the_marker_path(self):
         self.assertIn('/usr/share/aura/monitor-free', SCRIPT.read_text())
@@ -415,7 +494,6 @@ class Recipes(unittest.TestCase):
         self.assertLess(finalize, ctxr)
         self.assertLess(ctxr, archive)
 
-
     def test_image_build_adds_the_ctxr_files_only_with_the_marker(self):
         text = (ROOT / 'scripts/build-image').read_text()
         mount = text.index('"$installer/root.img" "$basics_root"')
@@ -425,6 +503,7 @@ class Recipes(unittest.TestCase):
         self.assertLess(mount, guarded)
         self.assertLess(guarded, unmount)
         self.assertEqual(text.count('prepare-ctxr-stage2.py'), 1)
+
 
 if __name__ == '__main__':
     unittest.main()

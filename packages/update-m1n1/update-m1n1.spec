@@ -12,6 +12,7 @@ BuildArch: noarch
 Source0: update-m1n1
 Source1: update-m1n1.sysconfig
 Source2: 15-update-m1n1.install
+Source3: LICENSE
 BuildRequires: systemd-rpm-macros
 Requires: asahi-scripts
 Requires: bash
@@ -32,6 +33,8 @@ monitor, a Mac that boots a Mach-O Stage 1 gets only its own device trees, in
 m1n1/boot-ctxr.bin.
 
 %prep
+cp -p %{SOURCE3} .
+
 %build
 
 %install
@@ -44,6 +47,7 @@ install -Dpm0755 -t %{buildroot}%{_kernel_install_dir} %{SOURCE2}
 %{_sbindir}/update-m1n1 || :
 
 %files
+%license LICENSE
 %config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1
 %{_kernel_install_dir}/15-update-m1n1.install
 %{_sbindir}/update-m1n1

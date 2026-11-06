@@ -51,9 +51,17 @@ updates trigger `update-m1n1` through RPM file triggers on `/usr/lib64/m1n1` and
 `update-m1n1` is Aurora's package (`packages/update-m1n1`), Fedora's script with the change below; the
 `priority=1` repository and the vendor policies move an installed system to it, and `aura` requires it.
 
-The aura package ships `/usr/share/aura/monitor-free` once its pinned source has no monitor. Its recipe
-checks for `src/ctxr_exec.c` or a missing `src/monitor.c`, so the aura#77 pin turns it on by itself. Until
-then every Mac updates `boot.bin`.
+The aura package ships `/usr/share/aura/monitor-free` once its pinned source has no monitor. `aura.spec`
+declares that in `%global monitor_free`, and `%prep` refuses a source that disagrees (`src/ctxr_exec.c`, or
+no `src/monitor.c`), so the aura#77 pin has to set it. Until then every Mac updates `boot.bin`.
+
+Such an aura moves the kernel into the CTXR window, which only a kernel built with
+`CONFIG_ARM64_CTXR_EXECMEM` keeps its code inside. With `monitor_free` 1, aura requires
+`aurora-ctxr-execmem`, which `kernel-aurora-core` provides when `kernel-aurora.spec` sets `ctxr_execmem` 1.
+Its `%build` checks that against the resolved configuration, so it can be set only with a kernel pin that
+has aurora-silicon/linux#985. `tests/test_update_m1n1.py` fails if `monitor_free` is set without it.
+`packages/kernel-aurora/config` already carries `CONFIG_ARM64_CTXR_EXECMEM=y`; until the pin has the
+option, Kconfig drops it.
 
 With the marker, a Mac that boots a Mach-O Stage 1 (`/proc/device-tree/compatible` names one of the chips
 in the installer's `AuraStage1Format.usesMachO`: T8130 and later, T6040 and later) gets
