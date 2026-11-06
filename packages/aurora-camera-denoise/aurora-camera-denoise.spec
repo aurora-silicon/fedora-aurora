@@ -51,6 +51,7 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_userpresetdir}/80-aurora-camera-denoise
 %doc README.md docs/
 %{_bindir}/aurora-camera-denoise
 %{_bindir}/aurora-camera-denoise-bench
+%{_bindir}/aurora-camera-denoise-compare
 %{_bindir}/aurora-camera-denoise-metrics
 %{_datadir}/aurora-camera-denoise/
 %dir %{_libdir}/aurora-camera-denoise
