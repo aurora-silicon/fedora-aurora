@@ -3,7 +3,7 @@
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 18%{?dist}.aurora
+Release: 19%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -133,6 +133,10 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Fri Nov 06 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-19
+- Defer the fbcon takeover, as Fedora's own kernel does. A quiet boot no
+  longer shows a text cursor between the boot loader's logo and the splash.
+
 * Fri Nov 06 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-18
 - Require aura 1.0.0~b5 or later. This kernel takes each SN012776 amp's
   level, brownout and DC blocker settings from the DT that aura 1.0.0b5
