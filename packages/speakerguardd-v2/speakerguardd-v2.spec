@@ -66,6 +66,9 @@ provisioning and the self-check keep the parameter blob and their records.
 # The policy module is upstream's (packaging/selinux); the file contexts are
 # this package's, for the paths it installs to.
 cp -p packaging/selinux/%{modulename}.te .
+# The kernel's "Speaker Protection" lock and lease writes need CAP_SYS_ADMIN
+# (-EPERM otherwise): the policy must grant it to the supervisor's domain.
+grep -qx 'allow speakerguardd_t self:capability sys_admin;' %{modulename}.te
 cp -p %{SOURCE2} .
 cp -p %{SOURCE4} README.packaging.md
 
@@ -119,6 +122,7 @@ done
 grep -qx "ExecStart=$lx/speakerguardd \$SGV2_ARGS" speakerguardd-v2.service
 grep -qx 'Requires=speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service' speakerguardd-v2.service
 grep -q '^After=.*speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service' speakerguardd-v2.service
+grep -Eq '^CapabilityBoundingSet=.*\bCAP_SYS_ADMIN\b' speakerguardd-v2.service
 grep -qx 'Requires=speakerguardd-v2-provision.service' speakerguardd-v2-selfcheck.service
 grep -qx 'Before=speakerguardd-v2-selfcheck.service speakerguardd-v2.service' speakerguardd-v2-provision.service
 grep -qx "ExecStart=$lx/speakerguardd-provision run" speakerguardd-v2-provision.service
