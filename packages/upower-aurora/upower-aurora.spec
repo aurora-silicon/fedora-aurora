@@ -1,4 +1,4 @@
-%global commit ec0b67ff412d97b16629614edc4decbb34d05983
+%global commit d8a24ffc5b9a49f71a28517f7c8b92b16701597a
 Name: upower
 Epoch: 1
 Version: 1.91.5
