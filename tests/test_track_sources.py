@@ -78,6 +78,24 @@ class FedoraSpecTests(unittest.TestCase):
         self.assertTrue(any(re.fullmatch(pattern, f'packages/{name}/{name}.spec')
                             for pattern in module.PATCH_PATHS))
 
+    def test_mesa_moves_its_fedora45_overlays_with_it(self):
+        name = module.GUEST
+        shutil.copytree(ROOT / 'packages' / name, self.root / 'packages' / name)
+        shutil.copy(ROOT / 'sources.json', self.root / 'sources.json')
+        module.update_recipe(self.root, self.item('mesa-aurora', version='26.3.0'), TODAY)
+        host = self.spec('mesa-aurora')
+        overlay = (self.root / 'packages/mesa-aurora/f45/mesa-aurora.spec').read_text()
+        guest = (self.root / 'packages' / name / 'f45' / f'{name}.spec').read_text()
+        self.assertIn(f'%global commit {NEW}\n', overlay)
+        self.assertEqual(module.tl.spec_field(overlay, 'Release'), module.tl.spec_field(host, 'Release'))
+        self.assertRegex(overlay, r'(?m)^Epoch: 1$')
+        release = module.tl.spec_field(host, 'Release').split('%')[0]
+        self.assertIn(f'%changelog\n* Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - 1:26.3.0-{release}\n', overlay)
+        self.assertIn(f'%{{!?commit:%global commit {NEW}}}\n', guest)
+        self.assertIn('%{!?host_release:%global host_release ' + module.tl.spec_field(host, 'Release') + '}\n', guest)
+        for path in ('packages/mesa-aurora/f45/mesa-aurora.spec', f'packages/{name}/f45/{name}.spec'):
+            self.assertTrue(any(re.fullmatch(pattern, path) for pattern in module.PATCH_PATHS))
+
     def test_a_release_label_is_dropped_when_the_pin_moves(self):
         spec = self.root / 'packages/aura/aura.spec'
         head, marker, history = spec.read_text().partition('\n%changelog\n')

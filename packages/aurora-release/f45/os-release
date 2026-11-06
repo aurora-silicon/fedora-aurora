@@ -1,0 +1,13 @@
+NAME="Aurora Fedora Remix"
+VERSION="45"
+ID=fedora
+VERSION_ID=45
+PRETTY_NAME="Aurora Fedora Remix 45"
+ANSI_COLOR="0;38;2;129;95;255"
+LOGO=aurora-logo-icon
+HOME_URL="https://aurorasilicon.org"
+SUPPORT_URL="https://github.com/aurora-silicon/fedora-aurora/issues"
+BUG_REPORT_URL="https://github.com/aurora-silicon/fedora-aurora/issues"
+VARIANT="Aurora Remix"
+VARIANT_ID=aurora
+DEFAULT_HOSTNAME=aurora
