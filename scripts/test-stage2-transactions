@@ -8,6 +8,7 @@ proof=${1:?proof directory}
 # shellcheck disable=SC1091
 [[ $(. /etc/os-release; echo "$VERSION_ID") == 44 ]]
 mkdir -p "$proof"
+BOOTCHAIN_HOST_OWNER=${BOOTCHAIN_HOST_OWNER:-$(stat -c '%u:%g' "$PWD")}
 cleanup() {
     if [[ -n ${BOOTCHAIN_HOST_OWNER:-} ]]; then
         chown -R "$BOOTCHAIN_HOST_OWNER" "$PWD" "$proof"
