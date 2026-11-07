@@ -72,9 +72,9 @@ Name:           pipewire
 Summary:        Media Sharing Server
 Version:        %{majorversion}.%{minorversion}.%{microversion}
 # Fedora's release plus a suffix, so this sorts above the Fedora 1.6.9 build
-# it replaces (1.fc44 < 1.fc44.aurora3). Hold it with a versionlock: a newer
+# it replaces (1.fc44 < 1.fc44.aurora4). Hold it with a versionlock: a newer
 # Fedora PipeWire would replace it and drop these patches.
-Release:        %{baserelease}%{?snapdate:.%{snapdate}git%{shortcommit}}%{?dist}.aurora3
+Release:        %{baserelease}%{?snapdate:.%{snapdate}git%{shortcommit}}%{?dist}.aurora4
 Vendor:         Aurora Silicon
 # PipeWire is generally MIT but includes plugins using libraries under other licenses.
 # See the module specific License for details.
@@ -103,6 +103,11 @@ Patch1004:      1004-module-raop-sink-give-up-on-a-session-that-never-rea.patch
 # run (0 or stale) and never updated it, so filter-chain speakers reported
 # the wrong delay to clients that schedule audio by it.
 Patch1005:      1005-filter-graph-follow-plugin-latency-after-activation.patch
+# filter-graph let the converter apply the volume a second time in software
+# after an update that repeated the current volume or mute state (a desktop
+# re-sending the slider, an unmute of an unmuted sink), so speakers dropped
+# by the volume again (-31 dB at a 30 % slider) until the next real change.
+Patch1006:      1006-filter-graph-keep-the-software-volume-at-unity-on-ev.patch
 
 ## upstream patches
 
@@ -954,6 +959,11 @@ systemctl --no-reload preset --global pipewire.socket >/dev/null 2>&1 || :
 %{_datadir}/pipewire/pipewire.conf.d/50-raop.conf
 
 %changelog
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.6.9-1.aurora4
+- filter-graph: keep the software volume at unity on every volume or mute
+  update, so the volume is not applied twice after a repeated value, with
+  a test
+
 * Sun Oct 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.6.9-1.aurora3
 - filter-graph: keep the published latency in step with what the plugins
   report after they start running, with a test
