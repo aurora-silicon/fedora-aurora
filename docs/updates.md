@@ -53,7 +53,7 @@ updates trigger `update-m1n1` through RPM file triggers on `/usr/lib64/m1n1` and
 
 The aura package ships `/usr/share/aura/monitor-free` once its pinned source has no monitor. `aura.spec`
 declares that in `%global monitor_free`, and `%prep` refuses a source that disagrees (`src/ctxr_exec.c`, or
-no `src/monitor.c`). aura 1.0.0b6 is the first pin without the monitor (aura#77), so `monitor_free` is 1.
+no `src/monitor.c`). aura 1.0.0b7 is the first pin without the monitor (aura#77), so `monitor_free` is 1.
 
 Such an aura moves the kernel into the CTXR window, which only a kernel built with
 `CONFIG_ARM64_CTXR_EXECMEM` keeps its code inside. With `monitor_free` 1, aura requires
