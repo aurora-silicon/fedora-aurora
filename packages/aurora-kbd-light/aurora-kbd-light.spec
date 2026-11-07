@@ -1,3 +1,4 @@
+# CI test only (fedora-aurora#203), never merge.
 %global commit 727076b83eb65b0162317a9e2fa0ba850df1f5ca
 Name: aurora-kbd-light
 Version: 0.1.0
