@@ -14,8 +14,10 @@ with the usual `speakerguardd-FULL_SOURCE_SHA/` archive prefix. Build in the
 board's Fedora aarch64 container with the existing build requirements and
 Aurora Silicon vendor. Allowed boards are j616s, j316s and j413; the upstream
 generator rejects other names. The release is
-`0.13.planA.BOARD.DATEgitSHA.fcNN`, separate from fleet releases. Snapshot
-revisions remain distinguishable by their source SHA.
+`0.13.DATE.1.planA.BOARD.gitSHA.fcNN`, separate from fleet releases. The numeric serial sorts above the same-date
+fleet snapshot; use `--define 'plan_a_serial 2'` (then 3, etc.) for respins
+so ordering does not depend on the source SHA. See the
+[RPM version rules](https://rpm.org/docs/6.1.x/man/rpm-version.7).
 
 The j413 macro automatically enables `sgv2-core/lowflow-conservative` for
 both the workspace build (compiler and plugin), tests and blob-info. The

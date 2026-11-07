@@ -1,6 +1,7 @@
 %{!?commit:%global commit 6d13c704202e7aec7cbe552f6fc3612259a372c4}
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %{!?snapdate:%global snapdate 20261107}
+%{!?plan_a_serial:%global plan_a_serial 1}
 # Optional, isolated test RPM. No macro means the unchanged fleet recipe.
 %if %{defined plan_a_board}
 %if "%{plan_a_board}" == "j413"
@@ -14,7 +15,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.13.%{?plan_a_board:planA.%{plan_a_board}.}%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.13.%{snapdate}%{?plan_a_board:.%{plan_a_serial}.planA.%{plan_a_board}.}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
