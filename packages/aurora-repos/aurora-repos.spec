@@ -1,6 +1,6 @@
 Name: aurora-repos
 Version: 44
-Release: 4%{?dist}
+Release: 5%{?dist}
 Summary: Aurora Silicon package repository, signing key and dnf vendor policies
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -45,6 +45,10 @@ install -Dm644 %{SOURCE105} %{buildroot}/usr/share/dnf5/repos.override.d/50-auro
 /usr/share/dnf5/repos.override.d/50-aurora.repo
 
 %changelog
+* Sat Nov 07 2026 Diljit Singh <hey@djdev.me> - 44-5
+- Keep aurora-xart on Aurora's own vendor policy, like the other Aurora
+  packages.
+
 * Thu Nov 05 2026 DjDeveloperr <hey@djdev.me> - 44-4
 - Keep aurora-kbd-light on Aurora's own vendor policy, like the other Aurora
   packages.
