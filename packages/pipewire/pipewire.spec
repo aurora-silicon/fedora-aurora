@@ -72,9 +72,9 @@ Name:           pipewire
 Summary:        Media Sharing Server
 Version:        %{majorversion}.%{minorversion}.%{microversion}
 # Fedora's release plus a suffix, so this sorts above the Fedora 1.6.9 build
-# it replaces (1.fc44 < 1.fc44.aurora4). Hold it with a versionlock: a newer
+# it replaces (1.fc44 < 1.fc44.aurora5). Hold it with a versionlock: a newer
 # Fedora PipeWire would replace it and drop these patches.
-Release:        %{baserelease}%{?snapdate:.%{snapdate}git%{shortcommit}}%{?dist}.aurora4
+Release:        %{baserelease}%{?snapdate:.%{snapdate}git%{shortcommit}}%{?dist}.aurora5
 Vendor:         Aurora Silicon
 # PipeWire is generally MIT but includes plugins using libraries under other licenses.
 # See the module specific License for details.
@@ -108,6 +108,11 @@ Patch1005:      1005-filter-graph-follow-plugin-latency-after-activation.patch
 # re-sending the slider, an unmute of an unmuted sink), so speakers dropped
 # by the volume again (-31 dB at a 30 % slider) until the next real change.
 Patch1006:      1006-filter-graph-keep-the-software-volume-at-unity-on-ev.patch
+# A driver that refuses snd_pcm_start by policy (macaudio while speaker
+# protection is not granted, right after a resume) got a retry and an error
+# line on every write, ~700 in 30 ms: wait one period between attempts and
+# report a refusal at most once per 5 s.
+Patch1007:      1007-alsa-back-off-a-refused-snd_pcm_start-and-rate-limit.patch
 
 ## upstream patches
 
@@ -959,6 +964,10 @@ systemctl --no-reload preset --global pipewire.socket >/dev/null 2>&1 || :
 %{_datadir}/pipewire/pipewire.conf.d/50-raop.conf
 
 %changelog
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.6.9-1.aurora5
+- alsa: wait one period before retrying a refused snd_pcm_start and report
+  refusals at most once per 5 s (-EPERM at info level)
+
 * Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.6.9-1.aurora4
 - filter-graph: keep the software volume at unity on every volume or mute
   update, so the volume is not applied twice after a repeated value, with
