@@ -128,7 +128,10 @@ cmp "$proof/stage2-first.bin" /boot/efi/m1n1/boot.bin.old
 before=$(sha256sum /boot/efi/m1n1/boot.bin)
 # A real RPM transaction invokes the actual core %posttrans, which must refuse
 # generation 2 while both generation 1 fallback kernels remain installed.
-dnf install -y "$rpms"/aarch64/kernel-aurora-core-7.3.0-3.stage2.aarch64.rpm > "$proof/generation-refusal.log" 2>&1
+dnf_rc=0
+dnf install -y "$rpms"/aarch64/kernel-aurora-core-7.3.0-3.stage2.aarch64.rpm > "$proof/generation-refusal.log" 2>&1 || dnf_rc=$?
+printf '%s\n' "$dnf_rc" > "$proof/generation-dnf-rc.txt"
+rpm -q kernel-aurora-core-7.3.0-3.stage2.aarch64 >> "$proof/generation-refusal.log"
 grep -F 'generation 1' "$proof/generation-refusal.log"
 [[ $(sha256sum /boot/efi/m1n1/boot.bin) == "$before" ]]
 [[ $(readlink /boot/dtb) == dtb-7.3.0-2.stage2.aarch64 ]]
