@@ -1,4 +1,4 @@
-%global commit aab11591fec7723b58db9386da031f67cd74f13c
+%global commit 83ae1899d0a70e84cb464b8443a3458408b2d28e
 Name: aurora-xart
 Version: 0.1.0
 Release: 1%{?dist}
@@ -40,5 +40,5 @@ make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
 
 %changelog
 * Sat Nov 07 2026 Diljit Singh <hey@djdev.me> - 0.1.0-1
-- Package aurora-xart aab11591fec7: status, list and reset-touchid for the
-  Linux side of the Secure Enclave and xART state.
+- Package aurora-xart 0.1.0 (tag v0.1.0, 83ae1899d0a7): status, list and
+  reset-touchid for the Linux side of the Secure Enclave and xART state.
