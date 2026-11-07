@@ -14,8 +14,8 @@ Name:           libfprint
 Version:        1.94.100
 # Keep the Aurora driver/account gate ahead of stock Fedora updates.
 Epoch:          1
-# aurora9: retry causes and the finger-lift wait reach fprintd; lockout named.
-Release:        1%{?dist}.aurora9
+# aurora10: the Touch ID lockout reaches fprintd as FP_DEVICE_ERROR_LOCKED_OUT.
+Release:        1%{?dist}.aurora10
 Summary:        Toolkit for fingerprint scanner
 
 # Automatically converted from old format: LGPLv2+ - review is highly recommended.
@@ -58,6 +58,9 @@ Patch1005:      0006-aurora-report-finger-lift-and-lockout.patch
 # Map the kernel's retry causes onto specific fprintd prompts, and keep
 # waiting for a finger after the kernel's capture timeout as macOS does.
 Patch1006:      0007-aurora-name-retry-causes-and-keep-waiting.patch
+# Report the Touch ID lockout (kernel status LOCKOUT) as the new
+# FP_DEVICE_ERROR_LOCKED_OUT, so fprintd sends the user to the password.
+Patch1007:      0008-aurora-report-the-touch-id-lockout-as-locked-out.patch
 
 BuildRequires:  meson
 BuildRequires:  gcc
@@ -83,6 +86,8 @@ BuildRequires:  bzip2
 
 Provides:       libfprint(aurora-sep) = 4
 Provides:       libfprint(aurora-sep) = 5
+# FP_DEVICE_ERROR_LOCKED_OUT; fprintd's lockout patch builds against it.
+Provides:       libfprint(aurora-sep-lockout) = 1
 # Pull in the SELinux module wherever the targeted policy is installed.
 Requires:       (%{name}-selinux = %{epoch}:%{version}-%{release} if selinux-policy-targeted)
 
@@ -186,6 +191,10 @@ python3 %{SOURCE1003} libfprint/drivers/aurora/aurora.c %{SOURCE1000}
 %{_datadir}/installed-tests/libfprint-2/
 
 %changelog
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1:1.94.100-1.aurora10
+- Report the Touch ID lockout as FP_DEVICE_ERROR_LOCKED_OUT, so fprintd sends
+  the user to the password instead of an unknown error
+
 * Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 1:1.94.100-1.aurora9
 - Say why a capture did not count (centre the finger, hold still, wipe or
   dry, lift and touch again) and keep waiting for a finger after the kernel

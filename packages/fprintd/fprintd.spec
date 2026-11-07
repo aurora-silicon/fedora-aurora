@@ -2,13 +2,14 @@ Name:		fprintd
 Version:	1.94.5
 # Keep the Aurora driver/account gate ahead of stock Fedora updates.
 Epoch:          1
-Release:	99%{?dist}.aurora1
+Release:	99%{?dist}.aurora2
 Summary:	D-Bus service for Fingerprint reader access
 
 # man page is GFDL-1.1-or-later
 License:	GPL-2.0-or-later AND GFDL-1.1-or-later
 Source0:	fprintd-v%{version}.tar.gz
 Patch0:	0001-preserve-print-on-device-delete-failure.patch
+Patch1:	0002-report-lockout-and-fall-back-to-the-password.patch
 Source1:	test_account_gate.py
 Url:		http://www.freedesktop.org/wiki/Software/fprint/fprintd
 
@@ -18,6 +19,8 @@ BuildRequires:	gcc-c++
 BuildRequires:	git
 BuildRequires:	pam-devel
 BuildRequires:	libfprint-devel >= 1.94.0
+# FP_DEVICE_ERROR_LOCKED_OUT
+BuildRequires:	libfprint(aurora-sep-lockout)
 BuildRequires:	polkit-devel
 BuildRequires:	gtk-doc
 BuildRequires:	gettext
@@ -29,6 +32,7 @@ BuildRequires:	python3-dbusmock
 BuildRequires:	python3-libpamtest
 Provides:	fprintd(aurora-sep) = 1
 Requires:	libfprint(aurora-sep) >= 5
+Requires:	libfprint(aurora-sep-lockout)
 
 
 %description
@@ -107,6 +111,10 @@ fi
 %{_datadir}/dbus-1/interfaces/net.reactivated.Fprint.Manager.xml
 
 %changelog
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1:1.94.5-99.aurora2
+- Report a reader lockout as verify-lockout; pam_fprintd then asks for the
+  password at once
+
 * Sat Oct 31 2026 Aurora Silicon contributors - 1:1.94.5-99.aurora1
 - Build natively for Fedora 45 and upgrade stock and fc44 Aurora packages
 - Qualify matching subpackage dependencies with the epoch
