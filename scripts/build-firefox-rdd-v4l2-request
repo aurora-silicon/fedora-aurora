@@ -67,7 +67,7 @@ if [[ $source_only == 1 ]]; then
     --define "_smp_build_ncpus $jobs" --define "_smp_mflags -j$jobs" \
     "$top/SPECS/firefox.spec"
 else
-  dnf builddep -y "${extra[@]}" "$top/SPECS/firefox.spec"
+  dnf builddep -y ${AURORA_DNF_EXTRA:-} "${extra[@]}" "$top/SPECS/firefox.spec"
   rpmbuild -bb --noclean --with avd_request "${extra[@]}" --define "_topdir $top" \
     --define "_smp_build_ncpus $jobs" --define "_smp_mflags -j$jobs" \
     "$top/SPECS/firefox.spec"
