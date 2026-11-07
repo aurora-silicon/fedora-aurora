@@ -11,13 +11,12 @@ ExclusiveArch: aarch64
 BuildRequires: gcc meson ninja-build pkgconf-pkg-config python3 libtsan
 BuildRequires: kernel-headers >= 6.5
 BuildRequires: pkgconfig(libva) pkgconfig(libdrm)
-Requires: libva%{?_isa}
 
 %description
 VA-API decode driver for stateless V4L2 Request API devices, pinned to the
 public AVD fixes branch. The package installs the explicit v4l2_request driver
-and an asahi loader alias; it does not install firmware, browser preferences,
-environment overrides, or sandbox exceptions.
+and an automatic render-node alias; it does not install firmware, browser
+preferences, environment overrides, or sandbox exceptions.
 
 %prep
 %autosetup -n libva-v4l2_request-%{commit} -p1
@@ -47,7 +46,7 @@ ln -s v4l2_request_drv_video.so \
 %{_libdir}/dri/aurora_drv_video.so
 
 %changelog
-* Sat Nov 07 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.3.r11-1
+* Sat Nov 07 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.3.r11-1.aurora
 - Package the hardware-qualified AVD VA-API driver system-wide.
 - Select it automatically for the AGX render node through relative aliases
   for both render-node driver names (asahi, aurora).

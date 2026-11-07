@@ -36,6 +36,10 @@ them in software. `FEX_HOSTFEATURES=disableapflg` turns it off.
 
 ## Root filesystem
 
+fex-emu mounts `fex-emu-rootfs-fedora`'s image at /usr/share/guestos/fex-mesa,
+the lower layer of mesa-aurora-fex-guest's graphics provider, which Steam's
+FEX titles use for the G17P Mesa (unless a provider tree is already there).
+
 `fex-emu-rootfs-fedora` from Fedora provides the x86 root filesystem. FEX
 reads it from /usr/share/fex-emu/RootFS; `FEXRootFSFetcher` (fex-emu-utils)
 can fetch others.
