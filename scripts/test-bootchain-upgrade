@@ -207,7 +207,10 @@ grep -F "sudo dnf remove '/usr/lib/modules/7.1-legacy/vmlinuz' '/usr/lib/modules
 rm -r /usr/lib/modules/7.1-legacy
 # Same-generation retained kernels must pass despite different board DTBs.
 install -m644 packages/kernel-aurora/dtb-abi "/usr/lib/modules/$old/dtb-abi"
-! cmp -s "/usr/lib/modules/$old/dtb/apple/t8112-j413.dtb" "/usr/lib/modules/$new/dtb/apple/t8112-j413.dtb"
+if cmp -s "/usr/lib/modules/$old/dtb/apple/t8112-j413.dtb" "/usr/lib/modules/$new/dtb/apple/t8112-j413.dtb"; then
+  echo 'Expected different DTBs for the same-generation retained kernels' >&2
+  exit 1
+fi
 update-m1n1 > "$proof/candidate-same-generation.log" 2>&1
 rpm -q kernel-aurora-core > "$proof/same-generation-kernels.txt"
 [[ $(wc -l < "$proof/same-generation-kernels.txt") == 2 ]]
