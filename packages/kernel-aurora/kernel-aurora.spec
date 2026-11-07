@@ -1,4 +1,4 @@
-%global commit 4731456d979107bfed16316fea45378d9de7d1da
+%global commit faa58a8a38c25bcb55d2bdcef7549abedea2a182
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 21%{?dist}.aurora
+Release: 22%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -147,6 +147,19 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Sat Nov 07 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-22
+- Track aurora-silicon/linux integration/aurora at faa58a8 for the CTXR
+  follow-ups (#1079): /sys/kernel/execmem_confine/ reports the window and
+  its pool, crashkernel= is skipped while a window is active, the device
+  tree's window wins over a ctxr_exec_window= that doesn't match it, and an
+  oops names the window when a kernel fetch outside it faults.
+- Also device-tree syncs (#1029, #1030, #1034, #1086), the Stockholm NFC
+  controller driver, which reads its identity and powers it off (#1042),
+  a Touch ID lockout that a password re-arms (#904), the TAS2764 init
+  quirks again after a resume that reset the amp (#1080), a brcmfmac
+  flowring count fix (#1081), and G17 GPU submit and recovery changes
+  (#1075, #1076).
+
 * Sat Nov 07 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-21
 - Provide aurora-ctxr-execmem. The 4731456 kernel is built with
   CONFIG_ARM64_CTXR_EXECMEM (#985), which an aura without the monitor
