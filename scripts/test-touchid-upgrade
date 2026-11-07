@@ -32,6 +32,8 @@ import sys
 
 names = ('aurora-sep', 'aurora-sep-selinux', 'libfprint', 'libfprint-selinux',
          'libfprint-devel', 'libfprint-tests', 'fprintd', 'fprintd-pam', 'fprintd-devel')
+# Required by aurora-sep and new on both baselines.
+deps = ('aurora-xart',)
 transaction = rpm.TransactionSet()
 headers = {}
 repo = Path('/tmp/touchid-repo')
@@ -40,11 +42,11 @@ for path in glob.glob(sys.argv[1] + '/*.rpm'):
     with open(path, 'rb') as stream:
         header = transaction.hdrFromFdno(stream)
     name = header['name']
-    if name in names:
+    if name in names + deps:
         assert name not in headers, ('duplicate candidate', name)
         headers[name] = header
         shutil.copy2(path, repo)
-assert set(headers) == set(names), ('missing candidates', set(names) - set(headers))
+assert set(headers) == set(names + deps), ('missing candidates', set(names + deps) - set(headers))
 
 def evr(header):
     return str(header['epoch'] or 0), header['version'], header['release']
@@ -75,7 +77,13 @@ for name in names:
         assert sys.argv[2] == 'stock' and name in ('aurora-sep', 'aurora-sep-selinux', 'libfprint-selinux'), name
         print(f'NEW {name}: {evr(candidate)}')
     expected.append(nevra(candidate))
+for name in deps:
+    candidate = headers[name]
+    assert '.fc45' in candidate['release'] and candidate['arch'] == 'noarch', (name, evr(candidate))
+    assert not list(transaction.dbMatch('name', name)), name
+    print(f'NEW {name}: {evr(candidate)}')
 Path('/tmp/touchid-expected.txt').write_text(''.join(sorted(expected)))
+Path('/tmp/touchid-deps.txt').write_text(''.join(sorted(nevra(headers[name]) for name in deps)))
 Path('/tmp/touchid-upgrades.txt').write_text(''.join(sorted(upgrades)))
 PY
 createrepo_c /tmp/touchid-repo
@@ -97,6 +105,8 @@ fi
 rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' "${packages[@]}" \
   | sort | tee /tmp/touchid-after.txt
 diff -u /tmp/touchid-expected.txt /tmp/touchid-after.txt
+rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' aurora-xart \
+  | diff -u /tmp/touchid-deps.txt -
 rpm -q --provides libfprint | grep -Fx 'libfprint(aurora-sep) = 5'
 rpm -q --provides fprintd | grep -Fx 'fprintd(aurora-sep) = 1'
 sha256sum --check /tmp/touchid-state.sha256
