@@ -42,9 +42,16 @@ git init "$work/distgit"
 git -C "$work/distgit" remote add origin https://src.fedoraproject.org/rpms/firefox.git
 # Pagure does not advertise arbitrary commit fetches. Fetch only the bounded
 # Fedora 44 history that contains the reviewed Firefox 157 revision.
-git -C "$work/distgit" fetch --shallow-since=2026-09-20 origin f44
-git -C "$work/distgit" checkout --detach "$revision"
-python3 "$root/docs/firefox/prepare-fedora.py" "$work/distgit"
+if [[ ${AURORA_FIREFOX_TEST_BUILD:-0} == 1 ]]; then
+  # Test build: current Fedora 44 Firefox (what the Macs run), anchored spec edits.
+  git -C "$work/distgit" fetch --depth=1 origin f44
+  git -C "$work/distgit" checkout --detach FETCH_HEAD
+  python3 "$root/docs/firefox/prepare-fedora-test.py" "$work/distgit"
+else
+  git -C "$work/distgit" fetch --shallow-since=2026-09-20 origin f44
+  git -C "$work/distgit" checkout --detach "$revision"
+  python3 "$root/docs/firefox/prepare-fedora.py" "$work/distgit"
+fi
 (
   cd "$work/distgit"
   fedpkg --release f44 sources --force
