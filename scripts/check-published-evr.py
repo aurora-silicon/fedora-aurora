@@ -5,7 +5,8 @@ dnf never installs an older build over a newer one, so such a package would
 silently never reach updated installs (as the Fedora 44 Plymouth 24.004 carry
 nearly did over the published 26.134.222). For every Fedora release the
 repository publishes, each source package in its primary metadata is compared
-with the EVR packages/<name>/<name>.spec builds for that release.
+with the EVR packages/<name>/<name>.spec builds for that release (for Fedora 45,
+packages/<name>/f45/<name>.spec when present, as build-rpm uses it).
 
     check-published-evr.py [--base URL] [--release 44 --release 45] [--channel testing]
 """
@@ -173,7 +174,9 @@ def main():
         for name, evr in sorted(repo.items()):
             if name not in specs:
                 continue
-            ours = spec_evr(specs[name], release)
+            # build-rpm builds a release from packages/<name>/f<release>/ when that overlay has the spec.
+            spec = specs[name].parent / f'f{release}' / specs[name].name
+            ours = spec_evr(spec if release != '44' and spec.is_file() else specs[name], release)
             if not ours[1] or not ours[2] or '%' in ''.join(ours):
                 # Version taken from another package at build time (for example
                 # mesa-aurora's); that package is checked itself.

@@ -1,7 +1,7 @@
 Summary: Graphical Boot Animation and Logger
 Name: plymouth
 Version: 26.134.222
-Release: 6%{?dist}.aurora4
+Release: 6%{?dist}.aurora5
 License: GPL-2.0-or-later
 URL: http://www.freedesktop.org/wiki/Software/Plymouth
 
@@ -24,6 +24,9 @@ Source2: test-terminal-input.c
 Source3: test-keyboard-lifetime.c
 Source4: test-script-keyboard.c
 Source5: check-keyboard-lifetime.sh
+Source6: test-drm-sdr.c
+# The DRM master can hand off before the HDR compositor closes its file.
+Patch: 0002-drm-Reset-inherited-HDR-connector-state-before-SDR.patch
 Patch: 0001-Fix-splash-keyboard-lifetime.patch
 BuildRequires: xorg-x11-server-Xvfb
 BuildRequires: font(cantarell)
@@ -275,6 +278,16 @@ bash %{SOURCE5} "$PWD" "$PWD/%{_vpath_builddir}" "%{_sourcedir}"
     -lply-splash-core -lply
 timeout 15s ./test-terminal-input
 echo "Plymouth terminal-input PTY regression passed"
+%{__cc} -D_GNU_SOURCE -Wall \
+    -I. -Isrc/libply -Isrc/libply-splash-core \
+    $(pkg-config --cflags libdrm libevdev) \
+    %{SOURCE6} -o test-drm-sdr \
+    -L%{_vpath_builddir}/src/libply-splash-core -L%{_vpath_builddir}/src/libply \
+    -Wl,-rpath,$PWD/%{_vpath_builddir}/src/libply-splash-core \
+    -Wl,-rpath,$PWD/%{_vpath_builddir}/src/libply \
+    -lply-splash-core -lply $(pkg-config --libs libdrm libevdev) -lm
+timeout 15s ./test-drm-sdr
+
 
 %install
 %meson_install
@@ -450,6 +463,10 @@ fi
 %files system-theme
 
 %changelog
+* Wed Nov 04 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.134.222-6.aurora5
+- Clear inherited HDR metadata and colorspace before presenting the SDR splash
+- Test DRM handoffs, cloned outputs and failed commits without hardware
+
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.134.222-6.aurora4
 - Build 26.134.222 on Fedora 44 too. The 24.004.60 carry came back with
   the theme merge and would have downgraded the published

@@ -1,0 +1,14 @@
+policy_module(aurora_platform, 1.0.0)
+
+gen_require(`
+	type init_t, kernel_t;
+	class netlink_kobject_uevent_socket getattr;
+')
+
+# systemd creates udev's kernel uevent socket (systemd-udevd-kernel.socket)
+# in the initramfs, before the policy is loaded, so the socket carries
+# kernel_t. It keeps the socket over the switch to the real root, and after
+# it loads the policy and re-executes it checks each socket it inherited.
+# The targeted policy lets init_t create and use its own uevent sockets but
+# not look at this one, which logged one denial on every boot.
+allow init_t kernel_t:netlink_kobject_uevent_socket getattr;
