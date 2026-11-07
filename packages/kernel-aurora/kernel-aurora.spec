@@ -1,14 +1,14 @@
-%global commit 9127278801dd524b72454ee54d2be370d22a4197
+%global commit 4731456d979107bfed16316fea45378d9de7d1da
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
 # (aurora-silicon/linux#985), which keeps every kernel code page inside the CTXR
 # window an aura without the monitor moves the kernel into. kernel-aurora-core
 # then provides aurora-ctxr-execmem, which that aura requires. %%build checks it.
-%global ctxr_execmem 0
+%global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 19%{?dist}.aurora
+Release: 21%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -147,6 +147,19 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Sat Nov 07 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-21
+- Provide aurora-ctxr-execmem. The 4731456 kernel is built with
+  CONFIG_ARM64_CTXR_EXECMEM (#985), which an aura without the monitor
+  requires.
+
+* Sat Nov 07 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-20
+- Track aurora-silicon/linux integration/aurora at 4731456. Wi-Fi works
+  again on Macs with a BCM4378 (M1 MacBook Air, 13-inch M1 and M2 MacBook
+  Pro): its receive buffers stay readable for the chip, as they already
+  were for the BCM4387 and BCM4388 (#1078). Also SoC error reporting
+  (EDAC), a PCIe link retry, the SMC RTC offset rounding fix, the AOP
+  motion sensor trigger, and the speaker mux.
+
 * Fri Nov 06 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-19
 - Track aurora-silicon/linux integration/aurora at 9127278. M1 Macs no
   longer need apple_sep xart_guard=0 for Touch ID (#1049), an M1/M2 dock

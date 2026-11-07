@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 20%{?dist}
+Release: 21%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -48,7 +48,10 @@ Obsoletes: asahi-platform-metapackage-core < 1
 Obsoletes: asahi-platform-metapackage-audio < 1
 Conflicts: asahi-platform-metapackage < 1
 Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
-Requires: speakersafetyd speakerguardd
+# Both speaker protection stacks, on every Mac: speakerguardd-v2's fleet
+# gate starts exactly one of them per boot (v2 on a gated board whose kernel
+# has the v2 interface, the older daemons everywhere else).
+Requires: speakersafetyd speakerguardd speakerguardd-v2
 Requires: aurora-audio alsa-ucm-conf-aurora
 # BlueZ 5.86 attempts an empty default-parameter transaction at startup.
 # 5.87 includes the upstream empty-TLV fix; retain real error reporting.
@@ -160,6 +163,11 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-21
+- Require speakerguardd-v2 beside speakersafetyd and speakerguardd 0.1. Its
+  fleet gate starts exactly one stack per boot; on a kernel without the v2
+  interface (every fleet kernel today) that is the older daemons, as before.
+
 * Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-20
 - Map tuned-ppd's stock performance profile to aurora-performance, using
   schedutil without inherited boost writes. Preserve custom mappings and
