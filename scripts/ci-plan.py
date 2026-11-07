@@ -39,6 +39,36 @@ else:
     else:
         result = sorted({p.split("/")[1] for p in paths
                          if p.startswith("packages/") and p.split("/")[1] in names})
+# A pull request builds what it changed, plus every recipe that BuildRequires
+# one of those packages' outputs; a push to main and a manual run without a
+# list build the complete Fedora 45 set that publication needs ("full").
+if event_name == "pull_request" and set(result) != set(names):
+    import re
+    output = {}
+    for name in names:
+        text = (root / "packages" / name / (name + ".spec")).read_text()
+        output[name] = name
+        for m in re.finditer(r"^%package\s+(-n\s+)?(\S+)", text, re.M):
+            output[m.group(2) if m.group(1) else name + "-" + m.group(2)] = name
+    requires = {}
+    for name in names:
+        text = (root / "packages" / name / (name + ".spec")).read_text()
+        for line in text.splitlines():
+            if line.startswith("BuildRequires:"):
+                for token in re.split(r"[\s,]+", line.split(":", 1)[1]):
+                    owner = output.get(re.sub(r"\(.*", "", token))
+                    if owner and owner != name:
+                        requires.setdefault(owner, set()).add(name)
+    selected = set(result)
+    pending = list(selected)
+    while pending:
+        for dependent in requires.get(pending.pop(), ()):
+            if dependent not in selected:
+                selected.add(dependent)
+                pending.append(dependent)
+    result = sorted(selected)
+full = event_name != "pull_request" or set(result) == set(names)
+print("full=" + ("true" if full else "false"))
 # Recipes that ship x86 code (for FEX guests) declare an x86_64 builder.
 x86 = {n for n in names
        if "# aurora-builder: x86_64" in (root / "packages" / n / (n + ".spec")).read_text().splitlines()}
