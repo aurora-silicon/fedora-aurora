@@ -48,9 +48,20 @@ If upstream changes its stock line or config format, the helper leaves it for
 review rather than guessing. Aurora package installation scopes this policy
 to Aurora systems; the RPM does not alter upstream tuned profiles.
 
-Power Saver and Balanced mappings are unchanged. A useful Apple Power Saver
-needs a qualified package-power budget policy; arbitrary frequency caps are
-not a substitute.
+## Power Saver
+
+Power Saver gets a CPU power budget from `aurora-power-budget`, built from
+[aurora-platform](https://github.com/aurora-silicon/aurora-platform/blob/main/power/README.md)
+and packaged here as the `aurora-power-budget` subpackage (enabled by preset, required by `aurora-platform-core`). Like macOS Low Power Mode it is a short-window
+budget, not a fixed frequency table: while the profile daemon reports
+`power-saver`, every 100 ms the budget (the device tree energy model's power
+for every CPU at 0.6 x its cluster maximum) is spent on the frequency steps
+that buy the most CPU capacity per milliwatt, and each cluster is capped with
+`scaling_max_freq`. Thermal limits still win; the governor stays `schedutil`;
+light and single-threaded work is not capped. Balanced and Performance are
+untouched, and outside Power Saver the daemon only waits on D-Bus. The GPU,
+ANE, display and fan legs of Low Power Mode are not covered yet. Measurements
+are in the aurora-platform README.
 
 ## Distribution parity
 

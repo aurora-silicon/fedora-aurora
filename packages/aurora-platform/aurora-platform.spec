@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 22%{?dist}
+Release: 23%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -62,6 +62,7 @@ Requires: aurora-kbd-light
 # Asahi Remix system with these services keeps following Aurora's builds.
 Requires: aurora-repos
 Requires: tuned
+Requires: aurora-power-budget
 Requires: python3
 Requires: (aurora-platform-selinux = %{version}-%{release} if selinux-policy-%{selinuxtype})
 
@@ -163,6 +164,10 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-23
+- Require aurora-power-budget: Power Saver gets a CPU power budget, as
+  macOS Low Power Mode does.
+
 * Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-22
 - Let plymouthd map a DRM card that the kernel created after the policy
   load and udev has not relabelled yet. Such a node briefly carries the

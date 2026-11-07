@@ -1,8 +1,8 @@
-%global commit 6e127f8b2191c11dc7a584c363660610fc793c5f
+%global commit 8fc36c44f7353c7c1c0ffa3aff3ae0aa69f9ce54
 %global selinuxtype targeted
 Name: aurora-firstboot
 Version: 0.1.13
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-platform
@@ -21,6 +21,17 @@ Shared first-boot account setup and per-install Btrfs encryption. The image
 producer supplies immutable filesystem identities and explicit fresh-image
 markers; installing this package alone does not arm encryption or setup.
 
+%package -n aurora-power-budget
+Summary: CPU power budget for the power-saver profile on Apple silicon
+Requires: python3 systemd
+Requires: (tuned-ppd or power-profiles-daemon)
+
+%description -n aurora-power-budget
+Gives the Power Saver profile a real CPU power limit, like macOS Low Power
+Mode: every 100 ms the budget is split across the CPU clusters by demand,
+using the device tree energy model, and each cluster is capped to its share.
+Balanced and Performance are untouched.
+
 %prep
 %autosetup -n aurora-platform-%{commit}
 
@@ -33,6 +44,17 @@ install -Dm644 /dev/stdin %{buildroot}/usr/lib/systemd/system-preset/90-aurora-f
 enable aurora-firstboot.service
 enable aurora-initrd-keymap.path
 EOF
+make install-power DESTDIR=%{buildroot} PREFIX=%{_prefix}
+install -Dm644 /dev/stdin %{buildroot}/usr/lib/systemd/system-preset/90-aurora-power-budget.preset <<'EOF'
+enable aurora-power-budget.service
+EOF
+
+%post -n aurora-power-budget
+%systemd_post aurora-power-budget.service
+%preun -n aurora-power-budget
+%systemd_preun aurora-power-budget.service
+%postun -n aurora-power-budget
+%systemd_postun_with_restart aurora-power-budget.service
 
 %post
 # Label the setup programs as ordinary executables so systemd runs them in
@@ -79,7 +101,19 @@ fi
 /usr/lib/systemd/system-preset/90-aurora-firstboot.preset
 %{_datadir}/selinux/packages/%{selinuxtype}/aurora_firstboot.pp
 
+%files -n aurora-power-budget
+%license LICENSE
+%{_libexecdir}/aurora/aurora-power-budget
+%{_unitdir}/aurora-power-budget.service
+/usr/lib/systemd/system-preset/90-aurora-power-budget.preset
+%{_datadir}/doc/aurora-power-budget/
+
 %changelog
+* Sun Nov 08 2026 Aurora Silicon <hey@djdev.me> - 0.1.13-3
+- New subpackage aurora-power-budget: Power Saver gets a CPU power budget
+  (100 ms, split across clusters from the device tree energy model), as macOS
+  Low Power Mode does. Other profiles are untouched (aurora-platform 8fc36c4).
+
 * Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 0.1.13-2
 - Put aura's Mach-O Stage 1 boot object on the ESP as aurora/stage1.macho,
   for the installer to boot M4 and later Macs from (aurora-platform 6e127f8).
