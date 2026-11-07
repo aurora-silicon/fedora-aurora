@@ -2,9 +2,13 @@
 %global commit 9a173ff5bf6264d56fdc4a6d2dae96ed482cb195
 # Tagged release; preserve its label in the source archive build.
 %global release_tag 1.0.0b5
+# 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
+# moves the kernel into the CTXR window, so it requires a kernel built with
+# CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
+%global monitor_free 0
 Name: aura
 Version: 1.0.0~b5
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -13,13 +17,23 @@ ExclusiveArch: aarch64
 BuildRequires: clang llvm lld rust rust-src cargo make python3
 Provides: m1n1 = 1.6.1
 Conflicts: m1n1
-Requires: update-m1n1 uboot-aurora
+# A Mach-O Mac needs the update-m1n1 that leaves boot.bin alone.
+Requires: update-m1n1 aurora-stage2-ctxr-slot uboot-aurora
+%if %{monitor_free}
+Requires: aurora-ctxr-execmem
+%endif
 
 %description
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
 %autosetup -n aura-9a173ff5bf6264d56fdc4a6d2dae96ed482cb195
+found=0
+if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
+if [ "$found" != %{monitor_free} ]; then
+  echo "aura.spec: set monitor_free to $found, which the pinned source is" >&2
+  exit 1
+fi
 
 %build
 export RUSTC_BOOTSTRAP=1
@@ -34,6 +48,10 @@ make %{?_smp_mflags} BUILDSTD=1 RELEASE=1 CHAINLOADING=1 ESP_STAGE2=1 USE_CLANG=
 %install
 install -Dm644 build/aura.bin %{buildroot}%{_libdir}/m1n1/m1n1.bin
 install -Dm644 build/aura.bin %{buildroot}/usr/lib/asahi-boot/m1n1.bin
+# An aura without the monitor: update-m1n1 then stops writing boot.bin on Mach-O Macs.
+%if %{monitor_free}
+install -Dm644 /dev/null %{buildroot}%{_datadir}/aura/monitor-free
+%endif
 install -Dm644 ../aurora-stage1/aura-raw.bin %{buildroot}%{_datadir}/aura/stage1/aura-raw.bin
 install -Dm644 ../aurora-stage1/aura-boot.macho %{buildroot}%{_datadir}/aura/stage1/aura-boot.macho
 install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/aura.macho
@@ -45,6 +63,15 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Fri Nov 06 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b5-2
+- Require the update-m1n1 that can write m1n1/boot-ctxr.bin on Mach-O Macs and
+  leave m1n1/boot.bin as it is.
+- Ship /usr/share/aura/monitor-free when the pinned source has no monitor. That
+  is what turns those two behaviours on. monitor_free declares it, and %%prep
+  refuses a source that disagrees.
+- With monitor_free, require aurora-ctxr-execmem: a kernel that keeps its code
+  inside the CTXR window this aura moves it into.
+
 * Thu Nov 05 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~b5-1
 - Pin aura v1.0.0b5 (9a173ff5): each SN012776 speaker amp gets its brownout,
   DC blocker, speaker-config and amp-tx-zd-config from the ADT (aura #75).
