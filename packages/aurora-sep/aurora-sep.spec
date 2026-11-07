@@ -31,6 +31,7 @@ Source20: aurora-touchid-setup.service
 Source21: touchid-setup-needed
 Source22: authselect-vendor-local
 Source23: powerdevilrc
+Source24: aurora-sep-modprobe.conf
 BuildArch: noarch
 BuildRequires: systemd-rpm-macros fprintd authselect-libs
 BuildRequires: selinux-policy-devel make bzip2
@@ -95,6 +96,7 @@ unit %{SOURCE5} %{SOURCE6} aurora-sep-ready
 unit %{SOURCE16} %{SOURCE17} aurora-sep-greeter-fingerprint
 install -Dpm0644 %{SOURCE11} %{buildroot}%{_unitdir}/aurora-sep.timer
 install -Dpm0644 %{SOURCE12} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep-load.conf
+install -Dpm0644 %{SOURCE24} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep.conf
 install -Dpm0755 %{SOURCE8} %{buildroot}%{_sbindir}/aurora-touchid-setup
 install -Dpm0755 %{SOURCE21} %{buildroot}%{_libexecdir}/aurora/touchid-setup-needed
 install -Dpm0644 %{SOURCE20} %{buildroot}%{_unitdir}/aurora-touchid-setup.service
@@ -207,6 +209,7 @@ fi
 %{_libexecdir}/aurora-sep-sensor-present
 %{_prefix}/lib/dracut/dracut.conf.d/90-aurora-sep.conf
 %{_prefix}/lib/modprobe.d/aurora-sep-load.conf
+%{_prefix}/lib/modprobe.d/aurora-sep.conf
 %{_unitdir}/aurora-sep.service
 %{_unitdir}/aurora-sep-ready.service
 %{_unitdir}/aurora-touchid-setup.service
@@ -227,6 +230,11 @@ fi
   keybag is stuck, such as an M1 Mac left with an unfinished keybag create by
   a kernel that guarded it. The documentation points to it instead of
   install-aurora-sep.sh --reset-touchid, which Fedora does not ship.
+- Load apple_sep without options on the modprobe command line, which
+  overrode modprobe.d, so a read-only xart_writes=0 in
+  /etc/modprobe.d/aurora-sep.conf never took effect. The defaults, writes and
+  provisioning on, ship as /usr/lib/modprobe.d/aurora-sep.conf, which that
+  file replaces.
 - XART-SAFETY.md: a reinstall or rollback that loses the xART guard's list
   leaves the earlier records protected; Touch ID is set up again with
   aurora-xart reset-touchid. It no longer suggests putting a saved list back.
