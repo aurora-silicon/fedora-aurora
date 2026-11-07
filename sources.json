@@ -265,6 +265,15 @@
     "archive_root": "plymouth-26.134.222",
     "sha256": "043f21b27c50ed70d0638a318460e747e5a12cc2af1bce960858b7a63b981ecc"
   },
+  "pipewire": {
+    "repository": "https://gitlab.freedesktop.org/pipewire/pipewire",
+    "commit": "8fa27cabdc6c0c1350c69c026af5850ef0af1e26",
+    "version": "1.6.9",
+    "source_url": "https://gitlab.freedesktop.org/pipewire/pipewire/-/archive/1.6.9/pipewire-1.6.9.tar.gz",
+    "archive_root": "pipewire-1.6.9",
+    "archive_file": "pipewire-1.6.9.tar.gz",
+    "sha256": "dbc3624cf71215c26a22fc98f6f71f7b8599f5f6b415eab4a5c90ca96c170c7c"
+  },
   "fex-emu": {
     "repository": "https://github.com/aurora-silicon/fex",
     "commit": "c2c22c6a3654695ad436527ccaf95626b339ef11",
