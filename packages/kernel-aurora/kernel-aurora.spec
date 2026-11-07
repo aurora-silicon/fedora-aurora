@@ -1,4 +1,4 @@
-%global commit faa58a8a38c25bcb55d2bdcef7549abedea2a182
+%global commit 44bbfe1858deda8285fefbecd6ad062311ee6983
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -148,7 +148,7 @@ fi
 
 %changelog
 * Sat Nov 07 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-22
-- Track aurora-silicon/linux integration/aurora at faa58a8 for the CTXR
+- Track aurora-silicon/linux integration/aurora at 44bbfe1 for the CTXR
   follow-ups (#1079): /sys/kernel/execmem_confine/ reports the window and
   its pool, crashkernel= is skipped while a window is active, the device
   tree's window wins over a ctxr_exec_window= that doesn't match it, and an
@@ -159,6 +159,11 @@ fi
   quirks again after a resume that reset the amp (#1080), a brcmfmac
   flowring count fix (#1081), and G17 GPU submit and recovery changes
   (#1075, #1076).
+- Device trees for every M1 to M4 Mac, including the J715 (#1129), the M4
+  Pro and Max boards (#1140), the T8132 boards (#1142) and completeness and
+  style passes (#1094, #1112, #1141, #1144); the J715 panel timing
+  (#1161); M1 and M2 PMU RTC alarms (#1151); and AV1 tile checks, ANE and
+  AVD fixes for T6041 and the J700 (#1088, #1091, #1100, #1137).
 
 * Sat Nov 07 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-21
 - Provide aurora-ctxr-execmem. The 4731456 kernel is built with
