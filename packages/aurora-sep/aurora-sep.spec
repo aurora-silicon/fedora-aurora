@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 19%{?dist}
+Release: 20%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -220,6 +220,10 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Nov 06 2026 Aurora Silicon contributors - 1-20
+- XART-SAFETY.md: the kernel now leaves the xART guard off on M1 Macs, so
+  they no longer need xart_guard=0 for Touch ID.
+
 * Tue Nov 03 2026 Aurora Silicon contributors - 1-19
 - Offer Touch ID to sudo and polkit as well as the lock screen, and not to the
   console login, su or ssh: authselect's "local" profile is replaced by a
