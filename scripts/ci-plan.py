@@ -41,7 +41,8 @@ else:
                          if p.startswith("packages/") and p.split("/")[1] in names})
 # A pull request builds what it changed, plus every recipe that BuildRequires
 # one of those packages' outputs; a push to main and a manual run without a
-# list build the complete Fedora 45 set that publication needs ("full").
+# list build the complete Fedora 45 set that publication needs ("full"), and a
+# manual run with a list builds just that list for both releases.
 if event_name == "pull_request" and set(result) != set(names):
     import re
     output = {}
@@ -67,7 +68,7 @@ if event_name == "pull_request" and set(result) != set(names):
                 selected.add(dependent)
                 pending.append(dependent)
     result = sorted(selected)
-full = event_name != "pull_request" or set(result) == set(names)
+full = (not requested and event_name != "pull_request") or set(result) == set(names)
 print("full=" + ("true" if full else "false"))
 # Recipes that ship x86 code (for FEX guests) declare an x86_64 builder.
 x86 = {n for n in names
