@@ -2,14 +2,16 @@ Name:		fprintd
 Version:	1.94.5
 # Keep the Aurora driver/account gate ahead of stock Fedora updates.
 Epoch:          1
-Release:	99%{?dist}.aurora1
+Release:	99%{?dist}.aurora2
 Summary:	D-Bus service for Fingerprint reader access
 
 # man page is GFDL-1.1-or-later
 License:	GPL-2.0-or-later AND GFDL-1.1-or-later
 Source0:	fprintd-v%{version}.tar.gz
 Patch0:	0001-preserve-print-on-device-delete-failure.patch
+Patch1:	0002-aurora-report-data-full-without-garbage-collection.patch
 Source1:	test_account_gate.py
+Source2:	test_enroll_capacity.py
 Url:		http://www.freedesktop.org/wiki/Software/fprint/fprintd
 
 BuildRequires:	meson
@@ -28,6 +30,8 @@ BuildRequires:	python3
 BuildRequires:	python3-dbusmock
 BuildRequires:	python3-libpamtest
 Provides:	fprintd(aurora-sep) = 1
+# Required by libfprint before its Aurora driver reports DATA_FULL.
+Provides:	fprintd(aurora-no-enroll-gc) = 1
 Requires:	libfprint(aurora-sep) >= 5
 
 
@@ -77,6 +81,7 @@ mkdir -p $RPM_BUILD_ROOT/%{_localstatedir}/lib/fprint
 
 %check
 python3 %{SOURCE1} src/device.c
+python3 %{SOURCE2} src/device.c --enroll-utils utils/enroll.c
 
 %postun pam
 if [ $1 -eq 0 ]; then
@@ -107,6 +112,10 @@ fi
 %{_datadir}/dbus-1/interfaces/net.reactivated.Fprint.Manager.xml
 
 %changelog
+* Wed Nov 04 2026 Aurora Silicon contributors - 1:1.94.5-99.aurora2
+- Report enroll-data-full for Aurora without automatically deleting prints
+- Explain the removal step in fprintd-enroll and test storage preservation
+
 * Sat Oct 31 2026 Aurora Silicon contributors - 1:1.94.5-99.aurora1
 - Build natively for Fedora 45 and upgrade stock and fc44 Aurora packages
 - Qualify matching subpackage dependencies with the epoch

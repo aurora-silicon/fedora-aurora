@@ -4,5 +4,6 @@
   "files": {
     "0001-preserve-print-on-device-delete-failure.patch": "ea41766b42cfd259e32ce37cf84c5557b2f31eb9db4b63160c54ddb5c6a11e7a",
     "test_account_gate.py": "9d09fd49cb988b4b70784151d9d6757a40fa60b19c85048067598decd480bb83"
-  }
+  },
+  "adaptations": "Local Patch1 skips DATA_FULL garbage collection for apple-sep and explains storage exhaustion in fprintd-enroll. The aurora2 package provides fprintd(aurora-no-enroll-gc) = 1 and compiles test_enroll_capacity.py against its patched source during %check. The imported file hashes above remain the original provenance."
 }
