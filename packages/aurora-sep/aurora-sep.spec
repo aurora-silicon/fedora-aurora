@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 20%{?dist}
+Release: 21%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -37,6 +37,8 @@ BuildRequires: selinux-policy-devel make bzip2
 Requires: coreutils fprintd keyutils kmod python3 util-linux grep findutils gawk
 Requires: libfprint(aurora-sep) = 5
 Requires: fprintd(aurora-sep) = 1
+# aurora-xart reset-touchid starts Touch ID over when its keybag is stuck.
+Requires: aurora-xart
 # Holds the packaged kernel to one with the module-based SEP driver, and
 # leaves a kernel installed outside RPM alone; the units skip a kernel
 # without a loadable apple_sep.
@@ -220,6 +222,12 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sat Nov 07 2026 Diljit Singh <hey@djdev.me> - 1-21
+- Require aurora-xart, whose reset-touchid starts Touch ID over when the
+  keybag is stuck, such as an M1 Mac left with an unfinished keybag create by
+  a kernel that guarded it. The documentation points to it instead of
+  install-aurora-sep.sh --reset-touchid, which Fedora does not ship.
+
 * Fri Nov 06 2026 Aurora Silicon contributors - 1-20
 - XART-SAFETY.md: the kernel now leaves the xART guard off on M1 Macs, so
   they no longer need xart_guard=0 for Touch ID.
