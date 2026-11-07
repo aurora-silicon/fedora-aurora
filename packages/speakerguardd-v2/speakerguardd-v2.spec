@@ -135,9 +135,14 @@ grep -q "^ExecStart=$lx/speakerguardd-session " speakerguardd-v2-session.service
 grep -qx 'Before=sleep.target' speakerguardd-v2-sleep.service
 grep -qx "ExecStart=$lx/speakerguardd-provision sleep --unit speakerguardd-v2.service" speakerguardd-v2-sleep.service
 grep -qx "ExecStop=$lx/speakerguardd-provision wake --unit speakerguardd-v2.service" speakerguardd-v2-sleep.service
-for u in speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.service \
-         speakerguardd-v2-sleep.service; do
+# The supervisor and sleep hooks need a qualified board (gate v2); provisioning,
+# the seat follower and the silent self-check run first, in the gate's prepare
+# mode, and produce the records that qualify the board (speakerguardd#96).
+for u in speakerguardd-v2.service speakerguardd-v2-sleep.service; do
     grep -qx "ExecCondition=$lx/speakerguardd-gate v2" $u
+done
+for u in speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.service; do
+    grep -qx "ExecCondition=$lx/speakerguardd-gate prepare" $u
 done
 if grep -Eq '^(OnFailure|OnSuccess)=|speakersafetyd|=speakerguardd\.service|/usr/libexec/speakerguardd/' speakerguardd-v2*.service speakerguardd-v2*.path; then
     echo 'A speakerguardd 1.0 unit chains to or names another daemon' >&2; exit 1
@@ -222,6 +227,7 @@ fi
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.24.20261108git44a479d80e0e
 - Move to 44a479d80e0e (speakerguardd#96, Plan A release candidate 3): ToneMeister fused
   cascade, ControlFreak slow release, lsid build, automatic board qualification; trims unchanged
+- The provisioning, seat and self-check units now run under the gate's prepare mode.
   (j316s -0.097 dB, j413 woofers -0.883 dB, j616s and j700 none). The packaged files are unchanged.
 
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.23.20261108git5828fe9db811
