@@ -1,4 +1,4 @@
-%global commit 44a479d80e0ef67eeb1379759844ef21ef82e49f
+%global commit a8bba4d0366ee6a14859d85f808f13c3d6ccdf56
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261108
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.24.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.25.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -224,11 +224,16 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.25.20261108gita8bba4d0366e
+- Move to a8bba4d0366e (speakerguardd#98, Plan A release candidate 4): ToneMeister peaks in the
+  unit's Float32 order, the J700 first-grant heartbeat handoff, Norm algorithm 1 exact;
+  trims j316s -0.097 dB, j413 woofers -0.884 dB, j616s and j700 none. The packaged files are unchanged.
+
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.24.20261108git44a479d80e0e
 - Move to 44a479d80e0e (speakerguardd#96, Plan A release candidate 3): ToneMeister fused
   cascade, ControlFreak slow release, lsid build, automatic board qualification; trims unchanged
-- The provisioning, seat and self-check units now run under the gate's prepare mode.
   (j316s -0.097 dB, j413 woofers -0.883 dB, j616s and j700 none). The packaged files are unchanged.
+- The provisioning, seat and self-check units now run under the gate's prepare mode.
 
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.23.20261108git5828fe9db811
 - Move to 5828fe9db811 (speakerguardd#95, Plan A release candidate 2): RC1 plus VirtualBass mono
@@ -236,8 +241,8 @@ fi
   (j316s -0.097 dB, j413 woofers -0.883 dB, j616s and j700 none). The packaged files are unchanged.
 
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.22.20261108git6506f3be5280
-- Move to 6506f3be5280 (speakerguardd#95, Plan A release candidate 2): RC1 plus VirtualBass mono
-  width, Norm algorithm 1 and ToneMeister type 17 (0 refusals, 0 stubs on every AID); trims unchanged
+- Move to 6506f3be5280 (speakerguardd#94, Plan A release candidate 1): Comp, LowFlow, ControlFreak,
+  Norm and VirtualBass laws at macOS parity; interim never-louder trims from the RC scans
   (j316s -0.097 dB, j413 woofers -0.883 dB, j616s and j700 none). The packaged files are unchanged.
 
 * Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.21.20261107git4d6273225e0d
