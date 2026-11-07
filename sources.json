@@ -256,6 +256,14 @@
     "archive_root": "kbd-light-727076b83eb65b0162317a9e2fa0ba850df1f5ca",
     "sha256": "9419eea57c51fd4ccf83fe764bb85c18f9054d684d21415d189fa46fe568e88c"
   },
+  "aurora-xart": {
+    "repository": "https://github.com/aurora-silicon/aurora-xart",
+    "commit": "83ae1899d0a70e84cb464b8443a3458408b2d28e",
+    "version": "0.1.0",
+    "source_url": "https://codeload.github.com/aurora-silicon/aurora-xart/tar.gz/83ae1899d0a70e84cb464b8443a3458408b2d28e",
+    "archive_root": "aurora-xart-83ae1899d0a70e84cb464b8443a3458408b2d28e",
+    "sha256": "1d91de60345f0c0633d00402aaec60de3ab52c8c560ae5d7a1ffc82909d7bdda"
+  },
   "plymouth": {
     "repository": "https://gitlab.freedesktop.org/plymouth/plymouth",
     "commit": "1aacf818fd5d1b6a7695546eb08fcbc46893dd0b",
@@ -375,5 +383,21 @@
     "source_url": "https://codeload.github.com/aurora-silicon/aurora-steam-native/tar.gz/c06f610e3604c3f2b1b8466dff60d6878d0cd0da",
     "archive_root": "aurora-steam-native-c06f610e3604c3f2b1b8466dff60d6878d0cd0da",
     "sha256": "c81a8425164322d77155e8c24eb9a73a379637873948cd85cfc5531ba58f25c0"
+  },
+  "shairport-sync": {
+    "repository": "https://github.com/mikebrady/shairport-sync",
+    "commit": "0b1c4391ffd398e7b145eb4b98416261380adeea",
+    "version": "4.3.7",
+    "source_url": "https://codeload.github.com/mikebrady/shairport-sync/tar.gz/0b1c4391ffd398e7b145eb4b98416261380adeea",
+    "archive_root": "shairport-sync-0b1c4391ffd398e7b145eb4b98416261380adeea",
+    "sha256": "7ef3a6ba1cbd67bb200f018ddcd3e8dbe40da98b3c1776aee6c7b832632c6865"
+  },
+  "nqptp": {
+    "repository": "https://github.com/mikebrady/nqptp",
+    "commit": "ab8fb67483411640fd7f1e193889482f2421c37c",
+    "version": "1.2.9",
+    "source_url": "https://codeload.github.com/mikebrady/nqptp/tar.gz/ab8fb67483411640fd7f1e193889482f2421c37c",
+    "archive_root": "nqptp-ab8fb67483411640fd7f1e193889482f2421c37c",
+    "sha256": "3e90e2ea1f52f5c1559a5a46b2cdadb46ac6532a08a34f8cd7e77aa39f6a90c7"
   }
 }

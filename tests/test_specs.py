@@ -239,6 +239,20 @@ class SpecTests(unittest.TestCase):
         self.assertIn('# aurora-builder: x86_64', guest[3].splitlines())
         self.assertIn('Requires: mesa-dri-drivers = %{version}-%{release}', guest[3])
         self.assertIn('Requires: mesa-vulkan-drivers = %{version}-%{release}', guest[3])
+    def test_aurora_sep_ships_the_touch_id_reset(self):
+        sep = ROOT / 'packages/aurora-sep'
+        self.assertRegex((sep / 'aurora-sep.spec').read_text(), r'(?m)^Requires: aurora-xart$')
+        xart = (ROOT / 'packages/aurora-xart/aurora-xart.spec').read_text()
+        self.assertIn('BuildArch: noarch', xart)
+        self.assertIn('make check', xart.split('%check', 1)[1].split('%install', 1)[0])
+        self.assertIn('%{_mandir}/man8/aurora-xart.8*', xart)
+        # The installer script is not shipped here; the packaged tool is.
+        for doc in ('README.md', 'XART-SAFETY.md'):
+            text = (sep / doc).read_text()
+            self.assertNotIn('install-aurora-sep.sh --reset-touchid', text)
+            self.assertIn('aurora-xart reset-touchid', text)
+        conf = (ROOT / 'packages/aurora-repos/aurora-vendors-unvendored.conf').read_text()
+        self.assertIn("{ filter = 'source_name', value = 'aurora-xart' }", conf)
     def test_spec_commit_matches_its_source_pin(self):
         sources = json.loads((ROOT / 'sources.json').read_text())
         for spec in (ROOT / 'packages').glob('*/*.spec'):
@@ -298,6 +312,15 @@ class SpecTests(unittest.TestCase):
         self.assertIn("prefix: /usr/lib/aarch64-linux-gnu/GL/aurora", manifest)
         self.assertIn('priority=10', build)
         self.assertIn("['mesa-aurora']", build)
+    def test_platform_selinux_lets_initramfs_plymouth_map_a_fresh_drm_card(self):
+        # A /dev/dri/cardN made after the policy load is xserver_misc_device_t
+        # until udev relabels it; plymouthd from the initramfs is kernel_t.
+        # Only the map is added: nothing wider, no other source or target.
+        te = (ROOT / 'packages' / 'aurora-platform' / 'aurora_platform.te').read_text()
+        rules = [r for r in re.findall(r'(?m)^allow .*$', te) if 'xserver_misc_device_t' in r]
+        self.assertEqual(rules, ['allow kernel_t xserver_misc_device_t:chr_file map;'])
+        self.assertRegex(te, r'(?m)^\ttype init_t, kernel_t, xserver_misc_device_t;$')
+        self.assertRegex(te, r'(?m)^\tclass chr_file map;$')
     def test_platform_selinux_lets_init_inspect_the_initramfs_uevent_socket(self):
         # systemd keeps udev's uevent socket from the initramfs, where it was
         # made as kernel_t, and checks it after loading the policy.
@@ -305,7 +328,8 @@ class SpecTests(unittest.TestCase):
         te = (d / 'aurora_platform.te').read_text()
         self.assertIn('allow init_t kernel_t:netlink_kobject_uevent_socket getattr;', te)
         self.assertEqual(re.findall(r'(?m)^allow .*$', te),
-                         ['allow init_t kernel_t:netlink_kobject_uevent_socket getattr;'])
+                         ['allow init_t kernel_t:netlink_kobject_uevent_socket getattr;',
+                          'allow kernel_t xserver_misc_device_t:chr_file map;'])
         text = (d / 'aurora-platform.spec').read_text()
         self.assertRegex(text, r'(?m)^Source\d+: aurora_platform\.te$')
         core = text.split('%package core', 1)[1].split('%description core', 1)[0]
