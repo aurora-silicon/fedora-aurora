@@ -51,7 +51,15 @@ python3 "$root/docs/firefox/prepare-fedora.py" "$work/distgit"
   cp ./* "$top/SOURCES/"
 )
 cp "$top/SOURCES/firefox.spec" "$top/SPECS/"
-rpmspec --parse --with avd_request "$top/SPECS/firefox.spec" > "$result/expanded.spec"
+# AURORA_FIREFOX_TEST_BUILD=1: CI test build for hardware qualification only (no debuginfo,
+# no langpacks, no WASI SDK / wasm-sandboxed libraries) so it fits a 4-vCPU runner.
+extra=()
+if [[ ${AURORA_FIREFOX_TEST_BUILD:-0} == 1 ]]; then
+  sed -i 's/^%global create_debuginfo  1$/%global create_debuginfo  0/' "$top/SPECS/firefox.spec"
+  grep -q '^%global create_debuginfo  0$' "$top/SPECS/firefox.spec"
+  extra=(--without wasi_sdk --without langpacks)
+fi
+rpmspec --parse --with avd_request "${extra[@]}" "$top/SPECS/firefox.spec" > "$result/expanded.spec"
 
 export CARGO_BUILD_JOBS=$jobs CMAKE_BUILD_PARALLEL_LEVEL=$jobs
 if [[ $source_only == 1 ]]; then
@@ -59,8 +67,8 @@ if [[ $source_only == 1 ]]; then
     --define "_smp_build_ncpus $jobs" --define "_smp_mflags -j$jobs" \
     "$top/SPECS/firefox.spec"
 else
-  dnf builddep -y "$top/SPECS/firefox.spec"
-  rpmbuild -ba --noclean --with avd_request --define "_topdir $top" \
+  dnf builddep -y "${extra[@]}" "$top/SPECS/firefox.spec"
+  rpmbuild -bb --noclean --with avd_request "${extra[@]}" --define "_topdir $top" \
     --define "_smp_build_ncpus $jobs" --define "_smp_mflags -j$jobs" \
     "$top/SPECS/firefox.spec"
   python3 - "$top/BUILD" <<'PY'
