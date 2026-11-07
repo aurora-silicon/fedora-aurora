@@ -5,17 +5,24 @@
 %global lib %{_libexecdir}/aurora-steam-native
 Name: aurora-steam-native
 Version: 0
-Release: 1.gitc06f610%{?dist}
+Release: 2.gitc06f610%{?dist}
 Summary: Valve's native ARM64 Steam client in a 4 KiB page process tree
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-steam-native
 Source0: aurora-steam-native-%{commit}.tar.gz
 Source1: steam
 Source2: steam.desktop
+Source3: aurora-play
+Source4: proton-env
+Source5: test-play.py
+Source6: test-installer.py
+Patch0: native-proton.patch
 BuildArch: noarch
 BuildRequires: python3 desktop-file-utils
 Requires: aurora-userpages
 Requires: python3
+Requires: aurora-proton
+Requires: python3-gobject gtk4 libadwaita
 # Steam's UI modules link against GTK 2.
 Requires: gtk2
 # x86 Linux titles run through FEX; their GPU driver is the guest Mesa.
@@ -24,7 +31,7 @@ Recommends: fex-emu-thunks
 Recommends: mesa-aurora-fex-guest
 Recommends: mesa-vulkan-drivers
 # Aurora Play
-Recommends: python3-gobject gtk4 libadwaita
+Recommends: mangohud
 Recommends: libnotify
 
 %description
@@ -44,10 +51,11 @@ Valve's manifest, then starts it in a 4 KiB page process tree. The kernel
 must be booted with user4k=on (the default on Aurora images).
 
 %prep
-%autosetup -n aurora-steam-native-%{commit}
+%autosetup -p1 -n aurora-steam-native-%{commit}
 find . -name __pycache__ -prune -exec rm -rf {} +
 sed -e 's,@LIBDIR@,%{lib},' -e 's,@USERPAGES@,%{_bindir}/userpages,' \
     -e 's|@USER4K_HINT@|turn it on with sudo grubby --update-kernel=ALL --args=user4k=on and reboot|' %{SOURCE1} > steam
+sed 's|@LIBDIR@|%{lib}|g' %{SOURCE3} > aurora-play
 
 %build
 
@@ -62,7 +70,9 @@ install -Dm644 share/applications/org.aurorasilicon.Play.desktop %{buildroot}%{l
 install -Dm644 share/icons/hicolor/scalable/apps/org.aurorasilicon.Play.svg %{buildroot}%{lib}/share/icons/hicolor/scalable/apps/org.aurorasilicon.Play.svg
 install -Dm755 steam %{buildroot}%{_bindir}/steam
 mkdir -p %{buildroot}%{_bindir}
-ln -s ../libexec/aurora-steam-native/bin/aurora-play %{buildroot}%{_bindir}/aurora-play
+install -Dm755 aurora-play %{buildroot}%{_bindir}/aurora-play
+install -Dm644 %{SOURCE4} %{buildroot}%{lib}/proton-env
+ln -s %{_libexecdir}/aurora-proton/prepare-proton %{buildroot}%{lib}/prepare-proton
 install -Dm644 %{SOURCE2} %{buildroot}%{_datadir}/applications/steam.desktop
 install -Dm644 share/applications/org.aurorasilicon.Play.desktop %{buildroot}%{_datadir}/applications/org.aurorasilicon.Play.desktop
 install -Dm644 share/icons/hicolor/scalable/apps/org.aurorasilicon.Play.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/org.aurorasilicon.Play.svg
@@ -77,6 +87,8 @@ grep -q '^lib=%{lib}$' %{buildroot}%{_bindir}/steam
 for t in tests/test-steam-native4k-launch-env.py tests/test-offline-installer.py tests/test-aurora-play-settings.py; do
   python3 -I "$t"
 done
+python3 %{SOURCE5} bin/aurora-play
+python3 %{SOURCE6} install-steam-arm64.py
 
 %files
 %license LICENSES/MIT.txt
@@ -91,6 +103,10 @@ done
 %{_datadir}/applications/steam.desktop
 
 %changelog
+* Sat Nov 07 2026 Aurora Silicon <hey@djdev.me> - 0-2.gitc06f610
+- Prepare a writable native Aurora Proton tool by default, retain owner
+  compatibility-tool overrides and settings, and discover native tools in Play.
+- Require Play's actual GTK dependencies; offer Stats only with native MangoHud.
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 0-1.gitc06f610
 - Package aurora-steam-native at c06f610 and ship `steam`, which installs
   Valve's native ARM64 client per user and starts it in a 4 KiB page tree.
