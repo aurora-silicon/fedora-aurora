@@ -246,7 +246,7 @@ class Update:
         # version (such as 1.6.1) does not imply aura-try support.
         aura_version = self.chosen('aura,stage1-version')
         version = aura_version or self.chosen('asahi,m1n1-stage1-version')
-        match = re.fullmatch(r'(?:aura[- v]?)?v?(\d+)\.(\d+)\.(\d+)(?:b(\d+))?(?:-(?:[0-9]+-)?g[0-9a-f]+(?:-dirty)?)?', version)
+        match = re.fullmatch(r'(?:aura[- v]?)?v?(\d+)\.(\d+)\.(\d+)(?:b(\d+))?(?:-(?:[0-9]+-)?g[0-9a-f]+)?(?:-dirty)?', version)
         if not match or (match[4] is None and not aura_version and
                          not version.startswith(('aura', '1.0.0', 'v1.0.0'))):
             return False

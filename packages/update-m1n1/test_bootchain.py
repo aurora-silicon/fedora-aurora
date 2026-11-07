@@ -539,7 +539,8 @@ class TrialTests(unittest.TestCase):
     def test_version_detection(self):
         self.trial_setup()
         update = bootchain.Update(self.root, self.env)
-        for version, expected in [('1.0.0b3', False), ('1.0.0b4', True), ('1.0.0b5-gabcd1234', True),
+        for version, expected in [('1.0.0b3', False), ('1.0.0b4', True), ('1.0.0b4-dirty', True),
+                                  ('1.0.0b5-gabcd1234', True), ('1.0.0b5-gabcd1234-dirty', True),
                                   ('1.0.0', True), ('1.6.1', False), ('unknown', False)]:
             self.put('/proc/device-tree/chosen/asahi,m1n1-stage1-version', version.encode() + b'\0')
             self.assertEqual(update.supports_trial(), expected, version)
