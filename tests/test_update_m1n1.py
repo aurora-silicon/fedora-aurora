@@ -481,7 +481,8 @@ class Recipes(unittest.TestCase):
                       (ROOT / 'packages/update-m1n1/LICENSE').read_text())
 
     def test_the_tool_and_the_recipe_agree_on_the_marker_path(self):
-        self.assertIn('/usr/share/aura/monitor-free', HELPER.read_text())
+        for path in (SCRIPT, HELPER):
+            self.assertIn('/usr/share/aura/monitor-free', path.read_text())
 
     def test_image_build_ignores_the_builders_device_tree(self):
         text = (ROOT / 'scripts/build-image').read_text()

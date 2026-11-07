@@ -16,6 +16,8 @@ export M1N1=${M1N1-/usr/lib64/m1n1/m1n1.bin}
 export U_BOOT=${U_BOOT-/usr/share/uboot/apple_m1/u-boot-nodtb.bin}
 export CONFIG=${CONFIG:-/etc/m1n1.conf}
 export DTBS=${DTBS-/boot/dtb}
+export AURORA_DEVICE_TREE_COMPATIBLE=${AURORA_DEVICE_TREE_COMPATIBLE:-/proc/device-tree/compatible}
+export AURORA_MONITOR_FREE_MARKER=${AURORA_MONITOR_FREE_MARKER:-/usr/share/aura/monitor-free}
 mode=${1:-}
 if [[ $mode == --commit || $mode == --guard ]]; then
     export AURORA_KERNEL_ACTION=refresh AURORA_KERNEL_VERSION=
