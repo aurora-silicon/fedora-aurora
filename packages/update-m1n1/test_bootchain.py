@@ -550,14 +550,15 @@ class TrialTests(unittest.TestCase):
     def test_display_alias_required_in_board_tree(self):
         self.trial_setup()
         self.put('/proc/device-tree/aliases/dcp', b'/soc/dcp\0')
+        # Another board's valid alias cannot satisfy this Mac's requirement.
+        other = subprocess.check_output(['dtc', '-q', '-I', 'dts', '-O', 'dtb'], input=b'''/dts-v1/;
+/ { compatible = "apple,j316s", "apple,t6000";
+aliases { dcp = "/dcp"; }; dcp {}; };''')
+        self.put('/usr/lib/modules/7.3/dtb/apple/t6000-j316s.dtb', other)
         with self.assertRaisesRegex(bootchain.Refused, 'display alias dcp'):
             self.apply()
         self.assertFalse(self.marker.exists())
         self.assertEqual(self.target.read_bytes(), b'GOOD-STAGE2')
-        # A different board's aliases cannot satisfy this Mac's requirement.
-        self.put('/usr/lib/modules/7.3/dtb/apple/t6000-j316s.dtb', self.dtb('j316s', 1))
-        with self.assertRaisesRegex(bootchain.Refused, 'display alias dcp'):
-            self.apply()
 
     def test_board_tree_display_aliases_pass(self):
         self.trial_setup()
