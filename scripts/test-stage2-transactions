@@ -73,6 +73,7 @@ Summary: Synthetic Stage 2 assembly input
 License: MIT
 BuildArch: noarch
 Provides: {provides}
+Conflicts: {provides.split('=')[0].strip()}
 %description
 Synthetic assembly input, not an executable bootloader.
 %install
