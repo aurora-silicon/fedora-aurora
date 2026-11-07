@@ -137,6 +137,7 @@ class ConfigureTests(unittest.TestCase):
                 self.assertIn("kernel-aurora", names)
                 self.assertIn("mesa-aurora-vulkan-drivers", names)
                 self.assertIn("aurora-flatpak-gl", names)
+                self.assertIn("libva-v4l2-request-avd", names)
                 exclusions = {n.get("name") for p in out.rglob("*.xml")
                               for n in ET.parse(p).getroot().iter("ignore")}
                 self.assertFalse(any(name.endswith("-firmware") for name in exclusions))
@@ -156,7 +157,8 @@ class ConfigureTests(unittest.TestCase):
         types = {path.stem: ET.parse(path).getroot().find("preferences/type")
                  for path in (out / "platforms").glob("*.xml")}
         self.assertEqual(types["workstation"].get("kernelcmdline"),
-                         "rhgb quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto user4k=on")
+                         "rhgb quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto user4k=on "
+                         "plymouth.ignore-serial-consoles")
         self.assertEqual(types["minimal"].get("kernelcmdline"),
                          "quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto user4k=on")
         self.assertEqual(types["minimal"].get("rootfs_label"), "AURORA_ROOT")
@@ -418,6 +420,22 @@ class ConfigureTests(unittest.TestCase):
         dropin.parent.mkdir()
         dropin.touch()
         self.assertTrue(accepted())
+        # Desktop images boot to the Aurora splash, never to the Fedora default.
+        config.write_text(config.read_text().replace("/usr/share/plymouth/themes",
+                                                     str(image / "usr/share/plymouth/themes")))
+        theme = image / "usr/share/plymouth/themes/aurora/aurora.plymouth"
+        theme.parent.mkdir(parents=True)
+        theme.touch()
+        chooser = commands / "plymouth-set-default-theme"
+        chooser.write_text("#!/bin/sh\necho bgrt\n")
+        chooser.chmod(0o755)
+        self.assertFalse(accepted())
+        chooser.write_text("#!/bin/sh\necho aurora\n")
+        self.assertTrue(accepted())
+        desktop = ET.parse(output / "components/desktop-environments.xml").getroot()
+        self.assertIn("plymouth-theme-aurora", {n.get("name") for g in desktop.iter("packages")
+                                                if g.get("profiles") == "DesktopCommon"
+                                                for n in g.iter("package")})
 
     def test_image_rejects_a_stale_kernel_before_export(self):
         output = self.root / "kernel-gate"

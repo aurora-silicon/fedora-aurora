@@ -1,0 +1,23 @@
+name: Publish Fedora 45 testing repository
+# Automatic publication (a finished native build on main, or the schedule)
+# runs publish.yml for Fedora 44. Follow each of those runs with the same
+# publication for Fedora 45, so its testing feed carries the same packages.
+# Runs started by hand are left alone; they choose their own release.
+on:
+  workflow_run:
+    workflows: [Publish signed testing repository]
+    types: [completed]
+    branches: [main]
+permissions: {}
+jobs:
+  dispatch:
+    if: >-
+      vars.AUTO_PUBLISH_TESTING == 'true' &&
+      github.event.workflow_run.event != 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref main -f fedora-release=45

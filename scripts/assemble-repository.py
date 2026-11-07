@@ -8,6 +8,10 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import fedoralib
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -32,10 +36,12 @@ def metadata(path):
     return tuple(row)
 
 
-def expected_sources():
+def expected_sources(fedora=44):
+    specs = [fedoralib.recipe_files(ROOT, name, fedora)[name + ".spec"] for name in fedoralib.package_names(ROOT)]
+    options = [] if fedora == 44 else ["--define", "fedora 45", "--define", "dist .fc45"]
     return {subprocess.check_output([
-        'rpmspec', '--srpm', '-q', '--qf', '%{NAME}-%{VERSION}-%{RELEASE}.%|NOSOURCE?{no}:{}|src.rpm', str(spec),
-    ], text=True).strip() for spec in (ROOT / 'packages').glob('*/*.spec')}
+        'rpmspec', '--srpm', '-q', '--qf', '%{NAME}-%{VERSION}-%{RELEASE}.%|NOSOURCE?{no}:{}|src.rpm', *options, str(spec),
+    ], text=True).strip() for spec in specs}
 
 
 def verify_signature(path, database):
@@ -109,6 +115,7 @@ def assemble(base, candidates, output, expected):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--fedora-release', type=int, choices=fedoralib.RELEASES, default=44)
     parser.add_argument('--base', type=Path)
     parser.add_argument('--candidates', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
@@ -116,9 +123,12 @@ def main():
                         help='on an incomplete set, write the package names that need a native build')
     args = parser.parse_args()
     if args.base:
+        manifest = json.loads((args.base / "manifest.json").read_text())
+        if manifest.get("fedora", 44) != args.fedora_release:
+            parser.error("Base snapshot belongs to another Fedora release")
         verify_base(args.base, ROOT / 'keys/RPM-GPG-KEY-aurora', (ROOT / 'keys/fingerprint.txt').read_text().strip())
     try:
-        names = assemble(args.base, args.candidates, args.output, expected_sources())
+        names = assemble(args.base, args.candidates, args.output, expected_sources(args.fedora_release))
     except IncompleteSnapshot as error:
         if args.missing_output:
             args.missing_output.write_text(' '.join(sorted(n.rsplit('-', 2)[0] for n in error.missing)) + '\n')

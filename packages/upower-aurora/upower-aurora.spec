@@ -1,8 +1,8 @@
-%global commit ec0b67ff412d97b16629614edc4decbb34d05983
+%global commit d8a24ffc5b9a49f71a28517f7c8b92b16701597a
 Name: upower
 Epoch: 1
 Version: 1.91.5
-Release: 1%{?dist}.aurora
+Release: 2%{?dist}.aurora
 Summary: Power management service with Aurora macsmc battery estimates
 License: GPL-2.0-or-later
 URL: https://github.com/aurora-silicon/upower
@@ -100,6 +100,10 @@ grep -q test_macsmc_kernel_time_charge_units registered-tests.txt
 %{_datadir}/dbus-1/interfaces/org.freedesktop.UPower*.xml
 
 %changelog
+* Fri Nov 06 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:1.91.5-2
+- Export the composite KbdBacklight only while a keyboard backlight exists
+  (upstream bb7af5f), so GNOME stops dimming a missing one on the Neo.
+
 * Sat Oct 31 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:1.91.5-1
 - Rebase the macsmc estimate fix onto 1.91.5; outrank stock Fedora.
 

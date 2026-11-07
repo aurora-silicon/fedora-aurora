@@ -2,14 +2,19 @@ name: Publish signed testing repository
 on:
   workflow_dispatch:
     inputs:
+      fedora-release:
+        description: Fedora release (45 publishes testing only)
+        type: choice
+        options: ['44', '45']
+        default: '44'
       build-run:
         description: Optional native RPM run IDs (recipes must match merged main). Empty resolves the newest build of every package
         default: ''
       base-release:
-        description: Optional snapshot supplying unchanged packages. Empty uses the newest testing-* release
+        description: Optional snapshot supplying unchanged packages. Empty uses the newest testing snapshot for this Fedora release
         default: ''
       release-tag:
-        description: Optional new tag. Empty creates testing-YYYYMMDD.N
+        description: Optional new tag. Empty creates testing-YYYYMMDD.N (44) or testing-f45-YYYYMMDD.N (45)
         default: ''
       deploy:
         description: Make the snapshot the live testing feed (auto follows the AUTO_DEPLOY_TESTING variable)
@@ -38,7 +43,8 @@ concurrency:
   group: repository-publication
   cancel-in-progress: false
 env:
-  FEDORA_IMAGE: registry.fedoraproject.org/fedora:44@sha256:b96f024cecbe9515eb049107d2856e7ad923f7aac09a3c90e7a0d52a46fa3454
+  FEDORA_RELEASE: ${{ inputs.fedora-release || '44' }}
+  FEDORA_IMAGE: ${{ inputs.fedora-release == '45' && 'registry.fedoraproject.org/fedora:45' || 'registry.fedoraproject.org/fedora:44@sha256:b96f024cecbe9515eb049107d2856e7ad923f7aac09a3c90e7a0d52a46fa3454' }}
 jobs:
   plan:
     if: >-
@@ -84,7 +90,7 @@ jobs:
           set -euo pipefail
           options=()
           if [[ -n $BASE_RELEASE ]]; then
-            [[ $BASE_RELEASE =~ ^testing-[A-Za-z0-9._-]+$ ]]
+            python3 -c 'import os,sys; sys.path.insert(0,"scripts"); import fedoralib; fedoralib.snapshot(os.environ["BASE_RELEASE"], int(os.environ["FEDORA_RELEASE"]))'
             options+=(--base-release "$BASE_RELEASE")
           fi
           if [[ -n $BUILD_RUN ]]; then
@@ -93,7 +99,7 @@ jobs:
             printf 'action=publish\nrebuild=\nbase_release=%s\n' "$BASE_RELEASE" >> "$GITHUB_OUTPUT"
             jq -n --arg runs "$BUILD_RUN" '{explicit_runs: $runs}' > build-plan.json
           else
-            python3 scripts/resolve-build-runs.py --repository "$GITHUB_REPOSITORY" "${options[@]}" \
+            python3 scripts/resolve-build-runs.py --fedora-release "$FEDORA_RELEASE" --repository "$GITHUB_REPOSITORY" "${options[@]}" \
               --output build-plan.json | tee -a "$GITHUB_STEP_SUMMARY"
           fi
       - id: tag
@@ -103,10 +109,12 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z $RELEASE_TAG ]]; then
-            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name' > existing-tags
-            RELEASE_TAG=$(python3 scripts/next-tag.py testing- < existing-tags)
+            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[].tag_name' > existing-tags
+            prefix=testing-
+            [[ $FEDORA_RELEASE == 44 ]] || prefix=testing-f45-
+            RELEASE_TAG=$(python3 scripts/next-tag.py "$prefix" < existing-tags)
           fi
-          [[ $RELEASE_TAG =~ ^testing-[A-Za-z0-9._-]+$ ]]
+          python3 -c 'import os,sys; sys.path.insert(0,"scripts"); import fedoralib; fedoralib.snapshot(os.environ["RELEASE_TAG"], int(os.environ["FEDORA_RELEASE"]))'
           ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -145,12 +153,19 @@ jobs:
             read -r -a runs <<< "$BUILD_RUN"
             for run in "${runs[@]}"; do
               gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" > "build-$run.json"
-              gh run download "$run" --repo "$GITHUB_REPOSITORY" --pattern 'rpm-*' --dir "downloaded/$run"
-              python3 scripts/import-rpm-build.py --metadata "build-$run.json" --artifacts "downloaded/$run" \
+              names=()
+              while read -r name; do names+=(--name "$name"); done < <(
+                gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" --paginate \
+                  --jq '.artifacts[] | select(.expired == false) | .name' |
+                  python3 -c 'import os,sys; names=sys.stdin.read().splitlines(); f=os.environ["FEDORA_RELEASE"]; print("\n".join(n for n in names if (n.startswith("rpm-f45-") if f == "45" else n.startswith("rpm-") and not n.startswith("rpm-f45-"))))'
+              )
+              ((${#names[@]}))
+              gh run download "$run" --repo "$GITHUB_REPOSITORY" "${names[@]}" --dir "downloaded/$run"
+              python3 scripts/import-rpm-build.py --fedora-release "$FEDORA_RELEASE" --metadata "build-$run.json" --artifacts "downloaded/$run" \
                 --repository "$GITHUB_REPOSITORY" --output input-build --matching-only
             done
           else
-            python3 scripts/collect-builds.py --plan build-plan.json --repository "$GITHUB_REPOSITORY" \
+            python3 scripts/collect-builds.py --fedora-release "$FEDORA_RELEASE" --plan build-plan.json --repository "$GITHUB_REPOSITORY" \
               --output input-build --downloads downloaded
             cp downloaded/build-*.json .
           fi
@@ -165,15 +180,15 @@ jobs:
           set -euo pipefail
           options=()
           if [[ -n $BASE_RELEASE ]]; then
-            [[ $BASE_RELEASE =~ ^testing-[A-Za-z0-9._-]+$ ]]
+            python3 -c 'import os,sys; sys.path.insert(0,"scripts"); import fedoralib; fedoralib.snapshot(os.environ["BASE_RELEASE"], int(os.environ["FEDORA_RELEASE"]))'
             gh release download "$BASE_RELEASE" --repo "$GITHUB_REPOSITORY" --pattern '*.rpm' --pattern manifest.json --dir base-rpms
             options=(--base base-rpms)
           fi
           check=(--old base-rpms --new complete-rpms)
           [[ $ALLOW_DOWNGRADE != true ]] || check+=(--allow-downgrade)
-          if docker run --rm -v "$PWD:/src" -w /src "$FEDORA_IMAGE" bash -euo pipefail -c '
+          if docker run --rm --env FEDORA_RELEASE -v "$PWD:/src" -w /src "$FEDORA_IMAGE" bash -euo pipefail -c '
               dnf install -y rpm-build python3 zstd >/dev/null
-              python3 scripts/assemble-repository.py "$@" --candidates input-build/rpms --output complete-rpms \
+              python3 scripts/assemble-repository.py --fedora-release "$FEDORA_RELEASE" "$@" --candidates input-build/rpms --output complete-rpms \
                 --missing-output missing-packages.txt
             ' assemble "${options[@]}"; then
             status=complete
@@ -187,7 +202,7 @@ jobs:
           fi
           sudo chown -R "$(id -u):$(id -g)" complete-rpms
           if [[ -d base-rpms ]]; then
-            docker run --rm -v "$PWD:/src" -w /src "$FEDORA_IMAGE" bash -euo pipefail -c '
+            docker run --rm --env FEDORA_RELEASE -v "$PWD:/src" -w /src "$FEDORA_IMAGE" bash -euo pipefail -c '
                 dnf install -y rpm python3 >/dev/null
                 python3 scripts/check-feed-versions.py "$@" --changes-output changes.txt
               ' check "${check[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
@@ -275,8 +290,8 @@ jobs:
         run: |
           set -euo pipefail
           jq -n '{key: env.FEDORA_RPM_SIGNING_KEY, passphrase: env.FEDORA_RPM_SIGNING_PASSPHRASE}' |
-            docker run --rm -i --network none -v "$PWD:/src" -w /src aurora-signer \
-              python3 scripts/sign-repository.py --credentials-stdin --rpms candidate/complete-rpms --output site \
+            docker run --rm --env FEDORA_RELEASE -i --network none -v "$PWD:/src" -w /src aurora-signer \
+              python3 scripts/sign-repository.py --fedora-release "$FEDORA_RELEASE" --credentials-stdin --rpms candidate/complete-rpms --output site \
                 --snapshot "$RELEASE_TAG" --asset-base "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG"
           sudo chown -R "$(id -u):$(id -g)" site
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -321,19 +336,19 @@ jobs:
           gpg --batch --armor --export > dry-run.asc
           gpg --batch --pinentry-mode loopback --passphrase dry-run --armor --export-secret-keys |
             jq -Rs '{key: ., passphrase: "dry-run"}' |
-            docker run --rm -i --network none -v "$PWD:/src" -w /src aurora-signer \
-              python3 scripts/sign-repository.py --credentials-stdin --dry-run-public-key dry-run.asc \
+            docker run --rm --env FEDORA_RELEASE -i --network none -v "$PWD:/src" -w /src aurora-signer \
+              python3 scripts/sign-repository.py --fedora-release "$FEDORA_RELEASE" --credentials-stdin --dry-run-public-key dry-run.asc \
                 --rpms candidate/complete-rpms --output site --snapshot "$RELEASE_TAG" \
                 --asset-base "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG"
           sudo chown -R "$(id -u):$(id -g)" site
           { echo '### Dry run'; echo; echo 'Signed with a throwaway key; nothing was published.'; echo;
-            jq -r '.packages[] | "- \(.filename)"' site/44/testing/aarch64/manifest.json; } >> "$GITHUB_STEP_SUMMARY"
+            jq -r '.packages[] | "- \(.filename)"' site/$FEDORA_RELEASE/testing/aarch64/manifest.json; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: dry-run-repository-metadata
           path: |
-            site/44/testing/aarch64/repodata
-            site/44/testing/aarch64/manifest.json
+            site/${{ env.FEDORA_RELEASE }}/testing/aarch64/repodata
+            site/${{ env.FEDORA_RELEASE }}/testing/aarch64/manifest.json
           retention-days: 3
 
   release:
@@ -355,19 +370,19 @@ jobs:
       - name: Verify every signature against the committed key
         run: |
           set -euo pipefail
-          docker run --rm -v "$PWD:/src" -w /src "$FEDORA_IMAGE" bash -euo pipefail -c '
+          docker run --rm --env FEDORA_RELEASE -v "$PWD:/src" -w /src "$FEDORA_IMAGE" bash -euo pipefail -c '
               rpmkeys --import keys/RPM-GPG-KEY-aurora
-              for rpm in site/44/testing/aarch64/*.rpm; do
+              for rpm in site/$FEDORA_RELEASE/testing/aarch64/*.rpm; do
                 [[ $(rpmkeys --checksig "$rpm") == *"digests signatures OK"* ]] || { echo "unsigned: $rpm" >&2; exit 1; }
               done
             '
           export GNUPGHOME="$RUNNER_TEMP/verify"
           mkdir -m 0700 "$GNUPGHOME"
           gpg --batch --import keys/RPM-GPG-KEY-aurora
-          gpg --batch --verify site/44/testing/aarch64/repodata/repomd.xml.asc site/44/testing/aarch64/repodata/repomd.xml
+          gpg --batch --verify site/$FEDORA_RELEASE/testing/aarch64/repodata/repomd.xml.asc site/$FEDORA_RELEASE/testing/aarch64/repodata/repomd.xml
           for archive in site/repository-metadata-*.tar.gz; do gpg --batch --verify "$archive.asc" "$archive"; done
           jq -e '.dry_run != true and .signing_key == $fpr' --arg fpr "$(cat keys/fingerprint.txt)" \
-            site/44/testing/aarch64/manifest.json
+            site/${{ env.FEDORA_RELEASE }}/testing/aarch64/manifest.json
       - name: Record provenance
         env:
           BASE_RELEASE: ${{ needs.plan.outputs.base-release }}
@@ -384,7 +399,7 @@ jobs:
           Path('site/builds.json').write_text(json.dumps(record,indent=2)+'\n')
           PY
           mkdir assets
-          cp site/44/testing/aarch64/*.rpm site/44/testing/aarch64/manifest.json site/RPM-GPG-KEY-aurora \
+          cp site/$FEDORA_RELEASE/testing/aarch64/*.rpm site/$FEDORA_RELEASE/testing/aarch64/manifest.json site/RPM-GPG-KEY-aurora \
             site/builds.json site/repository-metadata-*.tar.gz site/repository-metadata-*.tar.gz.asc assets/
           # Source RPMs keep the release asset names GitHub stores (see
           # asset_name in scripts/sign-repository.py), so SHA256SUMS names them.
@@ -419,4 +434,5 @@ jobs:
     uses: ./.github/workflows/deploy-snapshot.yml
     with:
       channel: testing
+      fedora-release: ${{ inputs.fedora-release || '44' }}
       release-tag: ${{ needs.release.outputs.tag }}

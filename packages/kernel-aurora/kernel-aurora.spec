@@ -1,9 +1,9 @@
-%global commit 40199edaa5cc9f4927b1619e20bdc1f5212d57f6
+%global commit 9127278801dd524b72454ee54d2be370d22a4197
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 15%{?dist}.aurora
+Release: 19%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -27,7 +27,12 @@ Macs, including MacBook Neo. Matching DTBs and modules are built together.
 
 %package core
 Summary: Aurora kernel image and device trees
-Requires: coreutils kmod dracut grubby update-m1n1 aura
+Requires: coreutils kmod dracut grubby update-m1n1
+# SN012776 amp settings come from the DT that aura 1.0.0b5 fills in
+# (https://github.com/aurora-silicon/linux/pull/981,
+# https://github.com/aurora-silicon/aura/pull/75); under an older Stage 2
+# the speakers stay off.
+Requires: aura >= 1.0.0~b5
 Provides: kernel-uname-r = %{krel}
 Provides: installonlypkg(kernel)
 Provides: kernel-16k-core = %{version}-%{release}
@@ -128,6 +133,40 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Fri Nov 06 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-19
+- Track aurora-silicon/linux integration/aurora at 9127278. M1 Macs no
+  longer need apple_sep xart_guard=0 for Touch ID (#1049), an M1/M2 dock
+  keeps its USB when its display has no pipeline (#1023), and every
+  internal panel publishes an identity EDID (#1016). Also M4 MacBook Air
+  camera, Touch ID and 4K 120 Hz external displays, M4 Pro JPEG engines,
+  MacBook Air M5 NVMe, Wi-Fi, Bluetooth and GPU bring-up, the Mac mini M6
+  GPU backend, and the Neo's eUSB2 repeater and USB hub tuned like macOS.
+
+* Fri Nov 06 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-18
+- Require aura 1.0.0~b5 or later. This kernel takes each SN012776 amp's
+  level, brownout and DC blocker settings from the DT that aura 1.0.0b5
+  fills in; with an older Stage 2 its speakers stay off. The dependency
+  pulls in aura on a kernel-only upgrade, and update-m1n1 writes the new
+  Stage 2 in the same transaction.
+
+* Thu Nov 05 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-17
+- Track aurora-silicon/linux integration/aurora at 2661d71: a T6020
+  Thunderbolt-dock display that drops HPD while its CRTC stays on is
+  power-cycled, so it comes back after wake or unblank (#959), and M1/M2
+  panel backlight changes fade over 250 ms on DAC firmware (#983). Also
+  M4 MacBook Air audio, suspend-to-idle, USB4 and external displays,
+  T6041/J616c bring-up, display processors started concurrently, critical
+  thermal trips confirmed over consecutive samples, and SN012776 amp setup
+  from the ADT.
+
+* Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-16
+- Track aurora-silicon/linux integration/aurora at 21f7ffc (fleet15: the
+  Neo DRAM floor while ProRes encodes, H16 ANE dynamic power gating held
+  off across back-to-back requests, and the Apple KVM system registers
+  kept in encoding order so KVM initialises). The configuration gains
+  the Apple x86 flags, x86 FP, FP preserve and AMX options from the
+  shared hardware fragment.
+
 * Tue Nov 03 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-15
 - Track aurora-silicon/linux integration/aurora at 40199ed.
 - Upstream head: Merge pull request #898 from aurora-silicon/integration/rosetta-features

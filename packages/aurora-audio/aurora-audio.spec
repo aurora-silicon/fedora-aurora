@@ -1,7 +1,7 @@
-%global commit d957fabbacbe7dd67b39f052b2ff21edea7ee038
+%global commit f1d596b9efeede884b28e3ad81fff24b22ba97a3
 Name: aurora-audio
 Version: 4.1
-Release: 7%{?dist}
+Release: 9%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
@@ -12,13 +12,17 @@ BuildRequires: make
 # Fedora Asahi installs carry asahi-audio, which ships the same files.
 Provides: asahi-audio = %{version}-%{release}
 Conflicts: asahi-audio
-Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplumber >= 0.5.16 bankstown lv2-triforce lsp-plugins-lv2 speakersafetyd speakerguardd
+Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplumber >= 0.5.16 bankstown lv2-triforce lsp-plugins-lv2
+# Both speaker protection stacks, on every Mac: speakerguardd-v2's fleet
+# gate starts exactly one of them per boot (v2 on a gated board whose kernel
+# has the v2 interface, the older daemons everywhere else).
+Requires: speakersafetyd speakerguardd speakerguardd-v2
 
 %description
 Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n asahi-audio-d957fabbacbe7dd67b39f052b2ff21edea7ee038
+%autosetup -n asahi-audio-f1d596b9efeede884b28e3ad81fff24b22ba97a3
 
 %build
 
@@ -34,6 +38,14 @@ install -Dm755 %{SOURCE1} %{buildroot}%{_prefix}/lib/dracut/modules.d/90aurora-a
 %{_prefix}/lib/dracut/modules.d/90aurora-audio/
 
 %changelog
+* Fri Nov 06 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-9
+- Require speakerguardd-v2 beside speakersafetyd and speakerguardd 0.1. Its
+  fleet gate starts exactly one stack per boot; on a kernel without the v2
+  interface (every fleet kernel today) that is the older daemons, as before.
+
+* Thu Nov 05 2026 Michal S. <michal_stopyra@icloud.com> - 4.1-8
+- Include the J614 microphone DSP graph and WirePlumber rule (asahi-audio#16).
+
 * Fri Oct 30 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-7
 - Move to asahi-audio d957fab: the built-in headphone sink of every Mac
   keeps the volume and mute the user set on it across boots, also with

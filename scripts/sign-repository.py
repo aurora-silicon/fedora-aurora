@@ -16,6 +16,8 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+import fedoralib
 
 
 def run(*args, **kwargs):
@@ -31,13 +33,12 @@ def asset_name(filename):
     return re.sub(r'[^A-Za-z0-9._-]', '.', filename)
 
 
-def archive_metadata(site, snapshot):
+def archive_metadata(site, snapshot, fedora=44):
     """Retain the exact signed DNF metadata without duplicating package assets."""
-    if not re.fullmatch(r'testing-[A-Za-z0-9._-]+', snapshot):
-        raise ValueError('Invalid immutable snapshot tag')
-    repository = site / '44/testing/aarch64'
+    fedoralib.snapshot(snapshot, fedora)
+    repository = site / f'{fedora}/testing/aarch64'
     repodata = repository / 'repodata'
-    if any(path.is_symlink() for path in (site, site / '44', site / '44/testing', repository, repodata)):
+    if any(path.is_symlink() for path in (site, site / str(fedora), site / f'{fedora}/testing', repository, repodata)):
         raise ValueError('Metadata directories must not be links')
     files = [site / 'RPM-GPG-KEY-aurora', repository / 'manifest.json',
              repodata / 'repomd.xml', repodata / 'repomd.xml.asc']
@@ -85,6 +86,7 @@ def archive_metadata(site, snapshot):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--fedora-release", type=int, choices=fedoralib.RELEASES, default=44)
     parser.add_argument("--rpms", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--asset-base", required=True)
@@ -95,10 +97,15 @@ def main():
     args = parser.parse_args()
     if args.output.exists():
         parser.error("output exists; use a fresh repository snapshot")
-    if args.snapshot and not re.fullmatch(r'testing-[A-Za-z0-9._-]+', args.snapshot):
-        parser.error('invalid immutable snapshot tag')
+    if args.snapshot:
+        try:
+            fedoralib.snapshot(args.snapshot, args.fedora_release)
+        except ValueError as error:
+            parser.error(str(error))
     url = urllib.parse.urlsplit(args.asset_base)
-    if url.scheme != "https" or not url.hostname or url.query or url.fragment:
+    local_dry_run = (args.dry_run_public_key and url.scheme == 'http'
+                     and url.hostname in ('127.0.0.1', '::1'))
+    if (url.scheme != "https" and not local_dry_run) or not url.hostname or url.query or url.fragment:
         parser.error("asset base must be an immutable HTTPS release directory")
     if args.snapshot and url.path.rstrip('/').rsplit('/', 1)[-1] != args.snapshot:
         parser.error('snapshot tag does not match the immutable asset base')
@@ -110,6 +117,10 @@ def main():
             parser.error("unsafe RPM input")
     if len({asset_name(package.name) for package in packages}) != len(packages):
         parser.error("two RPMs would share one release asset name")
+    for package in packages:
+        rpm_release = subprocess.check_output(['rpm', '-qp', '--qf', '%{RELEASE}', str(package)], text=True)
+        if not re.search(rf'\.fc{args.fedora_release}(?:[.~-]|$)', rpm_release):
+            parser.error('RPM belongs to another Fedora release: ' + package.name)
     credentials = (json.load(sys.stdin) if args.credentials_stdin else {
         "key": os.environ["FEDORA_RPM_SIGNING_KEY"],
         "passphrase": os.environ["FEDORA_RPM_SIGNING_PASSPHRASE"],
@@ -124,7 +135,7 @@ def main():
             ["gpg", "--batch", "--with-colons", "--import-options", "show-only", "--import", str(public_key)],
             text=True).split("fpr:::::::::", 1)[1].split(":", 1)[0]
     args.output.mkdir(parents=True)
-    destination = args.output / "44/testing/aarch64"
+    destination = args.output / f"{args.fedora_release}/testing/aarch64"
     destination.mkdir(parents=True)
     with tempfile.TemporaryDirectory(prefix="aurora-signing-") as directory:
         home = Path(directory)
@@ -158,12 +169,12 @@ def main():
         run(*gpg, "--verify", str(repomd) + ".asc", str(repomd))
         shutil.copyfile(public_key, args.output / "RPM-GPG-KEY-aurora")
         (destination / "manifest.json").write_text(json.dumps({
-            "schema": 1, "channel": "testing", "fedora": 44, "architecture": "aarch64",
+            "schema": 1, "channel": "testing", "fedora": args.fedora_release, "architecture": "aarch64",
             "signing_key": expected, "asset_base": args.asset_base, "dry_run": bool(args.dry_run_public_key),
             "packages": manifest,
         }, indent=2) + "\n")
         if args.snapshot:
-            archive = archive_metadata(args.output, args.snapshot)
+            archive = archive_metadata(args.output, args.snapshot, args.fedora_release)
             run(*gpg, "--local-user", expected, "--armor", "--detach-sign", str(archive))
             run(*gpg, "--verify", str(archive) + ".asc", str(archive))
         run("gpgconf", "--homedir", str(home), "--kill", "gpg-agent")
