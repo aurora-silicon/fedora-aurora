@@ -1,0 +1,146 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# Disposable Fedora 44 aarch64 container only. All boot inputs are synthetic.
+# Run this through a buildbox slot, never on an installed Mac.
+set -euo pipefail
+proof=${1:?proof directory}
+[[ $(uname -m) == aarch64 && $(id -u) == 0 ]]
+# shellcheck disable=SC1091
+[[ $(. /etc/os-release; echo "$VERSION_ID") == 44 ]]
+mkdir -p "$proof"
+dnf install -y --setopt=tsflags=noscripts rpm-build systemd-rpm-macros dtc python3 \
+    coreutils bash util-linux gzip grubby asahi-scripts createrepo_c systemd shellcheck git gcc make
+shellcheck packages/update-m1n1/update-m1n1 packages/update-m1n1/aurora-stage2-commit \
+    packages/update-m1n1/*.install scripts/test-stage2-transactions scripts/test-bootchain-upgrade > "$proof/shellcheck.log" 2>&1
+python3 packages/update-m1n1/test_bootchain.py -v > "$proof/updater-tests.log" 2>&1
+bash scripts/build-rpm update-m1n1 > "$proof/rpmbuild.log" 2>&1
+# Build tiny RPMs with the kernel's real add/remove scriptlets and marker
+# installation, avoiding any kernel compilation or physical boot device.
+python3 - <<'PY'
+from pathlib import Path
+import subprocess
+source = Path('packages/kernel-aurora/kernel-aurora.spec').read_text()
+add = source.split('%posttrans core\n', 1)[1].split('\n%preun core', 1)[0].strip()
+remove = source.split('%preun core\n', 1)[1].split('\n%posttrans', 1)[0].split('\n%files', 1)[0].strip()
+marker_install = next(line for line in source.splitlines() if line.startswith('install -m644 %{SOURCE6} '))
+assert '/usr/lib/modules/%{krel}/dtb-abi' in source.split('%files core', 1)[1].split('%files modules', 1)[0]
+top = Path('/var/tmp/stage2-rpms')
+(top / 'SPECS').mkdir(parents=True)
+(top / 'SOURCES').mkdir()
+for release, generation in ((1, 1), (2, 1), (3, 2)):
+    krel = f'7.3.0-{release}.stage2.aarch64'
+    (top / f'SOURCES/abi-{release}').write_text(f'{generation}\n')
+    blob = subprocess.check_output(['dtc', '-q', '-I', 'dts', '-O', 'dtb'], input=f'''
+/dts-v1/; / {{ compatible = "apple,j413", "apple,t8112";
+fixture {{ value = <{release}>; }}; }};'''.encode())
+    (top / f'SOURCES/tree-{release}.dtb').write_bytes(blob)
+    (top / f'SPECS/kernel-{release}.spec').write_text(f'''Name: kernel-aurora-core
+Version: 7.3.0
+Release: {release}.stage2
+Summary: Synthetic updater transaction fixture
+License: MIT
+BuildArch: aarch64
+Provides: installonlypkg(kernel)
+Source6: abi-{release}
+Source7: tree-{release}.dtb
+%description
+Synthetic boot inputs, not a bootable kernel.
+%install
+mkdir -p %{{buildroot}}/usr/lib/modules/{krel}/dtb/apple
+printf fixture-{release} > %{{buildroot}}/usr/lib/modules/{krel}/vmlinuz
+{marker_install.replace('%{krel}', krel)}
+install -m644 %{{SOURCE7}} %{{buildroot}}/usr/lib/modules/{krel}/dtb/apple/t8112-j413.dtb
+%posttrans
+{add.replace('%{krel}', krel)}
+%preun
+{remove.replace('%{krel}', krel)}
+%files
+/usr/lib/modules/{krel}/
+''')
+for name, provides, path in [('aura', 'm1n1 = 1.6.1', '/usr/lib64/m1n1/m1n1.bin'),
+                             ('uboot-aurora', 'uboot-images-armv8', '/usr/share/uboot/apple_m1/u-boot-nodtb.bin')]:
+    (top / f'SPECS/{name}.spec').write_text(f'''Name: {name}
+Version: 1
+Release: 1.stage2
+Summary: Synthetic Stage 2 assembly input
+License: MIT
+BuildArch: noarch
+Provides: {provides}
+%description
+Synthetic assembly input, not an executable bootloader.
+%install
+mkdir -p %{{buildroot}}{Path(path).parent}
+printf '{name}' > %{{buildroot}}{path}
+%files
+{path}
+''')
+PY
+cat > /var/tmp/stage2-rpms/SPECS/vendor-updater.spec <<'SPEC'
+Name: update-m1n1
+Version: 20261101
+Release: 1.stage2
+Summary: Synthetic previous updater for unit enablement on upgrade
+License: MIT
+BuildArch: noarch
+%description
+Disposable vendor-transition fixture.
+%install
+mkdir -p %{buildroot}/usr/bin
+printf '#!/bin/sh\nexit 0\n' > %{buildroot}/usr/bin/update-m1n1
+chmod 755 %{buildroot}/usr/bin/update-m1n1
+%files
+/usr/bin/update-m1n1
+SPEC
+for spec in /var/tmp/stage2-rpms/SPECS/*.spec; do
+    rpmbuild -bb --define '_topdir /var/tmp/stage2-rpms' "$spec" >> "$proof/fixture-build.log" 2>&1
+done
+mkdir -p /boot/efi/m1n1 /etc/sysconfig
+cat > /etc/sysconfig/update-m1n1 <<'CONFIG'
+M1N1=/usr/lib64/m1n1/m1n1.bin
+U_BOOT=/usr/share/uboot/apple_m1/u-boot-nodtb.bin
+DTBS=/boot/dtb
+TARGET=/boot/efi/m1n1/boot.bin
+CONFIG
+export KERNEL_INSTALL_PLUGINS='/etc/kernel/install.d/10-devicetree.install /usr/lib/kernel/install.d/15-update-m1n1.install'
+rpms=/var/tmp/stage2-rpms/RPMS
+# An updater upgrade must enable its newly introduced units as well as a
+# first install. No service manager is running in this container.
+dnf install -y "$rpms"/noarch/update-m1n1-20261101-1.stage2.noarch.rpm > "$proof/install-vendor-updater.log" 2>&1
+# The first candidate install has no kernel yet; trigger refusal is expected.
+dnf install -y --allowerasing --setopt=allow_vendor_change=True \
+    out/rpms/update-m1n1-*.noarch.rpm "$rpms"/noarch/aura-*.rpm "$rpms"/noarch/uboot-aurora-*.rpm > "$proof/install-updater.log" 2>&1
+rpm -q --filetriggers update-m1n1 > "$proof/rpm-triggers.log"
+dnf install -y "$rpms"/aarch64/kernel-aurora-core-7.3.0-1.stage2.aarch64.rpm > "$proof/kernel-add-1.log" 2>&1
+[[ $(readlink /boot/dtb) == dtb-7.3.0-1.stage2.aarch64 ]]
+[[ -s /boot/efi/m1n1/boot.bin ]]
+cp /boot/efi/m1n1/boot.bin "$proof/stage2-first.bin"
+dnf install -y "$rpms"/aarch64/kernel-aurora-core-7.3.0-2.stage2.aarch64.rpm > "$proof/kernel-add-2.log" 2>&1
+[[ $(readlink /boot/dtb) == dtb-7.3.0-2.stage2.aarch64 ]]
+cmp "$proof/stage2-first.bin" /boot/efi/m1n1/boot.bin.old
+before=$(sha256sum /boot/efi/m1n1/boot.bin)
+# A real RPM transaction invokes the actual core %posttrans, which must refuse
+# generation 2 while both generation 1 fallback kernels remain installed.
+dnf install -y "$rpms"/aarch64/kernel-aurora-core-7.3.0-3.stage2.aarch64.rpm > "$proof/generation-refusal.log" 2>&1
+grep -F 'generation 1' "$proof/generation-refusal.log"
+[[ $(sha256sum /boot/efi/m1n1/boot.bin) == "$before" ]]
+[[ $(readlink /boot/dtb) == dtb-7.3.0-2.stage2.aarch64 ]]
+[[ ! -e /boot/efi/aura-try ]]
+# Removing the refused generation restores the normal selected kernel.
+dnf remove -y kernel-aurora-core-7.3.0-3.stage2.aarch64 > "$proof/kernel-remove-3.log" 2>&1
+[[ $(sha256sum /boot/efi/m1n1/boot.bin) == "$before" ]]
+# Exercise the real transfiletrigger by upgrading the assembly-input RPM.
+sed -i 's/Release: 1.stage2/Release: 2.stage2/; s/printf '\''aura'\''/printf '\''aura-2'\''/' /var/tmp/stage2-rpms/SPECS/aura.spec
+rpmbuild -bb --define '_topdir /var/tmp/stage2-rpms' /var/tmp/stage2-rpms/SPECS/aura.spec >> "$proof/fixture-build.log" 2>&1
+dnf upgrade -y "$rpms"/noarch/aura-1-2.stage2.noarch.rpm > "$proof/rpm-trigger-upgrade.log" 2>&1
+[[ $(sha256sum /boot/efi/m1n1/boot.bin) != "$before" ]]
+# Repeat the updater suite against the installed helper. Synthetic proc/sys
+# fixtures model trial and fallback boots without exposing any host device.
+BOOTCHAIN_MODULE=/usr/libexec/aurora/bootchain.py python3 packages/update-m1n1/test_bootchain.py -v \
+    > "$proof/installed-updater-tests.log" 2>&1
+systemd-analyze verify /usr/lib/systemd/system/aurora-stage2-{commit,guard}.service /usr/lib/systemd/system/aurora-stage2-guard.timer > "$proof/service-verify.log" 2>&1
+systemctl --root=/ is-enabled aurora-stage2-commit.service aurora-stage2-guard.timer > "$proof/service-enabled.log"
+python3 -m unittest discover -s tests -p 'test_*.py' > "$proof/source-tests.log" 2>&1
+python3 images/test_configure.py > "$proof/image-tests.log" 2>&1
+rpm -q update-m1n1 kernel-aurora-core aura uboot-aurora > "$proof/installed-nevra.txt"
+cp out/rpms/update-m1n1-*.rpm "$proof/"
+echo 'Fedora 44 aarch64 Stage 2 transactions, trial states and source checks passed'

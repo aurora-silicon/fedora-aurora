@@ -2,7 +2,7 @@
 %global commit 279c4afa4bbaf600af1c2f493c75d8aadc206243
 Name: uboot-aurora
 Version: 2026.07
-Release: 7%{?dist}
+Release: 8%{?dist}
 Summary: Aurora U-Boot for Apple Silicon
 License: GPL-2.0-or-later
 URL: https://github.com/aurora-silicon/u-boot
@@ -10,6 +10,7 @@ Source0: uboot-aurora-%{commit}.tar.gz
 ExclusiveArch: aarch64
 Provides: uboot-images-armv8
 Conflicts: uboot-images-armv8
+Requires: update-m1n1 >= 20261107
 BuildRequires: gcc make bc bison flex dtc python3 python3-pyelftools swig openssl-devel openssl-devel-engine gnutls-devel
 
 %description
@@ -32,6 +33,9 @@ install -Dm644 build-aurora/u-boot-nodtb.bin %{buildroot}/usr/lib/asahi-boot/u-b
 /usr/lib/asahi-boot/u-boot-nodtb.bin
 
 %changelog
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 2026.07-8
+- Require the trial-aware Stage 2 updater for packaged boot updates.
+
 * Thu Nov 05 2026 Michal S. <michal_stopyra@icloud.com> - 2026.07-7
 - Include the merged J614s retained MTP input handoff (u-boot#29).
 

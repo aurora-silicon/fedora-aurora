@@ -43,10 +43,74 @@ vendor and upgrade without a vendor change) and the second one makes the vendor 
 switch in one go.
 
 A kernel update runs `kernel-install`: dracut builds the initramfs (with `dracut-asahi` and
-`98aurora-peripherals`, which read this Mac's firmware from the ESP at boot), grubby adds the boot entry
-and `/boot/dtb` link, and the `15-update-m1n1.install` plugin rewrites the ESP Stage 2. aura and U-Boot
-updates trigger `update-m1n1` through RPM file triggers on `/usr/lib64/m1n1` and
-`/usr/share/uboot/apple_m1`.
+`98aurora-peripherals`, which read this Mac's firmware from the ESP at boot), and grubby adds the boot
+entry. The `15-update-m1n1.install` plugin runs `update-m1n1` with the kernel version
+being added or removed. It prepares the versioned DTB directory and changes `/boot/dtb` only after
+validating the shared Stage 2 update. aura and U-Boot updates use the same updater through RPM file
+triggers on `/usr/lib64/m1n1` and `/usr/share/uboot/apple_m1`.
+
+## Device trees and the next boot
+
+Device trees describe the Mac's hardware. They ship with the kernel, but the bootloader needs them
+inside the ESP Stage 2 image to apply the firmware fixups before Linux starts. A kernel update therefore
+also prepares a Stage 2 image containing the new device trees.
+
+With aura Stage 1 version 1.0.0b4 or later, the updater leaves the working image in place. It writes
+`<target>.next` beside it, reads it back, checks the DTB headers and this Mac's root compatible, and
+checks that its display aliases are still present. It then writes the ESP root file `aura-try` with
+exactly `armed\n<ESP-relative .next path>\n`. The marker is written through `aura-try.tmp`, synced and
+renamed, then the filesystem and ESP block device are flushed. Stage 1 spends the marker on disk
+before trying the candidate. A failed trial therefore boots the configured image on the next boot.
+The updater reads the installed Stage 1 version from the live device tree, not from the aura RPM.
+Older Stage 1 installations keep the direct atomic replacement and `<target>.old` backup.
+
+On a trial boot, `aurora-stage2-commit.service` runs once after the system reaches `multi-user.target`.
+It checks that the root filesystem is mounted on NVMe, no DT-described device remains in deferred
+probe, and every enabled DCP has a bound driver. Debugfs must expose `devices_deferred` for that check.
+The service also checks that the candidate still matches its recorded hash and that the booted trial
+path names that candidate. It saves `<target>.prev`, atomically renames `.next` over the live image,
+flushes the ESP, verifies the live image's SHA-256, and removes the marker. The backup remains available
+for recovery. If a write or read-back fails, it restores the previous live image and keeps the candidate.
+
+The trial retains Stage 1's watchdog fallback. A twelve-minute `aurora-stage2-guard.timer` also reboots
+an uncommitted trial, covering a Linux boot that feeds the hardware watchdog but cannot pass the checks
+or reach the commit service. It does nothing after a successful commit or on an ordinary boot.
+
+If Stage 1 fell back, the commit service writes one journal line saying so, keeps the working image,
+and leaves `.next` and `.next.json` for inspection. The updater records an attempt per selected kernel
+version under `/var/lib/aurora-stage2/attempts` before arming the marker. Package triggers and later
+boots never automatically try that version again. A later kernel version can get its own trial; the
+previous candidate and receipt are kept beside the target as `.failed-<sha256>` files. An already
+armed marker, another trial's marker, or a running trial prevents replacement of the candidate.
+
+`journalctl -u aurora-stage2-commit -u aurora-stage2-guard` shows the outcome. After a failed trial,
+inspect the retained candidate and receipt before making any manual recovery change. A new package
+transaction does not remove a fallback kernel or reset its recorded trial attempt.
+
+## DT ABI generations
+
+`kernel-aurora-core` ships `/usr/lib/modules/<release>/dtb-abi`, an integer declaring the DT ABI
+generation. Device trees can change within a generation while retained kernels remain compatible.
+Only an incompatible ABI change needs a higher generation. An older package without the file counts
+as generation zero; malformed declarations are refused.
+
+The updater refuses a selected tree generation only when a retained kernel has a lower generation.
+Equal and higher retained generations are allowed, even when the DTB bytes differ. It validates that
+kernel images and device trees exist, including retained boot entries and rescue kernels. Custom
+`DTBS` settings must match an installed tree set with a known generation. Refusal preserves the live
+Stage 2 and `/boot/dtb`, lists the older kernels, and suggests an explicit removal command. First
+verify a working compatible fallback. No fallback is deleted automatically, and failed erase-time
+refreshes still allow the erased kernel's own boot files to be cleaned up.
+
+## Checking updater changes
+
+Run `scripts/test-stage2-transactions <proof-directory>` in a disposable Fedora 44 aarch64 container
+on the buildbox. It builds the updater RPM and synthetic boot-input RPMs, exercises the real RPM
+trigger and kernel-install hooks, and runs the updater tests against both source and the installed
+helper. Those tests cover an armed trial without a commit, a successful trial commit, fallback,
+the older Stage 1 path, generation refusal, DT checks and interrupted writes. The simulated proc/sys
+trees never expose a host device. `scripts/test-bootchain-upgrade` retains the earlier transaction
+checks using pinned historical input RPMs. Both paths require container isolation.
 
 ## Repository metadata check
 
