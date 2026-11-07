@@ -227,6 +227,9 @@ fi
   keybag is stuck, such as an M1 Mac left with an unfinished keybag create by
   a kernel that guarded it. The documentation points to it instead of
   install-aurora-sep.sh --reset-touchid, which Fedora does not ship.
+- XART-SAFETY.md: a reinstall or rollback that loses the xART guard's list
+  leaves the earlier records protected; Touch ID is set up again with
+  aurora-xart reset-touchid. It no longer suggests putting a saved list back.
 
 * Fri Nov 06 2026 Aurora Silicon contributors - 1-20
 - XART-SAFETY.md: the kernel now leaves the xART guard off on M1 Macs, so
