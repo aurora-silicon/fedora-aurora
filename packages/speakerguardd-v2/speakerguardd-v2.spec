@@ -1,6 +1,6 @@
-%global commit 403b362efd09f4481aca5e73cc827c3b2ddc6b09
+%global commit e1a9518759eb94923ff0fa2b6d0aa9b4c399342b
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261106
+%global snapdate 20261107
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.12.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.14.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -219,6 +219,9 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.14.20261107gite1a9518759eb
+- NEO-CUT test build (not for merge): speakerguardd neocut/neo-test e1a9518759eb = v2 339ab24 (#84 sleep unit) + #85 (close PCMs before sleep) + #83 (lsm2 at parity, J700) with the lsm2 slice-invariance fix ae786c0.
+
 * Fri Nov 06 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.12.20261106git403b362efd09
 - Move to 403b362efd09 (no merged pull requests). The packaged files are unchanged.
 - Fleet gate data (gate.json, upstream's): units at parity: spp3, atsp; spp3: J316s, J413, J616s; atsp: J274, J293, J313, J375C, J375D, J473, J474s, J475C, J475D, J493.
