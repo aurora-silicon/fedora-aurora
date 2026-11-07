@@ -375,5 +375,21 @@
     "source_url": "https://codeload.github.com/aurora-silicon/aurora-steam-native/tar.gz/c06f610e3604c3f2b1b8466dff60d6878d0cd0da",
     "archive_root": "aurora-steam-native-c06f610e3604c3f2b1b8466dff60d6878d0cd0da",
     "sha256": "c81a8425164322d77155e8c24eb9a73a379637873948cd85cfc5531ba58f25c0"
+  },
+  "shairport-sync": {
+    "repository": "https://github.com/mikebrady/shairport-sync",
+    "commit": "0b1c4391ffd398e7b145eb4b98416261380adeea",
+    "version": "4.3.7",
+    "source_url": "https://codeload.github.com/mikebrady/shairport-sync/tar.gz/0b1c4391ffd398e7b145eb4b98416261380adeea",
+    "archive_root": "shairport-sync-0b1c4391ffd398e7b145eb4b98416261380adeea",
+    "sha256": "7ef3a6ba1cbd67bb200f018ddcd3e8dbe40da98b3c1776aee6c7b832632c6865"
+  },
+  "nqptp": {
+    "repository": "https://github.com/mikebrady/nqptp",
+    "commit": "ab8fb67483411640fd7f1e193889482f2421c37c",
+    "version": "1.2.9",
+    "source_url": "https://codeload.github.com/mikebrady/nqptp/tar.gz/ab8fb67483411640fd7f1e193889482f2421c37c",
+    "archive_root": "nqptp-ab8fb67483411640fd7f1e193889482f2421c37c",
+    "sha256": "3e90e2ea1f52f5c1559a5a46b2cdadb46ac6532a08a34f8cd7e77aa39f6a90c7"
   }
 }

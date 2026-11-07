@@ -36,7 +36,7 @@ The upstream description and its GPL-3.0-or-later license are copied into the ge
 | Distribution | `aurora-release`, `aurora-logos`, `aurora-remix-scripts` |
 | Updates | The Aurora RPM repository is retained in the installed image, with package signature checking and the signing key in the rpm database; refreshes need no key prompt ([updates](../docs/updates.md#installed-systems)) |
 
-These are RPM contracts, not renamed Arch archives. Kernel RPMs must integrate with Fedora's kernel-install, dracut and BLS conventions. Bootloader RPMs must provide the paths consumed by Fedora's `update-m1n1`. The release RPM must provide the Fedora release/identity capabilities required by the selected desktop groups; the scripts RPM must provide the first-boot service contracts inherited from the pinned image description. Device firmware and calibration continue to be extracted from the target Mac by the installer.
+These are RPM contracts, not renamed Arch archives. Kernel RPMs must integrate with Fedora's kernel-install, dracut and BLS conventions. Bootloader RPMs must provide the paths consumed by `update-m1n1`. The release RPM must provide the Fedora release/identity capabilities required by the selected desktop groups; the scripts RPM must provide the first-boot service contracts inherited from the pinned image description. Device firmware and calibration continue to be extracted from the target Mac by the installer.
 
 The native engine currently implements an Omarchy-specific full-OS payload contract. Fedora needs an explicit `fedora-btrfs-v1` adapter, its own volume icon and the Aurora Recovery app contract. The image producer records that intended layout; it does not make the existing live adapter accept a different filesystem implicitly.
 

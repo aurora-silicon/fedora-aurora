@@ -7,6 +7,7 @@ An older retained generation cannot boot with a newer shared tree generation.
 """
 import argparse
 import glob
+import fnmatch
 import gzip
 import hashlib
 import json
@@ -80,15 +81,36 @@ class Update:
     def path(self, path):
         return self.root / str(path).lstrip('/')
 
+    def compatibles(self):
+        path = self.path(self.env.get('AURORA_DEVICE_TREE_COMPATIBLE', '/proc/device-tree/compatible'))
+        return [value.decode('ascii') for value in path.read_bytes().split(b'\0') if value] if path.exists() else []
+
     def board(self):
-        path = self.path('/proc/device-tree/compatible')
-        if not path.exists():
-            return None  # Image builds validate the entire selected set.
-        boards = [v.decode('ascii') for v in path.read_bytes().split(b'\0')
-                  if re.fullmatch(rb'apple,[jk][a-z0-9]+', v)]
-        if not boards:
+        values = self.compatibles()
+        boards = [value for value in values if re.fullmatch(r'apple,[jk][a-z0-9]+', value)]
+        if boards:
+            return boards[0]
+        if any(value.startswith('apple,') for value in values):
             raise Refused('cannot identify the Apple board')
-        return boards[0]
+        return None  # Image builds validate the entire selected set.
+
+    def ctxr_board(self):
+        marker = self.path(self.env.get('AURORA_MONITOR_FREE_MARKER', '/usr/share/aura/monitor-free'))
+        patterns = ('apple,t81[3-9a-f]?', 'apple,t8[2-9a-f]??',
+                    'apple,t60[4-9a-f]?', 'apple,t6[1-9a-f]??')
+        if marker.exists() and any(fnmatch.fnmatchcase(value, pattern)
+                                   for value in self.compatibles() for pattern in patterns):
+            return self.board()
+        return None
+
+    def target(self):
+        name = self.env.get('TARGET')
+        if not name:
+            raise Refused('the entry point has not mounted a target ESP')
+        target = self.path(name)
+        if self.ctxr_board() and target.name == 'boot.bin':
+            target = target.with_name('boot-ctxr.bin')
+        return target
 
     def kernel_images(self):
         images = {p.parent.name: p for p in self.path('/usr/lib/modules').glob('*/vmlinuz')}
@@ -233,8 +255,12 @@ class Update:
                 if re.match(rb'^(chosen\.[^=]+|display|mitigations)=', line):
                     options.append(line + b'\n')
         # Deduplicate multi-compatible trees and keep deterministic ordering.
-        blobs = list(dict.fromkeys(candidate[key] for key in sorted(candidate)))
+        ctxr = self.ctxr_board()
+        blobs = list(dict.fromkeys(candidate[key] for key in sorted(candidate)
+                                   if not ctxr or ctxr in candidate.boards[key]))
         payload = m1n1 + b''.join(blobs) + gzip.compress(uboot, mtime=0) + b''.join(options)
+        if ctxr and len(payload) > 16 * 1024 * 1024:
+            raise Refused('CTXR Stage 2 exceeds the 16 MiB slot; keeping the working images')
         return selected, source, trees[selected], payload
 
     def chosen(self, name):
@@ -244,6 +270,8 @@ class Update:
     def supports_trial(self):
         # The aura property is authoritative when present. A stock m1n1
         # version (such as 1.6.1) does not imply aura-try support.
+        if self.board() is None:
+            return False
         aura_version = self.chosen('aura,stage1-version')
         version = aura_version or self.chosen('asahi,m1n1-stage1-version')
         match = re.fullmatch(r'(?:aura[- v]?)?v?(\d+)\.(\d+)\.(\d+)(?:b(\d+))?(?:-(?:[0-9]+-)?g[0-9a-f]+)?(?:-dirty)?', version)
@@ -262,7 +290,7 @@ class Update:
 
     def trial_paths(self):
         self.check_esp()
-        target = self.path(self.env['TARGET'])
+        target = self.target()
         esp = self.path(self.env['ESP_ROOT'])
         # Resolve parent components too, so a configured symlink cannot escape
         # the mounted ESP. Never follow a final candidate/marker symlink.
@@ -463,10 +491,7 @@ class Update:
 
     def apply(self):
         selected, source, own, payload = self.plan()
-        target_name = self.env.get('TARGET')
-        if not target_name:
-            raise Refused('the entry point has not mounted a target ESP')
-        target = self.path(target_name)
+        target = self.target()
         if target.is_symlink():
             raise Refused('Stage 2 target is a symlink')
         # Make the versioned boot DTB directory complete before exposing it.

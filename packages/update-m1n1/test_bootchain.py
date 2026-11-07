@@ -476,6 +476,36 @@ class TrialTests(unittest.TestCase):
             return original(command, **kwargs)
         patch.object(bootchain.subprocess, 'check_output', side_effect=output).start()
 
+    def ctxr_setup(self):
+        self.trial_setup()
+        self.put('/usr/share/aura/monitor-free', b'')
+        self.put('/proc/device-tree/compatible', b'apple,j700\0apple,t8140\0')
+        self.kernel('7.3', board='j700')
+        self.ctxr = self.put('/esp/m1n1/boot-ctxr.bin', b'GOOD-CTXR')
+        self.candidate = self.ctxr.with_name('boot-ctxr.bin.next')
+
+    def test_ctxr_trial_keeps_both_live_slots(self):
+        self.ctxr_setup()
+        self.apply()
+        self.assertEqual(self.marker.read_bytes(), b'armed\nm1n1/boot-ctxr.bin.next\n')
+        self.assertEqual(self.target.read_bytes(), b'GOOD-STAGE2')
+        self.assertEqual(self.ctxr.read_bytes(), b'GOOD-CTXR')
+        self.assertIn(self.dtb('j700', 1), self.candidate.read_bytes())
+        self.assertNotIn(self.dtb('j413', 1), self.candidate.read_bytes())
+
+    def test_ctxr_commit_replaces_only_the_ctxr_slot(self):
+        self.ctxr_setup()
+        self.apply()
+        payload = self.candidate.read_bytes()
+        self.marker.write_bytes(b'spent\nm1n1/boot-ctxr.bin.next\n')
+        self.put('/proc/device-tree/chosen/aurora,trial', b'm1n1/boot-ctxr.bin.next\0')
+        self.sane()
+        self.commit()
+        self.assertEqual(self.target.read_bytes(), b'GOOD-STAGE2')
+        self.assertEqual(self.ctxr.read_bytes(), payload)
+        self.assertEqual(self.ctxr.with_name('boot-ctxr.bin.prev').read_bytes(), b'GOOD-CTXR')
+        self.assertFalse(self.marker.exists())
+
     def test_trial_armed_without_commit(self):
         self.trial_setup()
         self.apply()

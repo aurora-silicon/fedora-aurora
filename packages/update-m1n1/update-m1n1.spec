@@ -16,6 +16,7 @@ Source8: aurora-stage2-commit.service
 Source9: 90-aurora-stage2.preset
 Source10: aurora-stage2-guard.service
 Source11: aurora-stage2-guard.timer
+Provides: aurora-stage2-ctxr-slot = 1
 BuildArch: noarch
 BuildRequires: python3 dtc coreutils systemd-rpm-macros
 %{?systemd_requires}
@@ -38,12 +39,12 @@ python3 -m py_compile %{SOURCE1}
 python3 %{SOURCE6}
 
 %install
-install -Dm755 %{SOURCE0} %{buildroot}%{_bindir}/update-m1n1
+install -Dpm0755 %{SOURCE0} %{buildroot}%{_sbindir}/update-m1n1
 install -Dm644 %{SOURCE1} %{buildroot}%{_libexecdir}/aurora/bootchain.py
 # Override grubby's eager link update through kernel-install's supported
 # precedence mechanism. Administrator masks and edits remain authoritative.
 install -Dm755 %{SOURCE2} %{buildroot}%{_sysconfdir}/kernel/install.d/10-devicetree.install
-install -Dm755 %{SOURCE3} %{buildroot}/usr/lib/kernel/install.d/15-update-m1n1.install
+install -Dm755 %{SOURCE3} %{buildroot}%{_kernel_install_dir}/15-update-m1n1.install
 install -Dm644 %{SOURCE4} %{buildroot}%{_sysconfdir}/sysconfig/update-m1n1
 install -Dm755 %{SOURCE7} %{buildroot}%{_libexecdir}/aurora/aurora-stage2-commit
 install -Dm644 %{SOURCE8} %{buildroot}%{_unitdir}/aurora-stage2-commit.service
@@ -66,11 +67,11 @@ install -Dm644 %{SOURCE9} %{buildroot}%{_presetdir}/90-aurora-stage2.preset
 /usr/bin/systemctl --no-reload preset aurora-stage2-commit.service aurora-stage2-guard.timer || :
 
 %transfiletriggerin -- /usr/lib/m1n1 /usr/lib64/m1n1 /usr/share/uboot/apple_m1 /etc/m1n1.conf
-%{_bindir}/update-m1n1 || :
+%{_sbindir}/update-m1n1 || :
 
 %files
 %license LICENSE
-%{_bindir}/update-m1n1
+%{_sbindir}/update-m1n1
 %{_libexecdir}/aurora/bootchain.py
 %{_libexecdir}/aurora/aurora-stage2-commit
 %{_unitdir}/aurora-stage2-commit.service
@@ -78,7 +79,7 @@ install -Dm644 %{SOURCE9} %{buildroot}%{_presetdir}/90-aurora-stage2.preset
 %{_unitdir}/aurora-stage2-guard.timer
 %{_presetdir}/90-aurora-stage2.preset
 %config(noreplace) %{_sysconfdir}/kernel/install.d/10-devicetree.install
-/usr/lib/kernel/install.d/15-update-m1n1.install
+%{_kernel_install_dir}/15-update-m1n1.install
 %config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1
 
 %changelog

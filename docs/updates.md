@@ -112,6 +112,42 @@ the older Stage 1 path, generation refusal, DT checks and interrupted writes. Th
 trees never expose a host device. `scripts/test-bootchain-upgrade` retains the earlier transaction
 checks using pinned historical input RPMs. Both paths require container isolation.
 
+## CTXR Stage 2 slots
+
+`update-m1n1` is Aurora's package (`packages/update-m1n1`). The `priority=1` repository and vendor
+policies move an installed system to it, and `aura` requires its trial-aware version. The same generation
+and trial checks apply to the CTXR slot described below.
+
+The aura package ships `/usr/share/aura/monitor-free` once its pinned source has no monitor. `aura.spec`
+declares that in `%global monitor_free`, and `%prep` refuses a source that disagrees (`src/ctxr_exec.c`, or
+no `src/monitor.c`), so the aura#77 pin has to set it. Until then updates target `boot.bin`, using `.next` trials when Stage 1 supports them.
+
+Such an aura moves the kernel into the CTXR window, which only a kernel built with
+`CONFIG_ARM64_CTXR_EXECMEM` keeps its code inside. With `monitor_free` 1, aura requires
+`aurora-ctxr-execmem`, which `kernel-aurora-core` provides when `kernel-aurora.spec` sets `ctxr_execmem` 1.
+Its `%build` checks that against the resolved configuration, so it can be set only with a kernel pin that
+has aurora-silicon/linux#985. `tests/test_update_m1n1.py` fails if `monitor_free` is set without it.
+RPM checks this per package, not per boot: `kernel-aurora` is install-only, so any installed
+`kernel-aurora-core` that provides `aurora-ctxr-execmem` satisfies aura, while older kernels without it stay
+installed and in the GRUB menu. Booting one of those with an aura that has no monitor would hit the faults
+this rule exists for, until dnf removes it as the install-only limit rotates kernels out.
+The 4731456 pin has it and `packages/kernel-aurora/config` turns it on, so `ctxr_execmem` is 1.
+
+With the marker, a Mac that boots a Mach-O Stage 1 (`/proc/device-tree/compatible` names one of the chips
+in the installer's `AuraStage1Format.usesMachO`: T8130 and later, T6040 and later) gets
+`m1n1/boot-ctxr.bin` instead, with only this board's DTBs. A trial uses `boot-ctxr.bin.next` and a `.prev`
+backup on commit; older Stage 1 uses direct replacement and `.old`. It leaves `boot.bin` untouched,
+because the padded Stage 1 these Macs enroll chainloads `boot-ctxr.bin`. Earlier chips continue to
+target `boot.bin`. Missing board trees and candidates above the 16 MiB
+CTXR slot limit are refused before either live image or the boot link changes.
+
+Image builds set `AURORA_DEVICE_TREE_COMPATIBLE=/nonexistent`, so `update-m1n1` writes `boot.bin` as before
+whichever Mac builds the image. If the image's aura has the marker, `scripts/prepare-ctxr-stage2.py` then
+adds `boot-ctxr.bin`, a copy of it, to the image's ESP, and `boot-ctxr-<board>.bin`, a copy of
+`boot-<board>.bin`, for each Mach-O board. The installer picks the board's file over the combined one. The
+script fails the image if any of them is over 16 MiB. Without the marker the image has no `boot-ctxr.bin`,
+and the installer refuses it on Mach-O Macs, so no Mac gets a `boot-ctxr.bin` that updates don't refresh.
+
 ## Repository metadata check
 
 `repo_gpgcheck` stays off until Fedora ships a dnf5 with `auto_import_local_keys` (upstream e2e9b949 and

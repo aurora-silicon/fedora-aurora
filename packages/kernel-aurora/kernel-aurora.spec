@@ -1,9 +1,14 @@
 %global commit 4731456d979107bfed16316fea45378d9de7d1da
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
+# 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
+# (aurora-silicon/linux#985), which keeps every kernel code page inside the CTXR
+# window an aura without the monitor moves the kernel into. kernel-aurora-core
+# then provides aurora-ctxr-execmem, which that aura requires. %%build checks it.
+%global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 21%{?dist}.aurora
+Release: 22%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -36,6 +41,9 @@ Requires: update-m1n1 >= 20261107
 # the speakers stay off.
 Requires: aura >= 1.0.0~b5
 Provides: kernel-uname-r = %{krel}
+%if %{ctxr_execmem}
+Provides: aurora-ctxr-execmem
+%endif
 Provides: installonlypkg(kernel)
 Provides: kernel-16k-core = %{version}-%{release}
 
@@ -77,6 +85,12 @@ python3 tools/aurora-bindgen/build.py --output-dir "$PWD/private-bindgen"
 export BINDGEN="$PWD/private-bindgen/rust-bindgen-0.73.2/target/release/bindgen"
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" olddefconfig
 python3 %{SOURCE5} arch/arm64/configs/asahi.config %{SOURCE4} .config
+ctxr=0
+if grep -qx 'CONFIG_ARM64_CTXR_EXECMEM=y' .config; then ctxr=1; fi
+if [ "$ctxr" != %{ctxr_execmem} ]; then
+  echo "kernel-aurora.spec: set ctxr_execmem to $ctxr, which this pin's configuration resolves to" >&2
+  exit 1
+fi
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" rustavailable
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" %{?_smp_mflags} Image modules dtbs
 [ "$(make -s LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" kernelrelease)" = "%{krel}" ]
@@ -137,9 +151,14 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
-* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-21
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-22
 - Ship the DT ABI generation and require trial-aware Stage 2 updates.
 - Clean boot files for every erased install-only kernel version.
+
+* Sat Nov 07 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-21
+- Provide aurora-ctxr-execmem. The 4731456 kernel is built with
+  CONFIG_ARM64_CTXR_EXECMEM (#985), which an aura without the monitor
+  requires.
 
 * Sat Nov 07 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-20
 - Track aurora-silicon/linux integration/aurora at 4731456. Wi-Fi works

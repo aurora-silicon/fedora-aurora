@@ -4,7 +4,7 @@
 case "$1" in
     add|remove)
         export AURORA_KERNEL_ACTION="$1" AURORA_KERNEL_VERSION="$2"
-        exec /usr/bin/update-m1n1
+        exec /usr/sbin/update-m1n1
         ;;
 esac
 exit 0
