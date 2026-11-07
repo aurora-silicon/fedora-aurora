@@ -9,7 +9,7 @@ upgrade ordering only.
 | Package family (including matching subpackages) | Fedora 45 EVR | Previous fc44 v5 EVR |
 | --- | --- | --- |
 | aurora-sep, aurora-sep-selinux | `0:1-16.fc45` | `0:1-15.fc44` |
-| libfprint, libfprint-selinux, libfprint-devel, libfprint-tests | `1:1.94.100-1.fc45.aurora7` | `0:1.94.100-1.fc44.aurora7` |
+| libfprint, libfprint-selinux, libfprint-devel, libfprint-tests | `1:1.94.100-1.fc45.aurora8` | `0:1.94.100-1.fc44.aurora7` |
 | fprintd, fprintd-pam, fprintd-devel | `1:1.94.5-99.fc45.aurora1` | `0:1.94.5-99.fc44.aurora1` |
 
 Epoch 1 keeps both patched upstream packages ahead of stock Fedora packages,
