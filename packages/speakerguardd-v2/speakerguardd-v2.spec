@@ -1,6 +1,12 @@
-%global commit 6d13c704202e7aec7cbe552f6fc3612259a372c4
+%{!?commit:%global commit 6d13c704202e7aec7cbe552f6fc3612259a372c4}
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261107
+%{!?snapdate:%global snapdate 20261107}
+# Optional, isolated test RPM. No macro means the unchanged fleet recipe.
+%if %{defined plan_a_board}
+%if "%{plan_a_board}" == "j413"
+%global plan_a_features --features sgv2-core/lowflow-conservative
+%endif
+%endif
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
@@ -8,7 +14,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.13.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.13.%{?plan_a_board:planA.%{plan_a_board}.}%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -71,14 +77,20 @@ cp -p packaging/selinux/%{modulename}.te .
 grep -qx 'allow speakerguardd_t self:capability sys_admin;' %{modulename}.te
 cp -p %{SOURCE2} .
 cp -p %{SOURCE4} README.packaging.md
+%if %{defined plan_a_board}
+python3 -I packaging/plan-a/gate.py %{plan_a_board} gate.plan-a.json
+%endif
 
 %build
-cargo build --locked --release %{cargo_pkgs}
+cargo build --locked --release %{cargo_pkgs} %{?plan_a_features}
+%if %{defined plan_a_board}
+cargo build --locked --release -p sgv2-lv2 --example blob-info %{?plan_a_features}
+%endif
 %make_build -f %{_datadir}/selinux/devel/Makefile %{modulename}.pp
 bzip2 -9 %{modulename}.pp
 
 %check
-cargo test --locked --release %{cargo_pkgs}
+cargo test --locked --release %{cargo_pkgs} %{?plan_a_features}
 python3 -I packaging/session/test_provision.py
 
 %install
@@ -99,7 +111,12 @@ install -Dm644 packaging/session/wiring.py %{buildroot}$lx/wiring.py
 install -Dm644 packaging/session/gen.py %{buildroot}$lx/gen.py
 # The fleet gate's data, unchanged from upstream. Every per-board value is
 # derived from the Mac's device tree and tuning at run time (wiring.py).
+%if %{defined plan_a_board}
+install -Dm644 gate.plan-a.json %{buildroot}%{_datadir}/speakerguardd/gate.json
+install -Dm755 target/release/examples/blob-info %{buildroot}$lx/blob-info
+%else
 install -Dm644 packaging/session/gate.json %{buildroot}%{_datadir}/speakerguardd/gate.json
+%endif
 # The per-machine graphs, as reference data: provisioning generates the
 # machine's own from the self-check's record.
 for f in packaging/pipewire/sgv2-*.conf; do
