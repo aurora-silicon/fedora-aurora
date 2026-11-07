@@ -12,6 +12,15 @@ requested = event.get("inputs", {}).get("packages", "").split()
 event_name = os.environ["GITHUB_EVENT_NAME"]
 before = (event.get("pull_request", {}).get("base", {}).get("sha", "")
           if event_name == "pull_request" else event.get("before", ""))
+if event_name == "pull_request":
+    # GITHUB_SHA is the test merge of the head into the current base, so its
+    # first parent is the base as merged. pull_request.base.sha can be older
+    # (a reopened or long-open PR), which would count every later main change.
+    try:
+        before = subprocess.check_output(
+            ["git", "rev-parse", os.environ["GITHUB_SHA"] + "^1"], cwd=root, text=True).strip()
+    except subprocess.CalledProcessError:
+        pass
 if requested:
     if not set(requested) <= set(names):
         raise SystemExit("Unknown requested package")
