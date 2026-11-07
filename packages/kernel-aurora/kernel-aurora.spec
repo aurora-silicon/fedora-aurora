@@ -1,9 +1,9 @@
-%global commit 2661d71e16bf538156001bd9e93bafcd60855c85
+%global commit 4731456d979107bfed16316fea45378d9de7d1da
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 Name: kernel-aurora
 Version: 7.3.0
-Release: 19%{?dist}.aurora
+Release: 21%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -133,9 +133,26 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
-* Fri Nov 06 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-19
+* Sat Nov 07 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-21
 - Defer the fbcon takeover, as Fedora's own kernel does. A quiet boot no
   longer shows a text cursor between the boot loader's logo and the splash.
+
+* Sat Nov 07 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-20
+- Track aurora-silicon/linux integration/aurora at 4731456. Wi-Fi works
+  again on Macs with a BCM4378 (M1 MacBook Air, 13-inch M1 and M2 MacBook
+  Pro): its receive buffers stay readable for the chip, as they already
+  were for the BCM4387 and BCM4388 (#1078). Also SoC error reporting
+  (EDAC), a PCIe link retry, the SMC RTC offset rounding fix, the AOP
+  motion sensor trigger, and the speaker mux.
+
+* Fri Nov 06 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-19
+- Track aurora-silicon/linux integration/aurora at 9127278. M1 Macs no
+  longer need apple_sep xart_guard=0 for Touch ID (#1049), an M1/M2 dock
+  keeps its USB when its display has no pipeline (#1023), and every
+  internal panel publishes an identity EDID (#1016). Also M4 MacBook Air
+  camera, Touch ID and 4K 120 Hz external displays, M4 Pro JPEG engines,
+  MacBook Air M5 NVMe, Wi-Fi, Bluetooth and GPU bring-up, the Mac mini M6
+  GPU backend, and the Neo's eUSB2 repeater and USB hub tuned like macOS.
 
 * Fri Nov 06 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-18
 - Require aura 1.0.0~b5 or later. This kernel takes each SN012776 amp's

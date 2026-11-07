@@ -32,7 +32,7 @@ The upstream description and its GPL-3.0-or-later license are copied into the ge
 | Boot | Aura Stage 1/Stage 2, Aurora U-Boot, Fedora GRUB/BLS and dracut |
 | Kernel | `kernel-aurora` and `kernel-aurora-modules-extra`, with the same Aurora source/configuration across supported Macs; `aurora-userpages` (`userpages 4k COMMAND`) from the same source, with `user4k=on` on the kernel command line |
 | Graphics | `mesa-aurora-dri-drivers` and `mesa-aurora-vulkan-drivers`; `aurora-flatpak-gl` gives Flatpak apps the same Mesa (GL.aurora for the 25.08 and 26.08 runtimes) |
-| Platform | `aurora-platform`, `aurora-firmware`, `avd-fw`, `upower` (Aurora fork), `alsa-ucm-conf-aurora`, `aurora-audio`, `speakerguardd`, `speakersafetyd-aurora-profiles`, `aurora-sep`, Aurora `libfprint` and redistributable peripheral firmware |
+| Platform | `aurora-platform`, `aurora-firmware`, `avd-fw`, `libva-v4l2-request-avd`, `upower` (Aurora fork), `alsa-ucm-conf-aurora`, `aurora-audio`, `speakerguardd`, `speakersafetyd-aurora-profiles`, `aurora-sep`, Aurora `libfprint` and redistributable peripheral firmware |
 | Distribution | `aurora-release`, `aurora-logos`, `aurora-remix-scripts` |
 | Updates | The Aurora RPM repository is retained in the installed image, with package signature checking and the signing key in the rpm database; refreshes need no key prompt ([updates](../docs/updates.md#installed-systems)) |
 

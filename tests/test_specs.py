@@ -298,15 +298,50 @@ class SpecTests(unittest.TestCase):
         self.assertIn("prefix: /usr/lib/aarch64-linux-gnu/GL/aurora", manifest)
         self.assertIn('priority=10', build)
         self.assertIn("['mesa-aurora']", build)
+    def test_platform_selinux_lets_init_inspect_the_initramfs_uevent_socket(self):
+        # systemd keeps udev's uevent socket from the initramfs, where it was
+        # made as kernel_t, and checks it after loading the policy.
+        d = ROOT / 'packages' / 'aurora-platform'
+        te = (d / 'aurora_platform.te').read_text()
+        self.assertIn('allow init_t kernel_t:netlink_kobject_uevent_socket getattr;', te)
+        self.assertEqual(re.findall(r'(?m)^allow .*$', te),
+                         ['allow init_t kernel_t:netlink_kobject_uevent_socket getattr;'])
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: aurora_platform\.te$')
+        core = text.split('%package core', 1)[1].split('%description core', 1)[0]
+        self.assertIn('Requires: (aurora-platform-selinux = %{version}-%{release} '
+                      'if selinux-policy-%{selinuxtype})', core)
+        files = text.split('%files selinux', 1)[1].split('%changelog', 1)[0]
+        self.assertIn('%{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2', files)
+    def test_irqbalance_runs_only_where_the_aic_can_steer(self):
+        d = ROOT / 'packages' / 'aurora-platform'
+        conf = (d / '50-aurora-irqbalance.conf').read_text()
+        lines = [l for l in conf.splitlines() if l.startswith('Condition')]
+        self.assertEqual(lines, ['ConditionFirmware=|!device-tree-compatible(apple,arm-platform)',
+                                 'ConditionFirmware=|device-tree-compatible(apple,t8103)'])
+        text = (d / 'aurora-platform.spec').read_text()
+        core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
+        self.assertIn('%{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf', core_files)
+    def test_mutter_leaves_the_render_only_gpu_card_alone(self):
+        d = ROOT / 'packages' / 'aurora-platform'
+        rules = [l for l in (d / '62-aurora-gpu-render-only.rules').read_text().splitlines()
+                 if l and not l.startswith('#')]
+        self.assertEqual(rules, ['SUBSYSTEM=="drm", KERNEL=="card[0-9]*", DRIVERS=="aurora", '
+                                 'TAG+="mutter-device-ignore"'])
+        text = (d / 'aurora-platform.spec').read_text()
+        core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
+        self.assertIn('%{_udevrulesdir}/62-aurora-gpu-render-only.rules', core_files)
     def test_platform_core_carries_no_kernel_or_boot_chain(self):
         d = ROOT / 'packages' / 'aurora-platform'
         text = (d / 'aurora-platform.spec').read_text()
         core = text.split('%package core', 1)[1].split('%description core', 1)[0]
         requires = ' '.join(re.findall(r'^Requires:\s+(.+)$', core, re.M)).split()
-        for name in ['update-m1n1', 'dracut-asahi', 'asahi-fwupdate', 'speakersafetyd',
-                     'speakerguardd', 'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise',
+        for name in ['update-m1n1', 'dracut-asahi', 'asahi-fwupdate',
+                     'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise',
                      'aurora-kbd-light']:
             self.assertIn(name, requires)
+        # Speaker protection: both stacks on every Mac; the fleet gate starts one.
+        self.assertRegex(core, r'(?m)^Requires: speakersafetyd speakerguardd speakerguardd-v2$')
         for name in requires:
             self.assertFalse(name.startswith(('kernel', 'uboot', 'm1n1')) or name == 'aura', name)
         self.assertNotIn('aurora-release', requires)
@@ -316,6 +351,58 @@ class SpecTests(unittest.TestCase):
         self.assertEqual((d / 'aurora-platform-core.conf').read_text().split(), ['aurora-platform-core'])
         self.assertIn('protected.d/aurora-platform-core.conf', text.split('%files core', 1)[1])
         self.assertRegex(text, r'(?m)^Requires: aurora-platform-core = %\{version\}-%\{release\}$')
+    def test_speakerguardd_v2_installs_everywhere_gated_by_board(self):
+        d = ROOT / 'packages' / 'speakerguardd-v2'
+        text = (d / 'speakerguardd-v2.spec').read_text()
+        main = text.split('%package selinux', 1)[0]
+        # Beside the 0.1 daemon and speakersafetyd: nothing replaces either,
+        # and there is no opt-in package any more.
+        self.assertNotRegex(main, r'(?m)^(Conflicts|Obsoletes|Provides):')
+        self.assertNotIn('replace-legacy', text.split('%changelog', 1)[0])
+        self.assertIn('%{_libexecdir}/speakerguardd-v2/speakerguardd', text)
+        self.assertIn('%{_libdir}/lv2/sgv2.lv2/', text)
+        files = text.split('%files', 1)[1].split('%files selinux', 1)[0]
+        for u in ['speakerguardd-v2.service', 'speakerguardd-v2-provision.service', 'speakerguardd-v2-selfcheck.service',
+                  'speakerguardd-v2-seat.service', 'speakerguardd-v2-seat.path', 'speakerguardd-v2-sleep.service']:
+            self.assertIn('%{_unitdir}/' + u, files)
+        for u in ['speakerguardd-v2-session.service', 'speakerguardd-v2-graph.service']:
+            self.assertIn('%{_userunitdir}/' + u, files)
+        # The units are enabled by the package's presets; the gate decides.
+        preset = [l for l in (d / '50-speakerguardd-v2.preset').read_text().splitlines() if not l.startswith('#')]
+        self.assertEqual(preset, ['enable speakerguardd-v2.service', 'enable speakerguardd-v2-provision.service',
+                                  'enable speakerguardd-v2-selfcheck.service', 'enable speakerguardd-v2-seat.path',
+                                  'enable speakerguardd-v2-sleep.service'])
+        # A unit new in an upgrade gets its preset in %post (the macro applies it on a first install only).
+        self.assertIn('systemctl --no-reload preset speakerguardd-v2-sleep.service', text)
+        self.assertIn('%{_presetdir}/50-speakerguardd-v2.preset', files)
+        self.assertIn("enable speakerguardd-v2-graph.service\\nenable speakerguardd-v2-session.service", text)
+        # The gate is upstream's, with upstream's data: no distribution copy.
+        self.assertFalse((d / 'speakerguardd-v2-gate').exists())
+        self.assertIn('install -Dm644 packaging/session/gate.json %{buildroot}%{_datadir}/speakerguardd/gate.json', text)
+        # Every per-board value is derived on the Mac (wiring.py): no machine table.
+        self.assertNotIn('machines.json', text.split('%install', 1)[1].split('%files', 1)[0])
+        self.assertIn('install -Dm644 packaging/session/wiring.py', text)
+        for u in ['speakerguardd-v2.service', 'speakerguardd-v2-provision.service', 'speakerguardd-v2-selfcheck.service',
+                  'speakerguardd-v2-seat.service']:
+            self.assertIn(u, text.split('grep -qx "ExecCondition=$lx/speakerguardd-gate v2" $u', 1)[0])
+        # The older daemons carry the same gate, the other way round.
+        for u in ['speakersafetyd', 'speakerguardd']:
+            self.assertIn('%{_unitdir}/' + u + '.service.d/60-speakerguardd-v2-gate.conf', files)
+        self.assertIn('grep -qx "ExecCondition=$lx/speakerguardd-gate legacy" legacy-gate.conf', text)
+        # Provisioning and the self-check come before the supervisor.
+        self.assertIn("grep -qx 'Requires=speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service' speakerguardd-v2.service", text)
+        self.assertIn("grep -qx 'Requires=speakerguardd-v2-provision.service' speakerguardd-v2-selfcheck.service", text)
+        self.assertIn('python3 -I packaging/session/test_provision.py', text.split('%check', 1)[1].split('%install', 1)[0])
+        # The SELinux module labels the program where this package installs it.
+        fc = (d / 'speakerguardd.fc').read_text()
+        self.assertIn('/usr/libexec/speakerguardd-v2/speakerguardd\t--\tgen_context(system_u:object_r:speakerguardd_exec_t,s0)', fc)
+        self.assertIn('/run/speakerguardd(/.*)?', fc)
+        self.assertIn('/var/lib/speakerguardd(/.*)?', fc)
+        self.assertFalse((d / 'speakerguardd.te').exists())
+        self.assertIn('cp -p packaging/selinux/%{modulename}.te .', text)
+        # aurora-audio requires both stacks too.
+        audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
+        self.assertRegex(audio, r'(?m)^Requires: speakersafetyd speakerguardd speakerguardd-v2$')
     def test_aurora_repos_owns_the_repository_key_and_vendor_policies(self):
         d = ROOT / 'packages' / 'aurora-repos'
         spec = (d / 'aurora-repos.spec').read_text()
@@ -503,6 +590,28 @@ class SpecTests(unittest.TestCase):
         spec = (d / 'fex-emu.spec').read_text()
         self.assertIn('%{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml\n', spec.split('%files\n', 1)[1])
         self.assertRegex(spec, r'(?m)^Requires:\s+aurora-userpages$')
+
+    def test_fex_mounts_the_stock_guest_rootfs_below_the_aurora_mesa_layer(self):
+        d = ROOT / 'packages' / 'fex-emu'
+        unit = configparser.ConfigParser(strict=False)
+        unit.optionxform = str
+        unit.read_string((d / 'usr-share-guestos-fex\\x2dmesa.mount').read_text())
+        self.assertEqual(dict(unit['Mount']), {'What': '/usr/share/fex-emu/RootFS/default.erofs',
+                                               'Where': '/usr/share/guestos/fex-mesa', 'Type': 'erofs',
+                                               'Options': 'ro,loop,nodev,nosuid'})
+        self.assertEqual(unit['Unit']['ConditionDirectoryNotEmpty'], '!/usr/share/guestos/fex-mesa')
+        # The provider service (mesa-aurora-fex-guest) lays its layer over this mount point.
+        service = (ROOT / 'packages/mesa-aurora-fex-guest/aurora-fex-mesa.service').read_text()
+        self.assertIn('lowerdir=/usr/share/guestos/aurora-fex-mesa-layer:/usr/share/guestos/fex-mesa ', service)
+        dropin = (d / '50-aurora-fex-rootfs.conf').read_text()
+        self.assertIn('Wants=usr-share-guestos-fex\\x2dmesa.mount\n', dropin)
+        self.assertIn('After=usr-share-guestos-fex\\x2dmesa.mount\n', dropin)
+        spec = (d / 'fex-emu.spec').read_text()
+        files = spec.split('%files\n', 1)[1].split('%files', 1)[0]
+        for path in ('%{_unitdir}/usr-share-guestos-fex*.mount', '%{_unitdir}/aurora-fex-mesa.service.d/50-aurora-fex-rootfs.conf'):
+            self.assertIn(path + '\n', files)
+        self.assertIn('%triggerin -- fex-emu-rootfs-fedora\n%{_libexecdir}/fex-emu/aurora-fex-provider-up\n', spec)
+        subprocess.run(['sh', '-n', str(d / 'aurora-fex-provider-up')], check=True)
 
     def test_fex_submodules_are_pinned_with_the_fork(self):
         spec = (ROOT / 'packages' / 'fex-emu' / 'fex-emu.spec').read_text()
