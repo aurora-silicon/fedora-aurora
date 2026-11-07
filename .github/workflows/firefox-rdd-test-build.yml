@@ -24,11 +24,15 @@ jobs:
           sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet /usr/local/share/boost /opt/hostedtoolcache /usr/local/.ghcup || true
           docker system prune -af || true
           df -h "$GITHUB_WORKSPACE"
+          # gkrust (the Rust half of libxul) was killed at 16 GB with 4 jobs: add swap, use 3 jobs.
+          sudo swapoff -a || true
+          sudo fallocate -l 24G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+          free -g
       - name: Build Firefox RPMs natively (Fedora 44 aarch64)
         run: |
           set -euo pipefail
           mkdir -p out
-          docker run --rm --platform linux/arm64 -e AURORA_FIREFOX_TEST_BUILD=1 -e AURORA_BUILD_JOBS=4 -e AURORA_DNF_EXTRA=--enablerepo=updates-testing -e BUILD_OUT=/src/out \
+          docker run --rm --platform linux/arm64 -e AURORA_FIREFOX_TEST_BUILD=1 -e AURORA_BUILD_JOBS=3 -e AURORA_DNF_EXTRA=--enablerepo=updates-testing -e BUILD_OUT=/src/out \
             -v "$PWD:/src" -w /src registry.fedoraproject.org/fedora:44 bash -euo pipefail -c '
               dnf install -y git python3 fedpkg rpm-build dnf5-plugins redhat-rpm-config kernel-headers
               git config --global --add safe.directory /src
