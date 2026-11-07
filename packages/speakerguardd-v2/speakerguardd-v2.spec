@@ -1,4 +1,4 @@
-%global commit 7234e7015477117cc77cc8402a1e28b1643dbf85
+%global commit 612408731383c82dc24be640e36a005bcfae87d8
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261108
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.26.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.27.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -224,6 +224,11 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.27.20261108git612408731383
+- Move to 612408731383 (speakerguardd#99, Plan A release candidate 5): RC4b plus the ToneMeister
+  Butterworth shelves in the unit's Float32 order (tmst row 13 exact) and the VirtualBass Float32
+  crossover per object; trims re-derived: j413 woofers -0.043 dB, all others none. The packaged files are unchanged.
+
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.26.20261108git7234e7015477
 - Move to 7234e7015477 (speakerguardd#98, Plan A release candidate 4b): RC4 with the trims re-derived
   against the macOS chain each Mac actually runs (the M1 Pro's speaker-ID strip, the M2's LowFlow
