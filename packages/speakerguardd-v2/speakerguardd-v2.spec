@@ -7,8 +7,8 @@
 %global cargo_pkgs -p sgv2-core -p sgv2-lv2 -p sgv2-supervisor -p aurora-speaker-tuning
 
 Name: speakerguardd-v2
-Version: 1.0.0~alpha.1
-Release: 0.12.%{snapdate}git%{shortcommit}%{?dist}
+Version: 1.0.0~alpha.2
+Release: 0.0.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -115,7 +115,8 @@ rename_units() {
         -e 's@\bspeakerguardd\(-[a-z]\+\)\?\.\(service\|path\)\b@speakerguardd-v2\1.\2@g' "$1"
 }
 for u in speakerguardd.service speakerguardd-provision.service speakerguardd-selfcheck.service \
-         speakerguardd-seat.service speakerguardd-seat.path speakerguardd-session.service speakerguardd-graph.service; do
+         speakerguardd-seat.service speakerguardd-seat.path speakerguardd-session.service speakerguardd-graph.service \
+         speakerguardd-sleep.service; do
     rename_units packaging/systemd/$u > ${u/speakerguardd/speakerguardd-v2}
 done
 # Each rewrite must have taken, and no unit may chain to another daemon.
@@ -131,14 +132,18 @@ grep -qx "ExecStart=$lx/speakerguardd-provision seat --unit speakerguardd-v2.ser
 grep -qx 'Unit=speakerguardd-v2-seat.service' speakerguardd-v2-seat.path
 grep -qx "ExecCondition=$lx/speakerguardd-provision is-seat" speakerguardd-v2-session.service
 grep -q "^ExecStart=$lx/speakerguardd-session " speakerguardd-v2-session.service
-for u in speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.service; do
+grep -qx 'Before=sleep.target' speakerguardd-v2-sleep.service
+grep -qx "ExecStart=$lx/speakerguardd-provision sleep --unit speakerguardd-v2.service" speakerguardd-v2-sleep.service
+grep -qx "ExecStop=$lx/speakerguardd-provision wake --unit speakerguardd-v2.service" speakerguardd-v2-sleep.service
+for u in speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.service \
+         speakerguardd-v2-sleep.service; do
     grep -qx "ExecCondition=$lx/speakerguardd-gate v2" $u
 done
 if grep -Eq '^(OnFailure|OnSuccess)=|speakersafetyd|=speakerguardd\.service|/usr/libexec/speakerguardd/' speakerguardd-v2*.service speakerguardd-v2*.path; then
     echo 'A speakerguardd 1.0 unit chains to or names another daemon' >&2; exit 1
 fi
 for u in speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service \
-         speakerguardd-v2-seat.service speakerguardd-v2-seat.path; do
+         speakerguardd-v2-seat.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service; do
     install -Dm644 $u %{buildroot}%{_unitdir}/$u
 done
 for u in speakerguardd-v2-session.service speakerguardd-v2-graph.service; do
@@ -157,16 +162,21 @@ printf 'enable speakerguardd-v2-graph.service\nenable speakerguardd-v2-session.s
 install -Dpm644 %{modulename}.pp.bz2 %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2
 
 %post
-%systemd_post speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.path
+%systemd_post speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service
 %systemd_user_post speakerguardd-v2-graph.service speakerguardd-v2-session.service
+# The sleep unit is new in 1.0.0~alpha.2: %%systemd_post applies the preset on
+# the first install only, so an upgrade from alpha.1 applies it here.
+if [ $1 -gt 1 ] && [ -x /usr/bin/systemctl ]; then
+    systemctl --no-reload preset speakerguardd-v2-sleep.service >/dev/null 2>&1 || :
+fi
 # Say at once which stack this Mac runs.
 %{_libexecdir}/speakerguardd-v2/speakerguardd-gate explain --wait 0 || :
 %preun
-%systemd_preun speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.path
+%systemd_preun speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service
 %systemd_user_preun speakerguardd-v2-graph.service speakerguardd-v2-session.service
 %postun
 %systemd_postun_with_restart speakerguardd-v2.service
-%systemd_postun speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.path
+%systemd_postun speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service
 
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
@@ -191,6 +201,7 @@ fi
 %{_unitdir}/speakerguardd-v2-selfcheck.service
 %{_unitdir}/speakerguardd-v2-seat.service
 %{_unitdir}/speakerguardd-v2-seat.path
+%{_unitdir}/speakerguardd-v2-sleep.service
 %{_userunitdir}/speakerguardd-v2-session.service
 %{_userunitdir}/speakerguardd-v2-graph.service
 %dir %{_unitdir}/speakersafetyd.service.d

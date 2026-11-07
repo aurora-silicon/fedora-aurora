@@ -363,14 +363,17 @@ class SpecTests(unittest.TestCase):
         self.assertIn('%{_libdir}/lv2/sgv2.lv2/', text)
         files = text.split('%files', 1)[1].split('%files selinux', 1)[0]
         for u in ['speakerguardd-v2.service', 'speakerguardd-v2-provision.service', 'speakerguardd-v2-selfcheck.service',
-                  'speakerguardd-v2-seat.service', 'speakerguardd-v2-seat.path']:
+                  'speakerguardd-v2-seat.service', 'speakerguardd-v2-seat.path', 'speakerguardd-v2-sleep.service']:
             self.assertIn('%{_unitdir}/' + u, files)
         for u in ['speakerguardd-v2-session.service', 'speakerguardd-v2-graph.service']:
             self.assertIn('%{_userunitdir}/' + u, files)
         # The units are enabled by the package's presets; the gate decides.
         preset = [l for l in (d / '50-speakerguardd-v2.preset').read_text().splitlines() if not l.startswith('#')]
         self.assertEqual(preset, ['enable speakerguardd-v2.service', 'enable speakerguardd-v2-provision.service',
-                                  'enable speakerguardd-v2-selfcheck.service', 'enable speakerguardd-v2-seat.path'])
+                                  'enable speakerguardd-v2-selfcheck.service', 'enable speakerguardd-v2-seat.path',
+                                  'enable speakerguardd-v2-sleep.service'])
+        # A unit new in an upgrade gets its preset in %post (the macro applies it on a first install only).
+        self.assertIn('systemctl --no-reload preset speakerguardd-v2-sleep.service', text)
         self.assertIn('%{_presetdir}/50-speakerguardd-v2.preset', files)
         self.assertIn("enable speakerguardd-v2-graph.service\\nenable speakerguardd-v2-session.service", text)
         # The gate is upstream's, with upstream's data: no distribution copy.
