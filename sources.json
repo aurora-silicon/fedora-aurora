@@ -335,6 +335,20 @@
         "source_url": "https://src.fedoraproject.org/repo/pkgs/fex-emu/fex-sysroot-fc44-20260410.tar.gz/sha512/e1b589e3b5e0722fa41becb21cc330d0a1d293dbb0f8cba0178cc09cbfcecce898fdac446838a9fd6003a42481f7c5a73de05d5e8a37661b0bfd193097bce304/fex-sysroot-fc44-20260410.tar.gz",
         "archive_file": "fex-sysroot-fc44-20260410.tar.gz",
         "sha256": "5ea4124ea07de968f678ab470a32f1bda17a5d1951b3b0b4767c5c91d5d9bb18"
+      },
+      "fmt": {
+        "repository": "https://github.com/fmtlib/fmt",
+        "commit": "c07e2aa4b130b4fd359a1c6455a5201b17af01fa",
+        "source_url": "https://codeload.github.com/fmtlib/fmt/tar.gz/c07e2aa4b130b4fd359a1c6455a5201b17af01fa",
+        "archive_root": "fmt-c07e2aa4b130b4fd359a1c6455a5201b17af01fa",
+        "sha256": "e0099a9035521b29523915fae2e5f1b38229df896191e4a046f7b0d55a45c7d2"
+      },
+      "xxHash": {
+        "repository": "https://github.com/Cyan4973/xxHash",
+        "commit": "e626a72bc2321cd320e953a0ccf1584cad60f363",
+        "source_url": "https://codeload.github.com/Cyan4973/xxHash/tar.gz/e626a72bc2321cd320e953a0ccf1584cad60f363",
+        "archive_root": "xxHash-e626a72bc2321cd320e953a0ccf1584cad60f363",
+        "sha256": "34e71c085636fbc1726482996d92719d0a16e6a6097970ecf2990a27b3821162"
       }
     }
   },

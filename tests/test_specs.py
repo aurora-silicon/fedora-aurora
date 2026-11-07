@@ -588,6 +588,28 @@ class SpecTests(unittest.TestCase):
         self.assertIn('%{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml\n', spec.split('%files\n', 1)[1])
         self.assertRegex(spec, r'(?m)^Requires:\s+aurora-userpages$')
 
+    def test_fex_mounts_the_stock_guest_rootfs_below_the_aurora_mesa_layer(self):
+        d = ROOT / 'packages' / 'fex-emu'
+        unit = configparser.ConfigParser(strict=False)
+        unit.optionxform = str
+        unit.read_string((d / 'usr-share-guestos-fex\\x2dmesa.mount').read_text())
+        self.assertEqual(dict(unit['Mount']), {'What': '/usr/share/fex-emu/RootFS/default.erofs',
+                                               'Where': '/usr/share/guestos/fex-mesa', 'Type': 'erofs',
+                                               'Options': 'ro,loop,nodev,nosuid'})
+        self.assertEqual(unit['Unit']['ConditionDirectoryNotEmpty'], '!/usr/share/guestos/fex-mesa')
+        # The provider service (mesa-aurora-fex-guest) lays its layer over this mount point.
+        service = (ROOT / 'packages/mesa-aurora-fex-guest/aurora-fex-mesa.service').read_text()
+        self.assertIn('lowerdir=/usr/share/guestos/aurora-fex-mesa-layer:/usr/share/guestos/fex-mesa ', service)
+        dropin = (d / '50-aurora-fex-rootfs.conf').read_text()
+        self.assertIn('Wants=usr-share-guestos-fex\\x2dmesa.mount\n', dropin)
+        self.assertIn('After=usr-share-guestos-fex\\x2dmesa.mount\n', dropin)
+        spec = (d / 'fex-emu.spec').read_text()
+        files = spec.split('%files\n', 1)[1].split('%files', 1)[0]
+        for path in ('%{_unitdir}/usr-share-guestos-fex*.mount', '%{_unitdir}/aurora-fex-mesa.service.d/50-aurora-fex-rootfs.conf'):
+            self.assertIn(path + '\n', files)
+        self.assertIn('%triggerin -- fex-emu-rootfs-fedora\n%{_libexecdir}/fex-emu/aurora-fex-provider-up\n', spec)
+        subprocess.run(['sh', '-n', str(d / 'aurora-fex-provider-up')], check=True)
+
     def test_fex_submodules_are_pinned_with_the_fork(self):
         spec = (ROOT / 'packages' / 'fex-emu' / 'fex-emu.spec').read_text()
         pin = json.loads((ROOT / 'sources.json').read_text())['fex-emu']
