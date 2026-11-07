@@ -8,8 +8,14 @@ proof=${1:?proof directory}
 # shellcheck disable=SC1091
 [[ $(. /etc/os-release; echo "$VERSION_ID") == 44 ]]
 mkdir -p "$proof"
+cleanup() {
+    if [[ -n ${BOOTCHAIN_HOST_OWNER:-} ]]; then
+        chown -R "$BOOTCHAIN_HOST_OWNER" "$PWD" "$proof"
+    fi
+}
+trap cleanup EXIT
 dnf install -y --setopt=tsflags=noscripts rpm-build systemd-rpm-macros dtc python3 \
-    coreutils bash util-linux gzip grubby asahi-scripts createrepo_c systemd shellcheck git gcc make
+    coreutils bash util-linux gzip grubby asahi-scripts createrepo_c systemd ShellCheck git gcc make
 shellcheck packages/update-m1n1/update-m1n1 packages/update-m1n1/aurora-stage2-commit \
     packages/update-m1n1/*.install scripts/test-stage2-transactions scripts/test-bootchain-upgrade > "$proof/shellcheck.log" 2>&1
 python3 packages/update-m1n1/test_bootchain.py -v > "$proof/updater-tests.log" 2>&1
