@@ -14,8 +14,8 @@ Name:           libfprint
 Version:        1.94.100
 # Keep the Aurora driver/account gate ahead of stock Fedora updates.
 Epoch:          1
-# aurora8: the driver reports the finger-lift wait and names the lockout.
-Release:        1%{?dist}.aurora8
+# aurora9: retry causes and the finger-lift wait reach fprintd; lockout named.
+Release:        1%{?dist}.aurora9
 Summary:        Toolkit for fingerprint scanner
 
 # Automatically converted from old format: LGPLv2+ - review is highly recommended.
@@ -55,6 +55,9 @@ Patch1004:      0005-aurora-support-v4-and-v5.patch
 # Report a finger still on the sensor while the kernel waits for it to be
 # lifted (SEP_BIO_GUIDANCE_LIFT) and name the Touch ID lockout status.
 Patch1005:      0006-aurora-report-finger-lift-and-lockout.patch
+# Map the kernel's retry causes onto specific fprintd prompts, and keep
+# waiting for a finger after the kernel's capture timeout as macOS does.
+Patch1006:      0007-aurora-name-retry-causes-and-keep-waiting.patch
 
 BuildRequires:  meson
 BuildRequires:  gcc
@@ -183,6 +186,11 @@ python3 %{SOURCE1003} libfprint/drivers/aurora/aurora.c %{SOURCE1000}
 %{_datadir}/installed-tests/libfprint-2/
 
 %changelog
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 1:1.94.100-1.aurora9
+- Say why a capture did not count (centre the finger, hold still, wipe or
+  dry, lift and touch again) and keep waiting for a finger after the kernel
+  capture timeout
+
 * Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 1:1.94.100-1.aurora8
 - Report a finger still on the sensor while the kernel waits for the lift
   before it arms the next capture, and name the Touch ID lockout status
