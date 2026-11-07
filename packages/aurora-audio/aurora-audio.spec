@@ -1,7 +1,7 @@
-%global commit f1d596b9efeede884b28e3ad81fff24b22ba97a3
+%global commit a321ae95d04d08136934c643472f7d59aa0bbf94
 Name: aurora-audio
 Version: 4.1
-Release: 9%{?dist}
+Release: 10%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
@@ -22,7 +22,7 @@ Requires: speakersafetyd speakerguardd speakerguardd-v2
 Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n asahi-audio-f1d596b9efeede884b28e3ad81fff24b22ba97a3
+%autosetup -n asahi-audio-a321ae95d04d08136934c643472f7d59aa0bbf94
 
 %build
 
@@ -38,6 +38,13 @@ install -Dm755 %{SOURCE1} %{buildroot}%{_prefix}/lib/dracut/modules.d/90aurora-a
 %{_prefix}/lib/dracut/modules.d/90aurora-audio/
 
 %changelog
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-10
+- Move to asahi-audio a321ae9: no speaker graph for j316, j413, j616 and
+  j700, whose speakers speakerguardd v2 now voices from the Mac's own
+  Apple tuning (asahi-audio#22); also the true-peak limiter on every other
+  board's speaker outputs (#17), the j293 rear-woofer ratio (#18) and the
+  sweep distortion tool (#19).
+
 * Fri Nov 06 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-9
 - Require speakerguardd-v2 beside speakersafetyd and speakerguardd 0.1. Its
   fleet gate starts exactly one stack per boot; on a kernel without the v2
