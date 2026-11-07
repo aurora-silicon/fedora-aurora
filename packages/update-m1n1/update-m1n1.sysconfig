@@ -1,0 +1,4 @@
+M1N1="/usr/lib64/m1n1/m1n1.bin"
+U_BOOT="/usr/share/uboot/apple_m1/u-boot-nodtb.bin"
+# A custom DTBS directory or glob is still checked against retained kernels.
+DTBS="/boot/dtb"
