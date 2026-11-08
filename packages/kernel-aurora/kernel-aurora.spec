@@ -1,4 +1,4 @@
-%global commit 44bbfe1858deda8285fefbecd6ad062311ee6983
+%global commit d4d267839caa0aa9cbcd98a792351a52bd856b84
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 24%{?dist}.aurora
+Release: 25%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -151,6 +151,19 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Sun Nov 08 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-25
+- Track aurora-silicon/linux integration/aurora at d4d2678, the fleet32
+  kernel tree. The packaged device trees for the M1 Pro, M2, M4 Pro and
+  J700 then match the ones those Macs boot (integration 50d5865e and later;
+  the DTS changes since then add T6050 boards only).
+- Touch ID re-arm on finger lift, the macOS match policy and the password
+  count reset (#1087, #1134, #1143), SEP host-store fixes (#1189, #1193),
+  J700 speaker full scale (#1201), AVD dma-coherent and command parity
+  (#1116, #1169), the J616s scaler (#1168), the M3 and M4 GPUs on by
+  default (#1170, CONFIG_DRM_ASAHI_G15), NVMe, RTKit, dockchannel and SMC
+  hwmon fixes (#1060, #1082, #1083, #1084), ADT coverage checks (#1111,
+  #1172) and device trees for more M1 to M5 Macs, T6050 included.
+
 * Sun Nov 08 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-24
 - Track aurora-silicon/linux integration/aurora at 44bbfe1 for the CTXR
   follow-ups (#1079): /sys/kernel/execmem_confine/ reports the window and
