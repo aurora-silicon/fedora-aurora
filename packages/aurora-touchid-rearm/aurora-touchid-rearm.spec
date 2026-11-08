@@ -1,7 +1,7 @@
-%global commit fb19f69381ad29cd51a06dda7456ce6c01030a12
+%global commit 501c12baad8e85999437304edcfbd95421fd5a1a
 Name:           aurora-touchid-rearm
 Version:        1
-Release:        3%{?dist}
+Release:        4%{?dist}
 Summary:        Re-arm Touch ID with the password after a lockout
 
 License:        GPL-2.0-only
@@ -26,9 +26,11 @@ it to aurora-touchid-rearm, a socket-activated root service that checks the
 caller, the enrolled fingerprints and the password again before it asks the
 driver to re-arm Touch ID. A fingerprint never re-arms it.
 
-/etc/aurora/touchid.conf chooses Touch ID after a restart: from the first
-login (the default), or, as on macOS, only after the first password since
-boot (require_password_after_boot = yes, set by aurora-touchid-boot.service).
+/etc/aurora/touchid.conf chooses Touch ID after a restart: by default, as
+on macOS, only after the first password since boot (applied by
+aurora-touchid-boot.service; the login screen says "Your password is required
+to enable Touch ID."), or from the first login with
+require_password_after_boot = no.
 
 %prep
 %autosetup -n aurora-sep-userspace-%{commit}
@@ -81,6 +83,12 @@ systemctl --no-reload preset aurora-touchid-boot.service >/dev/null 2>&1 || :
 %{_presetdir}/80-aurora-touchid-rearm.preset
 
 %changelog
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-4
+- Touch ID after a restart follows macOS by default: the first login or
+  unlock after boot needs the password (aurora-sep-userspace#17). The
+  shipped touchid.conf leaves the line commented out; an unmodified file is
+  replaced on upgrade, an edited one keeps its explicit value.
+
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-3
 - Touch ID after a restart is a setting: /etc/aurora/touchid.conf,
   require_password_after_boot = no (default) or yes (as on macOS), applied

@@ -15,7 +15,8 @@ Version:        1.94.100
 # Keep the Aurora driver/account gate ahead of stock Fedora updates.
 Epoch:          1
 # aurora10: the Touch ID lockout reaches fprintd as FP_DEVICE_ERROR_LOCKED_OUT.
-Release:        1%{?dist}.aurora10
+# aurora11: and why Touch ID needs the password (after boot, other reasons).
+Release:        1%{?dist}.aurora11
 Summary:        Toolkit for fingerprint scanner
 
 # Automatically converted from old format: LGPLv2+ - review is highly recommended.
@@ -36,6 +37,7 @@ Source1001:     fprintd-aurora-touchid.conf
 # follows (Patch1002). The drop-in above covers the systemd sandbox only.
 Source1002:     aurora_fprintd_lid.te
 Source1003:     test_interface.py
+Source1004:     test_lockout_reason.py
 
 # Apple Touch ID through the apple_sep kernel driver: the aurora driver plus
 # the misc-device udev subtype it needs. Unchanged from
@@ -61,6 +63,10 @@ Patch1006:      0007-aurora-name-retry-causes-and-keep-waiting.patch
 # Report the Touch ID lockout (kernel status LOCKOUT) as the new
 # FP_DEVICE_ERROR_LOCKED_OUT, so fprintd sends the user to the password.
 Patch1007:      0008-aurora-report-the-touch-id-lockout-as-locked-out.patch
+# Ask the kernel why Touch ID refused a verify and report the wait for the
+# first password since boot and other password requirements as their own
+# errors, keeping FP_DEVICE_ERROR_LOCKED_OUT for failed attempts.
+Patch1008:      0009-aurora-say-why-touch-id-needs-the-password.patch
 
 BuildRequires:  meson
 BuildRequires:  gcc
@@ -88,6 +94,8 @@ Provides:       libfprint(aurora-sep) = 4
 Provides:       libfprint(aurora-sep) = 5
 # FP_DEVICE_ERROR_LOCKED_OUT; fprintd's lockout patch builds against it.
 Provides:       libfprint(aurora-sep-lockout) = 1
+# FP_DEVICE_ERROR_PASSWORD_REQUIRED{,_AFTER_BOOT}; fprintd's 0003 uses them.
+Provides:       libfprint(aurora-sep-password-reasons) = 1
 # Pull in the SELinux module wherever the targeted policy is installed.
 Requires:       (%{name}-selinux = %{epoch}:%{version}-%{release} if selinux-policy-targeted)
 
@@ -162,6 +170,7 @@ fi
 
 %check
 python3 %{SOURCE1003} libfprint/drivers/aurora/aurora.c %{SOURCE1000}
+python3 %{SOURCE1004} libfprint/drivers/aurora/aurora.c
 %meson_test
 
 %files
@@ -191,6 +200,12 @@ python3 %{SOURCE1003} libfprint/drivers/aurora/aurora.c %{SOURCE1000}
 %{_datadir}/installed-tests/libfprint-2/
 
 %changelog
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1:1.94.100-1.aurora11
+- Ask the kernel why Touch ID needs the password: report the wait for the
+  first password since boot as FP_DEVICE_ERROR_PASSWORD_REQUIRED_AFTER_BOOT,
+  other reasons as FP_DEVICE_ERROR_PASSWORD_REQUIRED, and keep
+  FP_DEVICE_ERROR_LOCKED_OUT for a lockout after failed attempts
+
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1:1.94.100-1.aurora10
 - Report the Touch ID lockout as FP_DEVICE_ERROR_LOCKED_OUT, so fprintd sends
   the user to the password instead of an unknown error
