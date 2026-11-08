@@ -15,7 +15,7 @@ BuildRequires:  python3
 BuildRequires:  systemd-rpm-macros
 Requires:       pam
 # The labels and the domain are in the aurora_sep module.
-Requires:       (aurora-sep-selinux >= 1-20 if selinux-policy-targeted)
+Requires:       (aurora-sep-selinux >= 1-22 if selinux-policy-targeted)
 %{?systemd_requires}
 
 %description

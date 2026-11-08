@@ -77,7 +77,8 @@ else:
     raise SystemExit('local repository did not start')
 PY
 # Exercise the real desktop replacement graph, rather than only an empty base.
-dnf install -y mesa-dri-drivers mesa-vulkan-drivers mesa-libOpenCL mutter libfprint fprintd upower
+dnf install -y mesa-dri-drivers mesa-vulkan-drivers mesa-libOpenCL mutter libfprint fprintd upower \
+  shairport-sync
 rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > "$proof/before.txt"
 base=http://127.0.0.1:8765/45/testing/aarch64
 dnf5 -y --repofrompath=aurora-ci,"$base" --repo=aurora-ci \
@@ -106,6 +107,9 @@ cat "$proof/upgrade.log"
 [[ $rc == 0 || $rc == 1 ]]
 grep -Eq 'Transaction Summary:|Nothing to do\.' "$proof/upgrade.log"
 ! grep -Ei '(^Problem|conflicting requests|cannot install|nothing provides|\.fc44)' "$proof/upgrade.log"
+# Fedora's shairport-sync gives way to the AirPlay 2 build, which pulls in nqptp.
+grep -Eq '^ +shairport-sync +aarch64 +[^ ]+\.fc45\.aurora\.ap2\.' "$proof/upgrade.log"
+grep -Eq '^ +nqptp +aarch64 +[^ ]+\.fc45\.aurora' "$proof/upgrade.log"
 rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > "$proof/after.txt"
 comm -13 "$proof/before.txt" "$proof/after.txt" > "$proof/installed.txt"
 ! grep -F '.fc44' "$proof/installed.txt"

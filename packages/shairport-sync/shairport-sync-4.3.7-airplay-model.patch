@@ -1,0 +1,125 @@
+Aurora 2026-10-25: let the configuration set the advertised AirPlay model identifier.
+
+Why: iOS and macOS draw each AirPlay receiver's glyph from its model identifier. Shairport Sync
+4.3.7 hard-codes "Shairport Sync" in the _airplay._tcp model= record, the _raop._tcp am= record
+and the model in both GET /info replies, with no setting, so every Aurora receiver shows a
+generic speaker. Ryan wants each to show its own Mac (MacBookPro18,1, Mac14,2, Mac16,7, Mac17,5,
+read from the machine's own smbios/ADT product name).
+
+What: a new general.airplay_model setting (AirPlay 2 builds only), checked to be 1 to 32 letters,
+digits and commas and ignored with a warning otherwise. It is used in those four places only.
+Unset, every record says "Shairport Sync" exactly as before. Nothing else changes: the features
+bits, status flags, device ID and keys are untouched, so the receiver still advertises audio only.
+
+--- a/common.h
++++ b/common.h
+@@ -331,6 +331,8 @@
+   char *airplay_device_id; // for the Bonjour advertisement and the GETINFO PList
+   char *airplay_pin;       // non-NULL, 4 char PIN, if required for pairing
+   char *airplay_pi;        // UUID in the Bonjour advertisement and the GETINFO Plist
++  char *airplay_model;     // Aurora: general.airplay_model, the model identifier to advertise
++                           // (NULL means "Shairport Sync")
+   char *nqptp_shared_memory_interface_name; // client name for nqptp service
+ #endif
+   int unfixable_error_reported; // only report once.
+--- a/shairport.c
++++ b/shairport.c
+@@ -603,6 +603,24 @@
+       if (config_lookup_string(config.cfg, "general.name", &str)) {
+         raw_service_name = (char *)str;
+       }
++#ifdef CONFIG_AIRPLAY_2
++      /* Aurora: the model identifier to advertise instead of "Shairport Sync", e.g.
++         "MacBookPro18,1". Senders pick the device glyph from it. It changes only the
++         model= and am= records and the GET /info model, never the features. */
++      if (config_lookup_string(config.cfg, "general.airplay_model", &str)) {
++        size_t model_length = strlen(str), k;
++        int model_ok = (model_length > 0) && (model_length <= 32);
++        for (k = 0; model_ok && (k < model_length); k++)
++          if (!(((str[k] >= 'A') && (str[k] <= 'Z')) || ((str[k] >= 'a') && (str[k] <= 'z')) ||
++                ((str[k] >= '0') && (str[k] <= '9')) || (str[k] == ',')))
++            model_ok = 0;
++        if (model_ok)
++          config.airplay_model = strdup(str);
++        else
++          warn("general.airplay_model \"%s\" ignored: use up to 32 letters, digits and commas.",
++               str);
++      }
++#endif
+ #ifdef CONFIG_LIBDAEMON
+       /* Get the Daemonize setting. */
+       config_set_lookup_bool(config.cfg, "sessioncontrol.daemonize_with_pid_file", &daemonisewith);
+@@ -1707,6 +1725,8 @@
+         free(config.nqptp_shared_memory_interface_name);
+       if (config.airplay_device_id)
+         free(config.airplay_device_id);
++      if (config.airplay_model)
++        free(config.airplay_model);
+       if (config.airplay_pin)
+         free(config.airplay_pin);
+       if (config.airplay_pi)
+--- a/rtsp.c
++++ b/rtsp.c
+@@ -121,6 +121,14 @@
+ char featuresString[64];
+ char statusflagsString[32];
+ char piString[128];
++#ifdef CONFIG_AIRPLAY_2
++// Aurora: the model= and am= records, from general.airplay_model (default "Shairport Sync").
++char modelString[64];
++char amString[64];
++static const char *advertised_model(void) {
++  return config.airplay_model != NULL ? config.airplay_model : "Shairport Sync";
++}
++#endif
+ char gidString[128];
+ #endif
+ 
+@@ -282,7 +290,8 @@
+   else
+     txt_records[entry_number++] = "md=0,1,2";
+ #endif
+-  txt_records[entry_number++] = "am=Shairport Sync";
++  snprintf(amString, sizeof(amString), "am=%s", advertised_model());
++  txt_records[entry_number++] = amString;
+   txt_records[entry_number++] = "sf=0x4";
+   txt_records[entry_number++] = "tp=UDP";
+   txt_records[entry_number++] = "vn=65537";
+@@ -338,7 +347,8 @@
+   secondary_txt_records[entry_number++] = "acl=0";
+   secondary_txt_records[entry_number++] = "rsf=0x0";
+   secondary_txt_records[entry_number++] = firmware_version;
+-  secondary_txt_records[entry_number++] = "model=Shairport Sync";
++  snprintf(modelString, sizeof(modelString), "model=%s", advertised_model());
++  secondary_txt_records[entry_number++] = modelString;
+   snprintf(piString, sizeof(piString), "pi=%s", config.airplay_pi);
+   secondary_txt_records[entry_number++] = piString;
+   if ((conn != NULL) && (conn->airplay_gid != 0)) {
+@@ -1749,7 +1759,8 @@
+       if (add_pstring_to_malloc("flags=0x4", &qualifier_response_data,
+                                 &qualifier_response_data_length) == 0)
+         debug(1, "Problem");
+-      if (add_pstring_to_malloc("model=Shairport Sync", &qualifier_response_data,
++      snprintf(modelString, sizeof(modelString), "model=%s", advertised_model());
++      if (add_pstring_to_malloc(modelString, &qualifier_response_data,
+                                 &qualifier_response_data_length) == 0)
+         debug(1, "Problem");
+       if (add_pstring_to_malloc("manufacturer=", &qualifier_response_data,
+@@ -1792,7 +1803,7 @@
+       plist_dict_set_item(response_plist, "name", plist_new_string(config.service_name));
+       char *vs = get_version_string();
+       //      plist_dict_set_item(response_plist, "model", plist_new_string(vs));
+-      plist_dict_set_item(response_plist, "model", plist_new_string("Shairport Sync"));
++      plist_dict_set_item(response_plist, "model", plist_new_string(advertised_model()));
+       free(vs);
+       // pkString_make(pkString, sizeof(pkString), config.airplay_device_id);
+       // plist_dict_set_item(response_plist, "pk", plist_new_string(pkString));
+@@ -1822,7 +1833,7 @@
+     plist_dict_set_item(response_plist, "name", plist_new_string(config.service_name));
+     char *vs = get_version_string();
+     // plist_dict_set_item(response_plist, "model", plist_new_string(vs));
+-    plist_dict_set_item(response_plist, "model", plist_new_string("Shairport Sync"));
++    plist_dict_set_item(response_plist, "model", plist_new_string(advertised_model()));
+     free(vs);
+     // pkString_make(pkString, sizeof(pkString), config.airplay_device_id);
+     // plist_dict_set_item(response_plist, "pk", plist_new_string(pkString));

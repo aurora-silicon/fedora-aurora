@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 21%{?dist}
+Release: 22%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -31,6 +31,7 @@ Source20: aurora-touchid-setup.service
 Source21: touchid-setup-needed
 Source22: authselect-vendor-local
 Source23: powerdevilrc
+Source24: aurora-sep-modprobe.conf
 BuildArch: noarch
 BuildRequires: systemd-rpm-macros fprintd authselect-libs
 BuildRequires: selinux-policy-devel make bzip2
@@ -40,6 +41,8 @@ Requires: fprintd(aurora-sep) = 1
 # A password re-arms Touch ID after a lockout: the PAM module the vendor
 # profile puts after pam_unix, and its service.
 Requires: aurora-touchid-rearm
+# aurora-xart reset-touchid starts Touch ID over when its keybag is stuck.
+Requires: aurora-xart
 # Holds the packaged kernel to one with the module-based SEP driver, and
 # leaves a kernel installed outside RPM alone; the units skip a kernel
 # without a loadable apple_sep.
@@ -96,6 +99,7 @@ unit %{SOURCE5} %{SOURCE6} aurora-sep-ready
 unit %{SOURCE16} %{SOURCE17} aurora-sep-greeter-fingerprint
 install -Dpm0644 %{SOURCE11} %{buildroot}%{_unitdir}/aurora-sep.timer
 install -Dpm0644 %{SOURCE12} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep-load.conf
+install -Dpm0644 %{SOURCE24} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep.conf
 install -Dpm0755 %{SOURCE8} %{buildroot}%{_sbindir}/aurora-touchid-setup
 install -Dpm0755 %{SOURCE21} %{buildroot}%{_libexecdir}/aurora/touchid-setup-needed
 install -Dpm0644 %{SOURCE20} %{buildroot}%{_unitdir}/aurora-touchid-setup.service
@@ -211,6 +215,7 @@ fi
 %{_libexecdir}/aurora-sep-sensor-present
 %{_prefix}/lib/dracut/dracut.conf.d/90-aurora-sep.conf
 %{_prefix}/lib/modprobe.d/aurora-sep-load.conf
+%{_prefix}/lib/modprobe.d/aurora-sep.conf
 %{_unitdir}/aurora-sep.service
 %{_unitdir}/aurora-sep-ready.service
 %{_unitdir}/aurora-touchid-setup.service
@@ -226,19 +231,32 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
-* Wed Nov 04 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-21
-- SELinux 1.4.1: aurora-touchid-rearm runs with NoNewPrivileges, so allow
-  systemd's bounded transition into its domain and its pam_unix's into
-  chkpwd_t. Without them the helper ran as init_t and could not open
-  /dev/sep-bio-rearm, and the password never verified.
-
-* Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-20
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-22
 - A password re-arms Touch ID after a lockout: the vendor profile's
   system-auth and password-auth run pam_aurora_touchid straight after a
   pam_unix success (aurora-touchid-rearm), and keep pam_unix's result.
-- SELinux 1.4.0: label /dev/sep-bio-rearm, the driver's lockout record and
+- SELinux 1.4.1: label /dev/sep-bio-rearm, the driver's lockout record and
   aurora-touchid-rearm's socket, and confine aurora-touchid-rearm to its own
-  domain.
+  domain; it runs with NoNewPrivileges, so allow systemd's bounded transition
+  into its domain and its pam_unix's into chkpwd_t.
+
+* Sat Nov 07 2026 Diljit Singh <hey@djdev.me> - 1-21
+- Require aurora-xart, whose reset-touchid starts Touch ID over when the
+  keybag is stuck, such as an M1 Mac left with an unfinished keybag create by
+  a kernel that guarded it. The documentation points to it instead of
+  install-aurora-sep.sh --reset-touchid, which Fedora does not ship.
+- Load apple_sep without options on the modprobe command line, which
+  overrode modprobe.d, so a read-only xart_writes=0 in
+  /etc/modprobe.d/aurora-sep.conf never took effect. The defaults, writes and
+  provisioning on, ship as /usr/lib/modprobe.d/aurora-sep.conf, which that
+  file replaces.
+- XART-SAFETY.md: a reinstall or rollback that loses the xART guard's list
+  leaves the earlier records protected; Touch ID is set up again with
+  aurora-xart reset-touchid. It no longer suggests putting a saved list back.
+
+* Fri Nov 06 2026 Aurora Silicon contributors - 1-20
+- XART-SAFETY.md: the kernel now leaves the xART guard off on M1 Macs, so
+  they no longer need xart_guard=0 for Touch ID.
 
 * Tue Nov 03 2026 Aurora Silicon contributors - 1-19
 - Offer Touch ID to sudo and polkit as well as the lock screen, and not to the

@@ -1,0 +1,26 @@
+policy_module(aurora_platform, 1.0.1)
+
+gen_require(`
+	type init_t, kernel_t, xserver_misc_device_t;
+	class netlink_kobject_uevent_socket getattr;
+	class chr_file map;
+')
+
+# systemd creates udev's kernel uevent socket (systemd-udevd-kernel.socket)
+# in the initramfs, before the policy is loaded, so the socket carries
+# kernel_t. It keeps the socket over the switch to the real root, and after
+# it loads the policy and re-executes it checks each socket it inherited.
+# The targeted policy lets init_t create and use its own uevent sockets but
+# not look at this one, which logged one denial on every boot.
+allow init_t kernel_t:netlink_kobject_uevent_socket getattr;
+
+# The targeted policy gives a character device that the kernel creates in a
+# device_t directory under the name card0..card9 the type
+# xserver_misc_device_t (a named type transition meant for legacy /dev/cardN
+# nodes). devtmpfs creates /dev/dri/cardN that way, so a DRM card that
+# registers after the policy load carries xserver_misc_device_t until udev
+# relabels it dri_device_t. plymouthd, started in the initramfs, still runs as
+# kernel_t; when the Apple display card appeared inside that window, mapping
+# its framebuffer was denied (4 of the last 40 boots on the Neo). kernel_t may
+# already read and write the node; let it map it too.
+allow kernel_t xserver_misc_device_t:chr_file map;
