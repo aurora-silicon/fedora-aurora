@@ -31,20 +31,28 @@ pkexec /usr/libexec/omdrop/omdrop-discoverable stop
 
 Set Apple devices to **Everyone** (on an iPhone: Settings > General > AirDrop). Without an Apple-issued identity, this Mac uses a self-signed one, and Contacts Only devices refuse it. The first send creates `~/.omdrop/keys/*.self-signed.pem`.
 
-## Speed
+## Speed and the main Wi-Fi link
 
-The default AWDL schedule (peer channel 44, `dense`) carried 1.5 to 7 Mbit/s between two Linux Macs whose Wi-Fi was on channel 149. Setting the peer channel to the Wi-Fi channel brought it to 188 Mbit/s with no ping loss:
+When `/etc/omdrop/peer-chan` is not set, `awdl-up` puts AWDL's availability windows on the 5 GHz channel the Wi-Fi link already uses (36-48 or 149-161), with the `full` slot shape, and advertises that sequence. This is what macOS does: its idle AWDL schedule stays on the infra channel except for channel 6 in one slot. Measured 2026-11-08 on an M2 MacBook Air and an M1 Pro MacBook Pro with the Wi-Fi link on channel 149:
+
+| AWDL schedule | Main Wi-Fi link | AWDL between the two Macs |
+|---|---|---|
+| none | 171 Mbit/s | none |
+| upstream default (peer 44, dense) | 142 Mbit/s | 1.5-7 Mbit/s, 40-50 % ping loss |
+| infra channel 149, full | 263 Mbit/s | 188 Mbit/s, 0 % ping loss |
+
+A 100 MB AirDrop took 8 s on the 149 schedule. On a 2.4 GHz or DFS link, the upstream default stays. To choose the channel yourself:
 
 ```bash
-echo 149 | sudo tee /etc/omdrop/peer-chan
-echo full | sudo tee /etc/omdrop/chan-shape
+echo 44 | sudo tee /etc/omdrop/peer-chan     # and optionally: echo dense | sudo tee /etc/omdrop/chan-shape
 sudo /usr/libexec/omdrop/awdl-up --reload   # reloads brcmfmac: Wi-Fi drops for a few seconds
 ```
 
-Measured 2026-11-08 on an M2 MacBook Air and an M1 Pro MacBook Pro: a 100 MB AirDrop took 8 s.
+The schedule is set when `awdl0` is created. If the Mac joins a network on another channel later, run `awdl-up --reload`, or recreate `awdl0`, to follow it.
 
 ## Aurora changes from upstream
 - The helpers are in `/usr/libexec/omdrop`, not `/usr/lib/omdrop`.
 - `awdl-up` accepts Fedora's per-network cloned Wi-Fi MAC (`wifi.cloned-mac-address=stable-ssid`) once the Mac is connected. Upstream refuses to create `awdl0` while a cloned MAC is in use.
 - No DKMS module and no `brcmfmac` debug setting: kernel-aurora's driver already has AWDL.
 - `awdl-warmup.service` is installed disabled. Upstream enables it.
+- With no `/etc/omdrop/peer-chan`, the AWDL channel follows the Wi-Fi link (see above). Upstream always uses 44.
