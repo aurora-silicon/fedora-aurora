@@ -1,13 +1,15 @@
-"""The ESP Stage 2 files an update and an image build write, per Mac.
+"""CTXR slot routing, image preparation and the packaged updater contracts.
 
-The shipped update-m1n1 runs for real against a temporary ESP. Only the system
-paths it hardcodes are redirected, as the package build does for its config
-file, and the ESP mount is stubbed.
+The updater helper runs against a temporary root with valid DTBs and declared
+kernel generations. RPM transaction checks exercise its shell entry point.
 """
+import contextlib
+import io
 import gzip
 import importlib.util
 import os
 from pathlib import Path
+from unittest.mock import patch
 import re
 import struct
 import subprocess
@@ -19,6 +21,10 @@ import zlib
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / 'packages/update-m1n1/update-m1n1'
+HELPER = ROOT / 'packages/update-m1n1/bootchain.py'
+_helper_spec = importlib.util.spec_from_file_location('ctxr_bootchain', HELPER)
+bootchain = importlib.util.module_from_spec(_helper_spec)
+_helper_spec.loader.exec_module(bootchain)
 SPEC = ROOT / 'packages/update-m1n1/update-m1n1.spec'
 
 # Every chip AuraStage1Format.usesMachO admits or names, and every one below it.
@@ -38,12 +44,12 @@ def device_tree(compatibles):
     body = (struct.pack('>I', 1) + b'\0\0\0\0'
             + struct.pack('>III', 3, len(value), 0) + padded
             + struct.pack('>I', 2) + struct.pack('>I', 9))
-    struct_offset = 40
+    struct_offset = 56
     strings_offset = struct_offset + len(body)
     total = strings_offset + len(strings)
     header = struct.pack('>10I', 0xD00DFEED, total, struct_offset, strings_offset, 40,
                          17, 16, 0, len(strings), len(body))
-    return header + body + strings
+    return header + b'\0' * 16 + body + strings
 
 
 def compatible_file(board, chip):
@@ -61,9 +67,10 @@ prepare_ctxr = load_prepare()
 
 
 class UpdateM1n1(unittest.TestCase):
-    TREES = {'t8103-j274.dtb': b'dtb-j274', 't6040-j616s-tether.dtb': b'dtb-j616s-tether',
-             't6040-j616s.dtb': b'dtb-j616s', 't8140-j700-ane-test.dtb': b'dtb-j700-ane',
-             't8140-j700.dtb': b'dtb-j700', 't8132-j713.dtb': b'dtb-j713'}
+    NAMES = ('t8103-j274.dtb', 't6040-j616s-tether.dtb', 't6040-j616s.dtb',
+             't8140-j700-ane-test.dtb', 't8140-j700.dtb', 't8132-j713.dtb')
+    TREES = {name: device_tree([f'apple,{name.split("-", 1)[1].split(".", 1)[0].split("-", 1)[0]}',
+                               f'apple,{name.split("-", 1)[0]}', f'fixture,{name}']) for name in NAMES}
 
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
@@ -77,39 +84,37 @@ class UpdateM1n1(unittest.TestCase):
         os.utime(self.boot, (1000000, 1000000))
         self.dtbs = root / 'dtbs'
         self.dtbs.mkdir()
+        installed = root / 'usr/lib/modules/7.3/dtb/apple'
+        installed.mkdir(parents=True)
+        (installed.parent.parent / 'vmlinuz').write_bytes(b'fixture kernel')
+        (installed.parent.parent / 'dtb-abi').write_text('1\n')
+        (root / 'boot').mkdir()
         for name, data in self.TREES.items():
             (self.dtbs / name).write_bytes(data)
+            (installed / name).write_bytes(data)
         (root / 'm1n1.bin').write_bytes(AURA)
         (root / 'u-boot-nodtb.bin').write_bytes(UBOOT)
-        run = root / 'run'
-        run.mkdir()
-        bindir = root / 'bin'
-        bindir.mkdir()
-        # The ESP mount becomes a link to the fixture ESP; umount removes it.
-        (bindir / 'functions.sh').write_text(
-            'info() { :; }\nwarn() { echo "$@" >&2; }\n'
-            f'mount_sys_esp() {{ ln -s "{self.esp}" "$1"; }}\n')
-        (bindir / 'umount').write_text('#!/bin/sh\nrm -f "$1"\n')
-        (bindir / 'umount').chmod(0o755)
-        text = SCRIPT.read_text()
-        for system, fixture in (('/run/', f'{run}/'), ('/etc/sysconfig/', f'{root}/sysconfig-')):
-            self.assertIn(system, text)
-            text = text.replace(system, fixture)
-        self.script = bindir / 'update-m1n1'
-        self.script.write_text(text)
-        self.script.chmod(0o755)
         self.compatible = root / 'compatible'
         self.marker = root / 'monitor-free'
 
-    def run_update(self, *args, shell='sh', **env):
-        environment = dict(os.environ, PATH=f'{self.root / "bin"}:{os.environ["PATH"]}', LC_ALL='C',
-                           SOURCE=str(self.root), DTBS=f'{self.dtbs}/*.dtb',
-                           CONFIG=str(self.root / 'm1n1.conf'),
-                           AURORA_DEVICE_TREE_COMPATIBLE=str(self.compatible),
-                           AURORA_MONITOR_FREE_MARKER=str(self.marker))
-        environment.update(env)
-        return subprocess.run([shell, str(self.script), *args], env=environment,
-                              capture_output=True, text=True)
+    def run_update(self, *args, **env):
+        settings = dict(M1N1='/m1n1.bin', U_BOOT='/u-boot-nodtb.bin', TARGET='/esp/m1n1/boot.bin',
+                        DTBS='/dtbs/*.dtb', CONFIG='/m1n1.conf',
+                        AURORA_DEVICE_TREE_COMPATIBLE='/compatible', AURORA_MONITOR_FREE_MARKER='/monitor-free')
+        settings.update(env)
+        if args:
+            settings['TARGET'] = str(args[0])
+        for key in ('M1N1', 'U_BOOT', 'TARGET', 'DTBS', 'CONFIG',
+                    'AURORA_DEVICE_TREE_COMPATIBLE', 'AURORA_MONITOR_FREE_MARKER'):
+            settings[key] = settings[key].replace(str(self.root), '')
+        output = io.StringIO()
+        try:
+            locale = {key: value for key, value in settings.items() if key in ('LC_ALL', 'LOCPATH')}
+            with patch.dict(os.environ, locale), contextlib.redirect_stdout(output):
+                bootchain.Update(self.root, settings).apply()
+        except (bootchain.Refused, OSError) as error:
+            return subprocess.CompletedProcess(['update-m1n1'], 1, output.getvalue(), str(error))
+        return subprocess.CompletedProcess(['update-m1n1'], 0, output.getvalue(), '')
 
     def on(self, board, chip):
         self.compatible.write_bytes(compatible_file(board, chip))
@@ -166,7 +171,7 @@ class UpdateM1n1(unittest.TestCase):
         result = self.run_update()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, '')
-        self.assertIn('m1n1 updated at', result.stdout)
+        self.assertIn('Stage 2 verified at', result.stdout)
         self.assertIn('boot-ctxr.bin', result.stdout)
         self.assert_frozen()
 
@@ -193,16 +198,14 @@ class UpdateM1n1(unittest.TestCase):
 
     def test_macho_stage2_holds_only_this_boards_trees_in_byte_order(self):
         self.monitor_free()
-        locale = self.en_us()
-        # Arch's sh is bash, which sorts globs by locale.
-        for shell in ('sh', 'bash'):
-            with self.subTest(shell):
+        for locale in ({'LC_ALL': 'C'}, self.en_us()):
+            with self.subTest(locale=locale):
                 self.on('j700', 't8140')
-                self.assertEqual(self.run_update(shell=shell, **locale).returncode, 0)
+                self.assertEqual(self.run_update(**locale).returncode, 0)
                 self.assertEqual(self.read_parts(self.ctxr),
                                  self.parts(['t8140-j700-ane-test.dtb', 't8140-j700.dtb']))
                 self.on('j616s', 't6040')
-                self.assertEqual(self.run_update(shell=shell, **locale).returncode, 0)
+                self.assertEqual(self.run_update(**locale).returncode, 0)
                 self.assertEqual(self.read_parts(self.ctxr),
                                  self.parts(['t6040-j616s-tether.dtb', 't6040-j616s.dtb']))
 
@@ -210,8 +213,8 @@ class UpdateM1n1(unittest.TestCase):
         self.monitor_free()
         self.on('j616', 't6040')
         result = self.run_update()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('no device tree for j616', result.stderr)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('have no apple,j616', result.stderr)
         self.assertFalse(self.ctxr.exists())
 
     def test_macho_update_keeps_the_previous_ctxr_stage2(self):
@@ -256,13 +259,12 @@ class UpdateM1n1(unittest.TestCase):
         self.assertFalse(self.ctxr.exists())
 
     def test_macho_without_a_tree_for_the_board_changes_nothing(self):
-        # A warning, not a failure: kernel-install and the pacman hook run this.
+        # Refuse before changing the image or publishing a new boot link.
         self.monitor_free()
         self.on('j873g', 't8152')
         result = self.run_update()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('no device tree for j873g', result.stderr)
-        self.assertIn('left as it is', result.stderr)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('have no apple,j873g', result.stderr)
         self.assert_frozen()
         self.assertFalse(self.ctxr.exists())
         self.assertFalse((self.esp / 'm1n1/boot-ctxr.bin.new').exists())
@@ -274,7 +276,7 @@ class UpdateM1n1(unittest.TestCase):
         first = self.ctxr.read_bytes()
         (self.root / 'm1n1.bin').write_bytes(b'\0' * (16 << 20))
         result = self.run_update()
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotEqual(result.returncode, 0)
         self.assertIn('16 MiB', result.stderr)
         self.assertEqual(self.ctxr.read_bytes(), first)
         self.assertFalse((self.esp / 'm1n1/boot-ctxr.bin.new').exists())
@@ -473,13 +475,14 @@ class Recipes(unittest.TestCase):
 
     def test_the_package_keeps_the_upstream_license(self):
         spec = SPEC.read_text()
-        self.assertRegex(spec, r'(?m)^Source3: LICENSE$')
+        self.assertRegex(spec, r'(?m)^Source5: LICENSE$')
         self.assertRegex(spec, r'(?m)^%license LICENSE$')
         self.assertIn('Copyright The Asahi Linux Contributors',
                       (ROOT / 'packages/update-m1n1/LICENSE').read_text())
 
     def test_the_tool_and_the_recipe_agree_on_the_marker_path(self):
-        self.assertIn('/usr/share/aura/monitor-free', SCRIPT.read_text())
+        for path in (SCRIPT, HELPER):
+            self.assertIn('/usr/share/aura/monitor-free', path.read_text())
 
     def test_image_build_ignores_the_builders_device_tree(self):
         text = (ROOT / 'scripts/build-image').read_text()
