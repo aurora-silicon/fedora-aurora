@@ -1,4 +1,4 @@
-%global commit 5c894c8535ad7d18d9a4775283a6758abaaaeb53
+%global commit fb19f69381ad29cd51a06dda7456ce6c01030a12
 Name:           aurora-touchid-rearm
 Version:        1
 Release:        3%{?dist}
