@@ -432,5 +432,13 @@
         "sha256": "db362d1fc13be701643cb5e4c390f292ea4e3ce006c0ebda5440b07763b90c41"
       }
     }
+  },
+  "kernel-aurora-legacy": {
+    "repository": "https://github.com/aurora-silicon/linux",
+    "commit": "f92b6bc6b736b19921e9f2df91ed8846ab5cd05e",
+    "version": "7.3.0",
+    "source_url": "https://codeload.github.com/aurora-silicon/linux/tar.gz/f92b6bc6b736b19921e9f2df91ed8846ab5cd05e",
+    "archive_root": "linux-f92b6bc6b736b19921e9f2df91ed8846ab5cd05e",
+    "sha256": "b11c89c468190dddcd038f64b5015af0ddbd1073cd76e3b046d53c8c5369698d"
   }
 }
