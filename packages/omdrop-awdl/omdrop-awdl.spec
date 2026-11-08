@@ -10,7 +10,7 @@
 # the receiver from omdrop-plugin. Everything is installed off.
 Name:           omdrop-awdl
 Version:        0.10.5
-Release:        1%{?dist}.aurora2
+Release:        1%{?dist}.aurora3
 Summary:        AirDrop over firmware-native AWDL on Apple Silicon Macs
 License:        GPL-2.0-only AND MIT
 URL:            https://github.com/netmojo-systems/omdrop-awdl
@@ -28,6 +28,10 @@ Patch0:         omdrop-awdl-0.10.5-stable-cloned-mac.patch
 # 17 % and carried 1.5-7 Mbit/s with the infra link on 149; on 149 it carried
 # 188 Mbit/s with the infra link unaffected.
 Patch1:         omdrop-awdl-0.10.5-follow-infra-channel.patch
+# Aurora: set the 5 GHz social channel (awdl_osoc_chan, default 149). The
+# firmware's default 0 sends nothing a Mac hears on 5 GHz, so macOS refuses to
+# route to us ('discovered(on 2.4GHz only) and is outside bubble').
+Patch2:         omdrop-awdl-0.10.5-5ghz-social-channel.patch
 BuildArch:      noarch
 
 BuildRequires:  python3-devel
@@ -73,6 +77,7 @@ See /usr/share/doc/omdrop-awdl/README.aurora.md.
 %setup -q -T -D -a 1 -n omdrop-awdl-%{commit}
 %patch -P0 -p1
 %patch -P1 -p1
+%patch -P2 -p1
 cp -p %{SOURCE2} .
 # Fedora keeps executables out of /usr/lib: install under %%{_libexecdir}
 # (bin_t under SELinux). /usr/lib/omdrop-core, a separate package, keeps its path.
@@ -137,6 +142,7 @@ done
 grep -q 'stable-ssid' %{buildroot}%{_libexecdir}/omdrop/awdl-up
 grep -q '^follow_infra()' %{buildroot}%{_libexecdir}/omdrop/awdl-up
 grep -q 'awdl-up.auto' %{buildroot}%{_libexecdir}/omdrop/awdl_identity.py
+grep -q 'awdl_osoc_chan' %{buildroot}%{_libexecdir}/omdrop/omdrop-broadcom.sh
 if grep -rIl '/usr/lib/omdrop[/" ]' %{buildroot}%{_libexecdir} %{buildroot}%{_unitdir} \
 	%{buildroot}%{_systemd_util_dir} %{buildroot}%{_datadir}/polkit-1; then exit 1; fi
 test -s %{buildroot}%{_datadir}/omdrop/receiver/share/certs/apple_root_ca.pem
@@ -168,6 +174,11 @@ grep -q '^ExecStartPre=+/usr/bin/mkdir -p -m 0700 %%h/.omdrop$' %{buildroot}%{_u
 %{_userunitdir}/airdrop-receiver.service
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.10.5-1.aurora3
+- Set awdl_osoc_chan (5 GHz social channel, default 149, /etc/omdrop/osoc-chan)
+  when a window opens. Without it macOS hears us only on 2.4 GHz and will
+  not route to us; with it a macOS 26 host routed TCP at 144-191 Mbit/s.
+
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.10.5-1.aurora2
 - AWDL windows follow the Wi-Fi link's 5 GHz channel (full shape) when
   /etc/omdrop/peer-chan is unset, as macOS schedules them; the advertised
