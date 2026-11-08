@@ -116,7 +116,10 @@ if [[ $baseline == stock ]]; then
   dnf --repo=fedora --repo=updates distro-sync -y "${stock[@]}"
   dnf remove -y libfprint-selinux
 else
-  dnf downgrade -y "${old[@]}"
+  # v5 has no aurora-touchid-rearm, and it needs the new aurora-sep-selinux,
+  # so going back to v5 takes it out in the same transaction.
+  dnf downgrade -y --allowerasing "${old[@]}"
+  if rpm -q aurora-touchid-rearm; then echo "aurora-touchid-rearm survived the v5 rollback"; exit 1; fi
 fi
 rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' \
   "${installed[@]}" \
