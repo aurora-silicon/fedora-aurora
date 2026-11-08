@@ -1,14 +1,14 @@
 %global debug_package %{nil}
-%global commit 9a173ff5bf6264d56fdc4a6d2dae96ed482cb195
+%global commit 30e93e890055eb289f544972404ad7b7c4affc3a
 # Tagged release; preserve its label in the source archive build.
-%global release_tag 1.0.0b5
+%global release_tag 1.0.0b8
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
-%global monitor_free 0
+%global monitor_free 1
 Name: aura
-Version: 1.0.0~b5
-Release: 3%{?dist}
+Version: 1.0.0~b8
+Release: 1%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -28,7 +28,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-9a173ff5bf6264d56fdc4a6d2dae96ed482cb195
+%autosetup -n aura-30e93e890055eb289f544972404ad7b7c4affc3a
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -64,6 +64,17 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Sun Nov 08 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b8-1
+- Pin aura v1.0.0b8 (30e93e89, aura#105): 1.0.0b7 plus aura#104, which runs
+  the T8132 storage and memory steps on every T8132 board, not only the
+  J713, so the J604, J623, J624, J715 and J773g can read their internal
+  disk. The source still has no monitor, so monitor_free stays 1.
+
+* Sat Nov 07 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b7-1
+- Pin aura v1.0.0b7 (78bac92d, aura#102). It has no monitor and runs Linux
+  at EL2 in the CTXR window on M4 and later Macs (aura#77), so monitor_free
+  is 1: ship /usr/share/aura/monitor-free and require aurora-ctxr-execmem.
+
 * Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b5-3
 - Require trial-aware Stage 2 updates while retaining the CTXR slot contract.
 

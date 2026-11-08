@@ -1,7 +1,7 @@
-%global commit a3bffe5ab0bb8491831942f7ff4acef054e99164
+%global commit 099f2b9c32609a7eb7d4c2c4987692bbc02de1bd
 Name: alsa-ucm-conf-aurora
 Version: 10
-Release: 5%{?dist}
+Release: 6%{?dist}
 Summary: Aurora ALSA use-case profiles
 License: BSD-3-Clause
 URL: https://github.com/aurora-silicon/alsa-ucm-conf-asahi
@@ -15,7 +15,7 @@ Requires: alsa-ucm
 Aurora ALSA use-case profiles. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n alsa-ucm-conf-asahi-a3bffe5ab0bb8491831942f7ff4acef054e99164
+%autosetup -n alsa-ucm-conf-asahi-099f2b9c32609a7eb7d4c2c4987692bbc02de1bd
 
 %build
 
@@ -28,6 +28,10 @@ cp -a ucm2 %{buildroot}%{_datadir}/alsa/
 %{_datadir}/alsa/ucm2/*
 
 %changelog
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 10-6
+- Move to alsa-ucm-conf-asahi 099f2b9: no laptop Speaker device while
+  speakerguardd v2 owns the speakers (alsa-ucm-conf-asahi#13).
+
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 10-5
 - Move to alsa-ucm-conf-asahi a3bffe5: the J614s headphone jack card
   (aurora-silicon/alsa-ucm-conf-asahi#11).
