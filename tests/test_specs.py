@@ -176,6 +176,62 @@ class SpecTests(unittest.TestCase):
         self.assertIn('/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh', text)
         core_files = text.split('%files core', 1)[1].split('%changelog', 1)[0]
         self.assertIn('%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/', core_files)
+    def test_kdump_crash_kernel_initramfs_has_the_disk_and_a_clock(self):
+        # kdump-utils' 99-kdump.conf replaces add_dracutmodules, so the Aurora
+        # conf must sort after it and name nvme_apple itself.
+        d = ROOT / 'packages' / 'aurora-platform'
+        conf = (d / 'aurora-kdump-dracut.conf').read_text()
+        self.assertRegex(conf, r'(?m)^add_drivers\+=" nvme_apple "$')
+        self.assertRegex(conf, r'(?m)^add_dracutmodules\+=" aurora-kdump-clock "$')
+        self.assertGreater('99-zz-aurora.conf', '99-kdump.conf')
+        setup = (d / 'aurora-kdump-clock-module-setup.sh').read_text()
+        self.assertRegex(setup, r'(?m)^\s+return 255$')
+        self.assertRegex(setup, r'(?m)^\s+inst_hook pre-mount \d+ "\$moddir/aurora-kdump-clock\.sh"$')
+        hook = (d / 'aurora-kdump-clock.sh').read_text()
+        self.assertIn('[ -e /dev/rtc0 ]', hook)
+        self.assertIn('hwclock --hctosys --utc -f "$rtc"', hook)
+        for script in ('aurora-kdump-clock.sh', 'aurora-kdump-setup'):
+            subprocess.run(['sh', '-n', str(d / script)], check=True)
+        unit = (d / 'aurora-kdump.service.conf').read_text()
+        self.assertIn("ExecCondition=/bin/sh -c 'test \"$(cat /sys/kernel/kexec_crash_size)\" -gt 0'", unit)
+        self.assertEqual((d / '80-aurora-kdump.preset').read_text(), 'enable kdump.service\n')
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Requires: kdump-utils makedumpfile dracut >= 111-5$')
+        self.assertIn('%{_libexecdir}/aurora/aurora-kdump-setup || :',
+                      text.split('%posttrans core', 1)[1].split('%files', 1)[0])
+        core_files = text.split('%files core', 1)[1].split('%changelog', 1)[0]
+        for path in ('%{_prefix}/lib/kdump/dracut.conf.d/99-zz-aurora.conf',
+                     '%{_prefix}/lib/dracut/modules.d/99aurora-kdump-clock/',
+                     '%{_unitdir}/kdump.service.d/50-aurora-kdump.conf',
+                     '%{_presetdir}/80-aurora-kdump.preset',
+                     '%{_libexecdir}/aurora/aurora-kdump-setup'):
+            self.assertIn(path + '\n', core_files)
+    def test_kdump_setup_runs_once_and_keeps_an_owner_crashkernel(self):
+        script = ROOT / 'packages' / 'aurora-platform' / 'aurora-kdump-setup'
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            log = root / 'calls'
+            for tool in ('kdumpctl', 'systemctl'):
+                (bindir / tool).write_text(f'#!/bin/sh\necho {tool} "$@" >> "{log}"\n')
+                (bindir / tool).chmod(0o755)
+            cmdline, state = root / 'cmdline', root / 'state' / 'kdump-enabled'
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", AURORA_KDUMP_STATE=str(state),
+                       AURORA_KERNEL_CMDLINE=str(cmdline), AURORA_KDUMP_FORCE='1')
+            run = lambda: subprocess.run(['sh', str(script)], env=env, check=True, capture_output=True, text=True)
+            cmdline.write_text('root=UUID=x ro crashkernel=512M\n')
+            run()
+            self.assertEqual(log.read_text(), 'systemctl enable kdump.service\n')
+            self.assertTrue(state.exists())
+            log.write_text('')
+            run()
+            self.assertEqual(log.read_text(), '')
+            state.unlink()
+            cmdline.write_text('root=UUID=x ro\n')
+            run()
+            self.assertEqual(log.read_text(), 'systemctl enable kdump.service\nkdumpctl reset-crashkernel --kernel=ALL\n')
+            self.assertTrue(state.exists())
     def test_grub_console_migration_runs_once_and_keeps_hand_made_configs(self):
         script = ROOT / 'packages' / 'aurora-platform' / 'aurora-grub-console'
         spec = (ROOT / 'packages' / 'aurora-platform' / 'aurora-platform.spec').read_text()

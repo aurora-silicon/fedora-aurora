@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 22%{?dist}
+Release: 23%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -32,6 +32,12 @@ Source110: 50-aurora-irqbalance.conf
 Source111: 62-aurora-gpu-render-only.rules
 Source112: aurora-performance.conf
 Source113: aurora-ppd-config
+Source114: aurora-kdump-dracut.conf
+Source115: aurora-kdump.service.conf
+Source116: 80-aurora-kdump.preset
+Source117: aurora-kdump-setup
+Source118: aurora-kdump-clock-module-setup.sh
+Source119: aurora-kdump-clock.sh
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -62,6 +68,9 @@ Requires: aurora-kbd-light
 # Asahi Remix system with these services keeps following Aurora's builds.
 Requires: aurora-repos
 Requires: tuned
+# Linux's own crash dumps (iBoot keeps no record of a Linux panic). kdump-utils
+# 1.0.61 calls dracut_no_switch_root, which dracut has from 111-5.
+Requires: kdump-utils makedumpfile dracut >= 111-5
 Requires: python3
 Requires: (aurora-platform-selinux = %{version}-%{release} if selinux-policy-%{selinuxtype})
 
@@ -116,11 +125,19 @@ install -Dm755 %{SOURCE107} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora
 install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-console
 install -Dm644 %{SOURCE112} %{buildroot}%{_prefix}/lib/tuned/profiles/aurora-performance/tuned.conf
 install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
+install -Dm644 %{SOURCE114} %{buildroot}%{_prefix}/lib/kdump/dracut.conf.d/99-zz-aurora.conf
+install -Dm644 %{SOURCE115} %{buildroot}%{_unitdir}/kdump.service.d/50-aurora-kdump.conf
+install -Dm644 %{SOURCE116} %{buildroot}%{_presetdir}/80-aurora-kdump.preset
+install -Dm755 %{SOURCE117} %{buildroot}%{_libexecdir}/aurora/aurora-kdump-setup
+install -Dm755 %{SOURCE118} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora-kdump-clock/module-setup.sh
+install -Dm755 %{SOURCE119} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora-kdump-clock/aurora-kdump-clock.sh
 
 %posttrans core
 # Fedora's flicker-free GRUB output, once per system; see the script.
 %{_libexecdir}/aurora/aurora-grub-console || :
 %{_libexecdir}/aurora/aurora-ppd-config || :
+# kdump on, once per system; see the script.
+%{_libexecdir}/aurora/aurora-kdump-setup || :
 
 # Also cover tuned-ppd installed/upgraded without an aurora-platform update.
 # The file remains owned by tuned-ppd as %%config(noreplace).
@@ -155,6 +172,12 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 %{_prefix}/lib/dracut/modules.d/91aurora-early-kms/
 %{_libexecdir}/aurora/aurora-grub-console
 %{_libexecdir}/aurora/aurora-ppd-config
+%{_libexecdir}/aurora/aurora-kdump-setup
+%{_prefix}/lib/kdump/dracut.conf.d/99-zz-aurora.conf
+%{_prefix}/lib/dracut/modules.d/99aurora-kdump-clock/
+%dir %{_unitdir}/kdump.service.d
+%{_unitdir}/kdump.service.d/50-aurora-kdump.conf
+%{_presetdir}/80-aurora-kdump.preset
 %dir %{_prefix}/lib/tuned/profiles/aurora-performance
 %{_prefix}/lib/tuned/profiles/aurora-performance/tuned.conf
 
@@ -163,6 +186,20 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-23
+- Save Linux's own crashes with kdump. iBoot never keeps a panic record
+  that Linux leaves behind, so a crash kernel writes the vmcore and the
+  crashed kernel's log to /var/crash instead; aurora-panic-log lists them.
+  Require kdump-utils and makedumpfile, enable kdump.service and set
+  kdump-utils' default crashkernel= once per system.
+- Add nvme_apple to the crash kernel's initramfs. kdump-utils replaces
+  dracut-asahi's module list, so the crash kernel had no disk.
+- Set the crash kernel's clock from the PMU RTC (dracut module
+  aurora-kdump-clock, kdump initramfs only). The crash kernel cannot
+  restart the SMC, so rtc0 is missing and dumps were dated from the epoch.
+- Skip kdump.service instead of failing it on a boot without crash kernel
+  memory.
+
 * Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-22
 - Let plymouthd map a DRM card that the kernel created after the policy
   load and udev has not relabelled yet. Such a node briefly carries the

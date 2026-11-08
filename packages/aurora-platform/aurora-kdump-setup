@@ -1,0 +1,32 @@
+#!/bin/sh
+# Turn kdump on, once per system: Linux's own crashes are then saved to
+# /var/crash (vmcore plus the crashed kernel's log) and shown by
+# aurora-panic-log. iBoot never keeps a panic record that Linux leaves behind,
+# so kdump is how a Linux panic survives the restart on these Macs.
+#
+# This runs from aurora-platform-core's %posttrans. It enables kdump.service
+# and, when the kernel command line has no crashkernel= yet, sets kdump-utils'
+# default size on every boot entry and in /etc/kernel/cmdline (kdumpctl
+# reset-crashkernel, through grubby). The reservation takes effect from the
+# next boot. It runs only once: an owner who later disables kdump or removes
+# crashkernel= keeps that choice.
+set -u
+state=${AURORA_KDUMP_STATE:-/var/lib/aurora/kdump-enabled}
+cmdline=${AURORA_KERNEL_CMDLINE:-/etc/kernel/cmdline}
+
+[ -e "$state" ] && exit 0
+command -v kdumpctl > /dev/null || exit 0
+[ -d /run/systemd/system ] || [ -n "${AURORA_KDUMP_FORCE:-}" ] || exit 0
+mkdir -p "${state%/*}"
+
+systemctl enable kdump.service > /dev/null 2>&1 || :
+if [ -f "$cmdline" ] && grep -Eq '(^|[[:space:]])crashkernel=' "$cmdline"; then
+    touch "$state"
+    exit 0
+fi
+if kdumpctl reset-crashkernel --kernel=ALL > /dev/null 2>&1; then
+    touch "$state"
+else
+    echo "aurora-kdump-setup: kdumpctl reset-crashkernel failed; the next update tries again" >&2
+fi
+exit 0
