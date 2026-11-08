@@ -1,30 +1,41 @@
 %global commit c967141161bea3badc7754e23d80b39ffb1bdafd
 Name: aurora-audio
 Version: 4.1
-Release: 11%{?dist}
+Release: 12%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
 Source0: aurora-audio-%{commit}.tar.gz
 Source1: module-setup.sh
+Patch0: 0001-restore-legacy-speaker-graphs.patch
 BuildArch: noarch
 BuildRequires: make
 # Fedora Asahi installs carry asahi-audio, which ships the same files.
 Provides: asahi-audio = %{version}-%{release}
 Conflicts: asahi-audio
 Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplumber >= 0.5.16 bankstown lv2-triforce lsp-plugins-lv2
-# Both speaker protection stacks, on every Mac: speakerguardd-v2's fleet
-# gate starts exactly one of them per boot (v2 on a gated board whose kernel
-# has the v2 interface, the older daemons everywhere else).
-Requires: speakersafetyd speakerguardd speakerguardd-v2
+# Restore the established Asahi protection stack on existing installations.
+Requires: speakersafetyd speakerguardd
+Obsoletes: speakerguardd-v2 < 1.0.0
+Obsoletes: speakerguardd-v2-selinux < 1.0.0
+Conflicts: speakerguardd-v2 < 1.0.0
 
 %description
 Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n asahi-audio-c967141161bea3badc7754e23d80b39ffb1bdafd
+%autosetup -p1 -n asahi-audio-c967141161bea3badc7754e23d80b39ffb1bdafd
 
 %build
+
+%check
+make install DESTDIR="$PWD/check-root" PREFIX=/usr
+for board in j316 j413 j616 j700; do
+    test -s "check-root/usr/share/asahi-audio/$board/graph.json"
+    grep -q "/usr/share/asahi-audio/$board/graph.json" check-root/usr/share/wireplumber/wireplumber.conf.d/99-asahi.conf
+done
+test -s check-root/usr/share/asahi-audio/j700/48.wav
+rm -rf check-root
 
 %install
 make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
@@ -38,6 +49,12 @@ install -Dm755 %{SOURCE1} %{buildroot}%{_prefix}/lib/dracut/modules.d/90aurora-a
 %{_prefix}/lib/dracut/modules.d/90aurora-audio/
 
 %changelog
+* Sun Nov 08 2026 Aurora Silicon <hey@djdev.me> - 4.1-12
+- Restore the shipped Asahi speaker DSP graphs and retire the v2 preview
+  packages. Kernel 7.3.0-26 restores the legacy protection interface.
+- Verify every restored speaker graph and the J700 FIR during the build.
+
+
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-11
 - Move to asahi-audio c967141: the microphone cards are hidden from
   clients (no dead "Microphone" port beside the mic graph), and the

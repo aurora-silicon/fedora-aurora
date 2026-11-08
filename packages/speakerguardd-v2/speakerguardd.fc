@@ -1,3 +1,0 @@
-/usr/libexec/speakerguardd-v2/speakerguardd	--	gen_context(system_u:object_r:speakerguardd_exec_t,s0)
-/run/speakerguardd(/.*)?		gen_context(system_u:object_r:speakerguardd_runtime_t,s0)
-/var/lib/speakerguardd(/.*)?		gen_context(system_u:object_r:speakerguardd_var_lib_t,s0)
