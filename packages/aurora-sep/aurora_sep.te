@@ -1,4 +1,4 @@
-policy_module(aurora_sep, 1.3.0)
+policy_module(aurora_sep, 1.4.1)
 
 ########################################
 #
@@ -18,6 +18,24 @@ dev_node(aurora_sep_device_t)
 # var_lib_t, and only the domains that drive the enclave may use them.
 type aurora_sep_state_t;
 files_type(aurora_sep_state_t)
+
+# /dev/sep-bio-rearm, where the driver reports the Touch ID lockout and ends
+# it. Only aurora-touchid-rearm may use it, after it has verified the user's
+# password.
+type aurora_sep_rearm_device_t;
+dev_node(aurora_sep_rearm_device_t)
+
+# aurora-touchid-rearm, started by systemd for each connection to its socket.
+type aurora_touchid_rearm_t;
+type aurora_touchid_rearm_exec_t;
+init_daemon_domain(aurora_touchid_rearm_t, aurora_touchid_rearm_exec_t)
+# The unit runs with NoNewPrivileges=yes, so systemd needs the bounded
+# transition into this domain.
+init_nnp_daemon_domain(aurora_touchid_rearm_t)
+
+# Its socket, which every PAM stack that accepted a password connects to.
+type aurora_touchid_rearm_var_run_t;
+files_pid_file(aurora_touchid_rearm_var_run_t)
 
 # aurora-sep-load, which loads the driver and checks that the enclave seals
 # and unseals a trusted key. It needs what the unconfined service domain gave
@@ -50,6 +68,7 @@ type_transition kernel_t var_lib_t:file aurora_sep_state_t "aurora-sep-host-stat
 type_transition kernel_t var_lib_t:file aurora_sep_state_t "aurora-sep-xart-owned.bin";
 type_transition kernel_t var_lib_t:file aurora_sep_state_t "aurora-sep-xart-allow-once.bin";
 type_transition kernel_t var_lib_t:file aurora_sep_state_t "aurora-sep-xart-policy-previous.bin";
+type_transition kernel_t var_lib_t:file aurora_sep_state_t "aurora-sep-touchid-lockout.bin";
 
 # Reads and writes on an open state file are checked against the task that
 # drove the driver, not the opener. The loader's helpers check the files
@@ -107,3 +126,61 @@ optional_policy(`
 # view bit lets the check reach SELinux, which denies it, and the listing
 # leaves them out. That denial is the intended result, so do not log it.
 dontaudit domain aurora_sep_load_t:key view;
+
+########################################
+#
+# aurora-touchid-rearm: ends a Touch ID lockout after a password
+#
+
+# The connection systemd accepted for it, on stdin and stdout. systemd labels
+# a socket unit's sockets with the domain of the service it starts, and falls
+# back to its own.
+allow aurora_touchid_rearm_t { self init_t }:unix_stream_socket { getattr getopt setopt read write ioctl shutdown };
+
+# SEP_BIO_REARM needs CAP_SYS_ADMIN; pam_unix reads /etc/shadow.
+allow aurora_touchid_rearm_t self:capability { sys_admin dac_read_search };
+dev_list_all_dev_nodes(aurora_touchid_rearm_t)
+allow aurora_touchid_rearm_t aurora_sep_rearm_device_t:chr_file { getattr open read ioctl };
+
+# The driver reads and rewrites its lockout record on this task's behalf.
+allow aurora_touchid_rearm_t aurora_sep_state_t:file rw_file_perms;
+files_search_var_lib(aurora_touchid_rearm_t)
+
+# The password is checked again through its own PAM service.
+auth_use_pam(aurora_touchid_rearm_t)
+# pam_unix runs unix_chkpwd, still under NoNewPrivileges.
+auth_nnp_domtrans_chkpwd(aurora_touchid_rearm_t)
+auth_read_shadow(aurora_touchid_rearm_t)
+logging_send_syslog_msg(aurora_touchid_rearm_t)
+logging_send_audit_msgs(aurora_touchid_rearm_t)
+miscfiles_read_localization(aurora_touchid_rearm_t)
+files_read_etc_files(aurora_touchid_rearm_t)
+
+# Only users with enrolled fingerprints may re-arm: it looks for their
+# directory in fprintd's records.
+optional_policy(`
+	gen_require(`
+		type fprintd_var_lib_t;
+	')
+
+	allow aurora_touchid_rearm_t fprintd_var_lib_t:dir { getattr search open read };
+')
+
+# The confined domains that run a PAM password stack connect to the socket.
+# Unconfined ones (sudo for an unconfined user, Plasma's lock screen) need
+# nothing more.
+define(`aurora_touchid_rearm_client',`
+	optional_policy(`
+		gen_require(`
+			type $1;
+		')
+
+		allow $1 aurora_touchid_rearm_var_run_t:sock_file write;
+		allow $1 { aurora_touchid_rearm_t init_t }:unix_stream_socket connectto;
+		files_search_pids($1)
+	')
+')
+aurora_touchid_rearm_client(xdm_t)
+aurora_touchid_rearm_client(policykit_auth_t)
+aurora_touchid_rearm_client(local_login_t)
+aurora_touchid_rearm_client(sshd_t)
