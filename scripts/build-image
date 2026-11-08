@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+# An image serves every Mac, whichever one builds it.
+export AURORA_DEVICE_TREE_COMPATIBLE=/nonexistent
 profile=${1:?fedora-kde, fedora-gnome or fedora-minimal required}
 [[ $profile =~ ^fedora-(kde|gnome|minimal)$ ]] || exit 2
 [[ $(uname -m) == aarch64 && $(id -u) == 0 ]] || { echo 'Use a disposable privileged native AArch64 image builder' >&2; exit 2; }
@@ -32,18 +34,26 @@ source_archive=("$root/out/finalizer-source/"aurora-firstboot-*.tar.gz)
 mkdir -p "$root/out/finalizer"
 tar -xzf "${source_archive[0]}" --strip-components=1 -C "$root/out/finalizer"
 bash "$root/out/finalizer/images/finalize-image" "${images[0]}" "$profile" "$root/out/$profile-installer"
-# Every image ships the basics (locale, terminal, wallpapers, network, lid
-# policy, GRUB finding /boot by UUID on the startup disk, Aurora Mesa for
-# Flatpak apps); a build that lacks one fails here instead of on a Mac. The
-# finished filesystems are checked exactly as the installer writes them.
 installer=$root/out/$profile-installer
 read -r boot_uuid root_subvolume < <(python3 -c 'import json,sys; j=json.load(open(sys.argv[1])); print(j["boot_uuid"], j.get("root_subvolume", "root"))' "$installer/image.json")
 basics_root=$(mktemp -d)
 mount -o ro,loop,subvol="$root_subvolume" "$installer/root.img" "$basics_root"
 basics=0
-python3 "$root/scripts/check-basics.py" --profile "${profile#fedora-}" --root "$basics_root" \
-  --esp "$installer/esp" --boot-image "$installer/boot.img" --boot-uuid "$boot_uuid" --grub-flavor fedora \
-  --flatpak-gl || basics=$?
+# A Stage 1 with the CTXR window chainloads these, on Mach-O Macs. The image
+# gets them only with an aura that has no monitor, the rule update-m1n1 follows
+# on an installed Mac.
+if [[ -e $basics_root/usr/share/aura/monitor-free ]]; then
+  python3 "$root/scripts/prepare-ctxr-stage2.py" "$installer/esp/m1n1" || basics=$?
+fi
+# Every image ships the basics (locale, terminal, wallpapers, network, lid
+# policy, GRUB finding /boot by UUID on the startup disk, Aurora Mesa for
+# Flatpak apps); a build that lacks one fails here instead of on a Mac. The
+# finished filesystems are checked exactly as the installer writes them.
+if (( basics == 0 )); then
+  python3 "$root/scripts/check-basics.py" --profile "${profile#fedora-}" --root "$basics_root" \
+    --esp "$installer/esp" --boot-image "$installer/boot.img" --boot-uuid "$boot_uuid" --grub-flavor fedora \
+    --flatpak-gl || basics=$?
+fi
 umount "$basics_root"
 rmdir "$basics_root"
 (( basics == 0 ))

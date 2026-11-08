@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 21%{?dist}
+Release: 22%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -163,6 +163,13 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-22
+- Let plymouthd map a DRM card that the kernel created after the policy
+  load and udev has not relabelled yet. Such a node briefly carries the
+  targeted policy's xserver_misc_device_t, and plymouthd, still kernel_t
+  from the initramfs, logged a map denial on about one boot in ten on the
+  Neo.
+
 * Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-21
 - Require speakerguardd-v2 beside speakersafetyd and speakerguardd 0.1. Its
   fleet gate starts exactly one stack per boot; on a kernel without the v2

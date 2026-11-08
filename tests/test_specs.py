@@ -239,6 +239,20 @@ class SpecTests(unittest.TestCase):
         self.assertIn('# aurora-builder: x86_64', guest[3].splitlines())
         self.assertIn('Requires: mesa-dri-drivers = %{version}-%{release}', guest[3])
         self.assertIn('Requires: mesa-vulkan-drivers = %{version}-%{release}', guest[3])
+    def test_aurora_sep_ships_the_touch_id_reset(self):
+        sep = ROOT / 'packages/aurora-sep'
+        self.assertRegex((sep / 'aurora-sep.spec').read_text(), r'(?m)^Requires: aurora-xart$')
+        xart = (ROOT / 'packages/aurora-xart/aurora-xart.spec').read_text()
+        self.assertIn('BuildArch: noarch', xart)
+        self.assertIn('make check', xart.split('%check', 1)[1].split('%install', 1)[0])
+        self.assertIn('%{_mandir}/man8/aurora-xart.8*', xart)
+        # The installer script is not shipped here; the packaged tool is.
+        for doc in ('README.md', 'XART-SAFETY.md'):
+            text = (sep / doc).read_text()
+            self.assertNotIn('install-aurora-sep.sh --reset-touchid', text)
+            self.assertIn('aurora-xart reset-touchid', text)
+        conf = (ROOT / 'packages/aurora-repos/aurora-vendors-unvendored.conf').read_text()
+        self.assertIn("{ filter = 'source_name', value = 'aurora-xart' }", conf)
     def test_spec_commit_matches_its_source_pin(self):
         sources = json.loads((ROOT / 'sources.json').read_text())
         for spec in (ROOT / 'packages').glob('*/*.spec'):
@@ -298,6 +312,15 @@ class SpecTests(unittest.TestCase):
         self.assertIn("prefix: /usr/lib/aarch64-linux-gnu/GL/aurora", manifest)
         self.assertIn('priority=10', build)
         self.assertIn("['mesa-aurora']", build)
+    def test_platform_selinux_lets_initramfs_plymouth_map_a_fresh_drm_card(self):
+        # A /dev/dri/cardN made after the policy load is xserver_misc_device_t
+        # until udev relabels it; plymouthd from the initramfs is kernel_t.
+        # Only the map is added: nothing wider, no other source or target.
+        te = (ROOT / 'packages' / 'aurora-platform' / 'aurora_platform.te').read_text()
+        rules = [r for r in re.findall(r'(?m)^allow .*$', te) if 'xserver_misc_device_t' in r]
+        self.assertEqual(rules, ['allow kernel_t xserver_misc_device_t:chr_file map;'])
+        self.assertRegex(te, r'(?m)^\ttype init_t, kernel_t, xserver_misc_device_t;$')
+        self.assertRegex(te, r'(?m)^\tclass chr_file map;$')
     def test_platform_selinux_lets_init_inspect_the_initramfs_uevent_socket(self):
         # systemd keeps udev's uevent socket from the initramfs, where it was
         # made as kernel_t, and checks it after loading the policy.
@@ -305,7 +328,8 @@ class SpecTests(unittest.TestCase):
         te = (d / 'aurora_platform.te').read_text()
         self.assertIn('allow init_t kernel_t:netlink_kobject_uevent_socket getattr;', te)
         self.assertEqual(re.findall(r'(?m)^allow .*$', te),
-                         ['allow init_t kernel_t:netlink_kobject_uevent_socket getattr;'])
+                         ['allow init_t kernel_t:netlink_kobject_uevent_socket getattr;',
+                          'allow kernel_t xserver_misc_device_t:chr_file map;'])
         text = (d / 'aurora-platform.spec').read_text()
         self.assertRegex(text, r'(?m)^Source\d+: aurora_platform\.te$')
         core = text.split('%package core', 1)[1].split('%description core', 1)[0]
@@ -617,6 +641,50 @@ class SpecTests(unittest.TestCase):
             self.assertIn(path + '\n', files)
         self.assertIn('%triggerin -- fex-emu-rootfs-fedora\n%{_libexecdir}/fex-emu/aurora-fex-provider-up\n', spec)
         subprocess.run(['sh', '-n', str(d / 'aurora-fex-provider-up')], check=True)
+
+    def test_fex_defaults_to_the_fedora_rootfs_image(self):
+        d = ROOT / 'packages' / 'fex-emu'
+        spec = (d / 'fex-emu.spec').read_text()
+        # FEX reads its global config from DATA_DIRECTORY, by default
+        # ${CMAKE_INSTALL_PREFIX}/share/fex-emu; a user's Config.json overrides it.
+        self.assertNotIn('-DDATA_DIRECTORY', spec)
+        self.assertIn('%cmake -G Ninja', spec)
+        config = json.loads((d / 'Config.json').read_text())
+        image = '/usr/share/fex-emu/RootFS/default.erofs'
+        self.assertEqual(config, {'Config': {'RootFS': image}})
+        unit = configparser.ConfigParser(strict=False)
+        unit.optionxform = str
+        unit.read_string((d / 'usr-share-guestos-fex\\x2dmesa.mount').read_text())
+        self.assertEqual(unit['Mount']['What'], image)
+        source = re.search(r'(?m)^Source(\d+):\s+Config\.json$', spec).group(1)
+        self.assertIn(f'install -Dm644 %{{SOURCE{source}}} %{{buildroot}}%{{_datadir}}/fex-emu/Config.json\n', spec)
+        files = spec.split('%files\n', 1)[1].split('%files', 1)[0]
+        self.assertIn('%config(noreplace) %{_datadir}/fex-emu/Config.json\n', files)
+
+    def test_fex_requires_what_mounts_its_rootfs_and_names_the_image_package(self):
+        d = ROOT / 'packages' / 'fex-emu'
+        spec = (d / 'fex-emu.spec').read_text()
+        main = spec.split('%package', 1)[0]
+        # FEXServer runs erofsfuse on the .erofs image; fusermount3 mounts it for a user.
+        for name in ('erofs-fuse', 'fuse3'):
+            self.assertRegex(main, rf'(?m)^Requires:\s+{name}$')
+            self.assertNotRegex(main, rf'(?m)^Recommends:\s+{name}$')
+        # The 1.9 GB image stays a weak dependency, which dnf installs by default.
+        self.assertRegex(main, r'(?m)^Recommends:\s+fex-emu-rootfs-fedora$')
+        patch = re.search(r'(?m)^Patch0:\s+(\S+)$', spec).group(1)
+        text = (d / patch).read_text()
+        self.assertIn('add_compile_definitions(ROOTFS_PACKAGE="${ROOTFS_PACKAGE}")', text)
+        self.assertIn('Install the {} package for the default RootFS', text)
+        # A 4K page process can't read /dev/fuse on Aurora kernels: FEXServer
+        # runs erofsfuse with native pages.
+        native = (d / re.search(r'(?m)^Patch1:\s+(\S+)$', spec).group(1)).read_text()
+        self.assertIn('+++ b/Source/Tools/FEXServer/SquashFS.cpp', native)
+        for line in ('+    prctl(PR_AURORA_SET_DEFAULT_PAGE_SIZE, 0UL, 0UL, 0UL, 0UL);',
+                     '+    prctl(PR_AURORA_SET_EXEC_PAGE_SIZE, 0UL, 0UL, 0UL, 0UL);'):
+            self.assertIn(line, native)
+        prep = spec.split('%prep\n', 1)[1].split('%build\n', 1)[0]
+        self.assertIn('\n%autopatch -p1\n', prep)
+        self.assertIn('    -DROOTFS_PACKAGE=fex-emu-rootfs-fedora \\\n', spec.split('%cmake -G Ninja', 1)[1])
 
     def test_fex_submodules_are_pinned_with_the_fork(self):
         spec = (ROOT / 'packages' / 'fex-emu' / 'fex-emu.spec').read_text()

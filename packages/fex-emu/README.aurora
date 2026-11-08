@@ -36,10 +36,33 @@ them in software. `FEX_HOSTFEATURES=disableapflg` turns it off.
 
 ## Root filesystem
 
-fex-emu mounts `fex-emu-rootfs-fedora`'s image at /usr/share/guestos/fex-mesa,
-the lower layer of mesa-aurora-fex-guest's graphics provider, which Steam's
-FEX titles use for the G17P Mesa (unless a provider tree is already there).
+FEX needs an x86-64 root filesystem for anything but static programs. The
+global config, /usr/share/fex-emu/Config.json, sets RootFS to
+/usr/share/fex-emu/RootFS/default.erofs, the image from fex-emu-rootfs-fedora
+(dnf installs it with fex-emu unless weak dependencies are turned off).
+FEXServer mounts the image with erofsfuse when FEX starts, and runs
+erofsfuse with native pages (a 4 KiB page process can't serve a FUSE mount on
+Aurora's kernels), so `userpages 4k FEXBash` works without setup. To see the
+mounted RootFS:
 
-`fex-emu-rootfs-fedora` from Fedora provides the x86 root filesystem. FEX
-reads it from /usr/share/fex-emu/RootFS; `FEXRootFSFetcher` (fex-emu-utils)
-can fetch others.
+    userpages 4k FEXGetConfig --current-rootfs
+
+If the image is missing, FEX's error names the package to install:
+
+    sudo dnf install fex-emu-rootfs-fedora
+
+Your own config, ~/.config/fex-emu/Config.json (~/.fex-emu/Config.json if
+that directory exists), and the FEX_ROOTFS environment variable override the
+global RootFS. A RootFS given as a name rather than a path is looked up in
+~/.local/share/fex-emu/RootFS and /usr/share/fex-emu/RootFS.
+`FEXRootFSFetcher` downloads other root filesystems and `FEXConfig` edits
+your config. Both are in fex-emu-utils:
+
+    sudo dnf install fex-emu-utils
+
+Fedora Asahi Remix ran FEX in muvm, which set the RootFS only inside its VM.
+On Aurora FEX runs on the host and uses the global config.
+
+fex-emu also mounts the image at /usr/share/guestos/fex-mesa, the lower layer
+of mesa-aurora-fex-guest's graphics provider, which Steam's FEX titles use
+for the G17P Mesa (unless a provider tree is already there).

@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PlanTests(unittest.TestCase):
-    def plan(self, changed_sources, shared_tooling=False, split=False, event_name="push"):
+    def plan(self, changed_sources, shared_tooling=False, split=False, event_name="push", requires=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'scripts').mkdir()
@@ -20,6 +20,11 @@ class PlanTests(unittest.TestCase):
                 recipe = root / 'packages' / name / (name + '.spec')
                 recipe.parent.mkdir(parents=True)
                 recipe.write_text('Name: ' + name + '\n')
+                if name == 'kernel-aurora':
+                    recipe.write_text(recipe.read_text() + '%package devel\nSummary: headers\n')
+                for user, needed in (requires or {}).items():
+                    if user == name:
+                        recipe.write_text(recipe.read_text() + 'BuildRequires: ' + needed + '\n')
             x86 = root / 'packages/mesa-aurora-fex-guest/mesa-aurora-fex-guest.spec'
             x86.parent.mkdir(parents=True)
             x86.write_text('# aurora-builder: x86_64\nName: mesa-aurora-fex-guest\n')
@@ -64,7 +69,7 @@ class PlanTests(unittest.TestCase):
     def test_x86_payload_recipes_are_planned_for_the_x86_builder_only(self):
         self.assertEqual(self.plan({'mesa-aurora': {'commit': 'new'}, 'mesa-aurora-fex-guest': {'commit': 'new'}},
                                    split=True),
-                         {'packages': ['mesa-aurora'], 'x86_packages': ['mesa-aurora-fex-guest']})
+                         {'full': True, 'packages': ['mesa-aurora'], 'x86_packages': ['mesa-aurora-fex-guest']})
 
     def test_flatpak_repository_builder_invalidates_native_build_receipts(self):
         self.assertEqual(self.plan({'avd-fw': {'commit': 'new'}}, shared_tooling='build-flatpak-gl-repo'),
@@ -92,3 +97,16 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(self.plan({}, shared_tooling='build-receipt.py',
                                    event_name='pull_request'),
                          ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])
+
+    def test_pr_subset_is_not_a_full_run(self):
+        self.assertFalse(self.plan({'mesa-aurora': {'commit': 'new'}}, split=True,
+                                   event_name='pull_request')['full'])
+
+    def test_push_is_a_full_run(self):
+        self.assertTrue(self.plan({'mesa-aurora': {'commit': 'new'}}, split=True)['full'])
+
+    def test_pr_change_rebuilds_recipes_that_build_require_it(self):
+        self.assertEqual(self.plan({'kernel-aurora': {'commit': 'new'}}, event_name='pull_request',
+                                   requires={'avd-fw': 'kernel-aurora-devel'}),
+                         ['avd-fw', 'kernel-aurora'])
+

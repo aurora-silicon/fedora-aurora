@@ -1,8 +1,8 @@
 %global debug_package %{nil}
-%global commit 279c4afa4bbaf600af1c2f493c75d8aadc206243
+%global commit e1ef8b636fc915278490f556477cfbb021b23a11
 Name: uboot-aurora
 Version: 2026.07
-Release: 7%{?dist}
+Release: 9%{?dist}
 Summary: Aurora U-Boot for Apple Silicon
 License: GPL-2.0-or-later
 URL: https://github.com/aurora-silicon/u-boot
@@ -10,13 +10,14 @@ Source0: uboot-aurora-%{commit}.tar.gz
 ExclusiveArch: aarch64
 Provides: uboot-images-armv8
 Conflicts: uboot-images-armv8
+Requires: update-m1n1 >= 20261107
 BuildRequires: gcc make bc bison flex dtc python3 python3-pyelftools swig openssl-devel openssl-devel-engine gnutls-devel
 
 %description
 Aurora U-Boot for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n u-boot-279c4afa4bbaf600af1c2f493c75d8aadc206243
+%autosetup -n u-boot-e1ef8b636fc915278490f556477cfbb021b23a11
 
 %build
 make O=build-aurora apple_m1_defconfig
@@ -32,6 +33,15 @@ install -Dm644 build-aurora/u-boot-nodtb.bin %{buildroot}/usr/lib/asahi-boot/u-b
 /usr/lib/asahi-boot/u-boot-nodtb.bin
 
 %changelog
+* Sat Nov 07 2026 Aurora Silicon <hey@djdev.me> - 2026.07-9
+- Track U-Boot aurora-wip at e1ef8b6. On M4 and later Macs it loads the
+  kernel and the EFI runtime code into the CTXR window, and keeps
+  device-tree reservations out of it (u-boot#32, #36). Also the J713
+  external DCP handoff, speaker amps and ISP handoff (u-boot#31, #34, #35).
+
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 2026.07-8
+- Require the trial-aware Stage 2 updater for packaged boot updates.
+
 * Thu Nov 05 2026 Michal S. <michal_stopyra@icloud.com> - 2026.07-7
 - Include the merged J614s retained MTP input handoff (u-boot#29).
 

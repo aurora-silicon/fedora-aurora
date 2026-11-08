@@ -1,0 +1,69 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+set -euo pipefail
+# shellcheck disable=SC1091
+[[ ! -f /etc/sysconfig/update-m1n1 ]] || source /etc/sysconfig/update-m1n1
+[[ -z ${M1N1_UPDATE_DISABLED:-} ]] || exit 0
+# shellcheck disable=SC1091
+[[ ! -f /etc/u-boot.conf ]] || source /etc/u-boot.conf
+export AURORA_FIRMWARE_DT=${FIRMWAREDT:-${FirmwareDT:-}}
+
+if [[ -n ${SOURCE:-} ]]; then
+    M1N1=${M1N1-"$SOURCE/m1n1.bin"}
+    U_BOOT=${U_BOOT-"$SOURCE/u-boot-nodtb.bin"}
+fi
+export M1N1=${M1N1-/usr/lib64/m1n1/m1n1.bin}
+export U_BOOT=${U_BOOT-/usr/share/uboot/apple_m1/u-boot-nodtb.bin}
+export CONFIG=${CONFIG:-/etc/m1n1.conf}
+export DTBS=${DTBS-/boot/dtb}
+export AURORA_DEVICE_TREE_COMPATIBLE=${AURORA_DEVICE_TREE_COMPATIBLE:-/proc/device-tree/compatible}
+export AURORA_MONITOR_FREE_MARKER=${AURORA_MONITOR_FREE_MARKER:-/usr/share/aura/monitor-free}
+mode=${1:-}
+if [[ $mode == --commit || $mode == --guard ]]; then
+    export AURORA_KERNEL_ACTION=refresh AURORA_KERNEL_VERSION=
+    export TARGET=${TARGET:-}
+else
+    [[ -z $mode || $mode != --* ]] || { echo "unknown update-m1n1 option" >&2; exit 2; }
+    export TARGET=${TARGET:-$mode}
+fi
+
+# One lock covers discovery, mounting, staging and link replacement, including
+# callers from both RPM file triggers and kernel-install.
+mkdir -p /run/lock
+exec 9>/run/lock/update-m1n1.lock
+flock -x 9
+mounted=false
+cleanup() {
+    if $mounted; then umount /run/.system-efi; fi
+}
+trap cleanup EXIT
+
+# Preflight before mounting the ESP. The apply pass checks again under the lock.
+if [[ $mode != --commit && $mode != --guard ]] && ! python3 /usr/libexec/aurora/bootchain.py --check; then
+    if [[ ${AURORA_KERNEL_ACTION:-} == remove ]]; then
+        python3 /usr/libexec/aurora/bootchain.py --cleanup-remove
+        exit 0
+    fi
+    exit 1
+fi
+if [[ -z $TARGET ]]; then
+    # shellcheck disable=SC1091
+    source /usr/share/asahi-scripts/functions.sh
+    mount_sys_esp /run/.system-efi
+    mounted=true
+    export TARGET=/run/.system-efi/m1n1/boot.bin
+fi
+# Resolve the actual mount, including explicitly configured ESP targets.
+ESP_ROOT=$(findmnt -nro TARGET --target "$(dirname "$TARGET")")
+ESP_DEVICE=$(findmnt -nro SOURCE --target "$ESP_ROOT")
+ESP_FSTYPE=$(findmnt -nro FSTYPE --target "$ESP_ROOT")
+export ESP_ROOT ESP_DEVICE ESP_FSTYPE
+args=()
+[[ $mode != --commit && $mode != --guard ]] || args+=("$mode")
+if ! python3 /usr/libexec/aurora/bootchain.py "${args[@]}"; then
+    if [[ ${AURORA_KERNEL_ACTION:-} == remove ]]; then
+        python3 /usr/libexec/aurora/bootchain.py --cleanup-remove
+        exit 0
+    fi
+    exit 1
+fi

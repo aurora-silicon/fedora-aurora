@@ -1,9 +1,14 @@
-%global commit 4731456d979107bfed16316fea45378d9de7d1da
+%global commit d4d267839caa0aa9cbcd98a792351a52bd856b84
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
+# 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
+# (aurora-silicon/linux#985), which keeps every kernel code page inside the CTXR
+# window an aura without the monitor moves the kernel into. kernel-aurora-core
+# then provides aurora-ctxr-execmem, which that aura requires. %%build checks it.
+%global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 20%{?dist}.aurora
+Release: 25%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -11,6 +16,7 @@ Source0: kernel-aurora-%{commit}.tar.gz
 Source1: config
 Source4: fedora.config
 Source5: validate-config.py
+Source6: dtb-abi
 ExclusiveArch: aarch64
 BuildRequires: make gcc gcc-c++ clang llvm lld rust rust-src rustfmt cargo bindgen-cli
 BuildRequires: bc bison flex dtc openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
@@ -27,13 +33,17 @@ Macs, including MacBook Neo. Matching DTBs and modules are built together.
 
 %package core
 Summary: Aurora kernel image and device trees
-Requires: coreutils kmod dracut grubby update-m1n1
+Requires: coreutils kmod dracut grubby
+Requires: update-m1n1 >= 20261107
 # SN012776 amp settings come from the DT that aura 1.0.0b5 fills in
 # (https://github.com/aurora-silicon/linux/pull/981,
 # https://github.com/aurora-silicon/aura/pull/75); under an older Stage 2
 # the speakers stay off.
 Requires: aura >= 1.0.0~b5
 Provides: kernel-uname-r = %{krel}
+%if %{ctxr_execmem}
+Provides: aurora-ctxr-execmem
+%endif
 Provides: installonlypkg(kernel)
 Provides: kernel-16k-core = %{version}-%{release}
 
@@ -75,6 +85,12 @@ python3 tools/aurora-bindgen/build.py --output-dir "$PWD/private-bindgen"
 export BINDGEN="$PWD/private-bindgen/rust-bindgen-0.73.2/target/release/bindgen"
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" olddefconfig
 python3 %{SOURCE5} arch/arm64/configs/asahi.config %{SOURCE4} .config
+ctxr=0
+if grep -qx 'CONFIG_ARM64_CTXR_EXECMEM=y' .config; then ctxr=1; fi
+if [ "$ctxr" != %{ctxr_execmem} ]; then
+  echo "kernel-aurora.spec: set ctxr_execmem to $ctxr, which this pin's configuration resolves to" >&2
+  exit 1
+fi
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" rustavailable
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" %{?_smp_mflags} Image modules dtbs
 [ "$(make -s LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" kernelrelease)" = "%{krel}" ]
@@ -87,12 +103,13 @@ make LLVM=1 LOCALVERSION=-%{release}.aarch64 INSTALL_MOD_PATH=%{buildroot}/usr I
 install -Dm644 arch/arm64/boot/Image %{buildroot}/usr/lib/modules/%{krel}/vmlinuz
 install -m644 .config %{buildroot}/usr/lib/modules/%{krel}/config
 install -m644 System.map %{buildroot}/usr/lib/modules/%{krel}/System.map
+install -m644 %{SOURCE6} %{buildroot}/usr/lib/modules/%{krel}/dtb-abi
 mkdir -p %{buildroot}/usr/lib/modules/%{krel}/dtb/apple
 cp arch/arm64/boot/dts/apple/*.dtb %{buildroot}/usr/lib/modules/%{krel}/dtb/apple/
 rm -f %{buildroot}/usr/lib/modules/%{krel}/build %{buildroot}/usr/lib/modules/%{krel}/source
 find %{buildroot}/usr/lib/modules/%{krel} -type f -name '*.ko' > modules.files
 sed -i 's@%{buildroot}@@' modules.files
-find %{buildroot}/usr/lib/modules/%{krel} -maxdepth 1 -type f ! -name vmlinuz ! -name config ! -name System.map >> metadata.files
+find %{buildroot}/usr/lib/modules/%{krel} -maxdepth 1 -type f ! -name vmlinuz ! -name config ! -name System.map ! -name dtb-abi >> metadata.files
 sed -i 's@%{buildroot}@@' metadata.files
 install -Dm755 tools/aurora-userpages/userpages %{buildroot}%{_bindir}/userpages
 install -Dm644 tools/aurora-userpages/README.rst %{buildroot}%{_docdir}/aurora-userpages/README.rst
@@ -103,7 +120,7 @@ if [ -x /usr/bin/kernel-install ]; then
 fi
 
 %preun core
-if [ "$1" = 0 ] && [ -x /usr/bin/kernel-install ]; then
+if [ -x /usr/bin/kernel-install ]; then
   /usr/bin/kernel-install remove %{krel} || :
 fi
 
@@ -122,6 +139,7 @@ fi
 /usr/lib/modules/%{krel}/vmlinuz
 /usr/lib/modules/%{krel}/config
 /usr/lib/modules/%{krel}/System.map
+/usr/lib/modules/%{krel}/dtb-abi
 /usr/lib/modules/%{krel}/dtb/
 
 %files modules-extra -f modules.files
@@ -133,6 +151,50 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Sun Nov 08 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-25
+- Track aurora-silicon/linux integration/aurora at d4d2678, the fleet32
+  kernel tree. The packaged device trees for the M1 Pro, M2, M4 Pro and
+  J700 then match the ones those Macs boot (integration 50d5865e and later;
+  the DTS changes since then add T6050 boards only).
+- Touch ID re-arm on finger lift, the macOS match policy and the password
+  count reset (#1087, #1134, #1143), SEP host-store fixes (#1189, #1193),
+  J700 speaker full scale (#1201), AVD dma-coherent and command parity
+  (#1116, #1169), the J616s scaler (#1168), the M3 and M4 GPUs on by
+  default (#1170, CONFIG_DRM_ASAHI_G15), NVMe, RTKit, dockchannel and SMC
+  hwmon fixes (#1060, #1082, #1083, #1084), ADT coverage checks (#1111,
+  #1172) and device trees for more M1 to M5 Macs, T6050 included.
+
+* Sun Nov 08 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-24
+- Track aurora-silicon/linux integration/aurora at 44bbfe1 for the CTXR
+  follow-ups (#1079): /sys/kernel/execmem_confine/ reports the window and
+  its pool, crashkernel= is skipped while a window is active, the device
+  tree's window wins over a ctxr_exec_window= that doesn't match it, and an
+  oops names the window when a kernel fetch outside it faults.
+- Also device-tree syncs (#1029, #1030, #1034, #1086), the Stockholm NFC
+  controller driver, which reads its identity and powers it off (#1042),
+  a Touch ID lockout that a password re-arms (#904), the TAS2764 init
+  quirks again after a resume that reset the amp (#1080), a brcmfmac
+  flowring count fix (#1081), and G17 GPU submit and recovery changes
+  (#1075, #1076).
+- Device trees for every M1 to M4 Mac, including the J715 (#1129), the M4
+  Pro and Max boards (#1140), the T8132 boards (#1142) and completeness and
+  style passes (#1094, #1112, #1141, #1144); the J715 panel timing
+  (#1161); M1 and M2 PMU RTC alarms (#1151); and AV1 tile checks, ANE and
+  AVD fixes for T6041 and the J700 (#1088, #1091, #1100, #1137).
+
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-23
+- Ship the DT ABI generation and require trial-aware Stage 2 updates.
+- Clean boot files for every erased install-only kernel version.
+
+* Sun Nov 08 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-22
+- Defer the fbcon takeover, as Fedora's own kernel does. A quiet boot no
+  longer shows a text cursor between the boot loader's logo and the splash.
+
+* Sat Nov 07 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-21
+- Provide aurora-ctxr-execmem. The 4731456 kernel is built with
+  CONFIG_ARM64_CTXR_EXECMEM (#985), which an aura without the monitor
+  requires.
+
 * Sat Nov 07 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-20
 - Track aurora-silicon/linux integration/aurora at 4731456. Wi-Fi works
   again on Macs with a BCM4378 (M1 MacBook Air, 13-inch M1 and M2 MacBook
