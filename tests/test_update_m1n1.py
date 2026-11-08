@@ -484,6 +484,32 @@ class Recipes(unittest.TestCase):
         for path in (SCRIPT, HELPER):
             self.assertIn('/usr/share/aura/monitor-free', path.read_text())
 
+    def test_image_build_stops_after_the_check_without_an_esp(self):
+        # A kernel install inside an image build has no device tree and no
+        # system ESP; mounting one failed the kernel's %posttrans.
+        for compatible, mount in (('/nonexistent', False), ('present', True)):
+            with self.subTest(compatible=compatible), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                (root / 'bin').mkdir()
+                for tool in ('python3', 'flock'):
+                    (root / 'bin' / tool).write_text('#!/bin/sh\nexit 0\n')
+                    (root / 'bin' / tool).chmod(0o755)
+                (root / 'functions.sh').write_text('mount_sys_esp() { echo MOUNTED; return 1; }\n')
+                (root / 'present').write_bytes(compatible_file('j493', 't8112'))
+                script = SCRIPT.read_text().replace('/run/lock', str(root / 'lock')).replace(
+                    '/etc/sysconfig/update-m1n1', str(root / 'none')).replace(
+                    '/etc/u-boot.conf', str(root / 'none')).replace(
+                    '/usr/share/asahi-scripts/functions.sh', str(root / 'functions.sh'))
+                (root / 'update-m1n1').write_text(script)
+                env = dict(os.environ, PATH=f'{root / "bin"}:{os.environ["PATH"]}',
+                           AURORA_DEVICE_TREE_COMPATIBLE=compatible if compatible.startswith('/')
+                           else str(root / compatible))
+                env.pop('TARGET', None)
+                result = subprocess.run(['bash', str(root / 'update-m1n1')], env=env,
+                                        capture_output=True, text=True)
+                self.assertEqual('MOUNTED' in result.stdout, mount, result.stdout + result.stderr)
+                self.assertEqual(result.returncode, 1 if mount else 0, result.stderr)
+
     def test_image_build_ignores_the_builders_device_tree(self):
         text = (ROOT / 'scripts/build-image').read_text()
         export = text.index('export AURORA_DEVICE_TREE_COMPATIBLE=/nonexistent')
