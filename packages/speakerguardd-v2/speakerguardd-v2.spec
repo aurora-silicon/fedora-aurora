@@ -1,4 +1,4 @@
-%global commit 612408731383c82dc24be640e36a005bcfae87d8
+%global commit a60c29697ec2981341fa95abb12d47b248ba6eef
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261108
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.27.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.28.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -224,6 +224,11 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.28.20261108gita60c29697ec2
+- Move to a60c29697ec2 (Plan A release candidate 5b): RC5 plus speakerguardd#100, the
+  regrant click fix: the sgv2 LV2 plugin mutes the program while the speakers are withdrawn
+  and ramps it in after a grant. No DSP or trim change. The packaged files are unchanged.
+
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.27.20261108git612408731383
 - Move to 612408731383 (speakerguardd#99, Plan A release candidate 5): RC4b plus the ToneMeister
   Butterworth shelves in the unit's Float32 order (tmst row 13 exact) and the VirtualBass Float32
