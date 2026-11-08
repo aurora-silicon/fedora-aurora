@@ -5,7 +5,7 @@ Release: 1%{?dist}
 Summary: Touch ID as a FIDO2/U2F security key (opt in)
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-sep-userspace
-Source0: https://github.com/aurora-silicon/aurora-sep-userspace/archive/%{commit}/aurora-sep-userspace-%{commit}.tar.gz
+Source0: https://github.com/aurora-silicon/aurora-sep-userspace/archive/%{commit}/%{name}-%{commit}.tar.gz
 ExclusiveArch: aarch64
 BuildRequires: gcc make pkgconf-pkg-config json-c-devel
 BuildRequires: python3-devel python3-cryptography
