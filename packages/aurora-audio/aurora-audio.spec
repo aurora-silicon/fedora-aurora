@@ -1,7 +1,7 @@
-%global commit a321ae95d04d08136934c643472f7d59aa0bbf94
+%global commit c967141161bea3badc7754e23d80b39ffb1bdafd
 Name: aurora-audio
 Version: 4.1
-Release: 10%{?dist}
+Release: 11%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
@@ -22,7 +22,7 @@ Requires: speakersafetyd speakerguardd speakerguardd-v2
 Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n asahi-audio-a321ae95d04d08136934c643472f7d59aa0bbf94
+%autosetup -n asahi-audio-c967141161bea3badc7754e23d80b39ffb1bdafd
 
 %build
 
@@ -38,6 +38,11 @@ install -Dm755 %{SOURCE1} %{buildroot}%{_prefix}/lib/dracut/modules.d/90aurora-a
 %{_prefix}/lib/dracut/modules.d/90aurora-audio/
 
 %changelog
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-11
+- Move to asahi-audio c967141: the microphone cards are hidden from
+  clients (no dead "Microphone" port beside the mic graph), and the
+  built-in card stays on HiFi with nothing in the jack (asahi-audio#24).
+
 * Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-10
 - Move to asahi-audio a321ae9: no speaker graph for j316, j413, j616 and
   j700, whose speakers speakerguardd v2 now voices from the Mac's own

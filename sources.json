@@ -57,11 +57,11 @@
   },
   "aurora-audio": {
     "repository": "https://github.com/aurora-silicon/asahi-audio",
-    "commit": "a321ae95d04d08136934c643472f7d59aa0bbf94",
+    "commit": "c967141161bea3badc7754e23d80b39ffb1bdafd",
     "version": "4.1",
-    "source_url": "https://codeload.github.com/aurora-silicon/asahi-audio/tar.gz/a321ae95d04d08136934c643472f7d59aa0bbf94",
-    "archive_root": "asahi-audio-a321ae95d04d08136934c643472f7d59aa0bbf94",
-    "sha256": "05ca18989fb88331284c747bea05498919ebcf6c64dea1738a875d4af42abe94"
+    "source_url": "https://codeload.github.com/aurora-silicon/asahi-audio/tar.gz/c967141161bea3badc7754e23d80b39ffb1bdafd",
+    "archive_root": "asahi-audio-c967141161bea3badc7754e23d80b39ffb1bdafd",
+    "sha256": "4a5fc1eb37113742791eb632819fb09301f97b76a78586e96760442be6c87dd7"
   },
   "aurora-bless": {
     "repository": "https://github.com/aurora-silicon/aurora-bless",
