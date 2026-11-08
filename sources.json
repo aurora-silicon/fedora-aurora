@@ -433,5 +433,14 @@
     "archive_root": "NetworkManager-1.56.1",
     "archive_file": "NetworkManager-1.56.1.tar.xz",
     "sha256": "b0ee9a89dfba39d2a1a69d60868be99096d3b6b66a1a22bf8a9d5a38b8aed50e"
+  },
+  "speakersafetyd": {
+    "repository": "https://crates.io/crates/speakersafetyd",
+    "commit": "63a92658a4daec170c6472e38162374206e593fb",
+    "version": "2.0.1",
+    "source_url": "https://static.crates.io/crates/speakersafetyd/speakersafetyd-2.0.1.crate",
+    "archive_root": "speakersafetyd-2.0.1",
+    "archive_file": "speakersafetyd-2.0.1.crate",
+    "sha256": "30101e673466072a080e321df3b7d1165dd8b79246ba393b82bb09d8325dd814"
   }
 }
