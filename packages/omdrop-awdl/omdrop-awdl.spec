@@ -1,5 +1,8 @@
 %global commit ffc201f33773541063f2f3d57c8a279cad5ede11
 %global plugin_commit e5aa51a41f963e73b5a67914cae3c916a83739f1
+# -s only: the helpers import their sibling modules from their own directory,
+# which -P (safe path) would take off sys.path.
+%global py3_shebang_flags s
 # Aurora 2026-11-08: AirDrop over the Wi-Fi firmware's own AWDL (awdl0).
 # kernel-aurora's brcmfmac already carries the AWDL interface support
 # (aurora-silicon/linux#24, #183, #213), so this packages only the userspace:
@@ -106,6 +109,8 @@ for f in airdrop-serve.py contacts.py debugdump.py identity.py lifecycle.py safe
 done
 chmod 755 $V/bin/airdrop-serve.py
 install -pm 644 $R/bin/apple-ca/*.pem $V/bin/apple-ca/
+# Apple's public root, which airdrop-serve.py loads at start (Contacts Only checks).
+install -Dpm 644 $R/share/certs/apple_root_ca.pem $V/share/certs/apple_root_ca.pem
 install -pm 644 $R/README.md $V/README.md
 install -Dpm 644 $R/share/airdrop-receiver.service %{buildroot}%{_userunitdir}/airdrop-receiver.service
 %py_byte_compile %{python3} $L
@@ -125,6 +130,8 @@ done
 grep -q 'stable-ssid' %{buildroot}%{_libexecdir}/omdrop/awdl-up
 if grep -rIl '/usr/lib/omdrop[/" ]' %{buildroot}%{_libexecdir} %{buildroot}%{_unitdir} \
 	%{buildroot}%{_systemd_util_dir} %{buildroot}%{_datadir}/polkit-1; then exit 1; fi
+test -s %{buildroot}%{_datadir}/omdrop/receiver/share/certs/apple_root_ca.pem
+if grep -l '^#!.*python3 .*P' %{buildroot}%{_libexecdir}/omdrop/* %{buildroot}%{_datadir}/omdrop/receiver/bin/*.py 2>/dev/null; then exit 1; fi
 if grep -q '@PLUGIN_DIR@' %{buildroot}%{_userunitdir}/airdrop-receiver.service; then exit 1; fi
 grep -q '^ExecStartPre=+/usr/bin/mkdir -p -m 0700 %%h/.omdrop$' %{buildroot}%{_userunitdir}/airdrop-receiver.service
 %{python3} -c 'import sys; sys.path.insert(0, "%{buildroot}%{_libexecdir}/omdrop"); import awdl_plist, awdl_identity'
@@ -156,4 +163,5 @@ grep -q '^ExecStartPre=+/usr/bin/mkdir -p -m 0700 %%h/.omdrop$' %{buildroot}%{_u
 - Package omdrop-awdl 0.10.5 (helpers only; kernel-aurora's brcmfmac has AWDL)
   and the omdrop-plugin receiver; helpers in /usr/libexec/omdrop; all units
   installed disabled; accept Fedora's stable-ssid cloned MAC once associated;
-  the receiver unit creates ~/.omdrop and ~/Downloads before its sandbox.
+  the receiver unit creates ~/.omdrop and ~/Downloads before its sandbox;
+  python shebangs keep the script directory on sys.path (-s, not -sP).
