@@ -33,7 +33,7 @@ import sys
 names = ('aurora-sep', 'aurora-sep-selinux', 'libfprint', 'libfprint-selinux',
          'libfprint-devel', 'libfprint-tests', 'fprintd', 'fprintd-pam', 'fprintd-devel')
 # Required by aurora-sep and new on both baselines.
-deps = ('aurora-xart',)
+deps = ('aurora-xart', 'aurora-touchid-rearm')
 transaction = rpm.TransactionSet()
 headers = {}
 repo = Path('/tmp/touchid-repo')
@@ -79,7 +79,7 @@ for name in names:
     expected.append(nevra(candidate))
 for name in deps:
     candidate = headers[name]
-    assert '.fc45' in candidate['release'] and candidate['arch'] == 'noarch', (name, evr(candidate))
+    assert '.fc45' in candidate['release'] and candidate['arch'] in ('aarch64', 'noarch'), (name, evr(candidate))
     assert not list(transaction.dbMatch('name', name)), name
     print(f'NEW {name}: {evr(candidate)}')
 Path('/tmp/touchid-expected.txt').write_text(''.join(sorted(expected)))
