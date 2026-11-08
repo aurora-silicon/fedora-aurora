@@ -1,4 +1,4 @@
-%global commit 9e6b11bd8754f07ff3ce21ba37e0ede09837b2be
+%global commit 5104994eda359da3b667dce34ce4bd6df3481f41
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261108
 %global selinuxtype targeted
@@ -239,12 +239,13 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
-* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.31.20261108git9e6b11bd8754
-- Move to 9e6b11bd8754 (Plan A release candidate 7): RC6b plus speakerguardd#101 (the
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.31.20261108git5104994eda35
+- Move to 5104994eda35 (Plan A release candidate 7): RC6b plus speakerguardd#101 (the
   protect input is an internal sink) and #106 (the speaker card's raw PCMs stay out of
-  the desktop's device lists; pro-audio is off on the speaker card). Desktops now list
-  one built-in speaker output and one microphone, like macOS. No DSP, limit or
-  volume-law change.
+  the desktop's device lists; pro-audio is off on the speaker card) and #107 (the amps
+  and the sense form one internal link group, so wpctl lists them only under the
+  protection graph). Desktops now list one built-in speaker output and one
+  microphone, like macOS. No DSP, limit or volume-law change.
 - Require aurora-audio >= 4.1-11: without its keep-profile rule a Mac with a headphone
   jack drops the built-in card to "off" when nothing is plugged in.
 
