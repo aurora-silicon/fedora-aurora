@@ -1,4 +1,4 @@
-%global commit 4731456d979107bfed16316fea45378d9de7d1da
+%global commit 44bbfe1858deda8285fefbecd6ad062311ee6983
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 23%{?dist}.aurora
+Release: 24%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -151,6 +151,24 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Sun Nov 08 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-24
+- Track aurora-silicon/linux integration/aurora at 44bbfe1 for the CTXR
+  follow-ups (#1079): /sys/kernel/execmem_confine/ reports the window and
+  its pool, crashkernel= is skipped while a window is active, the device
+  tree's window wins over a ctxr_exec_window= that doesn't match it, and an
+  oops names the window when a kernel fetch outside it faults.
+- Also device-tree syncs (#1029, #1030, #1034, #1086), the Stockholm NFC
+  controller driver, which reads its identity and powers it off (#1042),
+  a Touch ID lockout that a password re-arms (#904), the TAS2764 init
+  quirks again after a resume that reset the amp (#1080), a brcmfmac
+  flowring count fix (#1081), and G17 GPU submit and recovery changes
+  (#1075, #1076).
+- Device trees for every M1 to M4 Mac, including the J715 (#1129), the M4
+  Pro and Max boards (#1140), the T8132 boards (#1142) and completeness and
+  style passes (#1094, #1112, #1141, #1144); the J715 panel timing
+  (#1161); M1 and M2 PMU RTC alarms (#1151); and AV1 tile checks, ANE and
+  AVD fixes for T6041 and the J700 (#1088, #1091, #1100, #1137).
+
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-23
 - Ship the DT ABI generation and require trial-aware Stage 2 updates.
 - Clean boot files for every erased install-only kernel version.

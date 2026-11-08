@@ -120,7 +120,8 @@ and trial checks apply to the CTXR slot described below.
 
 The aura package ships `/usr/share/aura/monitor-free` once its pinned source has no monitor. `aura.spec`
 declares that in `%global monitor_free`, and `%prep` refuses a source that disagrees (`src/ctxr_exec.c`, or
-no `src/monitor.c`), so the aura#77 pin has to set it. Until then updates target `boot.bin`, using `.next` trials when Stage 1 supports them.
+no `src/monitor.c`). aura 1.0.0b7 is the first pin without the monitor (aura#77), so `monitor_free` is 1. Macs that
+don't boot a Mach-O Stage 1 keep updating `boot.bin`, using `.next` trials when Stage 1 supports them.
 
 Such an aura moves the kernel into the CTXR window, which only a kernel built with
 `CONFIG_ARM64_CTXR_EXECMEM` keeps its code inside. With `monitor_free` 1, aura requires
@@ -131,7 +132,7 @@ RPM checks this per package, not per boot: `kernel-aurora` is install-only, so a
 `kernel-aurora-core` that provides `aurora-ctxr-execmem` satisfies aura, while older kernels without it stay
 installed and in the GRUB menu. Booting one of those with an aura that has no monitor would hit the faults
 this rule exists for, until dnf removes it as the install-only limit rotates kernels out.
-The 4731456 pin has it and `packages/kernel-aurora/config` turns it on, so `ctxr_execmem` is 1.
+Every kernel pin since 4731456 has it, and `packages/kernel-aurora/config` turns it on, so `ctxr_execmem` is 1.
 
 With the marker, a Mac that boots a Mach-O Stage 1 (`/proc/device-tree/compatible` names one of the chips
 in the installer's `AuraStage1Format.usesMachO`: T8130 and later, T6040 and later) gets
