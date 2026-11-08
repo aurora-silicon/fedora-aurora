@@ -1,0 +1,5 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# The Aurora 15-update-m1n1 hook validates and stages the DTBs before updating
+# /boot/dtb. Do not create grubby's transient, potentially dangling link here.
+exit 0

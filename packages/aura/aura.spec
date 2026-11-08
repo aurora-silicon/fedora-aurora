@@ -8,7 +8,7 @@
 %global monitor_free 0
 Name: aura
 Version: 1.0.0~b5
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -18,7 +18,8 @@ BuildRequires: clang llvm lld rust rust-src cargo make python3
 Provides: m1n1 = 1.6.1
 Conflicts: m1n1
 # A Mach-O Mac needs the update-m1n1 that leaves boot.bin alone.
-Requires: update-m1n1 aurora-stage2-ctxr-slot uboot-aurora
+Requires: update-m1n1 >= 20261107
+Requires: aurora-stage2-ctxr-slot uboot-aurora
 %if %{monitor_free}
 Requires: aurora-ctxr-execmem
 %endif
@@ -63,6 +64,9 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b5-3
+- Require trial-aware Stage 2 updates while retaining the CTXR slot contract.
+
 * Fri Nov 06 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b5-2
 - Require the update-m1n1 that can write m1n1/boot-ctxr.bin on Mach-O Macs and
   leave m1n1/boot.bin as it is.
