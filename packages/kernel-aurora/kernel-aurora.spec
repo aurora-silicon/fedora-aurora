@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 22%{?dist}.aurora
+Release: 23%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -151,9 +151,13 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
-* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-22
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-23
 - Ship the DT ABI generation and require trial-aware Stage 2 updates.
 - Clean boot files for every erased install-only kernel version.
+
+* Sun Nov 08 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-22
+- Defer the fbcon takeover, as Fedora's own kernel does. A quiet boot no
+  longer shows a text cursor between the boot loader's logo and the splash.
 
 * Sat Nov 07 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-21
 - Provide aurora-ctxr-execmem. The 4731456 kernel is built with

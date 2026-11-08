@@ -239,6 +239,20 @@ class SpecTests(unittest.TestCase):
         self.assertIn('# aurora-builder: x86_64', guest[3].splitlines())
         self.assertIn('Requires: mesa-dri-drivers = %{version}-%{release}', guest[3])
         self.assertIn('Requires: mesa-vulkan-drivers = %{version}-%{release}', guest[3])
+    def test_aurora_sep_ships_the_touch_id_reset(self):
+        sep = ROOT / 'packages/aurora-sep'
+        self.assertRegex((sep / 'aurora-sep.spec').read_text(), r'(?m)^Requires: aurora-xart$')
+        xart = (ROOT / 'packages/aurora-xart/aurora-xart.spec').read_text()
+        self.assertIn('BuildArch: noarch', xart)
+        self.assertIn('make check', xart.split('%check', 1)[1].split('%install', 1)[0])
+        self.assertIn('%{_mandir}/man8/aurora-xart.8*', xart)
+        # The installer script is not shipped here; the packaged tool is.
+        for doc in ('README.md', 'XART-SAFETY.md'):
+            text = (sep / doc).read_text()
+            self.assertNotIn('install-aurora-sep.sh --reset-touchid', text)
+            self.assertIn('aurora-xart reset-touchid', text)
+        conf = (ROOT / 'packages/aurora-repos/aurora-vendors-unvendored.conf').read_text()
+        self.assertIn("{ filter = 'source_name', value = 'aurora-xart' }", conf)
     def test_spec_commit_matches_its_source_pin(self):
         sources = json.loads((ROOT / 'sources.json').read_text())
         for spec in (ROOT / 'packages').glob('*/*.spec'):
