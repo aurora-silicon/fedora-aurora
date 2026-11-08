@@ -433,7 +433,7 @@
       }
     }
   },
-  "NetworkManager": {
+  "networkmanager-aurora": {
     "repository": "https://gitlab.freedesktop.org/NetworkManager/NetworkManager",
     "commit": "b829f838fc5d8c93437faa5db44a5396b67893de",
     "version": "1.56.1",
