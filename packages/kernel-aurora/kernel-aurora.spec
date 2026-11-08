@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 25%{?dist}.aurora
+Release: 26%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -17,6 +17,7 @@ Source1: config
 Source4: fedora.config
 Source5: validate-config.py
 Source6: dtb-abi
+Patch0: 0001-restore-legacy-speaker-protection.patch
 ExclusiveArch: aarch64
 BuildRequires: make gcc gcc-c++ clang llvm lld rust rust-src rustfmt cargo bindgen-cli
 BuildRequires: bc bison flex dtc openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
@@ -34,6 +35,9 @@ Macs, including MacBook Neo. Matching DTBs and modules are built together.
 %package core
 Summary: Aurora kernel image and device trees
 Requires: coreutils kmod dracut grubby
+# A kernel-only upgrade must also restore the legacy speaker graphs.
+Requires: aurora-audio >= 4.1-12
+Requires: (aurora-platform-core >= 44-23 if aurora-platform-core)
 Requires: update-m1n1 >= 20261107
 # SN012776 amp settings come from the DT that aura 1.0.0b5 fills in
 # (https://github.com/aurora-silicon/linux/pull/981,
@@ -151,6 +155,13 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Sun Nov 08 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-26
+- Restore the Asahi Speaker Volume Unlock interface for speakersafetyd and
+  speakerguardd 0.1, retaining the -25 kernel and generation-1 device trees.
+- Restore the matching J700 software-gain contract and legacy audio tests.
+- Require the restored audio profiles for kernel-only updates.
+
+
 * Sun Nov 08 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-25
 - Track aurora-silicon/linux integration/aurora at d4d2678, the fleet32
   kernel tree. The packaged device trees for the M1 Pro, M2, M4 Pro and
