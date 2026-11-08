@@ -5,5 +5,6 @@
 enable speakerguardd-v2.service
 enable speakerguardd-v2-provision.service
 enable speakerguardd-v2-selfcheck.service
+enable speakerguardd-v2-switchtest.service
 enable speakerguardd-v2-seat.path
 enable speakerguardd-v2-sleep.service

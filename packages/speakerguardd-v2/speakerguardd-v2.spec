@@ -1,4 +1,4 @@
-%global commit 20f6c3d8269d763b28013dd1abc436ce920aff26
+%global commit bc52fc66f51fd90330eb5414345846ab61fe5af6
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261108
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.29.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.30.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -114,7 +114,7 @@ rename_units() {
     sed -e "s@/usr/libexec/speakerguardd/@$lx/@g" -e "s@^ExecStart=/usr/bin/speakerguardd @ExecStart=$lx/speakerguardd @" \
         -e 's@\bspeakerguardd\(-[a-z]\+\)\?\.\(service\|path\)\b@speakerguardd-v2\1.\2@g' "$1"
 }
-for u in speakerguardd.service speakerguardd-provision.service speakerguardd-selfcheck.service \
+for u in speakerguardd.service speakerguardd-provision.service speakerguardd-selfcheck.service speakerguardd-switchtest.service \
          speakerguardd-seat.service speakerguardd-seat.path speakerguardd-session.service speakerguardd-graph.service \
          speakerguardd-sleep.service; do
     rename_units packaging/systemd/$u > ${u/speakerguardd/speakerguardd-v2}
@@ -128,6 +128,16 @@ grep -qx 'Requires=speakerguardd-v2-provision.service' speakerguardd-v2-selfchec
 grep -qx 'Before=speakerguardd-v2-selfcheck.service speakerguardd-v2.service' speakerguardd-v2-provision.service
 grep -qx "ExecStart=$lx/speakerguardd-provision run" speakerguardd-v2-provision.service
 grep -qx "ExecStartPost=$lx/speakerguardd-provision activate --graph-unit speakerguardd-v2-graph.service" speakerguardd-v2-selfcheck.service
+# The switch test runs after login (speakerguardd#102), before the supervisor.
+grep -qx "ExecStart=$lx/speakerguardd-selfcheck run --defer --params \${SGV2_PARAMS} -- \$SGV2_TUNING" speakerguardd-v2-selfcheck.service
+grep -qx 'Requires=speakerguardd-v2-switchtest.service' speakerguardd-v2.service
+grep -qx 'After=speakerguardd-v2-switchtest.service' speakerguardd-v2.service
+grep -qx 'Requires=speakerguardd-v2-selfcheck.service' speakerguardd-v2-switchtest.service
+grep -qx 'After=speakerguardd-v2-selfcheck.service systemd-user-sessions.service' speakerguardd-v2-switchtest.service
+grep -qx 'Before=speakerguardd-v2.service' speakerguardd-v2-switchtest.service
+grep -qx "ExecCondition=$lx/speakerguardd-selfcheck pending" speakerguardd-v2-switchtest.service
+grep -qx "ExecStartPost=$lx/speakerguardd-provision activate --graph-unit speakerguardd-v2-graph.service" speakerguardd-v2-switchtest.service
+grep -qx "ExecStopPost=$lx/speakerguardd-selfcheck pending --clear" speakerguardd-v2-switchtest.service
 grep -qx "ExecStart=$lx/speakerguardd-provision seat --unit speakerguardd-v2.service" speakerguardd-v2-seat.service
 grep -qx 'Unit=speakerguardd-v2-seat.service' speakerguardd-v2-seat.path
 grep -qx "ExecCondition=$lx/speakerguardd-provision is-seat" speakerguardd-v2-session.service
@@ -148,7 +158,7 @@ if grep -Eq '^(OnFailure|OnSuccess)=|speakersafetyd|=speakerguardd\.service|/usr
     echo 'A speakerguardd 1.0 unit chains to or names another daemon' >&2; exit 1
 fi
 for u in speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service \
-         speakerguardd-v2-seat.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service; do
+         speakerguardd-v2-switchtest.service speakerguardd-v2-seat.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service; do
     install -Dm644 $u %{buildroot}%{_unitdir}/$u
 done
 for u in speakerguardd-v2-session.service speakerguardd-v2-graph.service; do
@@ -167,16 +177,16 @@ printf 'enable speakerguardd-v2-graph.service\nenable speakerguardd-v2-session.s
 install -Dpm644 %{modulename}.pp.bz2 %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2
 
 %post
-%systemd_post speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service
+%systemd_post speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-switchtest.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service
 %systemd_user_post speakerguardd-v2-graph.service speakerguardd-v2-session.service
 # Say at once which stack this Mac runs.
 %{_libexecdir}/speakerguardd-v2/speakerguardd-gate explain --wait 0 || :
 %preun
-%systemd_preun speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service
+%systemd_preun speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-switchtest.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service
 %systemd_user_preun speakerguardd-v2-graph.service speakerguardd-v2-session.service
 %postun
 %systemd_postun_with_restart speakerguardd-v2.service
-%systemd_postun speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service
+%systemd_postun speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-switchtest.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service
 
 # The sleep unit is new in the 1.0.0~alpha.1-0.13 snapshot. %%systemd_post
 # applies its preset on a first install only, so an upgrade from an older
@@ -207,6 +217,7 @@ fi
 %{_unitdir}/speakerguardd-v2.service
 %{_unitdir}/speakerguardd-v2-provision.service
 %{_unitdir}/speakerguardd-v2-selfcheck.service
+%{_unitdir}/speakerguardd-v2-switchtest.service
 %{_unitdir}/speakerguardd-v2-seat.service
 %{_unitdir}/speakerguardd-v2-seat.path
 %{_unitdir}/speakerguardd-v2-sleep.service
@@ -224,6 +235,15 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.30.20261108gitbc52fc66f51f
+- Move to bc52fc66f51f (Plan A release candidate 6b): RC6 plus speakerguardd#102, the
+  self-check's silent switch test runs after login in the new
+  speakerguardd-v2-switchtest.service. Before login only the binding and the cheap checks
+  run, so the first boot after a kernel change no longer holds the login screen for the
+  switch test (J616s 11.7 s -> 0.7 s). Every session's PipeWire and WirePlumber wait for
+  the test (a few seconds), which now takes 7 coded captures instead of 13; the speakers
+  come up when it passes.
+
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.29.20261108git20f6c3d8269d
 - Move to 20f6c3d8269d (Plan A release candidate 6): RC5b plus the source-OS-selected
   multiband compressor band-zero law (the Neo's AID44 compressor now matches macOS) and
