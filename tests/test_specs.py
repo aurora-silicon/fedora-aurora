@@ -701,4 +701,14 @@ class SpecTests(unittest.TestCase):
             result = subprocess.run([str(wrapper)], env={**env, 'NO_USER4K': '1'}, capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
             self.assertIn('user4k=on', result.stderr)
+    def test_touch_id_security_key_is_installed_off(self):
+        text = (ROOT / 'packages/aurora-fido/aurora-fido.spec').read_text()
+        files = text.split('%files', 1)[1]
+        # The upstream preset says "disable aurora-fido.service"; nothing here enables it.
+        self.assertIn('%{_presetdir}/90-aurora-fido.preset', files)
+        self.assertIn('%systemd_post aurora-fido.service', text)
+        self.assertNotRegex(text, r'systemctl\s+(--now\s+)?enable')
+        self.assertIn('%config(noreplace) %{_sysconfdir}/aurora-fido/aurora-fido.conf', files)
+        pins = json.loads((ROOT / 'sources.json').read_text())
+        self.assertIn(pins['aurora-fido']['commit'], text)
 if __name__ == '__main__': unittest.main()
