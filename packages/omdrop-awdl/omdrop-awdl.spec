@@ -10,7 +10,7 @@
 # the receiver from omdrop-plugin. Everything is installed off.
 Name:           omdrop-awdl
 Version:        0.10.5
-Release:        1%{?dist}.aurora1
+Release:        1%{?dist}.aurora2
 Summary:        AirDrop over firmware-native AWDL on Apple Silicon Macs
 License:        GPL-2.0-only AND MIT
 URL:            https://github.com/netmojo-systems/omdrop-awdl
@@ -22,6 +22,12 @@ Source2:        README.aurora.md
 # Aurora: accept Fedora's per-network cloned MAC once the station is associated
 # (awdl-up otherwise refuses to derive awdl0's address on every Fedora install).
 Patch0:         omdrop-awdl-0.10.5-stable-cloned-mac.patch
+# Aurora: with no /etc/omdrop/peer-chan, put AWDL's availability windows on the
+# Wi-Fi link's own 5 GHz channel (full shape), as macOS does, and advertise
+# the same sequence. Upstream's default (peer channel 44) cost the infra link
+# 17 % and carried 1.5-7 Mbit/s with the infra link on 149; on 149 it carried
+# 188 Mbit/s with the infra link unaffected.
+Patch1:         omdrop-awdl-0.10.5-follow-infra-channel.patch
 BuildArch:      noarch
 
 BuildRequires:  python3-devel
@@ -66,6 +72,7 @@ See /usr/share/doc/omdrop-awdl/README.aurora.md.
 %setup -q -n omdrop-awdl-%{commit}
 %setup -q -T -D -a 1 -n omdrop-awdl-%{commit}
 %patch -P0 -p1
+%patch -P1 -p1
 cp -p %{SOURCE2} .
 # Fedora keeps executables out of /usr/lib: install under %%{_libexecdir}
 # (bin_t under SELinux). /usr/lib/omdrop-core, a separate package, keeps its path.
@@ -128,6 +135,8 @@ for f in %{buildroot}%{_libexecdir}/omdrop/* %{buildroot}%{_libexecdir}/omdrop/r
 	esac
 done
 grep -q 'stable-ssid' %{buildroot}%{_libexecdir}/omdrop/awdl-up
+grep -q '^follow_infra()' %{buildroot}%{_libexecdir}/omdrop/awdl-up
+grep -q 'awdl-up.auto' %{buildroot}%{_libexecdir}/omdrop/awdl_identity.py
 if grep -rIl '/usr/lib/omdrop[/" ]' %{buildroot}%{_libexecdir} %{buildroot}%{_unitdir} \
 	%{buildroot}%{_systemd_util_dir} %{buildroot}%{_datadir}/polkit-1; then exit 1; fi
 test -s %{buildroot}%{_datadir}/omdrop/receiver/share/certs/apple_root_ca.pem
@@ -159,6 +168,13 @@ grep -q '^ExecStartPre=+/usr/bin/mkdir -p -m 0700 %%h/.omdrop$' %{buildroot}%{_u
 %{_userunitdir}/airdrop-receiver.service
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.10.5-1.aurora2
+- AWDL windows follow the Wi-Fi link's 5 GHz channel (full shape) when
+  /etc/omdrop/peer-chan is unset, as macOS schedules them; the advertised
+  sequence follows too (/run/awdl-up.auto).
+- awdl-up re-checks NetworkManager's connected state while it waits, so a
+  driver reload no longer stalls 90 s and refuses on the cloned MAC.
+
 * Sun Nov 08 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.10.5-1.aurora1
 - Package omdrop-awdl 0.10.5 (helpers only; kernel-aurora's brcmfmac has AWDL)
   and the omdrop-plugin receiver; helpers in /usr/libexec/omdrop; all units
