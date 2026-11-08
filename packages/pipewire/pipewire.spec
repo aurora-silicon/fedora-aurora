@@ -74,7 +74,7 @@ Version:        %{majorversion}.%{minorversion}.%{microversion}
 # Fedora's release plus a suffix, so this sorts above the Fedora 1.6.9 build
 # it replaces (1.fc44 < 1.fc44.aurora5). Hold it with a versionlock: a newer
 # Fedora PipeWire would replace it and drop these patches.
-Release:        %{baserelease}%{?snapdate:.%{snapdate}git%{shortcommit}}%{?dist}.aurora5
+Release:        %{baserelease}%{?snapdate:.%{snapdate}git%{shortcommit}}%{?dist}.aurora6
 Vendor:         Aurora Silicon
 # PipeWire is generally MIT but includes plugins using libraries under other licenses.
 # See the module specific License for details.
@@ -113,6 +113,10 @@ Patch1006:      1006-filter-graph-keep-the-software-volume-at-unity-on-ev.patch
 # line on every write, ~700 in 30 ms: wait one period between attempts and
 # report a refusal at most once per 5 s.
 Patch1007:      1007-alsa-back-off-a-refused-snd_pcm_start-and-rate-limit.patch
+# A system sleep entered while such starts were refused (the kernel withdraws
+# speaker protection for the sleep) suspends the PCM before the retry: the
+# retry's -EBADFD after the resume is the normal recovery path, not an error.
+Patch1008:      1008-alsa-a-start-on-a-suspended-PCM-is-expected-not-an-error.patch
 
 ## upstream patches
 
@@ -964,6 +968,10 @@ systemctl --no-reload preset --global pipewire.socket >/dev/null 2>&1 || :
 %{_datadir}/pipewire/pipewire.conf.d/50-raop.conf
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.6.9-1.aurora6
+- alsa: a start retried on a PCM that a system sleep suspended is reported
+  at info level; recovery is unchanged
+
 * Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.6.9-1.aurora5
 - alsa: wait one period before retrying a refused snd_pcm_start and report
   refusals at most once per 5 s (-EPERM at info level)
