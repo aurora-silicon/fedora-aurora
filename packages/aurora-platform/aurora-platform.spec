@@ -194,9 +194,14 @@ install -Dm755 %{SOURCE119} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora
   kdump-utils' default crashkernel= once per system.
 - Add nvme_apple to the crash kernel's initramfs. kdump-utils replaces
   dracut-asahi's module list, so the crash kernel had no disk.
-- Set the crash kernel's clock from the PMU RTC (dracut module
-  aurora-kdump-clock, kdump initramfs only). The crash kernel cannot
-  restart the SMC, so rtc0 is missing and dumps were dated from the epoch.
+- Leave the drivers of live coprocessors and buses (GPU, display,
+  Thunderbolt, AOP, PMP, ANE, audio, USB, keyboard) out of the crash
+  kernel's initramfs. Probing them in the crash kernel stalled udev before
+  nvme_apple loaded on the M1 Pro and M2.
+- Set the crash kernel's clock (dracut module aurora-kdump-clock, kdump
+  initramfs only) from the panic time in the crashed kernel's vmcoreinfo,
+  or else from the PMU RTC. The crash kernel cannot restart the SMC, so
+  rtc0 is missing and dumps were misdated.
 - Skip kdump.service instead of failing it on a boot without crash kernel
   memory.
 
