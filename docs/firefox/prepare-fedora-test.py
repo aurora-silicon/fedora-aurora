@@ -20,7 +20,7 @@ def once(old, new):
     text = text.replace(old, new)
 
 
-text = "%bcond avd_request 0\n%if %{with avd_request}\n%global avd_release .avd1\n%endif\n\n" + text
+text = "%bcond avd_request 0\n%if %{with avd_request}\n%global avd_release .avd2\n%endif\n\n" + text
 once("Release:        1%{?dist}\n", "Release:        1%{?dist}%{?avd_release}\n")
 once("Patch44:", "%if %{with avd_request}\nPatch900:       0001-rdd-v4l2-request.patch\n"
      "BuildRequires:  kernel-headers >= 6.5\n%endif\n\nPatch44:")

@@ -3,7 +3,7 @@ name: Firefox RDD V4L2 Request test build
 # delta in docs/firefox. Not a publication path: no attestation, no repo upload.
 on:
   push:
-    branches: [ci/firefox-rdd-v4l2-request-build]
+    branches: [ci/firefox-rdd-v4l2-request-build, ci/ffx-upstream-retest-20261108]
     paths: [docs/firefox/**, scripts/build-firefox-rdd-v4l2-request, .github/workflows/firefox-rdd-test-build.yml]
   workflow_dispatch:
 permissions:
@@ -41,7 +41,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          name: firefox-fc44-rdd-v4l2-request
+          name: firefox-fc44-rdd-v4l2-request-${{ github.ref_name == 'ci/ffx-upstream-retest-20261108' && 'upstream' || 'fedora' }}
           path: |
             out/firefox-fc44/RPMS/**/*.rpm
             out/firefox-fc44/rpm-sha256.txt
