@@ -120,7 +120,7 @@ and trial checks apply to the CTXR slot described below.
 
 The aura package ships `/usr/share/aura/monitor-free` once its pinned source has no monitor. `aura.spec`
 declares that in `%global monitor_free`, and `%prep` refuses a source that disagrees (`src/ctxr_exec.c`, or
-no `src/monitor.c`). aura 1.0.0b7 is the first pin without the monitor (aura#77), so `monitor_free` is 1. Macs that
+no `src/monitor.c`). aura 1.0.0b7 was the first pin without the monitor (aura#77), so `monitor_free` is 1. Macs that
 don't boot a Mach-O Stage 1 keep updating `boot.bin`, using `.next` trials when Stage 1 supports them.
 
 Such an aura moves the kernel into the CTXR window, which only a kernel built with
