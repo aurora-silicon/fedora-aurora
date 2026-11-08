@@ -1,6 +1,6 @@
-%global commit f5b6933fd6775b06940658117a60a0e336d9f337
+%global commit bc52fc66f51fd90330eb5414345846ab61fe5af6
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261107
+%global snapdate 20261108
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.14.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.30.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -114,7 +114,7 @@ rename_units() {
     sed -e "s@/usr/libexec/speakerguardd/@$lx/@g" -e "s@^ExecStart=/usr/bin/speakerguardd @ExecStart=$lx/speakerguardd @" \
         -e 's@\bspeakerguardd\(-[a-z]\+\)\?\.\(service\|path\)\b@speakerguardd-v2\1.\2@g' "$1"
 }
-for u in speakerguardd.service speakerguardd-provision.service speakerguardd-selfcheck.service \
+for u in speakerguardd.service speakerguardd-provision.service speakerguardd-selfcheck.service speakerguardd-switchtest.service \
          speakerguardd-seat.service speakerguardd-seat.path speakerguardd-session.service speakerguardd-graph.service \
          speakerguardd-sleep.service; do
     rename_units packaging/systemd/$u > ${u/speakerguardd/speakerguardd-v2}
@@ -128,6 +128,16 @@ grep -qx 'Requires=speakerguardd-v2-provision.service' speakerguardd-v2-selfchec
 grep -qx 'Before=speakerguardd-v2-selfcheck.service speakerguardd-v2.service' speakerguardd-v2-provision.service
 grep -qx "ExecStart=$lx/speakerguardd-provision run" speakerguardd-v2-provision.service
 grep -qx "ExecStartPost=$lx/speakerguardd-provision activate --graph-unit speakerguardd-v2-graph.service" speakerguardd-v2-selfcheck.service
+# The switch test runs after login (speakerguardd#102), before the supervisor.
+grep -qx "ExecStart=$lx/speakerguardd-selfcheck run --defer --params \${SGV2_PARAMS} -- \$SGV2_TUNING" speakerguardd-v2-selfcheck.service
+grep -qx 'Requires=speakerguardd-v2-switchtest.service' speakerguardd-v2.service
+grep -qx 'After=speakerguardd-v2-switchtest.service' speakerguardd-v2.service
+grep -qx 'Requires=speakerguardd-v2-selfcheck.service' speakerguardd-v2-switchtest.service
+grep -qx 'After=speakerguardd-v2-selfcheck.service systemd-user-sessions.service' speakerguardd-v2-switchtest.service
+grep -qx 'Before=speakerguardd-v2.service' speakerguardd-v2-switchtest.service
+grep -qx "ExecCondition=$lx/speakerguardd-selfcheck pending" speakerguardd-v2-switchtest.service
+grep -qx "ExecStartPost=$lx/speakerguardd-provision activate --graph-unit speakerguardd-v2-graph.service" speakerguardd-v2-switchtest.service
+grep -qx "ExecStopPost=$lx/speakerguardd-selfcheck pending --clear" speakerguardd-v2-switchtest.service
 grep -qx "ExecStart=$lx/speakerguardd-provision seat --unit speakerguardd-v2.service" speakerguardd-v2-seat.service
 grep -qx 'Unit=speakerguardd-v2-seat.service' speakerguardd-v2-seat.path
 grep -qx "ExecCondition=$lx/speakerguardd-provision is-seat" speakerguardd-v2-session.service
@@ -135,15 +145,20 @@ grep -q "^ExecStart=$lx/speakerguardd-session " speakerguardd-v2-session.service
 grep -qx 'Before=sleep.target' speakerguardd-v2-sleep.service
 grep -qx "ExecStart=$lx/speakerguardd-provision sleep --unit speakerguardd-v2.service" speakerguardd-v2-sleep.service
 grep -qx "ExecStop=$lx/speakerguardd-provision wake --unit speakerguardd-v2.service" speakerguardd-v2-sleep.service
-for u in speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.service \
-         speakerguardd-v2-sleep.service; do
+# The supervisor and sleep hooks need a qualified board (gate v2); provisioning,
+# the seat follower and the silent self-check run first, in the gate's prepare
+# mode, and produce the records that qualify the board (speakerguardd#96).
+for u in speakerguardd-v2.service speakerguardd-v2-sleep.service; do
     grep -qx "ExecCondition=$lx/speakerguardd-gate v2" $u
+done
+for u in speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.service; do
+    grep -qx "ExecCondition=$lx/speakerguardd-gate prepare" $u
 done
 if grep -Eq '^(OnFailure|OnSuccess)=|speakersafetyd|=speakerguardd\.service|/usr/libexec/speakerguardd/' speakerguardd-v2*.service speakerguardd-v2*.path; then
     echo 'A speakerguardd 1.0 unit chains to or names another daemon' >&2; exit 1
 fi
 for u in speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service \
-         speakerguardd-v2-seat.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service; do
+         speakerguardd-v2-switchtest.service speakerguardd-v2-seat.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service; do
     install -Dm644 $u %{buildroot}%{_unitdir}/$u
 done
 for u in speakerguardd-v2-session.service speakerguardd-v2-graph.service; do
@@ -162,16 +177,16 @@ printf 'enable speakerguardd-v2-graph.service\nenable speakerguardd-v2-session.s
 install -Dpm644 %{modulename}.pp.bz2 %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2
 
 %post
-%systemd_post speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service
+%systemd_post speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-switchtest.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service
 %systemd_user_post speakerguardd-v2-graph.service speakerguardd-v2-session.service
 # Say at once which stack this Mac runs.
 %{_libexecdir}/speakerguardd-v2/speakerguardd-gate explain --wait 0 || :
 %preun
-%systemd_preun speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service
+%systemd_preun speakerguardd-v2.service speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-switchtest.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service
 %systemd_user_preun speakerguardd-v2-graph.service speakerguardd-v2-session.service
 %postun
 %systemd_postun_with_restart speakerguardd-v2.service
-%systemd_postun speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service
+%systemd_postun speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service speakerguardd-v2-switchtest.service speakerguardd-v2-seat.path speakerguardd-v2-sleep.service
 
 # The sleep unit is new in the 1.0.0~alpha.1-0.13 snapshot. %%systemd_post
 # applies its preset on a first install only, so an upgrade from an older
@@ -202,6 +217,7 @@ fi
 %{_unitdir}/speakerguardd-v2.service
 %{_unitdir}/speakerguardd-v2-provision.service
 %{_unitdir}/speakerguardd-v2-selfcheck.service
+%{_unitdir}/speakerguardd-v2-switchtest.service
 %{_unitdir}/speakerguardd-v2-seat.service
 %{_unitdir}/speakerguardd-v2-seat.path
 %{_unitdir}/speakerguardd-v2-sleep.service
@@ -219,6 +235,70 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.30.20261108gitbc52fc66f51f
+- Move to bc52fc66f51f (Plan A release candidate 6b): RC6 plus speakerguardd#102, the
+  self-check's silent switch test runs after login in the new
+  speakerguardd-v2-switchtest.service. Before login only the binding and the cheap checks
+  run, so the first boot after a kernel change no longer holds the login screen for the
+  switch test (J616s 11.7 s -> 0.7 s). Every session's PipeWire and WirePlumber wait for
+  the test (a few seconds), which now takes 7 coded captures instead of 13; the speakers
+  come up when it passes.
+
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.29.20261108git20f6c3d8269d
+- Move to 20f6c3d8269d (Plan A release candidate 6): RC5b plus the source-OS-selected
+  multiband compressor band-zero law (the Neo's AID44 compressor now matches macOS) and
+  Apple's speaker volume law: the voicing graph's volume dB follows the macOS HAL curve
+  over the range the Mac's own tuning bundle states, so slider x% plays at the level macOS
+  plays at x%. Slider 100% and the protection limits are unchanged.
+
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.28.20261108gita60c29697ec2
+- Move to a60c29697ec2 (Plan A release candidate 5b): RC5 plus speakerguardd#100, the
+  regrant click fix: the sgv2 LV2 plugin mutes the program while the speakers are withdrawn
+  and ramps it in after a grant. No DSP or trim change. The packaged files are unchanged.
+
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.27.20261108git612408731383
+- Move to 612408731383 (speakerguardd#99, Plan A release candidate 5): RC4b plus the ToneMeister
+  Butterworth shelves in the unit's Float32 order (tmst row 13 exact) and the VirtualBass Float32
+  crossover per object; trims re-derived: j413 woofers -0.043 dB, all others none. The packaged files are unchanged.
+
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.26.20261108git7234e7015477
+- Move to 7234e7015477 (speakerguardd#98, Plan A release candidate 4b): RC4 with the trims re-derived
+  against the macOS chain each Mac actually runs (the M1 Pro's speaker-ID strip, the M2's LowFlow
+  property strip): j316s none, j413 woofers -0.041 dB, j616s and j700 none. The packaged files are unchanged.
+
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.25.20261108gita8bba4d0366e
+- Move to a8bba4d0366e (speakerguardd#98, Plan A release candidate 4): ToneMeister peaks in the
+  unit's Float32 order, the J700 first-grant heartbeat handoff, Norm algorithm 1 exact;
+  trims j316s -0.097 dB, j413 woofers -0.884 dB, j616s and j700 none. The packaged files are unchanged.
+
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.24.20261108git44a479d80e0e
+- Move to 44a479d80e0e (speakerguardd#96, Plan A release candidate 3): ToneMeister fused
+  cascade, ControlFreak slow release, lsid build, automatic board qualification; trims unchanged
+  (j316s -0.097 dB, j413 woofers -0.883 dB, j616s and j700 none). The packaged files are unchanged.
+- The provisioning, seat and self-check units now run under the gate's prepare mode.
+
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.23.20261108git5828fe9db811
+- Move to 5828fe9db811 (speakerguardd#95, Plan A release candidate 2): RC1 plus VirtualBass mono
+  width, Norm algorithm 1 and ToneMeister type 17 (0 refusals, 0 stubs on every AID); trims unchanged
+  (j316s -0.097 dB, j413 woofers -0.883 dB, j616s and j700 none). The packaged files are unchanged.
+
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.22.20261108git6506f3be5280
+- Move to 6506f3be5280 (speakerguardd#94, Plan A release candidate 1): Comp, LowFlow, ControlFreak,
+  Norm and VirtualBass laws at macOS parity; interim never-louder trims from the RC scans
+  (j316s -0.097 dB, j413 woofers -0.883 dB, j616s and j700 none). The packaged files are unchanged.
+
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.21.20261107git4d6273225e0d
+- Move to 4d6273225e0d (speakerguardd#92). The packaged files are unchanged.
+- Fleet gate data (gate.json, upstream's): units at parity: spp3, lsm2, atsp; spp3: J316s, J413, J616s; lsm2: J700; atsp: J274, J293, J313, J375C, J375D, J473, J474s, J475C, J475D, J493.
+
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.16.20261107git6858b0c8896e
+- Move to 6858b0c8896e (speakerguardd#91). The packaged files are unchanged.
+- Fleet gate data (gate.json, upstream's): units at parity: spp3, lsm2, atsp; spp3: J316s, J413, J616s; lsm2: J700; atsp: J274, J293, J313, J375C, J375D, J473, J474s, J475C, J475D, J493.
+
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.15.20261107git105f503083db
+- Move to 105f503083db (speakerguardd#65, #83, #88, #89, #90). The packaged files are unchanged.
+- Fleet gate data (gate.json, upstream's): units at parity: spp3, lsm2, atsp; spp3: J316s, J413, J616s; lsm2: J700; atsp: J274, J293, J313, J375C, J375D, J473, J474s, J475C, J475D, J493.
+
 * Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.14.20261107gitf5b6933fd677
 - Move to f5b6933fd677 (speakerguardd#87). The packaged files are unchanged.
 - Fleet gate data (gate.json, upstream's): units at parity: spp3, atsp; spp3: J316s, J413, J616s; atsp: J274, J293, J313, J375C, J375D, J473, J474s, J475C, J475D, J493.

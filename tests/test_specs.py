@@ -387,14 +387,16 @@ class SpecTests(unittest.TestCase):
         self.assertIn('%{_libdir}/lv2/sgv2.lv2/', text)
         files = text.split('%files', 1)[1].split('%files selinux', 1)[0]
         for u in ['speakerguardd-v2.service', 'speakerguardd-v2-provision.service', 'speakerguardd-v2-selfcheck.service',
-                  'speakerguardd-v2-seat.service', 'speakerguardd-v2-seat.path', 'speakerguardd-v2-sleep.service']:
+                  'speakerguardd-v2-switchtest.service', 'speakerguardd-v2-seat.service', 'speakerguardd-v2-seat.path',
+                  'speakerguardd-v2-sleep.service']:
             self.assertIn('%{_unitdir}/' + u, files)
         for u in ['speakerguardd-v2-session.service', 'speakerguardd-v2-graph.service']:
             self.assertIn('%{_userunitdir}/' + u, files)
         # The units are enabled by the package's presets; the gate decides.
         preset = [l for l in (d / '50-speakerguardd-v2.preset').read_text().splitlines() if not l.startswith('#')]
         self.assertEqual(preset, ['enable speakerguardd-v2.service', 'enable speakerguardd-v2-provision.service',
-                                  'enable speakerguardd-v2-selfcheck.service', 'enable speakerguardd-v2-seat.path',
+                                  'enable speakerguardd-v2-selfcheck.service', 'enable speakerguardd-v2-switchtest.service',
+                                  'enable speakerguardd-v2-seat.path',
                                   'enable speakerguardd-v2-sleep.service'])
         # A unit new in an upgrade gets its preset in %post (the macro applies it on a first install only).
         self.assertIn('systemctl --no-reload preset speakerguardd-v2-sleep.service', text)
@@ -416,6 +418,9 @@ class SpecTests(unittest.TestCase):
         # Provisioning and the self-check come before the supervisor.
         self.assertIn("grep -qx 'Requires=speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service' speakerguardd-v2.service", text)
         self.assertIn("grep -qx 'Requires=speakerguardd-v2-provision.service' speakerguardd-v2-selfcheck.service", text)
+        # The self-check's switch test runs after login, before the supervisor (speakerguardd#102).
+        self.assertIn("grep -qx 'Requires=speakerguardd-v2-switchtest.service' speakerguardd-v2.service", text)
+        self.assertIn("grep -qx 'After=speakerguardd-v2-selfcheck.service systemd-user-sessions.service' speakerguardd-v2-switchtest.service", text)
         self.assertIn('python3 -I packaging/session/test_provision.py', text.split('%check', 1)[1].split('%install', 1)[0])
         # The SELinux module labels the program where this package installs it.
         fc = (d / 'speakerguardd.fc').read_text()
@@ -636,6 +641,50 @@ class SpecTests(unittest.TestCase):
             self.assertIn(path + '\n', files)
         self.assertIn('%triggerin -- fex-emu-rootfs-fedora\n%{_libexecdir}/fex-emu/aurora-fex-provider-up\n', spec)
         subprocess.run(['sh', '-n', str(d / 'aurora-fex-provider-up')], check=True)
+
+    def test_fex_defaults_to_the_fedora_rootfs_image(self):
+        d = ROOT / 'packages' / 'fex-emu'
+        spec = (d / 'fex-emu.spec').read_text()
+        # FEX reads its global config from DATA_DIRECTORY, by default
+        # ${CMAKE_INSTALL_PREFIX}/share/fex-emu; a user's Config.json overrides it.
+        self.assertNotIn('-DDATA_DIRECTORY', spec)
+        self.assertIn('%cmake -G Ninja', spec)
+        config = json.loads((d / 'Config.json').read_text())
+        image = '/usr/share/fex-emu/RootFS/default.erofs'
+        self.assertEqual(config, {'Config': {'RootFS': image}})
+        unit = configparser.ConfigParser(strict=False)
+        unit.optionxform = str
+        unit.read_string((d / 'usr-share-guestos-fex\\x2dmesa.mount').read_text())
+        self.assertEqual(unit['Mount']['What'], image)
+        source = re.search(r'(?m)^Source(\d+):\s+Config\.json$', spec).group(1)
+        self.assertIn(f'install -Dm644 %{{SOURCE{source}}} %{{buildroot}}%{{_datadir}}/fex-emu/Config.json\n', spec)
+        files = spec.split('%files\n', 1)[1].split('%files', 1)[0]
+        self.assertIn('%config(noreplace) %{_datadir}/fex-emu/Config.json\n', files)
+
+    def test_fex_requires_what_mounts_its_rootfs_and_names_the_image_package(self):
+        d = ROOT / 'packages' / 'fex-emu'
+        spec = (d / 'fex-emu.spec').read_text()
+        main = spec.split('%package', 1)[0]
+        # FEXServer runs erofsfuse on the .erofs image; fusermount3 mounts it for a user.
+        for name in ('erofs-fuse', 'fuse3'):
+            self.assertRegex(main, rf'(?m)^Requires:\s+{name}$')
+            self.assertNotRegex(main, rf'(?m)^Recommends:\s+{name}$')
+        # The 1.9 GB image stays a weak dependency, which dnf installs by default.
+        self.assertRegex(main, r'(?m)^Recommends:\s+fex-emu-rootfs-fedora$')
+        patch = re.search(r'(?m)^Patch0:\s+(\S+)$', spec).group(1)
+        text = (d / patch).read_text()
+        self.assertIn('add_compile_definitions(ROOTFS_PACKAGE="${ROOTFS_PACKAGE}")', text)
+        self.assertIn('Install the {} package for the default RootFS', text)
+        # A 4K page process can't read /dev/fuse on Aurora kernels: FEXServer
+        # runs erofsfuse with native pages.
+        native = (d / re.search(r'(?m)^Patch1:\s+(\S+)$', spec).group(1)).read_text()
+        self.assertIn('+++ b/Source/Tools/FEXServer/SquashFS.cpp', native)
+        for line in ('+    prctl(PR_AURORA_SET_DEFAULT_PAGE_SIZE, 0UL, 0UL, 0UL, 0UL);',
+                     '+    prctl(PR_AURORA_SET_EXEC_PAGE_SIZE, 0UL, 0UL, 0UL, 0UL);'):
+            self.assertIn(line, native)
+        prep = spec.split('%prep\n', 1)[1].split('%build\n', 1)[0]
+        self.assertIn('\n%autopatch -p1\n', prep)
+        self.assertIn('    -DROOTFS_PACKAGE=fex-emu-rootfs-fedora \\\n', spec.split('%cmake -G Ninja', 1)[1])
 
     def test_fex_submodules_are_pinned_with_the_fork(self):
         spec = (ROOT / 'packages' / 'fex-emu' / 'fex-emu.spec').read_text()

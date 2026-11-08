@@ -95,6 +95,11 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      # The repository checks the plan runs need the same tools as checks.yml
+      # (update-m1n1's tests compile device trees).
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y device-tree-compiler
       - id: plan
         env:
           GH_TOKEN: ${{ github.token }}
