@@ -188,8 +188,22 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(setup, r'(?m)^\s+return 255$')
         self.assertRegex(setup, r'(?m)^\s+inst_hook pre-mount \d+ "\$moddir/aurora-kdump-clock\.sh"$')
         hook = (d / 'aurora-kdump-clock.sh').read_text()
-        self.assertIn('[ -e /dev/rtc0 ]', hook)
-        self.assertIn('hwclock --hctosys --utc -f "$rtc"', hook)
+        self.assertIn('[ ! -e /dev/rtc0 ]', hook)
+        self.assertIn('CRASHTIME', hook)
+        self.assertIn('hwclock --hctosys --utc -f "$_rtc"', hook)
+        self.assertNotRegex(hook, r'(?m)^\s*exit\b')  # sourced by dracut
+        self.assertRegex(setup, r'(?m)^\s+inst_multiple hwclock head tr sed date$')
+        # The crash kernel must not load drivers of live coprocessors.
+        omit = re.search(r'(?m)^omit_drivers\+="([^"]*)"$', conf)
+        self.assertIsNotNone(omit)
+        for drv in ('aurora', 'appledrm', 'thunderbolt', 'apple[-_]pmp', 'aop'):
+            self.assertIn(drv, omit.group(1).split())
+        self.assertNotIn('nvme', omit.group(1))
+        # The hook takes CRASHTIME from a vmcoreinfo-like stream.
+        vmcore = b'\x7fELF\x00\x01OSRELEASE=7.3.0\nCRASHTIME=1794139056\n\x00\x02'
+        out = subprocess.run(['sh', '-c', "tr -c '[:print:]' '\\n' | sed -n 's/^CRASHTIME=\\([0-9][0-9]*\\)$/\\1/p' | head -n 1"],
+                             input=vmcore, capture_output=True, check=True).stdout
+        self.assertEqual(out, b'1794139056\n')
         for script in ('aurora-kdump-clock.sh', 'aurora-kdump-setup'):
             subprocess.run(['sh', '-n', str(d / script)], check=True)
         unit = (d / 'aurora-kdump.service.conf').read_text()
