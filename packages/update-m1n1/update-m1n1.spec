@@ -1,6 +1,6 @@
 Name: update-m1n1
 Version: 20261107
-Release: 1%{?dist}.aurora
+Release: 2%{?dist}.aurora
 Summary: Transactional Aurora Stage 2 updates with retained-kernel DTB checks
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -83,6 +83,12 @@ install -Dm644 %{SOURCE9} %{buildroot}%{_presetdir}/90-aurora-stage2.preset
 %config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1
 
 %changelog
+* Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261107-2
+- Record one trial attempt per Stage 2 candidate (sha256), not per kernel, so
+  aura, U-Boot and m1n1.conf updates on the same kernel are trialled too.
+- Mark committed attempts; never rearm a candidate that fell back.
+- Treat a trial boot as ordinary once its commit has replaced the live image.
+
 * Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261107-1
 - Trial the next Stage 2 and commit only after boot-time DT checks.
 - Preserve the live image and one attempt per kernel across fallback boots.
