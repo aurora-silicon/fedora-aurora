@@ -56,6 +56,11 @@ if [ -d /run/systemd/system ] && systemctl -q is-enabled aurora-touchid-rearm.so
     systemctl start aurora-touchid-rearm.socket >/dev/null 2>&1 || :
 fi
 
+%triggerun -- aurora-touchid-rearm < 1-3
+# 1-3 adds aurora-touchid-boot.service; an upgrade does not apply presets,
+# so apply this one once, from the old version's removal.
+systemctl --no-reload preset aurora-touchid-boot.service >/dev/null 2>&1 || :
+
 %preun
 %systemd_preun aurora-touchid-rearm.socket aurora-touchid-boot.service
 
