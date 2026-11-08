@@ -167,7 +167,7 @@ fi
 %postun selinux
 %selinux_modules_uninstall -s %{selinuxtype} %{modulename}
 if [ "$1" -eq 0 ] && selinuxenabled 2>/dev/null; then
-    for d in /dev/sep-bio /dev/sep-bio-rearm /dev/sep-key; do
+    for d in /dev/sep-bio /dev/sep-key /dev/sep-bio-rearm; do
         [ -c "$d" ] && restorecon "$d" || :
     done
 fi
@@ -176,7 +176,7 @@ fi
 %selinux_relabel_post -s %{selinuxtype}
 # udev labels the device when the driver creates it; label one that exists.
 if selinuxenabled 2>/dev/null; then
-    for d in /dev/sep-bio /dev/sep-bio-rearm /dev/sep-key; do
+    for d in /dev/sep-bio /dev/sep-key /dev/sep-bio-rearm; do
         [ -c "$d" ] && restorecon "$d" || :
     done
 fi
