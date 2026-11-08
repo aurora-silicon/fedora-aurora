@@ -105,8 +105,8 @@ fi
 rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' "${packages[@]}" \
   | sort | tee /tmp/touchid-after.txt
 diff -u /tmp/touchid-expected.txt /tmp/touchid-after.txt
-rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' aurora-xart \
-  | diff -u /tmp/touchid-deps.txt -
+rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' aurora-xart aurora-touchid-rearm \
+  | sort | diff -u /tmp/touchid-deps.txt -
 rpm -q --provides libfprint | grep -Fx 'libfprint(aurora-sep) = 5'
 rpm -q --provides fprintd | grep -Fx 'fprintd(aurora-sep) = 1'
 sha256sum --check /tmp/touchid-state.sha256
