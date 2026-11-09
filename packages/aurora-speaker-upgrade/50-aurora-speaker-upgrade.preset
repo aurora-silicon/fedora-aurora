@@ -1,4 +1,4 @@
-# Ryan + DJ go (lane SGSHIP): every Mac moves its speakers to speakerguardd v2 at
+# Every Mac moves its speakers to speakerguardd v2 at
 # the next boot when its own tuning passes the silent self-check; a refused Mac
 # keeps speakersafetyd (aurora-speaker-upgrade run --at-boot).
 enable aurora-speaker-upgrade.service

@@ -1,4 +1,4 @@
-policy_module(aurora_sep, 1.4.1)
+policy_module(aurora_sep, 1.4.2)
 
 ########################################
 #
@@ -24,6 +24,12 @@ files_type(aurora_sep_state_t)
 # password.
 type aurora_sep_rearm_device_t;
 dev_node(aurora_sep_rearm_device_t)
+
+# /dev/sep-key, Secure Enclave P-256 keys (OpenSSH security-key provider,
+# FIDO authenticator). The kernel creates it 0600 and a udev rule grants the
+# sep-key group; the enclave itself enforces each key's Touch ID policy.
+type aurora_sep_key_device_t;
+dev_node(aurora_sep_key_device_t)
 
 # aurora-touchid-rearm, started by systemd for each connection to its socket.
 type aurora_touchid_rearm_t;
@@ -96,6 +102,26 @@ optional_policy(`
 	# targeted policy keeps fprintd from reading.
 	dev_read_input(fprintd_t)
 ')
+
+# The OpenSSH provider runs inside the ssh client, ssh-agent and ssh-keygen.
+# Unconfined users need nothing more. For the confined ssh domains: use the
+# key node, and let the driver read and update its state (the identity bag,
+# the lockout record) on their behalf. No open: they cannot open those files
+# themselves, only the driver's own open file is read or written for them.
+define(`aurora_sep_key_client',`
+	optional_policy(`
+		gen_require(`
+			type $1;
+		')
+
+		allow $1 aurora_sep_key_device_t:chr_file rw_chr_file_perms;
+		dev_list_all_dev_nodes($1)
+		allow $1 aurora_sep_state_t:file { getattr read write };
+	')
+')
+aurora_sep_key_client(ssh_t)
+aurora_sep_key_client(ssh_agent_t)
+aurora_sep_key_client(ssh_keygen_t)
 
 # modprobe loads apple_sep, whose initialisation reads the keybag and the
 # reference key and writes the keybag when it provisions one.

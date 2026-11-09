@@ -1,10 +1,10 @@
-%global commit 65064d88a20150a36d5c670c9d01f49cf9d250a3
+%global commit ff88f9f98070e64e6df36b87cf622dd4d53b9dca
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261109
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.5.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.7.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning (preview)
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -21,6 +21,10 @@ Recommends: speakerguardd-v2
 %{?systemd_requires}
 
 %description
+speakerguardd v2 is a preview. It does not fully match macOS yet. The legacy
+protection (speakersafetyd, speakerguardd 0.1) is the supported default and
+stays installed. To go back at any time: sudo aurora-speaker-upgrade --revert.
+
 aurora-speaker-upgrade moves an existing install's speakers from the legacy
 protection (speakersafetyd, speakerguardd 0.1) to speakerguardd v2 with the
 Mac's own tuning, and back (--revert). It collects the installer's tuning
@@ -63,10 +67,23 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.pr
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
-* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.5
-- Enable aurora-speaker-upgrade.service by preset (Ryan + DJ go): the next
-  boot moves the speakers to speakerguardd v2 when this Mac's own tuning
-  passes the silent self-check; a refused Mac keeps speakersafetyd.
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.7.20261109gitff88f9f98070
+- Enable aurora-speaker-upgrade.service by preset: the next boot moves the
+  speakers to speakerguardd v2 when this Mac's own tuning passes the silent
+  self-check; a refused Mac keeps speakersafetyd.
+
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.6.20261109gitff88f9f98070
+- Release candidate 8.4 (speakerguardd#143): the supervisor's own hang
+  watch no longer counts a system sleep, so a sleep entered without the
+  sleep unit (a direct write to /sys/power/state) cannot get it killed at
+  the thaw; systemd's watchdog stays as a 10 minute last resort. Also the
+  voicing parity updates merged since 8.3.
+
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.5.20261109gita561b6fbcf59
+- Release candidate 8.3 (speakerguardd#142): before any switch,
+  aurora-speaker-upgrade says that speakerguardd v2 is a preview, asks for
+  confirmation in a terminal, and needs --i-understand-preview when it runs
+  without one (otherwise exit 2, nothing changed).
 
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.4.20261109git65064d88a201
 - Release candidate 8.2 (speakerguardd#134): a switch in the running boot
