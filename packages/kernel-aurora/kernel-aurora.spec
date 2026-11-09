@@ -1,4 +1,4 @@
-%global commit d4d267839caa0aa9cbcd98a792351a52bd856b84
+%global commit b1c9943b1d648469c05835ba4e74cd83a507ce20
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 27%{?dist}.aurora
+Release: 28%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -17,10 +17,6 @@ Source1: config
 Source4: fedora.config
 Source5: validate-config.py
 Source6: dtb-abi
-Patch0: 0001-restore-legacy-speaker-protection.patch
-# aurora-silicon/linux: bound the MCA PCM buffer again, so speakersafetyd
-# can open the speaker sense PCM (hw_params failed with -ENOMEM since 79af0bae4d0d).
-Patch1: 0002-mca-bound-pcm-buffer.patch
 ExclusiveArch: aarch64
 BuildRequires: make gcc gcc-c++ clang llvm lld rust rust-src rustfmt cargo bindgen-cli
 BuildRequires: bc bison flex dtc openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
@@ -158,6 +154,13 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Mon Nov 09 2026 Diljit Singh <hey@djdev.me> - 7.3.0-28
+- Pin integration/aurora b1c9943b. Fixes ProMotion internal displays that
+  rendered at 60 Hz while set to 120 Hz on legacy DCP firmware (linux#1307).
+- Drop 0001 and 0002. The driver now serves both speaker protection
+  interfaces and boots every card on "Speaker Volume Unlock", the interface
+  speakersafetyd uses (linux#1279); the MCA PCM bound is linux#1258.
+
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-27
 - Fix speaker audio on M1 and M2 Macs: speakersafetyd could not open the
   speaker sense PCM (snd_pcm_hw_params -ENOMEM), restarted in a loop and
