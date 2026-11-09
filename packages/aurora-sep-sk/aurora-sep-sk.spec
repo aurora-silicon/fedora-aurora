@@ -30,12 +30,14 @@ access to it; add a user with `sudo usermod -aG sep-key USER`, then use
 %autosetup -n aurora-sep-userspace-%{commit}
 
 %build
-%make_build -C sk CFLAGS="%{optflags}" LDFLAGS="%{build_ldflags}"
+# %%build exports the distribution flags; the Makefile appends its own
+# (-fPIC, hidden visibility, warnings).
+%make_build -C sk
 
 %check
 # OpenSSH flow against a test build in which software P-256 keys stand in
 # for the enclave: no root, no hardware.
-make -C sk check CFLAGS="%{optflags}"
+make -C sk check
 
 %install
 %make_install -C sk PREFIX=%{_prefix} LIBDIR=%{_libdir} \
