@@ -158,7 +158,7 @@ class SpecTests(unittest.TestCase):
         self.assertIn('CONFIG_USB4_APPLE_SOC=m', config.splitlines())
     def test_initramfs_coldplugs_the_display_first(self):
         # F45's initramfs pivots before udev reaches the display; a pre-trigger
-        # hook coldplugs it (and its suppliers) ahead of systemd-udev-trigger.
+        # hook queues it (and its suppliers) ahead of systemd-udev-trigger.
         d = ROOT / 'packages' / 'aurora-platform'
         setup = (d / 'early-kms-module-setup.sh').read_text()
         self.assertRegex(setup, r"(?m)^\s+hostonly='' instmods appledrm$")
@@ -166,7 +166,11 @@ class SpecTests(unittest.TestCase):
         hook = (d / 'aurora-early-kms.sh').read_text()
         self.assertIn("*Capple,display-subsystem*|*Capple,dcp*)", hook)
         self.assertIn('supplier:*', hook)
-        self.assertIn('udevadm trigger --action=add --subsystem-match=drm --settle', hook)
+        self.assertIn('udevadm trigger --action=add --subsystem-match=drm', hook)
+        # It queues the display ahead of the coldplug but never waits for it:
+        # appledrm comes up only once every DCP has started.
+        self.assertNotIn('--settle', hook)
+        self.assertNotIn('udevadm settle', hook)
         self.assertNotRegex(hook, r'(?m)^\s*modprobe ')
         subprocess.run(['sh', '-n', str(d / 'aurora-early-kms.sh')], check=True)
         text = (d / 'aurora-platform.spec').read_text()
