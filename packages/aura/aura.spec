@@ -1,13 +1,13 @@
 %global debug_package %{nil}
-%global commit 30e93e890055eb289f544972404ad7b7c4affc3a
-# Tagged release; preserve its label in the source archive build.
-%global release_tag 1.0.0b8
+%global commit 21a70e6e210b7a562c2526c25d2ae334d5eb90e4
+# The release this pin is labelled as; the archive build carries it.
+%global release_tag 1.0.0b10
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
 %global monitor_free 1
 Name: aura
-Version: 1.0.0~b8
+Version: 1.0.0~b10
 Release: 1%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
@@ -28,7 +28,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-30e93e890055eb289f544972404ad7b7c4affc3a
+%autosetup -n aura-21a70e6e210b7a562c2526c25d2ae334d5eb90e4
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -64,6 +64,18 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Mon Nov 09 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b10-1
+- Pin aura main 21a70e6e (aura#135), labelled 1.0.0b10 as its VERSION
+  file is. Since b8: the M4 GPU and DCP handoffs on 26.6.2 firmware for
+  every M4 Mac (b9: aura#106, #110), M4 PIODMA gated on firmware (#116),
+  ACIO v2 USB4 routers kept with their tuning (#103), T6041 SIO tables
+  (#120), the speaker assembly ID for the kernel (#121), the T8140 DCP
+  power chain (#125), AOP motion calibration on T6000 and T8112 (#124),
+  J713 external displays (#108), the T6041 display on J614C (#132), and
+  aura-try trials that reboot when they cannot start their payload and
+  keep U-Boot off the watchdog (#128, #129, #135). The source still has
+  no monitor, so monitor_free stays 1.
+
 * Sun Nov 08 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b8-1
 - Pin aura v1.0.0b8 (30e93e89, aura#105): 1.0.0b7 plus aura#104, which runs
   the T8132 storage and memory steps on every T8132 board, not only the

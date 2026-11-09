@@ -1,4 +1,4 @@
-%global commit b1c9943b1d648469c05835ba4e74cd83a507ce20
+%global commit 15f88e1cf81a6b6a91a1856ca06822a093aedeac
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 29%{?dist}.aurora
+Release: 30%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -156,6 +156,25 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Tue Nov 10 2026 Diljit Singh <hey@djdev.me> - 7.3.0-30
+- Pin integration/aurora 15f88e1c (linux#1365), 54 merges after b1c9943b.
+  It keeps the 120 Hz fix for ProMotion panels on M1 and M2 Macs
+  (linux#1307), and adds: WPA3/SAE offload that keeps the requested CCMP
+  cipher and AWDL join scans on the firmware's budgets (#1058, #1336);
+  the J713 powering its display domains down while blanked (#1059); a GPU
+  fence that never signals no longer wedging the display (#1241); G17
+  recoveries that spare bystander clients and exiting clients that finish
+  their work first (#1240, #1360); the M4 Max internal display on DCP
+  (#1345); Thunderbolt XDomain and NHI fixes (#1319, #1150); GPU and CPU
+  temperatures on M1 Pro/Max laptops, the J700 and the J413, and M1
+  Pro/Max thermal zones (#1342, #1351, #1362); t600x PMU RTC wake alarms
+  (#1312); Magic Mouse multitouch across sleep (#1317); SEP state
+  reporting for aurora-sep status (#1335, #583); the MSR scaler driver
+  (#1315); J704, J815, J604 and J773g device trees (#1231, #1361, #1186,
+  #1181, #1187); and the T6050 (M5 Pro/Max) bare-metal series.
+- The build now also resolves CONFIG_VIDEO_APPLE_SCALER, CONFIG_APPLE_DBGVIEW
+  and CONFIG_APPLE_REGVIEW as modules, which asahi.config requests.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-29
 - Install the EFI zboot image (CONFIG_EFI_ZBOOT, zstd) as vmlinuz instead
   of the raw Image: about 17 MB instead of 67 MB. GRUB reads the kernel
