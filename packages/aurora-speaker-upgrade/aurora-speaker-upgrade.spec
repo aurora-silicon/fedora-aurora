@@ -1,4 +1,4 @@
-%global commit cee39338464889517d57396422f62427d07a9380
+%global commit f4bb2fdb44066fc081669b4b43c9db4d766a45e1
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261109
 
@@ -67,6 +67,12 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.pr
 - Enable aurora-speaker-upgrade.service by preset (Ryan + DJ go): the next
   boot moves the speakers to speakerguardd v2 when this Mac's own tuning
   passes the silent self-check; a refused Mac keeps speakersafetyd.
+
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.2.20261109gitf4bb2fdb4406
+- speakerguardd v2 release candidate 8: the dual-interface kernel's lease
+  (hardware record before verify; --revert hands the session back to the
+  distribution's speaker graph), and the boot unit records a refusal instead
+  of retrying it at every boot (exit 1 is an outcome). Still ships disabled.
 
 * Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.1
 - First preview: routes 0-3, root-only store, v2 self-check gate,

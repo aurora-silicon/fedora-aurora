@@ -1,12 +1,14 @@
 %global commit c967141161bea3badc7754e23d80b39ffb1bdafd
 Name: aurora-audio
 Version: 4.1
-Release: 14%{?dist}
+Release: 16%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
 Source0: aurora-audio-%{commit}.tar.gz
 Source1: module-setup.sh
+Source2: aurora-audio-v2-cleanup
+Source3: 99-aurora-speaker-irq.conf
 Patch0: 0001-restore-legacy-speaker-graphs.patch
 BuildArch: noarch
 BuildRequires: make
@@ -19,6 +21,8 @@ Requires: speakersafetyd speakerguardd
 Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33
 Obsoletes: speakerguardd-v2-selinux < 1.0.0~alpha.1-0.33
 Conflicts: speakerguardd-v2 < 1.0.0~alpha.1-0.33
+# The v2 cleanup reads the user database.
+Requires(posttrans): glibc-common coreutils
 
 %description
 Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source revision.
@@ -40,6 +44,13 @@ rm -rf check-root
 %install
 make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
 install -Dm755 %{SOURCE1} %{buildroot}%{_prefix}/lib/dracut/modules.d/90aurora-audio/module-setup.sh
+install -Dm755 %{SOURCE2} %{buildroot}%{_libexecdir}/aurora-audio/aurora-audio-v2-cleanup
+install -Dm644 %{SOURCE3} %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d/99-aurora-speaker-irq.conf
+
+%posttrans
+# The v2 preview left per-user links into /run/speakerguardd-graph that
+# dangle once it is gone (PipeWire logs an error at every login).
+%{_libexecdir}/aurora-audio/aurora-audio-v2-cleanup || :
 
 %files
 %license LICENSE
@@ -47,12 +58,31 @@ install -Dm755 %{SOURCE1} %{buildroot}%{_prefix}/lib/dracut/modules.d/90aurora-a
 %{_datadir}/wireplumber/
 %{_datadir}/pipewire/
 %{_prefix}/lib/dracut/modules.d/90aurora-audio/
+%{_libexecdir}/aurora-audio/
 
 %changelog
-* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 4.1-14
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 4.1-16
 - Retire only the speakerguardd v2 previews up to release candidate 7
   (1.0.0~alpha.1-0.32 and older), so release candidate 8 can be installed by
   hand beside aurora-audio. Nothing installs it by default.
+
+* Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-15
+- The J616 (MacBook Pro 16-inch M4 Pro/Max) speaker PCM also wakes on
+  period interrupts: its AOP speaker service raises one per period, and a
+  chrony slew re-prepared the timer-scheduled sink 7 times (0 with this).
+
+* Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-14
+- Built-in speakers on the MCA transport (M1, M2, M3 families) run on the
+  speaker PCM's period interrupts (api.alsa.disable-tsched): a chrony clock
+  slew no longer re-prepares the timer-scheduled sink every ~0.6 s (audible
+  dropouts at every boot). AOP speaker Macs are unchanged.
+
+* Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-13
+- Remove the per-user PipeWire and WirePlumber links the speakerguardd v2
+  preview left in ~/.config (they point into /run/speakerguardd-graph,
+  which nothing creates without v2, so PipeWire logged an error at every
+  login). Only links into that directory go, and only while v2 is not
+  installed; /etc/speakerguardd and /var/lib/speakerguardd stay.
 
 * Sun Nov 08 2026 Aurora Silicon <hey@djdev.me> - 4.1-12
 - Restore the shipped Asahi speaker DSP graphs and retire the v2 preview
