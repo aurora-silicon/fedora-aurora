@@ -105,14 +105,16 @@ old = dict(line.rstrip().split('\t') for line in (p / 'before.tsv').read_text().
 new = dict(line.rstrip().split('\t') for line in (p / 'after.tsv').read_text().splitlines())
 allowed = {'mesa-dri-drivers','mesa-vulkan-drivers','mesa-libEGL','mesa-libGL','mesa-libgbm',
            'mesa-libglapi','mesa-libgallium','mesa-libEGL-devel','mesa-libGL-devel',
-           'mesa-libgbm-devel','mesa-libOpenCL','mesa-libOpenCL-devel'}
+           'mesa-libgbm-devel','mesa-libOpenCL','mesa-libOpenCL-devel',
+           # mesa-aurora-filesystem obsoletes it.
+           'mesa-filesystem'}
 assert set(old) - set(new) <= allowed, sorted(set(old) - set(new) - allowed)
 print('No unrelated installed package was removed')
 PY
 echo GRAPHICS-UPGRADE-PASS
 # Undo a rename in one transaction, preserving the post-upgrade evidence above.
 remove=()
-for name in mesa-aurora-dri-drivers mesa-aurora-vulkan-drivers mesa-aurora-vulkan-lavapipe mesa-aurora-devel mesa-aurora-libOpenCL mesa-aurora-libOpenCL-devel; do
+for name in mesa-aurora-filesystem mesa-aurora-dri-drivers mesa-aurora-vulkan-drivers mesa-aurora-vulkan-lavapipe mesa-aurora-devel mesa-aurora-libOpenCL mesa-aurora-libOpenCL-devel; do
   if rpm -q "$name" >/dev/null 2>&1 && ! awk -v n="$name" '$1==n {found=1} END {exit !found}' "$out/before.tsv"; then
     remove+=("$name")
   fi
@@ -132,7 +134,7 @@ after = dict(line.rstrip().split('\t') for line in (p/'rollback.tsv').read_text(
 for name, evr in before.items():
     if name.startswith(('mesa-', 'aurora-flatpak-gl')):
         assert after.get(name) == evr, (name, evr, after.get(name))
-assert not (set(after) - set(before)) & {'mesa-aurora-dri-drivers','mesa-aurora-vulkan-drivers','mesa-aurora-vulkan-lavapipe',
+assert not (set(after) - set(before)) & {'mesa-aurora-filesystem','mesa-aurora-dri-drivers','mesa-aurora-vulkan-drivers','mesa-aurora-vulkan-lavapipe',
                                       'mesa-aurora-devel','mesa-aurora-libOpenCL','mesa-aurora-libOpenCL-devel'}
 print('Exact old Mesa/Flatpak graph restored')
 PYROLL
