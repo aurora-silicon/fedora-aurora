@@ -1,10 +1,10 @@
-%global commit f4bb2fdb44066fc081669b4b43c9db4d766a45e1
+%global commit 416b1f513b9d9e924d7e4de16385ba19f7364a92
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261109
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.2.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.3.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning (preview)
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -60,6 +60,14 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.3.20261109git416b1f513b9d
+- Release candidate 8.1 (speakerguardd#131): the legacy units' gate runs
+  privileged (speakersafetyd is a DynamicUser and could not read the upgrade's
+  root-only setting, so a switched Mac started speakersafetyd, which held the
+  sense PCM v2 needs: no speakers until reboot); a switched Mac gets the older
+  daemons only on a stable refusal; --revert starts only the sense PCM's own
+  unit; --check works on dual-interface kernels before the first switch.
+
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.2.20261109gitf4bb2fdb4406
 - speakerguardd v2 release candidate 8: the dual-interface kernel's lease
   (hardware record before verify; --revert hands the session back to the
