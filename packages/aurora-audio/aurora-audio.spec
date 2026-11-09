@@ -1,13 +1,14 @@
 %global commit c967141161bea3badc7754e23d80b39ffb1bdafd
 Name: aurora-audio
 Version: 4.1
-Release: 13%{?dist}
+Release: 14%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
 Source0: aurora-audio-%{commit}.tar.gz
 Source1: module-setup.sh
 Source2: aurora-audio-v2-cleanup
+Source3: 99-aurora-speaker-irq.conf
 Patch0: 0001-restore-legacy-speaker-graphs.patch
 BuildArch: noarch
 BuildRequires: make
@@ -44,6 +45,7 @@ rm -rf check-root
 make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
 install -Dm755 %{SOURCE1} %{buildroot}%{_prefix}/lib/dracut/modules.d/90aurora-audio/module-setup.sh
 install -Dm755 %{SOURCE2} %{buildroot}%{_libexecdir}/aurora-audio/aurora-audio-v2-cleanup
+install -Dm644 %{SOURCE3} %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d/99-aurora-speaker-irq.conf
 
 %posttrans
 # The v2 preview left per-user links into /run/speakerguardd-graph that
@@ -59,6 +61,12 @@ install -Dm755 %{SOURCE2} %{buildroot}%{_libexecdir}/aurora-audio/aurora-audio-v
 %{_libexecdir}/aurora-audio/
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-14
+- Built-in speakers on the MCA transport (M1, M2, M3 families) run on the
+  speaker PCM's period interrupts (api.alsa.disable-tsched): a chrony clock
+  slew no longer re-prepares the timer-scheduled sink every ~0.6 s (audible
+  dropouts at every boot). AOP speaker Macs are unchanged.
+
 * Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-13
 - Remove the per-user PipeWire and WirePlumber links the speakerguardd v2
   preview left in ~/.config (they point into /run/speakerguardd-graph,
