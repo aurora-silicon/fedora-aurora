@@ -20,14 +20,21 @@ jobs:
         with:
           python-version: '3.12'
       - run: |
+          sudo apt-get update
+          sudo apt-get install -y device-tree-compiler shellcheck
+          shellcheck packages/update-m1n1/update-m1n1 packages/update-m1n1/aurora-stage2-commit packages/update-m1n1/*.install scripts/test-stage2-transactions scripts/test-bootchain-upgrade
           python3 -m unittest discover -s tests -p 'test_*.py'
           python3 images/test_configure.py
           python3 -m compileall -q scripts images
           for script in scripts/build-rpm scripts/build-flatpak-gl-repo \
-            packages/aurora-flatpak-gl/build-extension.sh scripts/test-graphics-upgrade scripts/test-fex-overlay-upgrade scripts/test-touchid-upgrade scripts/test-vendor-change scripts/test-repo-trust scripts/fleet-kit/*.sh; do
+            packages/aurora-flatpak-gl/build-extension.sh scripts/test-graphics-upgrade scripts/test-fex-overlay-upgrade scripts/test-touchid-upgrade scripts/test-fedora-repository scripts/test-fedora44-compatibility scripts/test-vendor-change scripts/test-repo-trust scripts/test-bootchain-upgrade packages/update-m1n1/update-m1n1 packages/update-m1n1/aurora-stage2-commit scripts/fleet-kit/*.sh; do
             bash -n "$script"
           done
           git diff --check
+      - name: No recipe builds an older EVR than the published repository
+        run: |
+          sudo apt-get install -y --no-install-recommends rpm zstd >/dev/null
+          python3 scripts/check-published-evr.py
   vendor-policy:
     runs-on: ubuntu-24.04
     strategy:
@@ -36,11 +43,17 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
+          fetch-depth: 0
           persist-credentials: false
       - name: Vendor change policies with vendor changes switched off
         run: |
           docker run --rm -v "$PWD:/src:ro" registry.fedoraproject.org/fedora:${{ matrix.release }} \
-            bash /src/scripts/test-vendor-change /src/packages/aurora-repos
+            bash -euo pipefail -c '
+              bash /src/scripts/test-vendor-change /src/packages/aurora-repos
+              if [[ $(rpm --eval "%{fedora}") == 44 ]]; then
+                bash /src/scripts/test-fedora44-compatibility
+              fi
+            '
   repo-trust:
     runs-on: ubuntu-24.04
     strategy:

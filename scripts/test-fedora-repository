@@ -1,0 +1,116 @@
+#!/bin/bash
+# Inside a disposable Fedora container: verify/sign the complete CI-built F45
+# inventory, serve it over loopback, install its repository policy and resolve
+# the fleet's normal upgrade. Never uses a release signing credential.
+set -euo pipefail
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+candidates=${1:?CI artifact directory}
+proof=${2:?proof directory}
+mkdir -p "$proof"
+dnf install -y python3 rpm-build rpm-sign gnupg2 createrepo_c dnf5-plugins
+[[ $(rpm --eval '%{fedora}') == 45 ]]
+python3 - "$root" "$candidates" "$proof" <<'PY'
+import hashlib, json, pathlib, shutil, subprocess, sys
+root, candidates, proof = map(pathlib.Path, sys.argv[1:])
+sys.path.insert(0, str(root / 'scripts'))
+import fedoralib
+wanted = set(fedoralib.package_names(root))
+seen = set()
+rpms = proof / 'rpms'
+rpms.mkdir()
+for receipt in sorted(candidates.glob('rpm-f45-*/out/manifests/*.json')):
+    data = json.loads(receipt.read_text())
+    name = data['package']
+    assert name in wanted and name not in seen, name
+    assert receipt.parents[2].name == fedoralib.artifact(name, 45)
+    assert data['succeeded'] and data['fedora'] == 45
+    spec = fedoralib.recipe_files(root, name, 45)[name + '.spec']
+    builder = 'x86_64' if '# aurora-builder: x86_64' in spec.read_text().splitlines() else 'aarch64'
+    assert data['architecture'] == builder
+    assert data['recipe_inputs'] == fedoralib.recipe_inputs(root, name, 45)
+    recorded = set()
+    for row in data['artifacts']:
+        filename = row['filename']
+        assert pathlib.Path(filename).name == filename and filename not in recorded
+        recorded.add(filename)
+        source = filename.endswith(('.src.rpm', '.nosrc.rpm'))
+        path = receipt.parents[1] / ('srpms' if source else 'rpms') / filename
+        assert not path.is_symlink() and path.stat().st_size == row['bytes']
+        with path.open('rb') as stream:
+            assert hashlib.file_digest(stream, 'sha256').hexdigest() == row['sha256']
+        release = subprocess.check_output(['rpm', '-qp', '--qf', '%{RELEASE}', str(path)], text=True)
+        assert '.fc45' in release and '.fc44' not in release, filename
+        if not source:
+            assert not (rpms / filename).exists()
+            shutil.copyfile(path, rpms / filename)
+    assert recorded == {p.name for kind in ('rpms', 'srpms') for p in (receipt.parents[1] / kind).glob('*.rpm')}
+    seen.add(name)
+assert seen == wanted, f'Missing CI builds: {sorted(wanted - seen)}'
+(proof / 'fc45-packages.txt').write_text('\n'.join(sorted(p.name for p in rpms.glob('*.rpm'))) + '\n')
+PY
+python3 "$root/scripts/assemble-repository.py" --fedora-release 45 --candidates "$proof/rpms" --output "$proof/complete"
+export GNUPGHOME=$proof/gnupg
+mkdir -m 0700 "$GNUPGHOME"
+gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'CI repository <ci@example.invalid>' rsa2048 sign 1d
+gpg --batch --armor --export > "$proof/key.asc"
+gpg --batch --armor --export-secret-keys > "$proof/secret.asc"
+python3 - "$proof/secret.asc" <<'PY' |
+import json, pathlib, sys
+print(json.dumps({'key': pathlib.Path(sys.argv[1]).read_text(), 'passphrase': ''}))
+PY
+  python3 "$root/scripts/sign-repository.py" --fedora-release 45 --credentials-stdin \
+    --dry-run-public-key "$proof/key.asc" --rpms "$proof/complete" --output "$proof/site" \
+    --asset-base http://127.0.0.1:8765/45/testing/aarch64
+rm "$proof/secret.asc"
+python3 -m http.server 8765 --bind 127.0.0.1 --directory "$proof/site" > "$proof/http.log" 2>&1 &
+server=$!
+trap 'kill "$server" 2>/dev/null || true; gpgconf --kill gpg-agent' EXIT
+python3 - <<'PY'
+import time, urllib.request
+for attempt in range(100):
+    try:
+        urllib.request.urlopen('http://127.0.0.1:8765/RPM-GPG-KEY-aurora').read()
+        break
+    except OSError:
+        time.sleep(.1)
+else:
+    raise SystemExit('local repository did not start')
+PY
+# Exercise the real desktop replacement graph, rather than only an empty base.
+dnf install -y mesa-dri-drivers mesa-vulkan-drivers mesa-libOpenCL mutter libfprint fprintd upower \
+  shairport-sync
+rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > "$proof/before.txt"
+base=http://127.0.0.1:8765/45/testing/aarch64
+dnf5 -y --repofrompath=aurora-ci,"$base" --repo=aurora-ci \
+  --setopt=aurora-ci.gpgkey=file://"$proof/key.asc" --setopt=aurora-ci.gpgcheck=1 \
+  --setopt=aurora-ci.repo_gpgcheck=1 install aurora-repos
+rpm -q --qf '%{RELEASE}\n' aurora-repos | grep -E '\.fc45$'
+dnf5 --dump-repo-config=aurora | grep -F 'https://aurorasilicon.org/fedora-aurora/45/testing/aarch64'
+mkdir -p /etc/dnf/libdnf5.conf.d
+cat > /etc/dnf/libdnf5.conf.d/90-aurora-fleet-bootchain.conf <<'CONF'
+[main]
+excludepkgs=kernel-aurora*,aura,uboot-aurora,m1n1*,update-m1n1,asahi-scripts,dracut-asahi,uboot-images-armv8,grub2-*,shim-*,kernel,kernel-core,kernel-modules*,kernel-16k*,kernel-uki*,plymouth-theme-aurora
+CONF
+cp /etc/dnf/libdnf5.conf.d/90-aurora-fleet-bootchain.conf "$proof/bootchain.conf"
+dnf5 --dump-main-config > "$proof/dnf-config.txt"
+grep -E '^excludepkgs = .*kernel-aurora' "$proof/dnf-config.txt"
+# Repository metadata key trust is per repo ID. Bootstrap that trust before
+# the deliberately non-interactive --assumeno transaction.
+dnf5 -y --setopt=aurora.baseurl="$base" --setopt=aurora.gpgkey=file://"$proof/key.asc" makecache --refresh
+set +e
+LC_ALL=C dnf5 --setopt=aurora.baseurl="$base" --setopt=aurora.gpgkey=file://"$proof/key.asc" \
+  upgrade --assumeno > "$proof/upgrade.log" 2>&1
+rc=$?
+set -e
+cat "$proof/upgrade.log"
+# DNF5 returns 1 after the requested refusal of a successfully solved transaction.
+[[ $rc == 0 || $rc == 1 ]]
+grep -Eq 'Transaction Summary:|Nothing to do\.' "$proof/upgrade.log"
+! grep -Ei '(^Problem|conflicting requests|cannot install|nothing provides|\.fc44)' "$proof/upgrade.log"
+# Fedora's shairport-sync gives way to the AirPlay 2 build, which pulls in nqptp.
+grep -Eq '^ +shairport-sync +aarch64 +[^ ]+\.fc45\.aurora\.ap2\.' "$proof/upgrade.log"
+grep -Eq '^ +nqptp +aarch64 +[^ ]+\.fc45\.aurora' "$proof/upgrade.log"
+rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > "$proof/after.txt"
+comm -13 "$proof/before.txt" "$proof/after.txt" > "$proof/installed.txt"
+! grep -F '.fc44' "$proof/installed.txt"
+echo 'Fedora 45 signed repository and fleet upgrade resolution: PASS'

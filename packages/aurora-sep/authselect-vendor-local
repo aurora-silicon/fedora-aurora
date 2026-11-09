@@ -10,6 +10,17 @@
 # place of the default one of the same name, so the selected profile and its
 # features stay as they are.
 #
+# In system-auth and password-auth, a password that pam_unix accepts also
+# re-arms a Touch ID lockout (pam_aurora_touchid, from aurora-touchid-rearm):
+#
+#   auth [success=ok new_authtok_reqd=ok default=2] pam_unix.so ...
+#   -auth optional pam_aurora_touchid.so    (with with-fingerprint)
+#   auth sufficient pam_permit.so
+#
+# replaces "auth sufficient pam_unix.so ...", and behaves as it did: a success
+# ends the stack, a failure goes on to the next line. The module never changes
+# the result, and the leading "-" skips it when it is not installed.
+#
 # The copy is rebuilt whenever this package or authselect is installed or
 # updated, so it follows the installed authselect. When the default profile no
 # longer has the expected fingerprint line, the vendor copy is removed and
@@ -67,9 +78,25 @@ new=$vendor.new
 rm -rf "$new"
 mkdir -p "$new"
 for f in "$default"/*; do
-    [ "${f##*/}" = system-auth ] && continue
+    case ${f##*/} in system-auth|password-auth) continue ;; esac
     ln -s "$f" "$new/${f##*/}"
 done
+
+# Copy $1 to $2 with the re-arm lines after its one "sufficient pam_unix.so".
+rearm() {
+    awk '
+        /^auth[ \t]+sufficient[ \t]+pam_unix\.so([ \t]|$)/ {
+            sub(/sufficient[ \t]+/, "[success=ok new_authtok_reqd=ok default=2]   ")
+            print
+            print "-auth       optional                                     pam_aurora_touchid.so {include if \"with-fingerprint\"}"
+            print "auth        sufficient                                   pam_permit.so"
+            n++
+            next
+        }
+        { print }
+        END { exit n != 1 }
+    ' "$1" >"$2"
+}
 guard="auth        [success=1 default=ignore]                   pam_succeed_if.so service notin $services quiet {include if \"with-fingerprint\"}"
 if ! awk -v guard="$guard" '
     /^auth[ \t]+sufficient[ \t]+pam_fprintd\.so([ \t].*)?\{include if "with-fingerprint"\}[ \t]*$/ {
@@ -85,7 +112,20 @@ if ! awk -v guard="$guard" '
     refresh
     exit 0
 fi
+if rearm "$new/system-auth" "$new/system-auth.rearm"; then
+    mv "$new/system-auth.rearm" "$new/system-auth"
+else
+    rm -f "$new/system-auth.rearm"
+    log "$default/system-auth does not have the expected pam_unix line; a password will not re-arm Touch ID there"
+fi
 chmod 0644 "$new/system-auth"
+if [ -f "$default/password-auth" ] && rearm "$default/password-auth" "$new/password-auth"; then
+    chmod 0644 "$new/password-auth"
+else
+    rm -f "$new/password-auth"
+    [ -e "$default/password-auth" ] && ln -s "$default/password-auth" "$new/password-auth"
+    log "$default/password-auth does not have the expected pam_unix line; a password will not re-arm Touch ID there"
+fi
 printf 'Written by %s; rebuilt from %s.\n' "$0" "$default" >"$new/$marker"
 rm -rf "$vendor"
 mv "$new" "$vendor"

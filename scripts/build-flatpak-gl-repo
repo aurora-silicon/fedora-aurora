@@ -6,6 +6,18 @@ archive=${1:?destination tar path}
 work=${AURORA_FLATPAK_GL_WORK:-$root/out/flatpak-gl}
 mkdir -p "$work" "$(dirname "$archive")"
 flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+# The F45 RPM must carry the F45 graphics candidate, including the Flatpak payload.
+if [[ ${AURORA_FEDORA_RELEASE:-44} == 45 ]]; then
+  read -r AURORA_MESA_COMMIT AURORA_MESA_SHA256 < <(python3 - "$root" <<'PYCODE'
+import sys
+sys.path.insert(0, sys.argv[1] + '/scripts')
+import fedoralib
+pin = fedoralib.sources(sys.argv[1], 45)['mesa-aurora']
+print(pin['commit'], pin['sha256'])
+PYCODE
+  )
+  export AURORA_MESA_COMMIT AURORA_MESA_SHA256
+fi
 for branch in 25.08 26.08; do
   flatpak install --user --noninteractive -y --arch=aarch64 flathub \
     org.freedesktop.Platform//"$branch" org.freedesktop.Sdk//"$branch" \

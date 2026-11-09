@@ -2,7 +2,7 @@
 """Assemble the Fedora DNF metadata site for every channel and record state.
 
 GitHub Pages serves one site per repository, so every deployment publishes all
-channels: 44/testing/aarch64 and 44/stable/aarch64. Each holds the exact
+channels: 44/testing/aarch64, 44/stable/aarch64 and 45/testing/aarch64. Each holds the exact
 signed metadata of an immutable snapshot release (its RPMs stay at the
 release's URLs). A channel is the same signed bytes at another path, so
 promotion never re-signs anything. `assemble` authenticates the snapshots and
@@ -24,10 +24,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
 sys.path.insert(0, str(ROOT / 'scripts'))
 import updatelib as lib  # noqa: E402
+import fedoralib  # noqa: E402
 
-TAG = re.compile(r'testing-[A-Za-z0-9._-]+')
 CHANNELS = ('testing', 'stable')
 SITE_BUDGET = 200_000_000
+SLOTS = {'testing': (44, 'testing'), 'stable': (44, 'stable'), '45/testing': (45, 'testing')}
+
+
+def channel_key(channel, fedora=44):
+    fedora = fedoralib.release(fedora)
+    if fedora == 45 and channel != 'testing':
+        raise ValueError('Fedora 45 is testing-only; stable remains Fedora 44')
+    return channel if fedora == 44 else f'{fedora}/{channel}'
 
 
 def keyring(home):
@@ -68,36 +76,38 @@ def verify_attestation(directory, repository):
     return 'verified'
 
 
-def fetch_snapshot(repository, tag, channel, site, work, home, fingerprint):
-    """Place the snapshot's signed metadata at 44/<channel>/aarch64."""
-    if not TAG.fullmatch(tag):
-        raise ValueError(f'not a testing snapshot tag: {tag}')
-    download = work / f'{channel}-download'
+def fetch_snapshot(repository, tag, channel, site, work, home, fingerprint, fedora=44):
+    """Place the snapshot's signed metadata at <fedora>/<channel>/aarch64."""
+    channel_key(channel, fedora)
+    fedoralib.snapshot(tag, fedora)
+    download = work / f'{fedora}-{channel}-download'
     download.mkdir(parents=True)
     lib.gh('release', 'download', tag, '--repo', repository, '--dir', str(download),
            '--pattern', 'repository-metadata-*', '--pattern', 'SHA256SUMS', '--pattern', 'manifest.json')
     archive = download / f'repository-metadata-{tag}.tar.gz'
     gpg_verify(home, archive.with_name(archive.name + '.asc'), archive)
     provenance = verify_attestation(download, repository)
-    extracted = work / f'{channel}-metadata'
+    extracted = work / f'{fedora}-{channel}-metadata'
     with tarfile.open(archive) as bundle:
         bundle.extractall(extracted, filter='data')
-    source = extracted / '44/testing/aarch64'
+    source = extracted / f'{fedora}/testing/aarch64'
     gpg_verify(home, source / 'repodata/repomd.xml.asc', source / 'repodata/repomd.xml')
     manifest = json.loads((source / 'manifest.json').read_text())
-    if manifest.get('dry_run') or manifest.get('signing_key') != fingerprint:
+    if (manifest.get('dry_run') or manifest.get('signing_key') != fingerprint
+            or manifest.get('fedora') != fedora or manifest.get('channel') != 'testing'
+            or manifest.get('architecture') != 'aarch64'):
         raise ValueError(f'{tag}: metadata is not signed by the release key')
     if not manifest.get('asset_base', '').endswith('/' + tag):
         raise ValueError(f'{tag}: metadata points at another release')
-    target = site / '44' / channel / 'aarch64'
+    target = site / str(fedora) / channel / 'aarch64'
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, target)
     return provenance
 
 
-def live_repository(site_url, channel, work, home):
-    base = f'{site_url.rstrip("/")}/44/{channel}/aarch64'
-    target = work / f'live-{channel}'
+def live_repository(site_url, channel, work, home, fedora=44):
+    base = f'{site_url.rstrip("/")}/{fedora}/{channel}/aarch64'
+    target = work / f'live-{fedora}-{channel}'
     try:
         lib.download([base + '/repodata/repomd.xml'], target / 'repodata/repomd.xml', attempts=3)
         lib.download([base + '/repodata/repomd.xml.asc'], target / 'repodata/repomd.xml.asc', attempts=3)
@@ -117,8 +127,9 @@ def live_repository(site_url, channel, work, home):
 
 def assemble(args):
     repository = args.repository
+    key = channel_key(args.channel, args.fedora_release)
     state = lib.load_channels(ROOT, repository)
-    current = {channel: state['channels'].get(channel, {}).get('tag') for channel in CHANNELS}
+    current = {channel: state['channels'].get(channel, {}).get('tag') for channel in SLOTS}
     tag = args.tag
     if args.channel == 'stable':
         tag = tag or current['testing']
@@ -134,20 +145,21 @@ def assemble(args):
             raise SystemExit(f'{tag} has been on testing for {soaked:.1f} h; the minimum is {args.min_soak_hours} h.')
     if not tag:
         raise SystemExit('A release tag is required for the testing channel.')
-    target = dict(current, **{args.channel: tag})
+    fedoralib.snapshot(tag, args.fedora_release)
+    target = dict(current, **{key: tag})
     site, work = Path(args.site), Path(args.work)
     if site.exists():
         raise SystemExit('use a new site directory')
     home, fingerprint = keyring(work / 'gnupg')
     provenance = {}
-    for channel in CHANNELS:
-        if target[channel]:
-            provenance[channel] = fetch_snapshot(repository, target[channel], channel, site, work, home, fingerprint)
+    for slot, (fedora, channel) in SLOTS.items():
+        if target[slot]:
+            provenance[slot] = fetch_snapshot(repository, target[slot], channel, site, work, home, fingerprint, fedora)
     report = ''
-    live = live_repository(args.site_url, args.channel, work, home)
+    live = live_repository(args.site_url, args.channel, work, home, args.fedora_release)
     if live is not None:
         command = [sys.executable, str(ROOT / 'scripts/check-feed-versions.py'), '--old', str(live),
-                   '--new', str(site / '44' / args.channel / 'aarch64')]
+                   '--new', str(site / str(args.fedora_release) / args.channel / 'aarch64')]
         if args.allow_downgrade:
             command.append('--allow-downgrade')
         checked = subprocess.run(command, capture_output=True, text=True)
@@ -164,17 +176,17 @@ def assemble(args):
     now = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     entry = {'tag': tag, 'commit': release['target_commitish'], 'released_at': release['created_at'],
              'deployed_at': now, 'run_id': os.environ.get('GITHUB_RUN_ID', ''),
-             'actor': os.environ.get('GITHUB_ACTOR', ''), 'provenance': provenance[args.channel]}
-    new_state = lib.record_channel(state, args.channel, entry)
+             'actor': os.environ.get('GITHUB_ACTOR', ''), 'provenance': provenance[key]}
+    new_state = lib.record_channel(state, key, entry)
     (site / 'channels.json').write_text(json.dumps({'repository': repository, 'channels': new_state['channels'],
                                                     'updated_at': now}, indent=2, sort_keys=True) + '\n')
-    items = ''.join(f'<li>{c}: <code>baseurl=https://aurorasilicon.org/fedora-aurora/44/{c}/aarch64</code> '
-                    f'({target[c]})</li>' for c in CHANNELS if target[c])
+    items = ''.join(f'<li>{c}: <code>baseurl=https://aurorasilicon.org/fedora-aurora/{SLOTS[c][0]}/{SLOTS[c][1]}/aarch64</code> '
+                    f'({target[c]})</li>' for c in SLOTS if target[c])
     (site / 'index.html').write_text(f'<!doctype html><title>Aurora Fedora Remix</title>'
                                      f'<h1>Aurora Fedora Remix RPM repositories</h1><ul>{items}</ul>\n')
     Path(args.state_out).write_text(json.dumps(new_state, indent=2) + '\n')
-    lines = [f'## {args.channel}: {current[args.channel] or "(none)"} -> {tag}', '']
-    lines += [f'- {c}: `{target[c]}` (attestation: {provenance[c]})' for c in CHANNELS if target[c]]
+    lines = [f'## {key}: {current[key] or "(none)"} -> {tag}', '']
+    lines += [f'- {c}: `{target[c]}` (attestation: {provenance[c]})' for c in SLOTS if target[c]]
     lines += ['', '```', report.strip() or 'no live repository to compare', '```']
     print('\n'.join(lines))
 
@@ -183,9 +195,10 @@ def record(args):
     state = json.loads(Path(args.state).read_text())
     if state.get('repository') != args.repository:
         raise SystemExit('state belongs to another repository')
-    entry = state['channels'][args.channel]
-    lib.commit_channels(ROOT, state, f'Serve {entry["tag"]} on {args.channel}\n\nRun {entry.get("run_id", "")}')
-    print(f'Recorded {entry["tag"]} on {args.channel}.')
+    key = channel_key(args.channel, args.fedora_release)
+    entry = state['channels'][key]
+    lib.commit_channels(ROOT, state, f'Serve {entry["tag"]} on {key}\n\nRun {entry.get("run_id", "")}')
+    print(f'Recorded {entry["tag"]} on {key}.')
 
 
 def main():
@@ -193,6 +206,7 @@ def main():
     parser.add_argument('--repository', default=os.environ.get('GITHUB_REPOSITORY', ''))
     commands = parser.add_subparsers(dest='command', required=True)
     build = commands.add_parser('assemble')
+    build.add_argument('--fedora-release', type=int, choices=fedoralib.RELEASES, default=44)
     build.add_argument('--channel', choices=CHANNELS, required=True)
     build.add_argument('--tag', default='')
     build.add_argument('--allow-downgrade', action='store_true')
@@ -202,6 +216,7 @@ def main():
     build.add_argument('--state-out', required=True)
     build.add_argument('--site-url', default='https://aurorasilicon.org/fedora-aurora')
     store = commands.add_parser('record')
+    store.add_argument('--fedora-release', type=int, choices=fedoralib.RELEASES, default=44)
     store.add_argument('--channel', choices=CHANNELS, required=True)
     store.add_argument('--state', required=True)
     args = parser.parse_args()
