@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 24%{?dist}
+Release: 25%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -32,6 +32,8 @@ Source110: 50-aurora-irqbalance.conf
 Source111: 62-aurora-gpu-render-only.rules
 Source112: aurora-performance.conf
 Source113: aurora-ppd-config
+Source114: aurora-wake-for-network
+Source115: 63-aurora-wake-for-network.rules
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -65,6 +67,8 @@ Requires: aurora-kbd-light
 # Asahi Remix system with these services keeps following Aurora's builds.
 Requires: aurora-repos
 Requires: tuned
+# Wake for network access (magic packet) follows the power adapter.
+Requires: ethtool iw
 Requires: python3
 Requires: (aurora-platform-selinux = %{version}-%{release} if selinux-policy-%{selinuxtype})
 
@@ -119,6 +123,8 @@ install -Dm755 %{SOURCE107} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora
 install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-console
 install -Dm644 %{SOURCE112} %{buildroot}%{_prefix}/lib/tuned/profiles/aurora-performance/tuned.conf
 install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
+install -Dm755 %{SOURCE114} %{buildroot}%{_libexecdir}/aurora/aurora-wake-for-network
+install -Dm644 %{SOURCE115} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-network.rules
 
 %posttrans core
 # Fedora's flicker-free GRUB output, once per system; see the script.
@@ -153,11 +159,13 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 %{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf
 %{_udevrulesdir}/61-aurora-dmi-id.rules
 %{_udevrulesdir}/62-aurora-gpu-render-only.rules
+%{_udevrulesdir}/63-aurora-wake-for-network.rules
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
 %{_prefix}/lib/dracut/modules.d/91aurora-early-kms/
 %{_libexecdir}/aurora/aurora-grub-console
 %{_libexecdir}/aurora/aurora-ppd-config
+%{_libexecdir}/aurora/aurora-wake-for-network
 %dir %{_prefix}/lib/tuned/profiles/aurora-performance
 %{_prefix}/lib/tuned/profiles/aurora-performance/tuned.conf
 
@@ -166,6 +174,13 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-25
+- Wake for network access as macOS defaults it on laptops: magic-packet
+  wake is armed on wired interfaces that support it and on Wi-Fi phys that
+  offer magic-packet WoWLAN while the power adapter is connected, and
+  disarmed on battery. /etc/aurora/wake-for-network can set always or
+  never instead.
+
 * Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-24
 - aurora-platform-core requires libva-v4l2-request-avd, the VA-API driver
   for the video decoder. New images install it, but Macs that update with
