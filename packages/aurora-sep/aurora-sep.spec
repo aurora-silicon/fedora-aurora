@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 25%{?dist}
+Release: 26%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -32,6 +32,7 @@ Source21: touchid-setup-needed
 Source22: authselect-vendor-local
 Source23: powerdevilrc
 Source24: aurora-sep-modprobe.conf
+Source25: aurora-sep
 BuildArch: noarch
 BuildRequires: systemd-rpm-macros fprintd authselect-libs
 BuildRequires: selinux-policy-devel make bzip2
@@ -100,6 +101,7 @@ unit %{SOURCE16} %{SOURCE17} aurora-sep-greeter-fingerprint
 install -Dpm0644 %{SOURCE11} %{buildroot}%{_unitdir}/aurora-sep.timer
 install -Dpm0644 %{SOURCE12} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep-load.conf
 install -Dpm0644 %{SOURCE24} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep.conf
+install -Dpm0755 %{SOURCE25} %{buildroot}%{_bindir}/aurora-sep
 install -Dpm0755 %{SOURCE8} %{buildroot}%{_sbindir}/aurora-touchid-setup
 install -Dpm0755 %{SOURCE21} %{buildroot}%{_libexecdir}/aurora/touchid-setup-needed
 install -Dpm0644 %{SOURCE20} %{buildroot}%{_unitdir}/aurora-touchid-setup.service
@@ -207,6 +209,7 @@ fi
 %doc README.md XART-SAFETY.md OS-IDENTITY.md
 %{_libexecdir}/aurora-sep-load
 %{_libexecdir}/aurora-sep-ready
+%{_bindir}/aurora-sep
 %{_libexecdir}/aurora-sep-greeter-fingerprint
 %{_sbindir}/aurora-touchid-setup
 %{_libexecdir}/aurora/touchid-setup-needed
@@ -233,6 +236,10 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-26
+- Ship aurora-sep (aurora-sep status), the read-only SEP state self-check
+  from aurora-silicon/linux tools/aurora-sep.
+
 * Tue Nov 10 2026 Diljit Singh <hey@djdev.me> - 1-25
 - load-driver returns at once when the kernel enabled no SEP (no *.sep
   platform device, as on a board without an apple_sep profile) instead
