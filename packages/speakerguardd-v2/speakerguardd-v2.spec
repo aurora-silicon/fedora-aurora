@@ -1,6 +1,6 @@
-%global commit 5104994eda359da3b667dce34ce4bd6df3481f41
+%global commit a561b6fbcf595d1c5c844d9a696b47dec948366a
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261108
+%global snapdate 20261109
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.31.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.36.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -36,6 +36,10 @@ Requires: aurora-audio >= 4.1-11
 %{?systemd_requires}
 
 %description
+speakerguardd v2 is a preview. It does not fully match macOS yet. The legacy
+protection (speakersafetyd, speakerguardd 0.1) is the supported default and
+stays installed. To go back at any time: sudo aurora-speaker-upgrade --revert.
+
 speakerguardd 1.0 is a new speaker protection stack that works the way
 macOS's does: the protection unit runs inside the PipeWire speaker graph as
 an LV2 plugin, with the amplifier's voltage and current sense as its second
@@ -101,6 +105,8 @@ for f in speakerguardd-provision speakerguardd-gate speakerguardd-selfcheck spea
 done
 install -Dm644 packaging/session/wiring.py %{buildroot}$lx/wiring.py
 install -Dm644 packaging/session/gen.py %{buildroot}$lx/gen.py
+# The macOS parity attestations speakerguardd-selfcheck verify reads.
+install -Dm644 packaging/session/parity.json %{buildroot}%{_datadir}/speakerguardd/parity.json
 # The fleet gate's data, unchanged from upstream. Every per-board value is
 # derived from the Mac's device tree and tuning at run time (wiring.py).
 install -Dm644 packaging/session/gate.json %{buildroot}%{_datadir}/speakerguardd/gate.json
@@ -128,6 +134,8 @@ grep -qx "ExecStart=$lx/speakerguardd \$SGV2_ARGS" speakerguardd-v2.service
 grep -qx 'Requires=speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service' speakerguardd-v2.service
 grep -q '^After=.*speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service' speakerguardd-v2.service
 grep -Eq '^CapabilityBoundingSet=.*\bCAP_SYS_ADMIN\b' speakerguardd-v2.service
+# A dual kernel (linux 98cb6a86+): the supervisor's start puts it on the lease.
+grep -qx "ExecStartPre=$lx/speakerguardd-gate interface" speakerguardd-v2.service
 grep -qx 'Requires=speakerguardd-v2-provision.service' speakerguardd-v2-selfcheck.service
 grep -qx 'Before=speakerguardd-v2-selfcheck.service speakerguardd-v2.service' speakerguardd-v2-provision.service
 grep -qx "ExecStart=$lx/speakerguardd-provision run" speakerguardd-v2-provision.service
@@ -171,7 +179,7 @@ done
 # The older daemons start only where v2 does not run and the kernel has no
 # v2 interface: exactly one stack holds the speakers on each boot.
 sed -e "s@/usr/libexec/speakerguardd/@$lx/@g" packaging/systemd/legacy-gate.conf > legacy-gate.conf
-grep -qx "ExecCondition=$lx/speakerguardd-gate legacy" legacy-gate.conf
+grep -qx "ExecCondition=+$lx/speakerguardd-gate legacy" legacy-gate.conf
 for u in speakersafetyd speakerguardd; do
     install -Dm644 legacy-gate.conf %{buildroot}%{_unitdir}/$u.service.d/60-speakerguardd-v2-gate.conf
 done
@@ -239,6 +247,47 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.36.20261109gita561b6fbcf59
+- Release candidate 8.3 (speakerguardd#142): before any switch,
+  aurora-speaker-upgrade says that speakerguardd v2 is a preview, asks for
+  confirmation in a terminal, and needs --i-understand-preview when it runs
+  without one (otherwise exit 2, nothing changed).
+
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.35.20261109git65064d88a201
+- Release candidate 8.2 (speakerguardd#134): a switch in the running boot
+  grants at once (the upgrade's umask no longer makes v2's /run graph state
+  unreadable to the seat user, which left the speakers silent until a
+  reboot); the MacBook Neo's speaker PCM wakes on period interrupts (#133);
+  voicing parity #129/#135.
+
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.34.20261109git416b1f513b9d
+- Release candidate 8.1 (speakerguardd#131): the legacy units' gate runs
+  privileged (speakersafetyd is a DynamicUser and could not read the upgrade's
+  root-only setting, so a switched Mac started speakersafetyd, which held the
+  sense PCM v2 needs: no speakers until reboot); a switched Mac gets the older
+  daemons only on a stable refusal; --revert starts only the sense PCM's own
+  unit; --check works on dual-interface kernels before the first switch.
+
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.33.20261109gitf4bb2fdb4406
+- Release candidate 8, back as an opt-in package: nothing in the default
+  install pulls it, and on every kernel the gate keeps speakersafetyd in charge
+  until aurora-speaker-upgrade has switched this Mac (it ships disabled).
+- Dual-interface kernels (linux 98cb6a86): the gate reads "Speaker Protection
+  Interface" (speakerguardd#117).
+- speakerguardd-selfcheck verify: refuses tunings v2 renders unlike macOS
+  (per-AID parity attestation, installed as parity.json) and boot-time graph
+  xruns; the speaker sink wakes on period interrupts (#114).
+- Parity: mstk algorithm-0 band-zero rate (#113), ToneMeister version-0
+  peaks (#116), BuzzKill tracker (#120); per-macOS-release attestation
+  blocks 25C56, 25G83 and 26A428 (#121).
+- Dual-interface lease: the supervisor writes the interface at start, the
+  switch test switches it, --revert hands the session back to the
+  distribution's speaker graph (#123).
+- Every graph sink is held at the PCM rate (a 44.1 kHz client during a
+  re-grant no longer wedges the speakers) and the LV2 protect stage takes
+  in-place ports (#121). The upgrade tool's boot unit records a refusal
+  instead of retrying it every boot (#125).
+
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.31.20261108git5104994eda35
 - Move to 5104994eda35 (Plan A release candidate 7): RC6b plus speakerguardd#101 (the
   protect input is an internal sink) and #106 (the speaker card's raw PCMs stay out of

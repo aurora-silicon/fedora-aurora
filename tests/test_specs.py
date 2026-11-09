@@ -364,8 +364,9 @@ class SpecTests(unittest.TestCase):
                      'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise',
                      'aurora-kbd-light']:
             self.assertIn(name, requires)
-        # Speaker protection: both stacks on every Mac; the fleet gate starts one.
-        self.assertRegex(core, r'(?m)^Requires: speakersafetyd speakerguardd speakerguardd-v2$')
+        # Ship the established protection stack without the v2 preview.
+        self.assertRegex(core, r'(?m)^Requires: speakersafetyd speakerguardd$')
+        self.assertNotIn('speakerguardd-v2', core)
         for name in requires:
             self.assertFalse(name.startswith(('kernel', 'uboot', 'm1n1')) or name == 'aura', name)
         self.assertNotIn('aurora-release', requires)
@@ -375,63 +376,24 @@ class SpecTests(unittest.TestCase):
         self.assertEqual((d / 'aurora-platform-core.conf').read_text().split(), ['aurora-platform-core'])
         self.assertIn('protected.d/aurora-platform-core.conf', text.split('%files core', 1)[1])
         self.assertRegex(text, r'(?m)^Requires: aurora-platform-core = %\{version\}-%\{release\}$')
-    def test_speakerguardd_v2_installs_everywhere_gated_by_board(self):
-        d = ROOT / 'packages' / 'speakerguardd-v2'
-        text = (d / 'speakerguardd-v2.spec').read_text()
-        main = text.split('%package selinux', 1)[0]
-        # Beside the 0.1 daemon and speakersafetyd: nothing replaces either,
-        # and there is no opt-in package any more.
-        self.assertNotRegex(main, r'(?m)^(Conflicts|Obsoletes|Provides):')
-        self.assertNotIn('replace-legacy', text.split('%changelog', 1)[0])
-        self.assertIn('%{_libexecdir}/speakerguardd-v2/speakerguardd', text)
-        self.assertIn('%{_libdir}/lv2/sgv2.lv2/', text)
-        files = text.split('%files', 1)[1].split('%files selinux', 1)[0]
-        for u in ['speakerguardd-v2.service', 'speakerguardd-v2-provision.service', 'speakerguardd-v2-selfcheck.service',
-                  'speakerguardd-v2-switchtest.service', 'speakerguardd-v2-seat.service', 'speakerguardd-v2-seat.path',
-                  'speakerguardd-v2-sleep.service']:
-            self.assertIn('%{_unitdir}/' + u, files)
-        for u in ['speakerguardd-v2-session.service', 'speakerguardd-v2-graph.service']:
-            self.assertIn('%{_userunitdir}/' + u, files)
-        # The units are enabled by the package's presets; the gate decides.
-        preset = [l for l in (d / '50-speakerguardd-v2.preset').read_text().splitlines() if not l.startswith('#')]
-        self.assertEqual(preset, ['enable speakerguardd-v2.service', 'enable speakerguardd-v2-provision.service',
-                                  'enable speakerguardd-v2-selfcheck.service', 'enable speakerguardd-v2-switchtest.service',
-                                  'enable speakerguardd-v2-seat.path',
-                                  'enable speakerguardd-v2-sleep.service'])
-        # A unit new in an upgrade gets its preset in %post (the macro applies it on a first install only).
-        self.assertIn('systemctl --no-reload preset speakerguardd-v2-sleep.service', text)
-        self.assertIn('%{_presetdir}/50-speakerguardd-v2.preset', files)
-        self.assertIn("enable speakerguardd-v2-graph.service\\nenable speakerguardd-v2-session.service", text)
-        # The gate is upstream's, with upstream's data: no distribution copy.
-        self.assertFalse((d / 'speakerguardd-v2-gate').exists())
-        self.assertIn('install -Dm644 packaging/session/gate.json %{buildroot}%{_datadir}/speakerguardd/gate.json', text)
-        # Every per-board value is derived on the Mac (wiring.py): no machine table.
-        self.assertNotIn('machines.json', text.split('%install', 1)[1].split('%files', 1)[0])
-        self.assertIn('install -Dm644 packaging/session/wiring.py', text)
-        for u in ['speakerguardd-v2.service', 'speakerguardd-v2-provision.service', 'speakerguardd-v2-selfcheck.service',
-                  'speakerguardd-v2-seat.service']:
-            self.assertIn(u, text.split('grep -qx "ExecCondition=$lx/speakerguardd-gate v2" $u', 1)[0])
-        # The older daemons carry the same gate, the other way round.
-        for u in ['speakersafetyd', 'speakerguardd']:
-            self.assertIn('%{_unitdir}/' + u + '.service.d/60-speakerguardd-v2-gate.conf', files)
-        self.assertIn('grep -qx "ExecCondition=$lx/speakerguardd-gate legacy" legacy-gate.conf', text)
-        # Provisioning and the self-check come before the supervisor.
-        self.assertIn("grep -qx 'Requires=speakerguardd-v2-provision.service speakerguardd-v2-selfcheck.service' speakerguardd-v2.service", text)
-        self.assertIn("grep -qx 'Requires=speakerguardd-v2-provision.service' speakerguardd-v2-selfcheck.service", text)
-        # The self-check's switch test runs after login, before the supervisor (speakerguardd#102).
-        self.assertIn("grep -qx 'Requires=speakerguardd-v2-switchtest.service' speakerguardd-v2.service", text)
-        self.assertIn("grep -qx 'After=speakerguardd-v2-selfcheck.service systemd-user-sessions.service' speakerguardd-v2-switchtest.service", text)
-        self.assertIn('python3 -I packaging/session/test_provision.py', text.split('%check', 1)[1].split('%install', 1)[0])
-        # The SELinux module labels the program where this package installs it.
-        fc = (d / 'speakerguardd.fc').read_text()
-        self.assertIn('/usr/libexec/speakerguardd-v2/speakerguardd\t--\tgen_context(system_u:object_r:speakerguardd_exec_t,s0)', fc)
-        self.assertIn('/run/speakerguardd(/.*)?', fc)
-        self.assertIn('/var/lib/speakerguardd(/.*)?', fc)
-        self.assertFalse((d / 'speakerguardd.te').exists())
-        self.assertIn('cp -p packaging/selinux/%{modulename}.te .', text)
-        # aurora-audio requires both stacks too.
+    def test_audio_keeps_legacy_profiles_and_v2_is_opt_in(self):
+        # v2 is back as release candidate 8, installable by hand only: no
+        # default package pulls it, and aurora-audio retires only RC7 and older.
+        spec = (ROOT / 'packages/speakerguardd-v2/speakerguardd-v2.spec').read_text()
+        self.assertRegex(spec, r'(?m)^Release: 0\.3[3-9]\.')
+        self.assertIn('install -Dm644 packaging/session/parity.json', spec)
+        for name in ('aurora-platform', 'aurora-audio', 'kernel-aurora'):
+            text = (ROOT / 'packages' / name / f'{name}.spec').read_text()
+            self.assertNotRegex(text, r'(?m)^(Requires|Recommends):.*\b(speakerguardd-v2|aurora-speaker-upgrade)\b', name)
         audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
-        self.assertRegex(audio, r'(?m)^Requires: speakersafetyd speakerguardd speakerguardd-v2$')
+        self.assertRegex(audio, r'(?m)^Requires: speakersafetyd speakerguardd$')
+        self.assertIn('Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33\n', audio)
+        self.assertIn('Conflicts: speakerguardd-v2 < 1.0.0~alpha.1-0.33\n', audio)
+        self.assertIn('0001-restore-legacy-speaker-graphs.patch', audio)
+        kernel = (ROOT / 'packages/kernel-aurora/kernel-aurora.spec').read_text()
+        self.assertIn('Requires: aurora-audio >= 4.1-12', kernel)
+        self.assertIn('Requires: (aurora-platform-core >= 44-23 if aurora-platform-core)', kernel)
+
     def test_aurora_repos_owns_the_repository_key_and_vendor_policies(self):
         d = ROOT / 'packages' / 'aurora-repos'
         spec = (d / 'aurora-repos.spec').read_text()

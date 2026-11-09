@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 22%{?dist}
+Release: 24%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -48,15 +48,18 @@ Obsoletes: asahi-platform-metapackage-core < 1
 Obsoletes: asahi-platform-metapackage-audio < 1
 Conflicts: asahi-platform-metapackage < 1
 Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
-# Both speaker protection stacks, on every Mac: speakerguardd-v2's fleet
-# gate starts exactly one of them per boot (v2 on a gated board whose kernel
-# has the v2 interface, the older daemons everywhere else).
-Requires: speakersafetyd speakerguardd speakerguardd-v2
-Requires: aurora-audio alsa-ucm-conf-aurora
+# Use the established protection daemons; v2 is not shipped in images.
+Requires: speakersafetyd speakerguardd
+Requires: aurora-audio >= 4.1-12
+Requires: alsa-ucm-conf-aurora
 # BlueZ 5.86 attempts an empty default-parameter transaction at startup.
 # 5.87 includes the upstream empty-TLV fix; retain real error reporting.
 Requires: bluez >= 5.87
 Requires: aurora-camera-denoise
+# The VA-API driver for the video decoder, so players and browsers that
+# use VA-API decode in hardware (images install it; this brings it to Macs
+# that update with dnf).
+Requires: libva-v4l2-request-avd
 Requires: aurora-kbd-light
 # The Aurora repository with its key and dnf vendor policies, so a Fedora
 # Asahi Remix system with these services keeps following Aurora's builds.
@@ -163,6 +166,17 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-24
+- aurora-platform-core requires libva-v4l2-request-avd, the VA-API driver
+  for the video decoder. New images install it, but Macs that update with
+  dnf never got it, so VA-API players and browsers had no driver and
+  decoded in software.
+
+* Sun Nov 08 2026 Aurora Silicon <hey@djdev.me> - 44-23
+- Restore legacy speaker protection as the shipped stack and require the
+  restored Asahi DSP profiles. Do not install the speakerguardd v2 preview.
+
+
 * Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-22
 - Let plymouthd map a DRM card that the kernel created after the policy
   load and udev has not relabelled yet. Such a node briefly carries the

@@ -29,7 +29,7 @@ systemctl --user stop airdrop-receiver.service
 pkexec /usr/libexec/omdrop/omdrop-discoverable stop
 ```
 
-Set Apple devices to **Everyone** (on an iPhone: Settings > General > AirDrop). Without an Apple-issued identity, this Mac uses a self-signed one, and Contacts Only devices refuse it. The first send creates `~/.omdrop/keys/*.self-signed.pem`.
+With an Apple device: a macOS host routed TCP to this Mac over AWDL at 144-191 Mbit/s. Set Apple devices to **Everyone** (on an iPhone: Settings > General > AirDrop). Without an Apple-issued identity, this Mac uses a self-signed one, and Contacts Only devices refuse it. The first send creates `~/.omdrop/keys/*.self-signed.pem`.
 
 ## Speed and the main Wi-Fi link
 
@@ -54,5 +54,6 @@ The schedule is set when `awdl0` is created. If the Mac joins a network on anoth
 - The helpers are in `/usr/libexec/omdrop`, not `/usr/lib/omdrop`.
 - `awdl-up` accepts Fedora's per-network cloned Wi-Fi MAC (`wifi.cloned-mac-address=stable-ssid`) once the Mac is connected. Upstream refuses to create `awdl0` while a cloned MAC is in use.
 - No DKMS module and no `brcmfmac` debug setting: kernel-aurora's driver already has AWDL.
+- Each window sets AWDL's 5 GHz social channel (`awdl_osoc_chan`) to 149, or to the value in `/etc/omdrop/osoc-chan`. Left at the firmware default, macOS hears this Mac only on 2.4 GHz and won't route to it. Its log shows `Not Routable. Peer discovered(on 2.4GHz only)`.
 - `awdl-warmup.service` is installed disabled. Upstream enables it.
 - With no `/etc/omdrop/peer-chan`, the AWDL channel follows the Wi-Fi link (see above). Upstream always uses 44.
