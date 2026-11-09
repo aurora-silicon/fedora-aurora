@@ -1,4 +1,4 @@
-%global commit ff88f9f98070e64e6df36b87cf622dd4d53b9dca
+%global commit 49b1c107a78b422ab404836fe8da8fbb3c04a857
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261109
 %global selinuxtype targeted
@@ -8,8 +8,8 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.37.%{snapdate}git%{shortcommit}%{?dist}
-Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
+Release: 0.38.%{snapdate}git%{shortcommit}%{?dist}
+Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
 URL: https://github.com/aurora-silicon/speakerguardd
@@ -36,10 +36,6 @@ Requires: aurora-audio >= 4.1-11
 %{?systemd_requires}
 
 %description
-speakerguardd v2 is a preview. It does not fully match macOS yet. The legacy
-protection (speakersafetyd, speakerguardd 0.1) is the supported default and
-stays installed. To go back at any time: sudo aurora-speaker-upgrade --revert.
-
 speakerguardd 1.0 is a new speaker protection stack that works the way
 macOS's does: the protection unit runs inside the PipeWire speaker graph as
 an LV2 plugin, with the amplifier's voltage and current sense as its second
@@ -247,6 +243,12 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.38.20261109git49b1c107a78b
+- Release candidate 9 (speakerguardd#144): aurora-speaker-upgrade switches
+  without the preview confirmation, and the boot unit no longer needs
+  --i-understand-preview (still accepted, no effect). The package
+  description drops the preview notice.
+
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.37.20261109gitff88f9f98070
 - Release candidate 8.4 (speakerguardd#143): the supervisor's own hang
   watch no longer counts a system sleep, so a sleep entered without the

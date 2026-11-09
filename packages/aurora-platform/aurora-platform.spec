@@ -51,7 +51,7 @@ Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
 # The established protection daemons stay installed as the fallback;
 # aurora-speaker-upgrade moves a Mac to v2 only when its self-check passes.
 Requires: speakersafetyd speakerguardd
-Requires: speakerguardd-v2 >= 1.0.0~alpha.1-0.37 aurora-speaker-upgrade >= 0.1-0.7
+Requires: speakerguardd-v2 >= 1.0.0~alpha.1-0.38 aurora-speaker-upgrade >= 0.1-0.8
 Requires: aurora-audio >= 4.1-12
 Requires: alsa-ucm-conf-aurora
 # BlueZ 5.86 attempts an empty default-parameter transaction at startup.
@@ -169,7 +169,7 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 
 %changelog
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 44-25
-- aurora-platform-core requires speakerguardd-v2 (release candidate 8.4 or
+- aurora-platform-core requires speakerguardd-v2 (release candidate 9 or
   later) and aurora-speaker-upgrade. speakersafetyd stays installed and
   keeps any Mac the self-check refuses.
 
