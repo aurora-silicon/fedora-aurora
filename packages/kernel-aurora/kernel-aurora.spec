@@ -1,4 +1,4 @@
-%global commit 98cb6a868e5a3ad5b7cc01babfa10c362392704f
+%global commit 6ff31cbfa20f18d32b05af622420de72a1d10ecd
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -155,7 +155,8 @@ fi
 
 %changelog
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-28
-- Pin integration/aurora 98cb6a86. Its speaker driver boots every Mac on the
+- Pin integration/aurora 6ff31cbf (Neo suspend fix linux#1283 on top of the
+  dual speaker interface linux#1279). Its speaker driver boots every Mac on the
   legacy "Speaker Volume Unlock" interface that speakersafetyd uses, so
   0001-restore-legacy-speaker-protection.patch is no longer needed. It also
   carries the MCA PCM buffer bound (linux#1258), so 0002 is dropped as well.
