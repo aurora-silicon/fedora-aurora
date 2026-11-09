@@ -1,4 +1,4 @@
-%global commit 3fbe180b5c634350c1ece5e0da650109abf40edd
+%global commit cee39338464889517d57396422f62427d07a9380
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261109
 
@@ -12,7 +12,7 @@ License: MIT
 URL: https://github.com/aurora-silicon/speakerguardd/tree/v2/packaging/upgrade
 Source0: aurora-speaker-upgrade-%{commit}.tar.gz
 BuildArch: noarch
-BuildRequires: make systemd-rpm-macros python3 python3-cryptography
+BuildRequires: make systemd-rpm-macros python3 python3-cryptography lzfse-libs
 Requires: python3 python3-cryptography lzfse-libs util-linux alsa-utils systemd
 # The switch needs speakerguardd v2; without it the tool refuses and the
 # legacy protection keeps the speakers.
