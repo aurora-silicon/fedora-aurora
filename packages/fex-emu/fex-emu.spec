@@ -4,7 +4,7 @@
 # fex-emu.spec (f44, FEX 2604); the sysroot, its macros and the toolchain files
 # are Fedora's. The fork's submodules are pinned as extra sources in
 # sources.json at the gitlinks of %%{commit}.
-%global commit c2c22c6a3654695ad436527ccaf95626b339ef11
+%global commit 0c08727ae4c0c30601c962d982d4864b77dd17a2
 %global shortcommit %(c=%{commit}; echo ${c:0:7})
 %global fex_describe FEX-%{version}-aurora-g%{shortcommit}
 %global steamtool %{_datadir}/steam/compatibilitytools.d/fex-aurora
@@ -19,7 +19,7 @@
 
 Name:       fex-emu
 Version:    2610
-Release:    4%{?dist}.aurora
+Release:    5%{?dist}.aurora
 Summary:    Fast usermode x86 and x86-64 emulator for ARM64
 
 # FEX itself is MIT, see below for the bundled libraries
@@ -340,6 +340,11 @@ fi
 %endif
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 2610-5.aurora
+- FEX from aurora-silicon/fex at 0c08727 (main's tree): c2c22c6 plus the
+  timed futex-wait unit tests allowing for clock slew. FEX itself is
+  unchanged; NixOS and ALARM build the same commit.
+
 * Sat Nov 07 2026 DjDeveloperr <hey@djdev.me> - 2610-4.aurora
 - Ship a global FEX config whose RootFS is fex-emu-rootfs-fedora's image,
   so FEXBash works without setup; a user's Config.json still overrides it.
