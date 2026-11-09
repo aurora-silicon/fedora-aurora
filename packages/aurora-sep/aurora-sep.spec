@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 22%{?dist}
+Release: 23%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -166,15 +166,17 @@ fi
 
 %postun selinux
 %selinux_modules_uninstall -s %{selinuxtype} %{modulename}
-if [ "$1" -eq 0 ] && selinuxenabled 2>/dev/null && [ -c /dev/sep-bio ]; then
-    restorecon /dev/sep-bio || :
+if [ "$1" -eq 0 ] && selinuxenabled 2>/dev/null; then
+    for d in /dev/sep-bio /dev/sep-key /dev/sep-bio-rearm; do
+        [ -c "$d" ] && restorecon "$d" || :
+    done
 fi
 
 %posttrans selinux
 %selinux_relabel_post -s %{selinuxtype}
 # udev labels the device when the driver creates it; label one that exists.
 if selinuxenabled 2>/dev/null; then
-    for d in /dev/sep-bio /dev/sep-bio-rearm; do
+    for d in /dev/sep-bio /dev/sep-key /dev/sep-bio-rearm; do
         [ -c "$d" ] && restorecon "$d" || :
     done
 fi
@@ -231,6 +233,10 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-23
+- SELinux 1.4.2: label /dev/sep-key (Secure Enclave P-256 keys) with its own
+  type, and let the confined ssh client, ssh-agent and ssh-keygen use it.
+
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-22
 - A password re-arms Touch ID after a lockout: the vendor profile's
   system-auth and password-auth run pam_aurora_touchid straight after a
