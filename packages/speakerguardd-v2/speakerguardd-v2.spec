@@ -1,4 +1,4 @@
-%global commit 65064d88a20150a36d5c670c9d01f49cf9d250a3
+%global commit a561b6fbcf595d1c5c844d9a696b47dec948366a
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261109
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.35.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.36.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -36,6 +36,10 @@ Requires: aurora-audio >= 4.1-11
 %{?systemd_requires}
 
 %description
+speakerguardd v2 is a preview. It does not fully match macOS yet. The legacy
+protection (speakersafetyd, speakerguardd 0.1) is the supported default and
+stays installed. To go back at any time: sudo aurora-speaker-upgrade --revert.
+
 speakerguardd 1.0 is a new speaker protection stack that works the way
 macOS's does: the protection unit runs inside the PipeWire speaker graph as
 an LV2 plugin, with the amplifier's voltage and current sense as its second
@@ -243,6 +247,12 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.36.20261109gita561b6fbcf59
+- Release candidate 8.3 (speakerguardd#142): before any switch,
+  aurora-speaker-upgrade says that speakerguardd v2 is a preview, asks for
+  confirmation in a terminal, and needs --i-understand-preview when it runs
+  without one (otherwise exit 2, nothing changed).
+
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.35.20261109git65064d88a201
 - Release candidate 8.2 (speakerguardd#134): a switch in the running boot
   grants at once (the upgrade's umask no longer makes v2's /run graph state
