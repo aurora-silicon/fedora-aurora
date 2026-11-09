@@ -442,5 +442,13 @@
     "archive_root": "speakersafetyd-2.0.1",
     "archive_file": "speakersafetyd-2.0.1.crate",
     "sha256": "30101e673466072a080e321df3b7d1165dd8b79246ba393b82bb09d8325dd814"
+  },
+  "aurora-speaker-upgrade": {
+    "repository": "https://github.com/aurora-silicon/speakerguardd",
+    "commit": "cee39338464889517d57396422f62427d07a9380",
+    "version": "0.1",
+    "source_url": "https://codeload.github.com/aurora-silicon/speakerguardd/tar.gz/cee39338464889517d57396422f62427d07a9380",
+    "archive_root": "speakerguardd-cee39338464889517d57396422f62427d07a9380",
+    "sha256": "a3d3c338517bad1c1285f1cf3305e909462237c9b08f34b9963c3c6a7026a281"
   }
 }
