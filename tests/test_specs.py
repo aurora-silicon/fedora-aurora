@@ -376,11 +376,19 @@ class SpecTests(unittest.TestCase):
         self.assertEqual((d / 'aurora-platform-core.conf').read_text().split(), ['aurora-platform-core'])
         self.assertIn('protected.d/aurora-platform-core.conf', text.split('%files core', 1)[1])
         self.assertRegex(text, r'(?m)^Requires: aurora-platform-core = %\{version\}-%\{release\}$')
-    def test_audio_rollback_retires_v2_and_restores_legacy_profiles(self):
-        self.assertFalse((ROOT / 'packages/speakerguardd-v2').exists())
+    def test_audio_keeps_legacy_profiles_and_v2_is_opt_in(self):
+        # v2 is back as release candidate 8, installable by hand only: no
+        # default package pulls it, and aurora-audio retires only RC7 and older.
+        spec = (ROOT / 'packages/speakerguardd-v2/speakerguardd-v2.spec').read_text()
+        self.assertRegex(spec, r'(?m)^Release: 0\.33\.')
+        self.assertIn('install -Dm644 packaging/session/parity.json', spec)
+        for name in ('aurora-platform', 'aurora-audio', 'kernel-aurora'):
+            text = (ROOT / 'packages' / name / f'{name}.spec').read_text()
+            self.assertNotRegex(text, r'(?m)^(Requires|Recommends):.*\b(speakerguardd-v2|aurora-speaker-upgrade)\b', name)
         audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
         self.assertRegex(audio, r'(?m)^Requires: speakersafetyd speakerguardd$')
-        self.assertIn('Obsoletes: speakerguardd-v2 < 1.0.0', audio)
+        self.assertIn('Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33\n', audio)
+        self.assertIn('Conflicts: speakerguardd-v2 < 1.0.0~alpha.1-0.33\n', audio)
         self.assertIn('0001-restore-legacy-speaker-graphs.patch', audio)
         kernel = (ROOT / 'packages/kernel-aurora/kernel-aurora.spec').read_text()
         self.assertIn('Requires: aurora-audio >= 4.1-12', kernel)

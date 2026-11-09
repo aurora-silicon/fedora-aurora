@@ -1,7 +1,7 @@
 %global commit c967141161bea3badc7754e23d80b39ffb1bdafd
 Name: aurora-audio
 Version: 4.1
-Release: 12%{?dist}
+Release: 14%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
@@ -16,9 +16,9 @@ Conflicts: asahi-audio
 Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplumber >= 0.5.16 bankstown lv2-triforce lsp-plugins-lv2
 # Restore the established Asahi protection stack on existing installations.
 Requires: speakersafetyd speakerguardd
-Obsoletes: speakerguardd-v2 < 1.0.0
-Obsoletes: speakerguardd-v2-selinux < 1.0.0
-Conflicts: speakerguardd-v2 < 1.0.0
+Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33
+Obsoletes: speakerguardd-v2-selinux < 1.0.0~alpha.1-0.33
+Conflicts: speakerguardd-v2 < 1.0.0~alpha.1-0.33
 
 %description
 Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source revision.
@@ -49,6 +49,11 @@ install -Dm755 %{SOURCE1} %{buildroot}%{_prefix}/lib/dracut/modules.d/90aurora-a
 %{_prefix}/lib/dracut/modules.d/90aurora-audio/
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 4.1-14
+- Retire only the speakerguardd v2 previews up to release candidate 7
+  (1.0.0~alpha.1-0.32 and older), so release candidate 8 can be installed by
+  hand beside aurora-audio. Nothing installs it by default.
+
 * Sun Nov 08 2026 Aurora Silicon <hey@djdev.me> - 4.1-12
 - Restore the shipped Asahi speaker DSP graphs and retire the v2 preview
   packages. Kernel 7.3.0-26 restores the legacy protection interface.
