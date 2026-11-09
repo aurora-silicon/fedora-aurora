@@ -1,4 +1,4 @@
-policy_module(aurora_sep, 1.4.2)
+policy_module(aurora_sep, 1.4.3)
 
 ########################################
 #
@@ -122,6 +122,38 @@ define(`aurora_sep_key_client',`
 aurora_sep_key_client(ssh_t)
 aurora_sep_key_client(ssh_agent_t)
 aurora_sep_key_client(ssh_keygen_t)
+
+# A confined login user (staff_t, user_t, sysadm_t, ...) runs ssh-keygen and
+# ssh-add in its own domain, and its ssh-agent runs in that role's own agent
+# domain (staff_ssh_agent_t, ...), so the types above do not cover them. The
+# udev rule's sep-key group still decides which users may open the node.
+define(`aurora_sep_key_client_attr',`
+	optional_policy(`
+		gen_require(`
+			attribute $1;
+		')
+
+		allow $1 aurora_sep_key_device_t:chr_file rw_chr_file_perms;
+		dev_list_all_dev_nodes($1)
+		allow $1 aurora_sep_state_t:file { getattr read write };
+	')
+')
+aurora_sep_key_client_attr(userdomain)
+aurora_sep_key_client_attr(ssh_agent_type)
+
+# OpenSSH 10.1 and later put ssh-agent's socket in ~/.ssh/agent/ when no -a
+# is given. The confined agent domains may read ~/.ssh but not create that
+# directory or the socket in it, so ssh-agent -P <provider> fails to start
+# for a confined user. Allow exactly that: the directory and its sockets.
+optional_policy(`
+	gen_require(`
+		attribute ssh_agent_type;
+		type ssh_home_t;
+	')
+
+	allow ssh_agent_type ssh_home_t:dir { create_dir_perms rw_dir_perms rmdir };
+	allow ssh_agent_type ssh_home_t:sock_file { create unlink getattr setattr };
+')
 
 # modprobe loads apple_sep, whose initialisation reads the keybag and the
 # reference key and writes the keybag when it provisions one.
