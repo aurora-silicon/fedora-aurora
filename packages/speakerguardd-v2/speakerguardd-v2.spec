@@ -1,4 +1,4 @@
-%global commit f5f379371814dca88265d7b96e3496af3531c166
+%global commit f4bb2fdb44066fc081669b4b43c9db4d766a45e1
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261109
 %global selinuxtype targeted
@@ -243,7 +243,7 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
-* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.33.20261109gitf5f379371814
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.33.20261109gitf4bb2fdb4406
 - Release candidate 8, back as an opt-in package: nothing in the default
   install pulls it, and on every kernel the gate keeps speakersafetyd in charge
   until aurora-speaker-upgrade has switched this Mac (it ships disabled).
@@ -253,7 +253,15 @@ fi
   (per-AID parity attestation, installed as parity.json) and boot-time graph
   xruns; the speaker sink wakes on period interrupts (#114).
 - Parity: mstk algorithm-0 band-zero rate (#113), ToneMeister version-0
-  peaks (#116).
+  peaks (#116), BuzzKill tracker (#120); per-macOS-release attestation
+  blocks 25C56, 25G83 and 26A428 (#121).
+- Dual-interface lease: the supervisor writes the interface at start, the
+  switch test switches it, --revert hands the session back to the
+  distribution's speaker graph (#123).
+- Every graph sink is held at the PCM rate (a 44.1 kHz client during a
+  re-grant no longer wedges the speakers) and the LV2 protect stage takes
+  in-place ports (#121). The upgrade tool's boot unit records a refusal
+  instead of retrying it every boot (#125).
 
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.31.20261108git5104994eda35
 - Move to 5104994eda35 (Plan A release candidate 7): RC6b plus speakerguardd#101 (the
