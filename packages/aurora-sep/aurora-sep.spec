@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 23%{?dist}
+Release: 27%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -32,6 +32,7 @@ Source21: touchid-setup-needed
 Source22: authselect-vendor-local
 Source23: powerdevilrc
 Source24: aurora-sep-modprobe.conf
+Source25: aurora-sep
 BuildArch: noarch
 BuildRequires: systemd-rpm-macros fprintd authselect-libs
 BuildRequires: selinux-policy-devel make bzip2
@@ -100,6 +101,7 @@ unit %{SOURCE16} %{SOURCE17} aurora-sep-greeter-fingerprint
 install -Dpm0644 %{SOURCE11} %{buildroot}%{_unitdir}/aurora-sep.timer
 install -Dpm0644 %{SOURCE12} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep-load.conf
 install -Dpm0644 %{SOURCE24} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep.conf
+install -Dpm0755 %{SOURCE25} %{buildroot}%{_bindir}/aurora-sep
 install -Dpm0755 %{SOURCE8} %{buildroot}%{_sbindir}/aurora-touchid-setup
 install -Dpm0755 %{SOURCE21} %{buildroot}%{_libexecdir}/aurora/touchid-setup-needed
 install -Dpm0644 %{SOURCE20} %{buildroot}%{_unitdir}/aurora-touchid-setup.service
@@ -207,6 +209,7 @@ fi
 %doc README.md XART-SAFETY.md OS-IDENTITY.md
 %{_libexecdir}/aurora-sep-load
 %{_libexecdir}/aurora-sep-ready
+%{_bindir}/aurora-sep
 %{_libexecdir}/aurora-sep-greeter-fingerprint
 %{_sbindir}/aurora-touchid-setup
 %{_libexecdir}/aurora/touchid-setup-needed
@@ -233,6 +236,27 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 10 2026 Diljit Singh <hey@djdev.me> - 1-27
+- load-driver stops at once when the driver reports this boot's identity
+  keybag as failed (diag/keybag), as after a Touch ID setup interrupted
+  under an older M1 kernel: no trusted key can be sealed then, so it no
+  longer holds the boot for its whole ready timeout. It names aurora-xart
+  status, which explains the state and the fix.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-26
+- Ship aurora-sep (aurora-sep status), the read-only SEP state self-check
+  from aurora-silicon/linux tools/aurora-sep.
+
+* Tue Nov 10 2026 Diljit Singh <hey@djdev.me> - 1-25
+- load-driver returns at once when the kernel enabled no SEP (no *.sep
+  platform device, as on a board without an apple_sep profile) instead
+  of holding the boot for its whole ready timeout.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-24
+- SELinux 1.4.3: confined login users (staff_t, user_t, ...) and their
+  ssh-agent domains may use /dev/sep-key, and a confined ssh-agent may
+  create its OpenSSH 10.1+ socket directory ~/.ssh/agent/.
+
 * Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-23
 - SELinux 1.4.2: label /dev/sep-key (Secure Enclave P-256 keys) with its own
   type, and let the confined ssh client, ssh-agent and ssh-keygen use it.

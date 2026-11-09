@@ -1,7 +1,7 @@
-%global commit 501c12baad8e85999437304edcfbd95421fd5a1a
+%global commit 0996f01f55c64cfebadb5b48602690ca9d5f72aa
 Name:           aurora-touchid-rearm
 Version:        1
-Release:        4%{?dist}
+Release:        5%{?dist}
 Summary:        Re-arm Touch ID with the password after a lockout
 
 License:        GPL-2.0-only
@@ -83,6 +83,12 @@ systemctl --no-reload preset aurora-touchid-boot.service >/dev/null 2>&1 || :
 %{_presetdir}/80-aurora-touchid-rearm.preset
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-5
+- aurora-touchid-boot.service is ordered before fprintd only, not before the
+  display manager and user sessions (aurora-sep-userspace#20): every match
+  goes through fprintd, so the setting still applies before the first one,
+  and the login screen no longer waits for the Secure Enclave at boot.
+
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-4
 - Touch ID after a restart follows macOS by default: the first login or
   unlock after boot needs the password (aurora-sep-userspace#17). The

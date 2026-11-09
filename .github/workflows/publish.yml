@@ -115,7 +115,9 @@ jobs:
             RELEASE_TAG=$(python3 scripts/next-tag.py "$prefix" < existing-tags)
           fi
           python3 -c 'import os,sys; sys.path.insert(0,"scripts"); import fedoralib; fedoralib.snapshot(os.environ["RELEASE_TAG"], int(os.environ["FEDORA_RELEASE"]))'
-          ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists" >&2; exit 1
+          fi
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

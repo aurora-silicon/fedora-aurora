@@ -158,7 +158,7 @@ class SpecTests(unittest.TestCase):
         self.assertIn('CONFIG_USB4_APPLE_SOC=m', config.splitlines())
     def test_initramfs_coldplugs_the_display_first(self):
         # F45's initramfs pivots before udev reaches the display; a pre-trigger
-        # hook coldplugs it (and its suppliers) ahead of systemd-udev-trigger.
+        # hook queues it (and its suppliers) ahead of systemd-udev-trigger.
         d = ROOT / 'packages' / 'aurora-platform'
         setup = (d / 'early-kms-module-setup.sh').read_text()
         self.assertRegex(setup, r"(?m)^\s+hostonly='' instmods appledrm$")
@@ -166,7 +166,11 @@ class SpecTests(unittest.TestCase):
         hook = (d / 'aurora-early-kms.sh').read_text()
         self.assertIn("*Capple,display-subsystem*|*Capple,dcp*)", hook)
         self.assertIn('supplier:*', hook)
-        self.assertIn('udevadm trigger --action=add --subsystem-match=drm --settle', hook)
+        self.assertIn('udevadm trigger --action=add --subsystem-match=drm', hook)
+        # It queues the display ahead of the coldplug but never waits for it:
+        # appledrm comes up only once every DCP has started.
+        self.assertNotIn('--settle', hook)
+        self.assertNotIn('udevadm settle', hook)
         self.assertNotRegex(hook, r'(?m)^\s*modprobe ')
         subprocess.run(['sh', '-n', str(d / 'aurora-early-kms.sh')], check=True)
         text = (d / 'aurora-platform.spec').read_text()
@@ -367,7 +371,7 @@ class SpecTests(unittest.TestCase):
         # The established protection stack stays as the fallback; v2 comes with
         # the upgrade tool, which switches a Mac only on a passing self-check.
         self.assertRegex(core, r'(?m)^Requires: speakersafetyd speakerguardd$')
-        self.assertRegex(core, r'(?m)^Requires: speakerguardd-v2 >= 1\.0\.0~alpha\.1-0\.38 aurora-speaker-upgrade >= 0\.1-0\.8$')
+        self.assertRegex(core, r'(?m)^Requires: speakerguardd-v2 >= 1\.0\.0~alpha\.1-0\.39 aurora-speaker-upgrade >= 0\.1-0\.9$')
         for name in requires:
             self.assertFalse(name.startswith(('kernel', 'uboot', 'm1n1')) or name == 'aura', name)
         self.assertNotIn('aurora-release', requires)
@@ -723,4 +727,13 @@ class SpecTests(unittest.TestCase):
         self.assertIn('%config(noreplace) %{_sysconfdir}/aurora-fido/aurora-fido.conf', files)
         pins = json.loads((ROOT / 'sources.json').read_text())
         self.assertIn(pins['aurora-fido']['commit'], text)
+    def test_secure_enclave_ssh_provider_gives_the_sep_key_group_the_node(self):
+        text = (ROOT / 'packages/aurora-sep-sk/aurora-sep-sk.spec').read_text()
+        files = text.split('%files', 1)[1]
+        self.assertIn('%{_libdir}/libaurora-sep-sk.so', files)
+        self.assertIn('%{_udevrulesdir}/70-aurora-sep-key.rules', files)
+        self.assertIn('%{_sysusersdir}/aurora-sep-key.conf', files)
+        self.assertIn('make -C sk check', text.split('%check', 1)[1].split('%install', 1)[0])
+        pins = json.loads((ROOT / 'sources.json').read_text())
+        self.assertIn(pins['aurora-sep-sk']['commit'], text)
 if __name__ == '__main__': unittest.main()
