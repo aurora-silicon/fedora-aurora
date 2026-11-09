@@ -1,4 +1,4 @@
-%global commit 81ac9e9b92e53eb08b717338f315f87c45c6f0ae
+%global commit 21461155d5dc9723d8e084fc1a719d610884aba6
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261109
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.35.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.36.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -175,7 +175,7 @@ done
 # The older daemons start only where v2 does not run and the kernel has no
 # v2 interface: exactly one stack holds the speakers on each boot.
 sed -e "s@/usr/libexec/speakerguardd/@$lx/@g" packaging/systemd/legacy-gate.conf > legacy-gate.conf
-grep -qx "ExecCondition=$lx/speakerguardd-gate legacy" legacy-gate.conf
+grep -qx "ExecCondition=+$lx/speakerguardd-gate legacy" legacy-gate.conf
 for u in speakersafetyd speakerguardd; do
     install -Dm644 legacy-gate.conf %{buildroot}%{_unitdir}/$u.service.d/60-speakerguardd-v2-gate.conf
 done
