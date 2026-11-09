@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 24%{?dist}
+Release: 25%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -166,6 +166,13 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-25
+- 91aurora-early-kms queues the display devices ahead of the coldplug but no
+  longer waits for them. appledrm registers only once every display
+  processor, the external ones included, has started, which took about
+  1.3 s on the M1 Pro; the root file system and the rest of the initramfs
+  waited for it. Plymouth adds the KMS device when it appears.
+
 * Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-24
 - aurora-platform-core requires libva-v4l2-request-avd, the VA-API driver
   for the video decoder. New images install it, but Macs that update with
