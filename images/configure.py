@@ -45,6 +45,8 @@ PACKAGES = {
         "openssh-server",
         # The Touch ID security key: installed, off until `aurora-fido enable`.
         "aurora-fido",
+        # OpenSSH ecdsa-sk keys in the Secure Enclave, for members of sep-key.
+        "aurora-sep-sk",
     ]),
     # Desktop images boot to the Aurora splash: aura's logo, kept still, with a spinner.
     "components/desktop-environments.xml": ("DesktopCommon", ["plymouth-theme-aurora"]),
