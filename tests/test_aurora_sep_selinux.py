@@ -103,6 +103,20 @@ class TouchIdRearmPolicyTests(unittest.TestCase):
         self.assertEqual(users, {'aurora_touchid_rearm_t'})
         self.assertIn('/dev/sep-bio-rearm\t-c\tgen_context(system_u:object_r:aurora_sep_rearm_device_t,s0)', self.fc)
 
+    def test_confined_users_and_their_agents_reach_the_key_node(self):
+        # ssh-keygen and ssh-add run in the login user's own domain and the
+        # agent in that role's agent domain (staff_ssh_agent_t), so the
+        # policy names the attributes, not only ssh_t/ssh_agent_t.
+        for client in ('ssh_t', 'ssh_agent_t', 'ssh_keygen_t'):
+            self.assertIn(f'aurora_sep_key_client({client})', self.te)
+        for attr in ('userdomain', 'ssh_agent_type'):
+            self.assertIn(f'aurora_sep_key_client_attr({attr})', self.te)
+        self.assertIn('/dev/sep-key\t-c\tgen_context(system_u:object_r:aurora_sep_key_device_t,s0)', self.fc)
+
+    def test_a_confined_agent_may_make_its_socket_directory(self):
+        self.assertIn('allow ssh_agent_type ssh_home_t:dir { create_dir_perms rw_dir_perms rmdir };', self.te)
+        self.assertIn('allow ssh_agent_type ssh_home_t:sock_file { create unlink getattr setattr };', self.te)
+
     def test_the_rearm_service_runs_in_its_own_domain(self):
         self.assertIn('init_daemon_domain(aurora_touchid_rearm_t, aurora_touchid_rearm_exec_t)', self.te)
         self.assertIn('/usr/libexec/aurora-touchid-rearm\t--\tgen_context(system_u:object_r:aurora_touchid_rearm_exec_t,s0)', self.fc)

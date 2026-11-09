@@ -1,4 +1,4 @@
-%global commit d4d267839caa0aa9cbcd98a792351a52bd856b84
+%global commit 15f88e1cf81a6b6a91a1856ca06822a093aedeac
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 27%{?dist}.aurora
+Release: 30%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -17,10 +17,6 @@ Source1: config
 Source4: fedora.config
 Source5: validate-config.py
 Source6: dtb-abi
-Patch0: 0001-restore-legacy-speaker-protection.patch
-# aurora-silicon/linux: bound the MCA PCM buffer again, so speakersafetyd
-# can open the speaker sense PCM (hw_params failed with -ENOMEM since 79af0bae4d0d).
-Patch1: 0002-mca-bound-pcm-buffer.patch
 ExclusiveArch: aarch64
 BuildRequires: make gcc gcc-c++ clang llvm lld rust rust-src rustfmt cargo bindgen-cli
 BuildRequires: bc bison flex dtc openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
@@ -99,7 +95,7 @@ if [ "$ctxr" != %{ctxr_execmem} ]; then
   exit 1
 fi
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" rustavailable
-make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" %{?_smp_mflags} Image modules dtbs
+make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" %{?_smp_mflags} Image vmlinuz.efi modules dtbs
 [ "$(make -s LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" kernelrelease)" = "%{krel}" ]
 # The launcher includes this tree's prctl.h, so its numbers match the kernel.
 make -C tools/aurora-userpages
@@ -107,7 +103,9 @@ make -C tools/aurora-userpages
 %install
 export ARCH=arm64 RUSTC_BOOTSTRAP=1
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 INSTALL_MOD_PATH=%{buildroot}/usr INSTALL_MOD_STRIP=1 modules_install
-install -Dm644 arch/arm64/boot/Image %{buildroot}/usr/lib/modules/%{krel}/vmlinuz
+# The EFI zboot image (zstd) is about a quarter of the raw Image, and the boot
+# loader reads it through firmware block I/O, so it boots faster.
+install -Dm644 arch/arm64/boot/vmlinuz.efi %{buildroot}/usr/lib/modules/%{krel}/vmlinuz
 install -m644 .config %{buildroot}/usr/lib/modules/%{krel}/config
 install -m644 System.map %{buildroot}/usr/lib/modules/%{krel}/System.map
 install -m644 %{SOURCE6} %{buildroot}/usr/lib/modules/%{krel}/dtb-abi
@@ -158,6 +156,39 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Tue Nov 10 2026 Diljit Singh <hey@djdev.me> - 7.3.0-30
+- Pin integration/aurora 15f88e1c (linux#1365), 54 merges after b1c9943b.
+  It keeps the 120 Hz fix for ProMotion panels on M1 and M2 Macs
+  (linux#1307), and adds: WPA3/SAE offload that keeps the requested CCMP
+  cipher and AWDL join scans on the firmware's budgets (#1058, #1336);
+  the J713 powering its display domains down while blanked (#1059); a GPU
+  fence that never signals no longer wedging the display (#1241); G17
+  recoveries that spare bystander clients and exiting clients that finish
+  their work first (#1240, #1360); the M4 Max internal display on DCP
+  (#1345); Thunderbolt XDomain and NHI fixes (#1319, #1150); GPU and CPU
+  temperatures on M1 Pro/Max laptops, the J700 and the J413, and M1
+  Pro/Max thermal zones (#1342, #1351, #1362); t600x PMU RTC wake alarms
+  (#1312); Magic Mouse multitouch across sleep (#1317); SEP state
+  reporting for aurora-sep status (#1335, #583); the MSR scaler driver
+  (#1315); J704, J815, J604 and J773g device trees (#1231, #1361, #1186,
+  #1181, #1187); and the T6050 (M5 Pro/Max) bare-metal series.
+- The build now also resolves CONFIG_VIDEO_APPLE_SCALER, CONFIG_APPLE_DBGVIEW
+  and CONFIG_APPLE_REGVIEW as modules, which asahi.config requests.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-29
+- Install the EFI zboot image (CONFIG_EFI_ZBOOT, zstd) as vmlinuz instead
+  of the raw Image: about 17 MB instead of 67 MB. GRUB reads the kernel
+  through firmware block I/O, which costs about 30 ms per MB on a MacBook
+  Pro M1 Pro: the boot loader stage takes 1.5 s less there. The kernel
+  itself is the same; the EFI stub decompresses it.
+
+* Mon Nov 09 2026 Diljit Singh <hey@djdev.me> - 7.3.0-28
+- Pin integration/aurora b1c9943b. Fixes ProMotion internal displays that
+  rendered at 60 Hz while set to 120 Hz on legacy DCP firmware (linux#1307).
+- Drop 0001 and 0002. The driver now serves both speaker protection
+  interfaces and boots every card on "Speaker Volume Unlock", the interface
+  speakersafetyd uses (linux#1279); the MCA PCM bound is linux#1258.
+
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-27
 - Fix speaker audio on M1 and M2 Macs: speakersafetyd could not open the
   speaker sense PCM (snd_pcm_hw_params -ENOMEM), restarted in a loop and

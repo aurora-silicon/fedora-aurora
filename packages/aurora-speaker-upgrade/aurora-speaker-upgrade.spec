@@ -1,10 +1,10 @@
-%global commit 49b1c107a78b422ab404836fe8da8fbb3c04a857
+%global commit beb1b6b99578272729692a4afd711775243350bd
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261109
+%global snapdate 20261110
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.7.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.8.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -60,11 +60,19 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
-* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.7.20261109git49b1c107a78b
-- Release candidate 9 (speakerguardd#144): aurora-speaker-upgrade switches
-  without the preview confirmation, and the boot unit no longer needs
-  --i-understand-preview (still accepted, no effect). The package
-  description drops the preview notice.
+* Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.8.20261110gitbeb1b6b99578
+- Release candidate 9 (speakerguardd#144, on top of 8.5):
+  aurora-speaker-upgrade switches without the preview confirmation, and
+  the boot unit no longer needs --i-understand-preview (still accepted,
+  no effect). The package description drops the preview notice.
+
+* Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.7.20261110gitf3ceaa2d768a
+- Release candidate 8.5, a bug-fix release (speakerguardd#145, #146):
+  --check on a Mac that speakerguardd v2 already protects no longer takes
+  the speakers from it (it left them at the kernel floor until a reboot),
+  and a same-boot --revert lets the session open the speaker before it
+  starts the legacy daemon (speakersafetyd could fail to open the sense
+  PCM and restart). v2 stays a preview and opt-in.
 
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.6.20261109gitff88f9f98070
 - Release candidate 8.4 (speakerguardd#143): the supervisor's own hang
