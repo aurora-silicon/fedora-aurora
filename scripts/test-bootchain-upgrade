@@ -192,13 +192,12 @@ KERNEL_INSTALL_PLUGINS='/etc/kernel/install.d/10-devicetree.install /usr/lib/ker
 [[ $(sha256sum /boot/efi/m1n1/boot.bin) == "$before" ]]
 ln -s "dtb-$new" /boot/dtb
 rm -r /usr/lib/modules/7.3-no-dtb
-if update-m1n1 > "$proof/candidate-retained-legacy.log" 2>&1; then
-  echo 'Expected candidate to refuse generation zero fallbacks' >&2; exit 1
+# Kernels from before the marker count as generation 1, the first declared
+# one, so they no longer hold back the new kernel's trees.
+update-m1n1 > "$proof/candidate-retained-legacy.log" 2>&1
+if grep -F 'generation 0' "$proof/candidate-retained-legacy.log"; then
+  echo 'Expected kernels without a marker to count as generation 1' >&2; exit 1
 fi
-grep -F '7.1-legacy (generation 0)' "$proof/candidate-retained-legacy.log"
-grep -F "$old (generation 0)" "$proof/candidate-retained-legacy.log"
-grep -F "sudo dnf remove '/usr/lib/modules/7.1-legacy/vmlinuz' '/usr/lib/modules/$old/vmlinuz'" "$proof/candidate-retained-legacy.log"
-[[ $(sha256sum /boot/efi/m1n1/boot.bin) == "$before" ]]
 [[ $(readlink /boot/dtb) == "dtb-$new" ]]
 
 # Remove the synthetic legacy fixture, then exercise the actual old core
