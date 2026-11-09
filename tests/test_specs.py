@@ -364,9 +364,10 @@ class SpecTests(unittest.TestCase):
                      'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise',
                      'aurora-kbd-light']:
             self.assertIn(name, requires)
-        # Ship the established protection stack without the v2 preview.
+        # The established protection stack stays as the fallback; v2 comes with
+        # the upgrade tool, which switches a Mac only on a passing self-check.
         self.assertRegex(core, r'(?m)^Requires: speakersafetyd speakerguardd$')
-        self.assertNotIn('speakerguardd-v2', core)
+        self.assertRegex(core, r'(?m)^Requires: speakerguardd-v2 >= 1\.0\.0~alpha\.1-0\.33 aurora-speaker-upgrade$')
         for name in requires:
             self.assertFalse(name.startswith(('kernel', 'uboot', 'm1n1')) or name == 'aura', name)
         self.assertNotIn('aurora-release', requires)
@@ -382,7 +383,7 @@ class SpecTests(unittest.TestCase):
         spec = (ROOT / 'packages/speakerguardd-v2/speakerguardd-v2.spec').read_text()
         self.assertRegex(spec, r'(?m)^Release: 0\.33\.')
         self.assertIn('install -Dm644 packaging/session/parity.json', spec)
-        for name in ('aurora-platform', 'aurora-audio', 'kernel-aurora'):
+        for name in ('aurora-audio', 'kernel-aurora'):
             text = (ROOT / 'packages' / name / f'{name}.spec').read_text()
             self.assertNotRegex(text, r'(?m)^(Requires|Recommends):.*\b(speakerguardd-v2|aurora-speaker-upgrade)\b', name)
         audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()

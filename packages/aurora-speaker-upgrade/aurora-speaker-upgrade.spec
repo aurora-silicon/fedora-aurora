@@ -4,13 +4,14 @@
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.1.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.3.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning (preview)
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
 License: MIT
 URL: https://github.com/aurora-silicon/speakerguardd/tree/v2/packaging/upgrade
 Source0: aurora-speaker-upgrade-%{commit}.tar.gz
+Source1: 50-aurora-speaker-upgrade.preset
 BuildArch: noarch
 BuildRequires: make systemd-rpm-macros python3 python3-cryptography lzfse-libs
 Requires: python3 python3-cryptography lzfse-libs util-linux alsa-utils systemd
@@ -39,6 +40,7 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 
 %install
 %make_install -C packaging/upgrade PREFIX=%{_prefix} UNITDIR=%{_unitdir} V2UNIT=speakerguardd-v2.service
+install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.preset
 
 %post
 %systemd_post aurora-speaker-upgrade.service
@@ -56,10 +58,16 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 %{_prefix}/lib/aurora-speaker-upgrade/
 %{_datadir}/aurora-speaker-upgrade/restore-images.json
 %{_unitdir}/aurora-speaker-upgrade.service
+%{_presetdir}/50-aurora-speaker-upgrade.preset
 %dir %{_unitdir}/speakerguardd-v2.service.d
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.3
+- Enable aurora-speaker-upgrade.service by preset (Ryan + DJ go): the next
+  boot moves the speakers to speakerguardd v2 when this Mac's own tuning
+  passes the silent self-check; a refused Mac keeps speakersafetyd.
+
 * Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.1
 - First preview: routes 0-3, root-only store, v2 self-check gate,
   interface switch, --revert. Ships disabled.
