@@ -1,10 +1,10 @@
-%global commit ff88f9f98070e64e6df36b87cf622dd4d53b9dca
+%global commit f3ceaa2d768a999a8243d4e2c9cc0f3f15ceb226
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261109
+%global snapdate 20261110
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.6.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.7.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning (preview)
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -64,6 +64,14 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.7.20261110gitf3ceaa2d768a
+- Release candidate 8.5, a bug-fix release (speakerguardd#145, #146):
+  --check on a Mac that speakerguardd v2 already protects no longer takes
+  the speakers from it (it left them at the kernel floor until a reboot),
+  and a same-boot --revert lets the session open the speaker before it
+  starts the legacy daemon (speakersafetyd could fail to open the sense
+  PCM and restart). v2 stays a preview and opt-in.
+
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.6.20261109gitff88f9f98070
 - Release candidate 8.4 (speakerguardd#143): the supervisor's own hang
   watch no longer counts a system sleep, so a sleep entered without the
