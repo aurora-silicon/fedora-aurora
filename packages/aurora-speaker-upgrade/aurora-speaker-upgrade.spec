@@ -1,10 +1,10 @@
-%global commit cee39338464889517d57396422f62427d07a9380
+%global commit c6172e65b4179280508d9222df8fef756d380c83
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261109
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.1.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.2.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning (preview)
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -60,6 +60,9 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.2.20261109gitc6172e65b417
+- LAB TEST BUILD ONLY (SGDUAL): speakerguardd#119 (dual kernel: hardware record before verify).
+
 * Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.1
 - First preview: routes 0-3, root-only store, v2 self-check gate,
   interface switch, --revert. Ships disabled.
