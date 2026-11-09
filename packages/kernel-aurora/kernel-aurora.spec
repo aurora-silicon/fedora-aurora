@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 30%{?dist}.aurora
+Release: 31%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -95,7 +95,7 @@ if [ "$ctxr" != %{ctxr_execmem} ]; then
   exit 1
 fi
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" rustavailable
-make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" %{?_smp_mflags} Image vmlinuz.efi modules dtbs
+make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" %{?_smp_mflags} Image modules dtbs
 [ "$(make -s LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" kernelrelease)" = "%{krel}" ]
 # The launcher includes this tree's prctl.h, so its numbers match the kernel.
 make -C tools/aurora-userpages
@@ -103,9 +103,7 @@ make -C tools/aurora-userpages
 %install
 export ARCH=arm64 RUSTC_BOOTSTRAP=1
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 INSTALL_MOD_PATH=%{buildroot}/usr INSTALL_MOD_STRIP=1 modules_install
-# The EFI zboot image (zstd) is about a quarter of the raw Image, and the boot
-# loader reads it through firmware block I/O, so it boots faster.
-install -Dm644 arch/arm64/boot/vmlinuz.efi %{buildroot}/usr/lib/modules/%{krel}/vmlinuz
+install -Dm644 arch/arm64/boot/Image %{buildroot}/usr/lib/modules/%{krel}/vmlinuz
 install -m644 .config %{buildroot}/usr/lib/modules/%{krel}/config
 install -m644 System.map %{buildroot}/usr/lib/modules/%{krel}/System.map
 install -m644 %{SOURCE6} %{buildroot}/usr/lib/modules/%{krel}/dtb-abi
@@ -156,6 +154,12 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-31
+- Install the raw Image as vmlinuz again (back out the EFI zboot image of
+  7.3.0-29). On a J700 the zboot image never reaches the kernel: GRUB
+  loads it and the machine stays dark until the watchdog resets it. The
+  raw Image of the same kernel boots normally there.
+
 * Tue Nov 10 2026 Diljit Singh <hey@djdev.me> - 7.3.0-30
 - Pin integration/aurora 15f88e1c (linux#1365), 54 merges after b1c9943b.
   It keeps the 120 Hz fix for ProMotion panels on M1 and M2 Macs
