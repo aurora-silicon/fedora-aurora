@@ -1,4 +1,4 @@
-%global commit 416b1f513b9d9e924d7e4de16385ba19f7364a92
+%global commit 65064d88a20150a36d5c670c9d01f49cf9d250a3
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261109
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.34.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.35.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -243,6 +243,13 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.35.20261109git65064d88a201
+- Release candidate 8.2 (speakerguardd#134): a switch in the running boot
+  grants at once (the upgrade's umask no longer makes v2's /run graph state
+  unreadable to the seat user, which left the speakers silent until a
+  reboot); the MacBook Neo's speaker PCM wakes on period interrupts (#133);
+  voicing parity #129/#135.
+
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.34.20261109git416b1f513b9d
 - Release candidate 8.1 (speakerguardd#131): the legacy units' gate runs
   privileged (speakersafetyd is a DynamicUser and could not read the upgrade's

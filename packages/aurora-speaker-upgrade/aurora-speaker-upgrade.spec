@@ -1,10 +1,10 @@
-%global commit 416b1f513b9d9e924d7e4de16385ba19f7364a92
+%global commit 65064d88a20150a36d5c670c9d01f49cf9d250a3
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261109
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.3.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.4.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning (preview)
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -60,6 +60,13 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.4.20261109git65064d88a201
+- Release candidate 8.2 (speakerguardd#134): a switch in the running boot
+  grants at once (the upgrade's umask no longer makes v2's /run graph state
+  unreadable to the seat user, which left the speakers silent until a
+  reboot); the MacBook Neo's speaker PCM wakes on period interrupts (#133);
+  voicing parity #129/#135.
+
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.3.20261109git416b1f513b9d
 - Release candidate 8.1 (speakerguardd#131): the legacy units' gate runs
   privileged (speakersafetyd is a DynamicUser and could not read the upgrade's
