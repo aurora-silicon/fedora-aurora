@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 25%{?dist}
+Release: 26%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -32,6 +32,7 @@ Source110: 50-aurora-irqbalance.conf
 Source111: 62-aurora-gpu-render-only.rules
 Source112: aurora-performance.conf
 Source113: aurora-ppd-config
+Source114: 90-aurora-ane.conf
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -116,6 +117,7 @@ install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwd
 install -Dm755 %{SOURCE105} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-usb4/module-setup.sh
 install -Dm755 %{SOURCE106} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/module-setup.sh
 install -Dm755 %{SOURCE107} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh
+install -Dpm0644 %{SOURCE114} %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-ane.conf
 install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-console
 install -Dm644 %{SOURCE112} %{buildroot}%{_prefix}/lib/tuned/profiles/aurora-performance/tuned.conf
 install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
@@ -156,6 +158,7 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
 %{_prefix}/lib/dracut/modules.d/91aurora-early-kms/
+%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-ane.conf
 %{_libexecdir}/aurora/aurora-grub-console
 %{_libexecdir}/aurora/aurora-ppd-config
 %dir %{_prefix}/lib/tuned/profiles/aurora-performance
@@ -166,6 +169,12 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-26
+- Leave the Neural Engine driver (ane_t6021) out of the initramfs
+  (90-aurora-ane.conf). Its probe boots the ANE firmware, about 1.2 s on
+  the M2, and the initramfs could not switch to the real root until it
+  returned. It now loads from the real root.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-25
 - 91aurora-early-kms queues the display devices ahead of the coldplug but no
   longer waits for them. appledrm registers only once every display
