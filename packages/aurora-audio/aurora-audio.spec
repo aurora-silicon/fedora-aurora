@@ -1,7 +1,7 @@
 %global commit c967141161bea3badc7754e23d80b39ffb1bdafd
 Name: aurora-audio
 Version: 4.1
-Release: 14%{?dist}
+Release: 15%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
@@ -61,6 +61,11 @@ install -Dm644 %{SOURCE3} %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d
 %{_libexecdir}/aurora-audio/
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-15
+- The J616 (MacBook Pro 16-inch M4 Pro/Max) speaker PCM also wakes on
+  period interrupts: its AOP speaker service raises one per period, and a
+  chrony slew re-prepared the timer-scheduled sink 7 times (0 with this).
+
 * Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-14
 - Built-in speakers on the MCA transport (M1, M2, M3 families) run on the
   speaker PCM's period interrupts (api.alsa.disable-tsched): a chrony clock
