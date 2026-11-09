@@ -1,4 +1,4 @@
-%global commit f4bb2fdb44066fc081669b4b43c9db4d766a45e1
+%global commit 65064d88a20150a36d5c670c9d01f49cf9d250a3
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261109
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.33.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.35.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -175,7 +175,7 @@ done
 # The older daemons start only where v2 does not run and the kernel has no
 # v2 interface: exactly one stack holds the speakers on each boot.
 sed -e "s@/usr/libexec/speakerguardd/@$lx/@g" packaging/systemd/legacy-gate.conf > legacy-gate.conf
-grep -qx "ExecCondition=$lx/speakerguardd-gate legacy" legacy-gate.conf
+grep -qx "ExecCondition=+$lx/speakerguardd-gate legacy" legacy-gate.conf
 for u in speakersafetyd speakerguardd; do
     install -Dm644 legacy-gate.conf %{buildroot}%{_unitdir}/$u.service.d/60-speakerguardd-v2-gate.conf
 done
@@ -243,6 +243,21 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.35.20261109git65064d88a201
+- Release candidate 8.2 (speakerguardd#134): a switch in the running boot
+  grants at once (the upgrade's umask no longer makes v2's /run graph state
+  unreadable to the seat user, which left the speakers silent until a
+  reboot); the MacBook Neo's speaker PCM wakes on period interrupts (#133);
+  voicing parity #129/#135.
+
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.34.20261109git416b1f513b9d
+- Release candidate 8.1 (speakerguardd#131): the legacy units' gate runs
+  privileged (speakersafetyd is a DynamicUser and could not read the upgrade's
+  root-only setting, so a switched Mac started speakersafetyd, which held the
+  sense PCM v2 needs: no speakers until reboot); a switched Mac gets the older
+  daemons only on a stable refusal; --revert starts only the sense PCM's own
+  unit; --check works on dual-interface kernels before the first switch.
+
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.33.20261109gitf4bb2fdb4406
 - Release candidate 8, back as an opt-in package: nothing in the default
   install pulls it, and on every kernel the gate keeps speakersafetyd in charge

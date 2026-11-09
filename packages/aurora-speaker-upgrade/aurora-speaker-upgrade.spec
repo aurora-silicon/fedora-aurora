@@ -1,10 +1,10 @@
-%global commit f4bb2fdb44066fc081669b4b43c9db4d766a45e1
+%global commit 65064d88a20150a36d5c670c9d01f49cf9d250a3
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261109
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.3.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.5.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning (preview)
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -63,10 +63,25 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.pr
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
-* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.3
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.5
 - Enable aurora-speaker-upgrade.service by preset (Ryan + DJ go): the next
   boot moves the speakers to speakerguardd v2 when this Mac's own tuning
   passes the silent self-check; a refused Mac keeps speakersafetyd.
+
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.4.20261109git65064d88a201
+- Release candidate 8.2 (speakerguardd#134): a switch in the running boot
+  grants at once (the upgrade's umask no longer makes v2's /run graph state
+  unreadable to the seat user, which left the speakers silent until a
+  reboot); the MacBook Neo's speaker PCM wakes on period interrupts (#133);
+  voicing parity #129/#135.
+
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.3.20261109git416b1f513b9d
+- Release candidate 8.1 (speakerguardd#131): the legacy units' gate runs
+  privileged (speakersafetyd is a DynamicUser and could not read the upgrade's
+  root-only setting, so a switched Mac started speakersafetyd, which held the
+  sense PCM v2 needs: no speakers until reboot); a switched Mac gets the older
+  daemons only on a stable refusal; --revert starts only the sense PCM's own
+  unit; --check works on dual-interface kernels before the first switch.
 
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.2.20261109gitf4bb2fdb4406
 - speakerguardd v2 release candidate 8: the dual-interface kernel's lease
