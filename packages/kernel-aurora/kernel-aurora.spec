@@ -1,4 +1,4 @@
-%global commit d4d267839caa0aa9cbcd98a792351a52bd856b84
+%global commit 98cb6a868e5a3ad5b7cc01babfa10c362392704f
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 27%{?dist}.aurora
+Release: 28%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -17,10 +17,6 @@ Source1: config
 Source4: fedora.config
 Source5: validate-config.py
 Source6: dtb-abi
-Patch0: 0001-restore-legacy-speaker-protection.patch
-# aurora-silicon/linux: bound the MCA PCM buffer again, so speakersafetyd
-# can open the speaker sense PCM (hw_params failed with -ENOMEM since 79af0bae4d0d).
-Patch1: 0002-mca-bound-pcm-buffer.patch
 ExclusiveArch: aarch64
 BuildRequires: make gcc gcc-c++ clang llvm lld rust rust-src rustfmt cargo bindgen-cli
 BuildRequires: bc bison flex dtc openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
@@ -158,6 +154,14 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-28
+- Pin integration/aurora 98cb6a86. Its speaker driver boots every Mac on the
+  legacy "Speaker Volume Unlock" interface that speakersafetyd uses, so
+  0001-restore-legacy-speaker-protection.patch is no longer needed. It also
+  carries the MCA PCM buffer bound (linux#1258), so 0002 is dropped as well.
+  speakerguardd v2's lease is only reachable after a root-only switch that
+  aurora-speaker-upgrade makes; it ships disabled. Users keep speakersafetyd.
+
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-27
 - Fix speaker audio on M1 and M2 Macs: speakersafetyd could not open the
   speaker sense PCM (snd_pcm_hw_params -ENOMEM), restarted in a loop and
