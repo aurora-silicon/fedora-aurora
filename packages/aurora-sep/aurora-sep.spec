@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 22%{?dist}
+Release: 23%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -32,6 +32,7 @@ Source21: touchid-setup-needed
 Source22: authselect-vendor-local
 Source23: powerdevilrc
 Source24: aurora-sep-modprobe.conf
+Source25: sleep-aurora-sep.conf
 BuildArch: noarch
 BuildRequires: systemd-rpm-macros fprintd authselect-libs
 BuildRequires: selinux-policy-devel make bzip2
@@ -109,6 +110,10 @@ install -Dpm0755 %{SOURCE15} %{buildroot}%{_libexecdir}/aurora-sep-sensor-presen
 install -Dpm0644 %{SOURCE10} %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-sep.conf
 install -Dpm0644 %{SOURCE2} %{buildroot}%{_unitdir}/fprintd.service.d/aurora-sep.conf
 install -Dpm0644 %{SOURCE18} %{buildroot}%{_prefix}/lib/systemd/logind.conf.d/50-aurora-sep.conf
+# Every sleep that suspends waits for a SEP load still in progress.
+for unit in systemd-suspend systemd-hybrid-sleep systemd-suspend-then-hibernate; do
+    install -Dpm0644 %{SOURCE25} %{buildroot}%{_unitdir}/$unit.service.d/aurora-sep.conf
+done
 install -Dpm0644 %{SOURCE23} %{buildroot}%{_sysconfdir}/xdg/powerdevilrc
 # The vendor authselect profile is built at install time from the installed
 # authselect (see authselect-vendor-local); list its files as ghosts.
@@ -224,6 +229,12 @@ fi
 %dir %{_unitdir}/fprintd.service.d
 %{_unitdir}/fprintd.service.d/aurora-sep.conf
 %{_unitdir}/fprintd.service.d/50-aurora-sep-no-timeout.conf
+%dir %{_unitdir}/systemd-suspend.service.d
+%{_unitdir}/systemd-suspend.service.d/aurora-sep.conf
+%dir %{_unitdir}/systemd-hybrid-sleep.service.d
+%{_unitdir}/systemd-hybrid-sleep.service.d/aurora-sep.conf
+%dir %{_unitdir}/systemd-suspend-then-hibernate.service.d
+%{_unitdir}/systemd-suspend-then-hibernate.service.d/aurora-sep.conf
 %{_presetdir}/80-aurora-sep.preset
 
 %files selinux
@@ -231,6 +242,14 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 09 2026 Diljit Singh <hey@djdev.me> - 1-23
+- Order systemd-suspend, systemd-hybrid-sleep and
+  systemd-suspend-then-hibernate after aurora-sep.service. The T8140 sleep
+  controller refuses a deep sleep until apple_sep is bound, so a sleep that
+  starts while the driver loads now waits for it instead of failing with
+  EBUSY. Only After=: a sleep doesn't start a disabled load or rerun a
+  failed one.
+
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-22
 - A password re-arms Touch ID after a lockout: the vendor profile's
   system-auth and password-auth run pam_aurora_touchid straight after a
