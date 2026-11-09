@@ -1,4 +1,4 @@
-%global commit c6172e65b4179280508d9222df8fef756d380c83
+%global commit bff1b851586600d1aff986e968fd318385c1cbfa
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261109
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.32.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.33.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -243,6 +243,9 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - test bff1b8515866
+- LAB TEST BUILD ONLY (SGDUAL): + provision deactivate on revert.
+
 * Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.32.20261109gitc6172e65b417
 - LAB TEST BUILD ONLY (lane SGDUAL): speakerguardd#117 + #119 on v2 3d116e5 for the
   dual-interface kernel (linux 98cb6a86); installs parity.json for verify.
