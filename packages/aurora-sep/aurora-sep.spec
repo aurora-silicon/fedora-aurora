@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 26%{?dist}
+Release: 27%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -236,6 +236,13 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 10 2026 Diljit Singh <hey@djdev.me> - 1-27
+- load-driver stops at once when the driver reports this boot's identity
+  keybag as failed (diag/keybag), as after a Touch ID setup interrupted
+  under an older M1 kernel: no trusted key can be sealed then, so it no
+  longer holds the boot for its whole ready timeout. It names aurora-xart
+  status, which explains the state and the fix.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-26
 - Ship aurora-sep (aurora-sep status), the read-only SEP state self-check
   from aurora-silicon/linux tools/aurora-sep.
