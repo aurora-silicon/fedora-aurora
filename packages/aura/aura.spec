@@ -1,13 +1,13 @@
 %global debug_package %{nil}
-%global commit 30e93e890055eb289f544972404ad7b7c4affc3a
+%global commit 77565065bc7e4b440d0ef9282a742a6930854e28
 # Tagged release; preserve its label in the source archive build.
-%global release_tag 1.0.0b8
+%global release_tag 1.0.0b10
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
 %global monitor_free 1
 Name: aura
-Version: 1.0.0~b8
+Version: 1.0.0~b10
 Release: 1%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
@@ -28,7 +28,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-30e93e890055eb289f544972404ad7b7c4affc3a
+%autosetup -n aura-77565065bc7e4b440d0ef9282a742a6930854e28
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -64,6 +64,14 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b10-1
+- Pin aura v1.0.0b10 (77565065, aura#123): 1.0.0b9 plus aura#103 (v2 USB4
+  routers stay on with their NHI tuning; the M2's PCIe-C DART gets an empty
+  tunable list so the kernel cold-initializes the tunnel), aura#116 (M4
+  PIODMA gated on firmware 26.6.2), aura#120 (T6041 SIO boot tables) and
+  aura#121 (the speaker assembly ID in /chosen/asahi,speaker-id). The source
+  still has no monitor, so monitor_free stays 1.
+
 * Sun Nov 08 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b8-1
 - Pin aura v1.0.0b8 (30e93e89, aura#105): 1.0.0b7 plus aura#104, which runs
   the T8132 storage and memory steps on every T8132 board, not only the
