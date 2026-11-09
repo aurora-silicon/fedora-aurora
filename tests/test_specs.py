@@ -722,4 +722,13 @@ class SpecTests(unittest.TestCase):
         self.assertIn('%config(noreplace) %{_sysconfdir}/aurora-fido/aurora-fido.conf', files)
         pins = json.loads((ROOT / 'sources.json').read_text())
         self.assertIn(pins['aurora-fido']['commit'], text)
+    def test_secure_enclave_ssh_provider_gives_the_sep_key_group_the_node(self):
+        text = (ROOT / 'packages/aurora-sep-sk/aurora-sep-sk.spec').read_text()
+        files = text.split('%files', 1)[1]
+        self.assertIn('%{_libdir}/libaurora-sep-sk.so', files)
+        self.assertIn('%{_udevrulesdir}/70-aurora-sep-key.rules', files)
+        self.assertIn('%{_sysusersdir}/aurora-sep-key.conf', files)
+        self.assertIn('make -C sk check', text.split('%check', 1)[1].split('%install', 1)[0])
+        pins = json.loads((ROOT / 'sources.json').read_text())
+        self.assertIn(pins['aurora-sep-sk']['commit'], text)
 if __name__ == '__main__': unittest.main()
