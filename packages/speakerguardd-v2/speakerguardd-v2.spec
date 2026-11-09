@@ -1,4 +1,4 @@
-%global commit 98897df2cac777e7fb7ced5fa8abeb07884725a5
+%global commit 81ac9e9b92e53eb08b717338f315f87c45c6f0ae
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261109
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.34.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.35.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
