@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 28%{?dist}.aurora
+Release: 29%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -95,7 +95,7 @@ if [ "$ctxr" != %{ctxr_execmem} ]; then
   exit 1
 fi
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" rustavailable
-make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" %{?_smp_mflags} Image modules dtbs
+make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" %{?_smp_mflags} Image vmlinuz.efi modules dtbs
 [ "$(make -s LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" kernelrelease)" = "%{krel}" ]
 # The launcher includes this tree's prctl.h, so its numbers match the kernel.
 make -C tools/aurora-userpages
@@ -103,7 +103,9 @@ make -C tools/aurora-userpages
 %install
 export ARCH=arm64 RUSTC_BOOTSTRAP=1
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 INSTALL_MOD_PATH=%{buildroot}/usr INSTALL_MOD_STRIP=1 modules_install
-install -Dm644 arch/arm64/boot/Image %{buildroot}/usr/lib/modules/%{krel}/vmlinuz
+# The EFI zboot image (zstd) is about a quarter of the raw Image, and the boot
+# loader reads it through firmware block I/O, so it boots faster.
+install -Dm644 arch/arm64/boot/vmlinuz.efi %{buildroot}/usr/lib/modules/%{krel}/vmlinuz
 install -m644 .config %{buildroot}/usr/lib/modules/%{krel}/config
 install -m644 System.map %{buildroot}/usr/lib/modules/%{krel}/System.map
 install -m644 %{SOURCE6} %{buildroot}/usr/lib/modules/%{krel}/dtb-abi
@@ -154,6 +156,13 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-29
+- Install the EFI zboot image (CONFIG_EFI_ZBOOT, zstd) as vmlinuz instead
+  of the raw Image: about 17 MB instead of 67 MB. GRUB reads the kernel
+  through firmware block I/O, which costs about 30 ms per MB on a MacBook
+  Pro M1 Pro: the boot loader stage takes 1.5 s less there. The kernel
+  itself is the same; the EFI stub decompresses it.
+
 * Mon Nov 09 2026 Diljit Singh <hey@djdev.me> - 7.3.0-28
 - Pin integration/aurora b1c9943b. Fixes ProMotion internal displays that
   rendered at 60 Hz while set to 120 Hz on legacy DCP firmware (linux#1307).
