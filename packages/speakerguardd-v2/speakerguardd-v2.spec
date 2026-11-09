@@ -1,4 +1,4 @@
-%global commit a561b6fbcf595d1c5c844d9a696b47dec948366a
+%global commit ff88f9f98070e64e6df36b87cf622dd4d53b9dca
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261109
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.36.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.37.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -247,6 +247,13 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.37.20261109gitff88f9f98070
+- Release candidate 8.4 (speakerguardd#143): the supervisor's own hang
+  watch no longer counts a system sleep, so a sleep entered without the
+  sleep unit (a direct write to /sys/power/state) cannot get it killed at
+  the thaw; systemd's watchdog stays as a 10 minute last resort. Also the
+  voicing parity updates merged since 8.3.
+
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.36.20261109gita561b6fbcf59
 - Release candidate 8.3 (speakerguardd#142): before any switch,
   aurora-speaker-upgrade says that speakerguardd v2 is a preview, asks for
