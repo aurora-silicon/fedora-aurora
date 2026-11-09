@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 24%{?dist}
+Release: 25%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -233,6 +233,11 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 10 2026 Diljit Singh <hey@djdev.me> - 1-25
+- load-driver returns at once when the kernel enabled no SEP (no *.sep
+  platform device, as on a board without an apple_sep profile) instead
+  of holding the boot for its whole ready timeout.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-24
 - SELinux 1.4.3: confined login users (staff_t, user_t, ...) and their
   ssh-agent domains may use /dev/sep-key, and a confined ssh-agent may
