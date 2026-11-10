@@ -18,6 +18,7 @@ STATE = [
     'aurora-sep-refkey.bin', 'aurora-sep-refkey-v2.bin',
     'aurora-sep-host-state.bin', 'aurora-sep-xart-owned.bin',
     'aurora-sep-xart-allow-once.bin', 'aurora-sep-xart-policy-previous.bin',
+    'aurora-sep-touchid-lockout.bin',
 ]
 
 
@@ -58,7 +59,8 @@ class SelinuxModuleTests(unittest.TestCase):
 
     def test_state_access_is_scoped(self):
         allowed = set(re.findall(r'allow\s+(\w+)\s+aurora_sep_state_t:', self.te))
-        self.assertEqual(allowed, {'kernel_t', 'init_t', 'fprintd_t', 'kmod_t'})
+        self.assertEqual(allowed, {'kernel_t', 'init_t', 'fprintd_t', 'kmod_t',
+                                   'aurora_touchid_rearm_t'})
         self.assertRegex(self.te, r'allow init_t aurora_sep_state_t:file read_file_perms;')
 
     def test_the_loader_runs_in_its_own_domain(self):
@@ -89,6 +91,49 @@ class SelinuxModuleTests(unittest.TestCase):
         self.assertIn('restorecon -F "$f"', post)
         for verb in ('rm ', 'mv ', 'cp ', 'truncate', '>"$f"'):
             self.assertNotIn(verb, post)
+
+
+class TouchIdRearmPolicyTests(unittest.TestCase):
+    def setUp(self):
+        self.te = (PKG / 'aurora_sep.te').read_text()
+        self.fc = (PKG / 'aurora_sep.fc').read_text()
+
+    def test_only_the_rearm_domain_opens_the_rearm_device(self):
+        users = set(re.findall(r'allow\s+(\w+)\s+aurora_sep_rearm_device_t:', self.te))
+        self.assertEqual(users, {'aurora_touchid_rearm_t'})
+        self.assertIn('/dev/sep-bio-rearm\t-c\tgen_context(system_u:object_r:aurora_sep_rearm_device_t,s0)', self.fc)
+
+    def test_confined_users_and_their_agents_reach_the_key_node(self):
+        # ssh-keygen and ssh-add run in the login user's own domain and the
+        # agent in that role's agent domain (staff_ssh_agent_t), so the
+        # policy names the attributes, not only ssh_t/ssh_agent_t.
+        for client in ('ssh_t', 'ssh_agent_t', 'ssh_keygen_t'):
+            self.assertIn(f'aurora_sep_key_client({client})', self.te)
+        for attr in ('userdomain', 'ssh_agent_type'):
+            self.assertIn(f'aurora_sep_key_client_attr({attr})', self.te)
+        self.assertIn('/dev/sep-key\t-c\tgen_context(system_u:object_r:aurora_sep_key_device_t,s0)', self.fc)
+
+    def test_a_confined_agent_may_make_its_socket_directory(self):
+        self.assertIn('allow ssh_agent_type ssh_home_t:dir { create_dir_perms rw_dir_perms rmdir };', self.te)
+        self.assertIn('allow ssh_agent_type ssh_home_t:sock_file { create unlink getattr setattr };', self.te)
+
+    def test_the_rearm_service_runs_in_its_own_domain(self):
+        self.assertIn('init_daemon_domain(aurora_touchid_rearm_t, aurora_touchid_rearm_exec_t)', self.te)
+        self.assertIn('/usr/libexec/aurora-touchid-rearm\t--\tgen_context(system_u:object_r:aurora_touchid_rearm_exec_t,s0)', self.fc)
+        self.assertNotIn('unconfined_domain(aurora_touchid_rearm_t)', self.te)
+
+    def test_the_rearm_service_keeps_no_new_privileges(self):
+        # aurora-touchid-rearm@.service sets NoNewPrivileges=yes. Under it,
+        # SELinux allows a domain transition only when it is bounded or
+        # allowed by process2 nnp_transition: systemd's into the helper's
+        # domain, and the helper's pam_unix into unix_chkpwd's.
+        self.assertIn('init_nnp_daemon_domain(aurora_touchid_rearm_t)', self.te)
+        self.assertIn('auth_nnp_domtrans_chkpwd(aurora_touchid_rearm_t)', self.te)
+        self.assertIn('auth_use_pam(aurora_touchid_rearm_t)', self.te)
+        # No blanket nnp rule for any other domain.
+        self.assertEqual(re.findall(r'nnp_(?:daemon_domain|domtrans_\w+)\((\w+)\)', self.te),
+                         ['aurora_touchid_rearm_t', 'aurora_touchid_rearm_t'])
+        self.assertNotRegex(self.te, r'process2')
 
 
 def hint_harness():

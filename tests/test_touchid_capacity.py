@@ -19,7 +19,7 @@ class TouchIdCapacityTests(unittest.TestCase):
             # Only these unchanged upstream functions are needed. Apply the
             # production patch, not a reimplementation of the fixed callback.
             shutil.copytree(ROOT / 'tests/fixtures/fprintd-1.94.5', source, dirs_exist_ok=True)
-            subprocess.run(['git', 'apply', str(FPRINTD / '0002-aurora-report-data-full-without-garbage-collection.patch')],
+            subprocess.run(['git', 'apply', str(FPRINTD / '0004-aurora-report-data-full-without-garbage-collection.patch')],
                            cwd=source, check=True)
             # Patch1000 creates the whole driver. The include filter avoids
             # needing unrelated libfprint files while applying the entire

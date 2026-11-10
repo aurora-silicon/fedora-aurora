@@ -9,10 +9,10 @@ Keep the standard enroll-data-full status for GNOME's translated no-space
 message, and give command-line users an explicit removal instruction.
 
 diff --git a/src/device.c b/src/device.c
-index 757c30a..40a5058 100644
+index 9b4cc8b..f5fe9e9 100644
 --- a/src/device.c
 +++ b/src/device.c
-@@ -2024,7 +2024,11 @@ enroll_cb (FpDevice *dev, GAsyncResult *res, void *user_data)
+@@ -2030,7 +2030,11 @@ enroll_cb (FpDevice *dev, GAsyncResult *res, void *user_data)
    if (g_error_matches (error, FP_DEVICE_ERROR, FP_DEVICE_ERROR_DATA_FULL))
      {
        g_debug ("Device storage is full");

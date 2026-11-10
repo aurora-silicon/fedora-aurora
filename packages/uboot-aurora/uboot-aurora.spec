@@ -1,8 +1,8 @@
 %global debug_package %{nil}
-%global commit d30213eadcaa886f4206d7661b61bc6cf7837828
+%global commit 48c6b2c5f24e9a245c82d402ad11767ece9e384b
 Name: uboot-aurora
 Version: 2026.07
-Release: 6%{?dist}
+Release: 10%{?dist}
 Summary: Aurora U-Boot for Apple Silicon
 License: GPL-2.0-or-later
 URL: https://github.com/aurora-silicon/u-boot
@@ -10,13 +10,14 @@ Source0: uboot-aurora-%{commit}.tar.gz
 ExclusiveArch: aarch64
 Provides: uboot-images-armv8
 Conflicts: uboot-images-armv8
+Requires: update-m1n1 >= 20261107
 BuildRequires: gcc make bc bison flex dtc python3 python3-pyelftools swig openssl-devel openssl-devel-engine gnutls-devel
 
 %description
 Aurora U-Boot for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n u-boot-d30213eadcaa886f4206d7661b61bc6cf7837828
+%autosetup -n u-boot-48c6b2c5f24e9a245c82d402ad11767ece9e384b
 
 %build
 make O=build-aurora apple_m1_defconfig
@@ -32,6 +33,24 @@ install -Dm644 build-aurora/u-boot-nodtb.bin %{buildroot}/usr/lib/asahi-boot/u-b
 /usr/lib/asahi-boot/u-boot-nodtb.bin
 
 %changelog
+* Mon Nov 09 2026 Diljit Singh <hey@djdev.me> - 2026.07-10
+- Track U-Boot aurora-wip at 48c6b2c (u-boot#42). The M4 Max (T6041)
+  boots like the M4 Pro (u-boot#42), and the T6050 (M5 Max, J714c) boots
+  from NVMe by adopting the ANS session an m1n1 Stage 2 hands over
+  (u-boot#41); without /chosen/asahi,nvme-adopt nothing changes.
+
+* Sat Nov 07 2026 Aurora Silicon <hey@djdev.me> - 2026.07-9
+- Track U-Boot aurora-wip at e1ef8b6. On M4 and later Macs it loads the
+  kernel and the EFI runtime code into the CTXR window, and keeps
+  device-tree reservations out of it (u-boot#32, #36). Also the J713
+  external DCP handoff, speaker amps and ISP handoff (u-boot#31, #34, #35).
+
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 2026.07-8
+- Require the trial-aware Stage 2 updater for packaged boot updates.
+
+* Thu Nov 05 2026 Michal S. <michal_stopyra@icloud.com> - 2026.07-7
+- Include the merged J614s retained MTP input handoff (u-boot#29).
+
 * Sun Nov 01 2026 Aurora Silicon <hey@djdev.me> - 2026.07-6
 - Track U-Boot aurora-wip at d30213e (u-boot PR 28 merged: boot speed,
   boot timings, SMBIOS identity, quiet boot), the U-Boot all four Aurora

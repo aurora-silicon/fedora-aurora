@@ -21,8 +21,11 @@ jobs:
   plan:
     runs-on: ubuntu-24.04
     outputs:
+      full: ${{ steps.plan.outputs.full }}
       packages: ${{ steps.plan.outputs.packages }}
       x86_packages: ${{ steps.plan.outputs.x86_packages }}
+      builds: ${{ steps.matrix.outputs.builds }}
+      x86-builds: ${{ steps.matrix.outputs.x86-builds }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -31,9 +34,33 @@ jobs:
       - id: plan
         run: |
           python3 scripts/ci-plan.py >> "$GITHUB_OUTPUT"
+      - id: matrix
+        env:
+          FULL: ${{ steps.plan.outputs.full }}
+          PACKAGES: ${{ steps.plan.outputs.packages }}
+          X86_PACKAGES: ${{ steps.plan.outputs.x86_packages }}
+        run: |
+          python3 - <<'PYCODE' >> "$GITHUB_OUTPUT"
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, 'scripts')
+          import fedoralib
+          names = fedoralib.package_names('.')
+          x86 = {n for n in names if '# aurora-builder: x86_64' in Path(f'packages/{n}/{n}.spec').read_text().splitlines()}
+          for key, selected, all_names in [('builds', 'PACKAGES', [n for n in names if n not in x86]),
+                                           ('x86-builds', 'X86_PACKAGES', sorted(x86))]:
+              chosen = json.loads(os.environ[selected])
+              rows = [{'release': '44', 'package': n} for n in chosen]
+              # Fedora 45 has no base repository, so publication needs the complete
+              # set: push and manual runs build all of it, a pull request only what
+              # it changed (ci-plan.py).
+              rows += [{'release': '45', 'package': n}
+                       for n in (all_names if os.environ['FULL'] == 'true' else chosen)]
+              print(key + '=' + json.dumps(rows))
+          PYCODE
   rpm:
     needs: plan
-    if: needs.plan.outputs.packages != '[]'
+    if: needs.plan.outputs.builds != '[]'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
     permissions:
@@ -44,7 +71,7 @@ jobs:
       fail-fast: false
       max-parallel: 4
       matrix:
-        package: ${{ fromJSON(needs.plan.outputs.packages) }}
+        include: ${{ fromJSON(needs.plan.outputs.builds) }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -55,14 +82,14 @@ jobs:
           sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet
           df -h "$RUNNER_TEMP"
           test "$(df --output=avail -B1 "$RUNNER_TEMP" | tail -1)" -ge 21474836480
-      - name: Build Fedora 44 RPMs natively
+      - name: Build Fedora ${{ matrix.release }} RPMs natively
         run: |
           set -euo pipefail
           # bubblewrap needs namespaces/mounts for the unprivileged GL builder.
           sandbox=()
           if [[ '${{ matrix.package }}' == aurora-flatpak-gl ]]; then sandbox=(--privileged); fi
-          docker run --rm "${sandbox[@]}" --platform linux/arm64 -v "$PWD:/src" -w /src \
-            registry.fedoraproject.org/fedora:44 bash -euo pipefail -c '
+          docker run --rm -e AURORA_FEDORA_RELEASE=${{ matrix.release }} "${sandbox[@]}" --platform linux/arm64 -v "$PWD:/src" -w /src \
+            registry.fedoraproject.org/fedora:${{ matrix.release }} bash -euo pipefail -c '
               dnf install -y rpm-build dnf5-plugins python3 git tar gzip coreutils findutils
               if [[ $1 == aurora-flatpak-gl ]]; then
                 dnf install -y flatpak flatpak-builder ostree
@@ -74,6 +101,12 @@ jobs:
               fi
               AURORA_INSTALL_BUILDDEPS=1 AURORA_BUILD_JOBS=4 bash scripts/build-rpm "$1"
             ' build '${{ matrix.package }}' 2>&1 | tee build.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always() && matrix.release == '45' && matrix.package == 'mutter'
+        with:
+          name: mutter-f45-test-logs-attempt-${{ github.run_attempt }}
+          path: out/build/mutter/test-logs.*/
+          retention-days: 30
       # Provenance for the exact RPM bytes; publication verifies it.
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         if: success() && github.event_name != 'pull_request'
@@ -84,7 +117,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: success()
         with:
-          name: rpm-${{ matrix.package }}
+          name: ${{ matrix.release == '44' && 'rpm-' || 'rpm-f45-' }}${{ matrix.package }}
           path: |
             out/rpms/*.rpm
             out/srpms/*.rpm
@@ -95,13 +128,13 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:
-          name: failed-rpm-${{ matrix.package }}-attempt-${{ github.run_attempt }}
+          name: failed-${{ matrix.release == '44' && 'rpm-' || 'rpm-f45-' }}${{ matrix.package }}-attempt-${{ github.run_attempt }}
           path: build.log
           retention-days: 14
   rpm-x86:
     # Recipes that ship x86 code for FEX guests (marked "# aurora-builder: x86_64").
     needs: plan
-    if: needs.plan.outputs.x86_packages != '[]'
+    if: needs.plan.outputs.x86-builds != '[]'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     permissions:
@@ -112,16 +145,16 @@ jobs:
       fail-fast: false
       max-parallel: 2
       matrix:
-        package: ${{ fromJSON(needs.plan.outputs.x86_packages) }}
+        include: ${{ fromJSON(needs.plan.outputs.x86-builds) }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
-      - name: Build Fedora 44 RPMs on x86_64
+      - name: Build Fedora ${{ matrix.release }} RPMs on x86_64
         run: |
           set -euo pipefail
-          docker run --rm --platform linux/amd64 -v "$PWD:/src" -w /src \
-            registry.fedoraproject.org/fedora:44 bash -euo pipefail -c '
+          docker run --rm -e AURORA_FEDORA_RELEASE=${{ matrix.release }} --platform linux/amd64 -v "$PWD:/src" -w /src \
+            registry.fedoraproject.org/fedora:${{ matrix.release }} bash -euo pipefail -c '
               dnf install -y rpm-build dnf5-plugins python3 git tar gzip coreutils findutils
               AURORA_INSTALL_BUILDDEPS=1 AURORA_BUILD_JOBS=4 bash scripts/build-rpm "$1"
             ' build '${{ matrix.package }}' 2>&1 | tee build.log
@@ -135,7 +168,7 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: success()
         with:
-          name: rpm-${{ matrix.package }}
+          name: ${{ matrix.release == '44' && 'rpm-' || 'rpm-f45-' }}${{ matrix.package }}
           path: |
             out/rpms/*.rpm
             out/srpms/*.rpm
@@ -145,6 +178,56 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:
-          name: failed-rpm-${{ matrix.package }}-attempt-${{ github.run_attempt }}
+          name: failed-${{ matrix.release == '44' && 'rpm-' || 'rpm-f45-' }}${{ matrix.package }}-attempt-${{ github.run_attempt }}
           path: build.log
           retention-days: 14
+
+  repository-fedora45:
+    # Resolves the fleet upgrade from the complete fc45 set; a pull request
+    # that builds a subset leaves this to the push run on main.
+    needs: [plan, rpm, rpm-x86]
+    if: needs.plan.outputs.full == 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: rpm-f45-*
+          path: candidates
+      - name: Sign the CI-built fc45 set and resolve the fleet upgrade
+        run: |
+          set -euo pipefail
+          docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src \
+            registry.fedoraproject.org/fedora:45 \
+            bash scripts/test-fedora-repository /src/candidates /src/proof 2>&1 | tee repository-fedora45.log
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: repository-fedora45-proof
+          path: |
+            proof/*.txt
+            proof/*.log
+            proof/bootchain.conf
+            proof/site/45/testing/aarch64/manifest.json
+            proof/site/45/testing/aarch64/repodata
+            repository-fedora45.log
+          retention-days: 30
+
+  touchid-fedora45-validation:
+    # On a subset pull request, touchid-fedora45.yml runs on its own path filter.
+    needs: [plan, rpm]
+    if: needs.plan.outputs.full == 'true'
+    uses: ./.github/workflows/touchid-fedora45.yml
+    with:
+      ci-candidates: true
+
+  upower-fedora45-validation:
+    # On a subset pull request, upower-fedora45.yml runs on its own path filter.
+    needs: [plan, rpm]
+    if: needs.plan.outputs.full == 'true'
+    uses: ./.github/workflows/upower-fedora45.yml
+    with:
+      ci-candidates: true

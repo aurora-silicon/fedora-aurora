@@ -5,9 +5,11 @@ Expose ENOSPC as DATA_FULL so clients show their existing storage-full text.
 Do not guess which store filled: the kernel uses ENOSPC for both the SEP's
 three-finger limit and host persistence capacity.
 
+diff --git a/libfprint/drivers/aurora/aurora.c b/libfprint/drivers/aurora/aurora.c
+index 3cb7509..75ac0df 100644
 --- a/libfprint/drivers/aurora/aurora.c
 +++ b/libfprint/drivers/aurora/aurora.c
-@@ -93,9 +93,11 @@
+@@ -129,9 +129,11 @@ aurora_ioctl (FpiDeviceAurora *self, unsigned long req, void *arg, GError **erro
            break;
  
          case ENOSPC:

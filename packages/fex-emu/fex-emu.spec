@@ -4,9 +4,10 @@
 # fex-emu.spec (f44, FEX 2604); the sysroot, its macros and the toolchain files
 # are Fedora's. The fork's submodules are pinned as extra sources in
 # sources.json at the gitlinks of %%{commit}.
-%global commit 3f4ee4277f11b1986a5edf8ecc9c2c4169830bd4
+%global commit 0c08727ae4c0c30601c962d982d4864b77dd17a2
 %global shortcommit %(c=%{commit}; echo ${c:0:7})
 %global fex_describe FEX-%{version}-aurora-g%{shortcommit}
+%global steamtool %{_datadir}/steam/compatibilitytools.d/fex-aurora
 
 # FEX upstream only supports building with clang
 %global toolchain clang
@@ -18,7 +19,7 @@
 
 Name:       fex-emu
 Version:    2610
-Release:    1%{?dist}.aurora
+Release:    5%{?dist}.aurora
 Summary:    Fast usermode x86 and x86-64 emulator for ARM64
 
 # FEX itself is MIT, see below for the bundled libraries
@@ -40,6 +41,16 @@ Source6:    build-fex-sysroot.sh
 # programs to FEXInterpreter in muvm; Aurora runs FEX in a 4 KiB page tree.
 Source7:    fex-userpages
 Source8:    50-aurora-fex.toml
+# The stock guest root filesystem (fex-emu-rootfs-fedora) mounted below the
+# Aurora x86 Mesa layer of mesa-aurora-fex-guest, the Steam FEX graphics
+# provider; without a lower layer that provider never mounted.
+Source9:    usr-share-guestos-fex\x2dmesa.mount
+Source10:   50-aurora-fex-rootfs.conf
+Source11:   aurora-fex-provider-up
+Source12:   compatibilitytool.vdf
+# The global config: FEX uses fex-emu-rootfs-fedora's image unless a user's
+# own Config.json names another RootFS.
+Source13:   Config.json
 SourceLicense: %{fex_license} %{sysroot_license}
 
 # Bundled dependencies are git submodules upstream; each is pinned in
@@ -48,10 +59,18 @@ Source101:  cpp-optparse-9f94388a339fcbb0bc95c17768eb786c85988f6e.tar.gz
 Source102:  drm-headers-3e49836995c1dcb3df709440ad2f270b569c6a5f.tar.gz
 Source103:  jemalloc-8436195ad5e1bc347d9b39743af3d29abee59f06.tar.gz
 Source104:  range-v3-ca1388fb9da8e69314dda222dc7b139ca84e092f.tar.gz
-Source105:  rpmalloc-09142d726429416bfa7b459151515fe3ab7622dd.tar.gz
+Source105:  rpmalloc-ed227446afce6ff505b312bae1e10a3daaeeea39.tar.gz
 Source106:  Vulkan-Headers-ee2ec5fd83dafce291024683b50dc89219333076.tar.gz
-Source107:  vixl-585d860b12cdfc3a72f5fdad5e02e4d50a64c014.tar.gz
+Source107:  vixl-6561d40650885ad24fbd0aa0cdb20ccb4808d444.tar.gz
 Source108:  unordered_dense-3234af2c03549bc85656bfd3a86993bf1cd8aef1.tar.gz
+# The Steam compatibility tool build bundles fmt and xxHash.
+Source109:  fmt-c07e2aa4b130b4fd359a1c6455a5201b17af01fa.tar.gz
+Source110:  xxHash-e626a72bc2321cd320e953a0ccf1584cad60f363.tar.gz
+# Names fex-emu-rootfs-fedora when the RootFS is missing.
+Patch0:     0001-FEXInterpreter-name-the-distribution-RootFS-package.patch
+# erofsfuse can't serve /dev/fuse from a 4 KiB page tree; FEXServer starts it
+# with native pages.
+Patch1:     0002-FEXServer-run-the-RootFS-image-FUSE-helper-with-native-pages.patch
 Provides:   bundled(cpp-optparse) = 0
 Provides:   bundled(kernel) = 6.17
 Provides:   bundled(jemalloc) = 5.3.0
@@ -73,6 +92,7 @@ BuildRequires:  python3
 BuildRequires:  python3-setuptools
 BuildRequires:  sed
 BuildRequires:  systemd-rpm-macros
+BuildRequires:  systemd
 BuildRequires:  catch-devel
 BuildRequires:  fmt-devel
 BuildRequires:  libepoxy-devel
@@ -101,8 +121,13 @@ Recommends:     %{name}-thunks = %{version}-%{release}
 %endif
 # 4 KiB page process trees on Aurora's 16 KiB kernels.
 Requires:       aurora-userpages
+# The default RootFS. A weak dependency: dnf installs it by default, and users
+# with another RootFS can remove its 1.9 GB.
 Recommends:     fex-emu-rootfs-fedora
-Recommends:     erofs-fuse
+# FEXServer mounts .erofs RootFS images with erofsfuse; fusermount3 lets it do
+# that as an ordinary user and unmount them again.
+Requires:       erofs-fuse
+Requires:       fuse3
 Recommends:     erofs-utils
 Recommends:     squashfs-tools
 Recommends:     squashfuse
@@ -151,6 +176,17 @@ Requires:       %{name}%{?_isa} = %{version}-%{release}
 This package provides host library thunks for %{name}.
 %endif
 
+%package        steam
+Summary:        FEX as a Steam compatibility tool (Aurora build)
+# The tool is a self-contained depot; Steam starts it in its own runtime.
+AutoReqProv:    no
+
+%description    steam
+FEX from Aurora's fork, built as a Steam compatibility tool (the fork's
+FEXCompatTool and FEXServerManager), in %{steamtool}. Steam's native
+ARM64 client lists it as "FEX (Aurora)" and can run x86 Linux titles with
+it instead of Valve's FEX tool.
+
 %prep
 %autosetup -N -n fex-%{commit}
 cp -p %SOURCE1 .
@@ -163,6 +199,9 @@ unpack %{SOURCE105} External/rpmalloc
 unpack %{SOURCE106} External/Vulkan-Headers
 unpack %{SOURCE107} External/vixl
 unpack %{SOURCE108} External/unordered_dense
+unpack %{SOURCE109} External/fmt
+unpack %{SOURCE110} External/xxhash
+%autopatch -p1
 
 # Ensure library soversion is set
 sed -i FEXCore/Source/CMakeLists.txt \
@@ -183,6 +222,7 @@ sed -i "s,%%CPPINC%%,$CPPINC,g" toolchain_*.cmake
     -DTUNE_CPU=none \
     -DOVERRIDE_VERSION=%{fex_describe} \
     -DOVERRIDE_HASH=%{commit} \
+    -DROOTFS_PACKAGE=fex-emu-rootfs-fedora \
 %if %{with thunks}
     -DBUILD_THUNKS=ON \
     -DENABLE_CLANG_THUNKS=ON \
@@ -194,6 +234,15 @@ sed -i "s,%%CPPINC%%,$CPPINC,g" toolchain_*.cmake
     -DX86_64_TOOLCHAIN_FILE=$PWD/toolchain_x86_64.cmake \
     %{nil}
 %cmake_build
+# The Steam compatibility tool, as a separate portable build.
+cmake -S . -B steam-build -G Ninja \
+    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+    -DCMAKE_C_FLAGS="%{build_cflags}" -DCMAKE_CXX_FLAGS="%{build_cxxflags}" \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+    -DBUILD_STEAM_SUPPORT=ON -DBUILD_THUNKS=OFF -DBUILD_TESTING=OFF -DBUILD_FEXCONFIG=OFF \
+    -DENABLE_OFFLINE_TELEMETRY=OFF -DENABLE_CCACHE=OFF -DTUNE_CPU=none \
+    -DOVERRIDE_VERSION=%{fex_describe} -DOVERRIDE_HASH=%{commit}
+cmake --build steam-build %{?_smp_mflags}
 
 %install
 %cmake_install
@@ -206,19 +255,41 @@ rm %{buildroot}%{_datadir}/fex-emu/ThunksDB.json
 %endif
 install -Dm755 %{SOURCE7} %{buildroot}%{_libexecdir}/fex-emu/fex-userpages
 install -Dm644 %{SOURCE8} %{buildroot}%{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml
+install -Dm644 '%{SOURCE9}' '%{buildroot}%{_unitdir}/usr-share-guestos-fex\x2dmesa.mount'
+install -Dm644 %{SOURCE10} %{buildroot}%{_unitdir}/aurora-fex-mesa.service.d/50-aurora-fex-rootfs.conf
+install -d %{buildroot}%{_datadir}/guestos/fex-mesa
+install -Dm755 %{SOURCE11} %{buildroot}%{_libexecdir}/fex-emu/aurora-fex-provider-up
+DESTDIR=%{buildroot}%{steamtool} cmake --install steam-build
+install -Dm644 %{SOURCE12} %{buildroot}%{steamtool}/compatibilitytool.vdf
+install -Dm644 %{SOURCE13} %{buildroot}%{_datadir}/fex-emu/Config.json
+# toolmanifest.vdf starts /fex-compat-tool in the tool's root.
+ln -s FEXCompatTool %{buildroot}%{steamtool}/fex-compat-tool
 
 %check
+for f in FEXCompatTool usr/bin/FEX usr/bin/FEXServerManager toolmanifest.vdf emulator.json VERSIONS.txt; do
+  test -e %{buildroot}%{steamtool}/$f
+done
+grep -q '%{fex_describe}' %{buildroot}%{steamtool}/VERSIONS.txt
 # The installed tools report the fork's identity.
 LD_LIBRARY_PATH=%{buildroot}%{_libdir} %{buildroot}%{_bindir}/FEXGetConfig --version | tee version.txt
 grep -qx '%{fex_describe}' version.txt
 for f in %{buildroot}%{_binfmtdir}/FEX-x86.conf %{buildroot}%{_binfmtdir}/FEX-x86_64.conf; do
   grep -q ':%{_bindir}/FEX:' "$f"
 done
+# The missing-RootFS error names the package.
+grep -qaF fex-emu-rootfs-fedora %{buildroot}%{_bindir}/FEX
 
 %postun
 if [ $1 -eq 0 ]; then
 /bin/systemctl try-restart systemd-binfmt.service
 fi
+
+%posttrans
+%{_libexecdir}/fex-emu/aurora-fex-provider-up
+%triggerin -- fex-emu-rootfs-fedora
+%{_libexecdir}/fex-emu/aurora-fex-provider-up
+%triggerin -- mesa-aurora-fex-guest
+[ $2 -gt 1 ] || %{_libexecdir}/fex-emu/aurora-fex-provider-up
 
 %files
 %license LICENSE
@@ -233,10 +304,18 @@ fi
 %{_binfmtdir}/FEX-x86.conf
 %{_binfmtdir}/FEX-x86_64.conf
 %{_datadir}/fex-emu/AppConfig/
+%config(noreplace) %{_datadir}/fex-emu/Config.json
 %{_mandir}/man1/FEX.1*
 %{_libexecdir}/fex-emu/
 %dir %{_prefix}/lib/binfmt-dispatcher.d
+%{_unitdir}/usr-share-guestos-fex*.mount
+%{_unitdir}/aurora-fex-mesa.service.d/50-aurora-fex-rootfs.conf
+%dir %{_datadir}/guestos
+%dir %{_datadir}/guestos/fex-mesa
 %{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml
+
+%files steam
+%{steamtool}/
 
 %files filesystem
 %dir %{_datadir}/fex-emu/
@@ -261,6 +340,30 @@ fi
 %endif
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 2610-5.aurora
+- FEX from aurora-silicon/fex at 0c08727 (main's tree): c2c22c6 plus the
+  timed futex-wait unit tests allowing for clock slew. FEX itself is
+  unchanged; NixOS and ALARM build the same commit.
+
+* Sat Nov 07 2026 DjDeveloperr <hey@djdev.me> - 2610-4.aurora
+- Ship a global FEX config whose RootFS is fex-emu-rootfs-fedora's image,
+  so FEXBash works without setup; a user's Config.json still overrides it.
+- Require erofs-fuse and fuse3, which FEXServer uses to mount that image,
+  and run erofsfuse with native pages: from a 4 KiB page tree it can't read
+  /dev/fuse on Aurora's kernels.
+- Name fex-emu-rootfs-fedora in the error when no RootFS is installed.
+
+* Fri Nov 06 2026 Ryan Murray <ryan@aurorasilicon.org> - 2610-3.aurora
+- fex-emu-steam: the fork's Steam compatibility tool as "FEX (Aurora)".
+- Mount the stock FEX guest root filesystem (fex-emu-rootfs-fedora) at
+  /usr/share/guestos/fex-mesa below mesa-aurora-fex-guest's Aurora Mesa
+  layer, so Steam's FEX titles get the G17P Mesa on a fresh install.
+
+* Thu Nov 05 2026 DjDeveloperr <hey@djdev.me> - 2610-2.aurora
+- FEX from aurora-silicon/fex main at c2c22c6: the fork's commits rebased
+  onto FEX-Emu/FEX main of 2026-11-04, now including Apple APFLG (x86 PF
+  and AF kept in NZCV). vixl and rpmalloc follow upstream's new gitlinks.
+
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 2610-1.aurora
 - FEX from aurora-silicon/fex main at 3f4ee42 (FEX-2610 and 19 commits:
   io_uring for x86-64 guests behind ring restrictions, one compile per

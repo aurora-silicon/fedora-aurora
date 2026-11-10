@@ -1,0 +1,52 @@
+#!/bin/bash
+# Compare the starting-main and current signers on identical real fc44 RPMs.
+# Run only in a disposable Fedora 44 container. No production credential is used.
+set -euo pipefail
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+dnf install -y git python3 rpm-build rpm-sign gnupg2 createrepo_c
+[[ $(rpm --eval '%{fedora}') == 44 ]]
+work=$(mktemp -d)
+export GNUPGHOME=$work/gnupg
+trap 'gpgconf --kill gpg-agent; rm -rf "$work"' EXIT
+mkdir -m 0700 "$GNUPGHOME"
+mkdir -p "$work/scripts" "$work/keys" "$work/rpmbuild/SPECS"
+cp "$root"/keys/{RPM-GPG-KEY-aurora,fingerprint.txt} "$work/keys/"
+git -c safe.directory="$root" -C "$root" show \
+  7346ab2c1ce13176506243ed5bb398922bb73359:scripts/sign-repository.py > "$work/scripts/old-signer.py"
+cat > "$work/rpmbuild/SPECS/probe.spec" <<'SPEC'
+Name: aurora-compatibility-probe
+Version: 1
+Release: 1.fc44
+Summary: Publication compatibility fixture
+License: MIT
+BuildArch: noarch
+%description
+Deterministic public fixture for the repository signing test.
+%install
+mkdir -p %{buildroot}/usr/share/aurora-compatibility-probe
+echo fixture > %{buildroot}/usr/share/aurora-compatibility-probe/data
+%files
+/usr/share/aurora-compatibility-probe/data
+SPEC
+rpmbuild -bb --define "_topdir $work/rpmbuild" "$work/rpmbuild/SPECS/probe.spec"
+gpg --batch --pinentry-mode loopback --passphrase '' \
+  --quick-generate-key 'Publication fixture <ci@example.invalid>' rsa2048 sign 1d
+gpg --batch --armor --export > "$work/key.asc"
+gpg --batch --armor --export-secret-keys > "$work/secret.asc"
+sign() {
+  python3 - "$work/secret.asc" <<'PY' |
+import json, pathlib, sys
+print(json.dumps({'key': pathlib.Path(sys.argv[1]).read_text(), 'passphrase': ''}))
+PY
+    python3 "$1" --credentials-stdin --dry-run-public-key "$work/key.asc" \
+      --rpms "$2" --output "$3" \
+      --asset-base https://example.invalid/releases/testing-compatibility.1
+}
+sign "$work/scripts/old-signer.py" "$work/rpmbuild/RPMS/noarch" "$work/initial"
+# Both implementations now receive identical signed bytes. An identical
+# existing signature is preserved by rpmsign, removing signing-time variance.
+sign "$work/scripts/old-signer.py" "$work/initial/44/testing/aarch64" "$work/before"
+sign "$root/scripts/sign-repository.py" "$work/initial/44/testing/aarch64" "$work/after"
+cmp "$work/before/44/testing/aarch64/manifest.json" "$work/after/44/testing/aarch64/manifest.json"
+sha256sum "$work"/{before,after}/44/testing/aarch64/manifest.json
+echo 'Fedora 44 before/after manifest byte comparison on identical real RPMs: PASS'

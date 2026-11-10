@@ -39,10 +39,14 @@ PACKAGES = {
         # Flatpak apps load GL and Vulkan from the runtime's GL extension, not
         # the host: without GL.aurora they run Flathub's GL.default Mesa.
         "aurora-flatpak-gl",
-        "aurora-firmware", "avd-fw", "upower", "alsa-ucm-conf-aurora", "aurora-audio", "speakerguardd",
+        "aurora-firmware", "avd-fw", "libva-v4l2-request-avd", "upower", "alsa-ucm-conf-aurora", "aurora-audio", "speakerguardd",
         "speakersafetyd-aurora-profiles",
         # Fedora's SSH server, on every profile; aurora-release presets it off.
         "openssh-server",
+        # The Touch ID security key: installed, off until `aurora-fido enable`.
+        "aurora-fido",
+        # OpenSSH ecdsa-sk keys in the Secure Enclave, for members of sep-key.
+        "aurora-sep-sk",
     ]),
     # Desktop images boot to the Aurora splash: aura's logo, kept still, with a spinner.
     "components/desktop-environments.xml": ("DesktopCommon", ["plymouth-theme-aurora"]),
