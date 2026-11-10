@@ -1,6 +1,6 @@
 Name: plymouth-theme-aurora
 Version: 1
-Release: 7%{?dist}
+Release: 8%{?dist}
 Summary: Aurora boot splash: the bootloader's logo, kept in place, with the distribution's branding
 # The spinner, password entry and watermark images come from the distribution's
 # spinner theme (ImageDir); this package adds the script and aura's logos.
@@ -92,9 +92,12 @@ fi
 # Images are built with plymouth.ignore-serial-consoles next to rhgb; add it
 # to an installed system's boot entries and future kernels. The kernel keeps
 # the serial console.
+# Check the boot entries themselves: /etc/kernel/cmdline can carry the
+# argument while existing entries were made without it.
 cmdline=%{_sysconfdir}/kernel/cmdline
-if [ -f $cmdline ] && grep -qE '(^|[[:space:]])rhgb([[:space:]]|$)' $cmdline &&
-   ! grep -qE '(^|[[:space:]])plymouth\.ignore-serial-consoles([[:space:]]|$)' $cmdline; then
+graphical() { grep -E '(^|[[:space:]"])rhgb([[:space:]"]|$)' | grep -vqE '(^|[[:space:]"])plymouth\.ignore-serial-consoles([[:space:]"]|$)'; }
+if { [ -f $cmdline ] && graphical < $cmdline; } ||
+   %{_sbindir}/grubby --info=ALL 2>/dev/null | grep -E '^args=' | graphical; then
   %{_sbindir}/grubby --update-kernel=ALL --args=plymouth.ignore-serial-consoles || :
 fi
 # Rebuild the initramfs once per transaction when asked above, on a running
@@ -128,6 +131,10 @@ fi
 %{_prefix}/lib/dracut/modules.d/96aurora-plymouth
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-8
+- Add plymouth.ignore-serial-consoles to boot entries that lack it even when
+  /etc/kernel/cmdline already has it.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-7
 - Rebuild the initramfs on updates as well: it holds its own copy of the
   theme and plymouthd.conf, so an updated system kept booting the previous
