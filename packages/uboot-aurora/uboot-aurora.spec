@@ -1,8 +1,8 @@
 %global debug_package %{nil}
-%global commit ece5d4c2ad07936fb694ecd1dc18e1cbee1fa838
+%global commit 250385f8c8aaafd47a8f7990f6efe0443c28d0b5
 Name: uboot-aurora
 Version: 2026.07
-Release: 12%{?dist}
+Release: 13%{?dist}
 Summary: Aurora U-Boot for Apple Silicon
 License: GPL-2.0-or-later
 URL: https://github.com/aurora-silicon/u-boot
@@ -17,7 +17,7 @@ BuildRequires: gcc make bc bison flex dtc python3 python3-pyelftools swig openss
 Aurora U-Boot for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n u-boot-ece5d4c2ad07936fb694ecd1dc18e1cbee1fa838
+%autosetup -n u-boot-250385f8c8aaafd47a8f7990f6efe0443c28d0b5
 
 %build
 make O=build-aurora apple_m1_defconfig
@@ -33,6 +33,11 @@ install -Dm644 build-aurora/u-boot-nodtb.bin %{buildroot}/usr/lib/asahi-boot/u-b
 /usr/lib/asahi-boot/u-boot-nodtb.bin
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 2026.07-13
+- Track U-Boot aurora-wip at 250385f. On a normal boot U-Boot stays
+  quiet on screen and keeps the loader's picture, so the aura logo stays
+  up until the kernel and Plymouth take over (u-boot#46).
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 2026.07-12
 - Track U-Boot aurora-wip at ece5d4c. U-Boot leaves the ESP that Stage 1
   names only when it belongs to no installation (u-boot#21), so a Mac
