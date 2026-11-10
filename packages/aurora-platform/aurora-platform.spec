@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 28%{?dist}
+Release: 29%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -69,6 +69,7 @@ Requires: aurora-kbd-light
 # Asahi Remix system with these services keeps following Aurora's builds.
 Requires: aurora-repos
 Requires: tuned
+Requires: aurora-power-budget
 # Wake for network access (magic packet) follows the power adapter.
 Requires: ethtool iw
 Requires: python3
@@ -182,6 +183,10 @@ install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-netw
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-29
+- Require aurora-power-budget: Power Saver gets a CPU power budget, as
+  macOS Low Power Mode does.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-28
 - Regenerate a grub.cfg whose only stale lines are partition UUID searches
   (aurora-grub-uuid): a 'search --fs-uuid --set=boot' for an ESP UUID that no
