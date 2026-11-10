@@ -1,0 +1,42 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# Finish installing Aurora kernels whose kernel-install run stopped early.
+#
+# Before 20261107-6 the Stage 2 updater refused a boot entry whose kernel was
+# gone and every kernel from before the DT ABI marker. 15-update-m1n1.install
+# then failed, kernel-install stopped before the initramfs and the boot entry,
+# and the Mac kept booting the older kernel. Run kernel-install again for each
+# kernel-aurora-core newer than every one that has a boot entry. Kernels
+# installed in the same transaction as this package are left to their own
+# %posttrans.
+set -u
+entries=${AURORA_BLS_ENTRIES:-/boot/loader/entries}
+modules=${AURORA_MODULES_DIR:-/usr/lib/modules}
+
+rpm -q kernel-aurora-core >/dev/null 2>&1 || exit 0
+own=$(rpm -q --qf '%{INSTALLTID}\n' update-m1n1 2>/dev/null | sort -n | tail -n 1)
+kernels=$(rpm -q --qf '%{INSTALLTID} %{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-aurora-core |
+    sort -k2,2V)
+
+has_entry() {
+    grep -qsxF "version $1" "$entries"/*.conf
+}
+
+newest=
+for krel in $(printf '%s\n' "$kernels" | cut -d' ' -f2); do
+    if has_entry "$krel"; then newest=$krel; fi
+done
+
+# Oldest first: each add makes its kernel the default, so the newest wins.
+printf '%s\n' "$kernels" | while read -r tid krel; do
+    [ -n "$krel" ] && [ "$tid" != "$own" ] || continue
+    if [ ! -f "$modules/$krel/vmlinuz" ] || has_entry "$krel"; then continue; fi
+    if [ -n "$newest" ] &&
+        [ "$(printf '%s\n%s\n' "$newest" "$krel" | sort -V | tail -n 1)" = "$newest" ]; then
+        continue
+    fi
+    echo "update-m1n1: kernel $krel has no boot entry; finishing its kernel-install" >&2
+    kernel-install add "$krel" "$modules/$krel/vmlinuz" ||
+        echo "update-m1n1: kernel-install add $krel failed" >&2
+done
+exit 0

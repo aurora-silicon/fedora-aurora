@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 27%{?dist}
+Release: 30%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -35,6 +35,7 @@ Source113: aurora-ppd-config
 Source114: 90-aurora-ane.conf
 Source115: aurora-wake-for-network
 Source116: 63-aurora-wake-for-network.rules
+Source117: aurora-grub-uuid
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -68,6 +69,7 @@ Requires: aurora-kbd-light
 # Asahi Remix system with these services keeps following Aurora's builds.
 Requires: aurora-repos
 Requires: tuned
+Requires: aurora-power-budget
 # Wake for network access (magic packet) follows the power adapter.
 Requires: ethtool iw
 Requires: python3
@@ -123,6 +125,7 @@ install -Dm755 %{SOURCE106} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora
 install -Dm755 %{SOURCE107} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh
 install -Dpm0644 %{SOURCE114} %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-ane.conf
 install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-console
+install -Dm755 %{SOURCE117} %{buildroot}%{_libexecdir}/aurora/aurora-grub-uuid
 install -Dm644 %{SOURCE112} %{buildroot}%{_prefix}/lib/tuned/profiles/aurora-performance/tuned.conf
 install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 install -Dm755 %{SOURCE115} %{buildroot}%{_libexecdir}/aurora/aurora-wake-for-network
@@ -131,6 +134,8 @@ install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-netw
 %posttrans core
 # Fedora's flicker-free GRUB output, once per system; see the script.
 %{_libexecdir}/aurora/aurora-grub-console || :
+# A grub.cfg whose only stale lines are partition UUID searches; see the script.
+%{_libexecdir}/aurora/aurora-grub-uuid || :
 %{_libexecdir}/aurora/aurora-ppd-config || :
 
 # Also cover tuned-ppd installed/upgraded without an aurora-platform update.
@@ -167,6 +172,7 @@ install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-netw
 %{_prefix}/lib/dracut/modules.d/91aurora-early-kms/
 %{_prefix}/lib/dracut/dracut.conf.d/90-aurora-ane.conf
 %{_libexecdir}/aurora/aurora-grub-console
+%{_libexecdir}/aurora/aurora-grub-uuid
 %{_libexecdir}/aurora/aurora-ppd-config
 %{_libexecdir}/aurora/aurora-wake-for-network
 %dir %{_prefix}/lib/tuned/profiles/aurora-performance
@@ -177,6 +183,21 @@ install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-netw
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-30
+- Bring the external displays' Type-C chain (I2C controller, retimer or PD
+  controller, Type-C PHY) up in the initramfs with the display: appledrm
+  waits for every DCP, so the internal panel showed black from its DCP's
+  start until the real root loaded the I2C controller.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-29
+- Require aurora-power-budget: Power Saver gets a CPU power budget, as
+  macOS Low Power Mode does.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-28
+- Regenerate a grub.cfg whose only stale lines are partition UUID searches
+  (aurora-grub-uuid): a 'search --fs-uuid --set=boot' for an ESP UUID that no
+  longer exists made GRUB print an error on screen on every boot.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-27
 - Wake for network access as macOS defaults it on laptops: magic-packet
   wake is armed on wired interfaces that support it and on Wi-Fi phys that

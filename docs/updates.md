@@ -97,11 +97,14 @@ transaction does not remove a fallback kernel or reset a recorded trial attempt.
 `kernel-aurora-core` ships `/usr/lib/modules/<release>/dtb-abi`, an integer declaring the DT ABI
 generation. Device trees can change within a generation while retained kernels remain compatible.
 Only an incompatible ABI change needs a higher generation. An older package without the file counts
-as generation zero; malformed declarations are refused.
+as generation 1, the first declared generation: declaring it changed no device tree, and those
+kernels booted the trees that followed. Malformed declarations are refused.
 
 The updater refuses a selected tree generation only when a retained kernel has a lower generation.
 Equal and higher retained generations are allowed, even when the DTB bytes differ. It validates that
-kernel images and device trees exist, including retained boot entries and rescue kernels. Custom
+kernel images and device trees exist, including retained boot entries and rescue kernels. A boot
+entry whose `linux` file exists neither under /boot nor under / is ignored with a message, since
+GRUB cannot boot it; such entries outlive a kernel removed while an older updater refused. Custom
 `DTBS` settings must match an installed tree set with a known generation. Refusal preserves the live
 Stage 2 and `/boot/dtb`, lists the older kernels, and suggests an explicit removal command. First
 verify a working compatible fallback. No fallback is deleted automatically, and failed erase-time

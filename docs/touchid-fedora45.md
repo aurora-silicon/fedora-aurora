@@ -9,8 +9,8 @@ upgrade ordering only.
 | Package family (including matching subpackages) | Fedora 45 EVR | Previous fc44 v5 EVR |
 | --- | --- | --- |
 | aurora-sep, aurora-sep-selinux | `0:1-16.fc45` | `0:1-15.fc44` |
-| libfprint, libfprint-selinux, libfprint-devel, libfprint-tests | `1:1.94.100-1.fc45.aurora11` | `0:1.94.100-1.fc44.aurora7` |
-| fprintd, fprintd-pam, fprintd-devel | `1:1.94.5-99.fc45.aurora3` | `0:1.94.5-99.fc44.aurora1` |
+| libfprint, libfprint-selinux, libfprint-devel, libfprint-tests | `1:1.94.100-1.fc45.aurora12` | `0:1.94.100-1.fc44.aurora7` |
+| fprintd, fprintd-pam, fprintd-devel | `1:1.94.5-99.fc45.aurora4` | `0:1.94.5-99.fc44.aurora1` |
 
 Epoch 1 keeps both patched upstream packages ahead of stock Fedora packages,
 even when Fedora has a higher release number. Matching dependencies include
@@ -22,7 +22,7 @@ aurora2 requires it to report `verify-lockout`. Since aurora11, libfprint also
 provides `libfprint(aurora-sep-password-reasons) = 1` (`FP_DEVICE_ERROR_PASSWORD_REQUIRED`
 and `FP_DEVICE_ERROR_PASSWORD_REQUIRED_AFTER_BOOT`, read from the kernel's
 `SEP_BIO_LOCKOUT_STATE` on `/dev/sep-bio`), and fprintd aurora3 requires it to
-report `verify-password-required` and `verify-password-required-after-boot`. The epoch applies to Fedora 44 builds too, avoiding different
+report `verify-password-required` and `verify-password-required-after-boot`. Since aurora12, libfprint also provides `libfprint(aurora-sep-password-required) = 1` (`fp_device_get_password_required()`), and fprintd aurora4 requires it so that it doesn't ask for a finger while Touch ID needs the password. The epoch applies to Fedora 44 builds too, avoiding different
 ordering rules between distro releases; future Aurora releases must retain it.
 
 ## Upgrade proof

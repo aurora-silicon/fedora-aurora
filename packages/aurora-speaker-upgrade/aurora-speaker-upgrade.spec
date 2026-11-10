@@ -1,10 +1,10 @@
-%global commit beb1b6b99578272729692a4afd711775243350bd
+%global commit 40ef135195724e077a10cf5688b530d32552eb6f
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261110
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.8.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.9.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -60,11 +60,23 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
-* Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.8.20261110gitbeb1b6b99578
-- Release candidate 9 (speakerguardd#144, on top of 8.5):
+* Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.9.20261110git40ef13519572
+- Release candidate 9 (speakerguardd#144, on top of 8.6):
   aurora-speaker-upgrade switches without the preview confirmation, and
   the boot unit no longer needs --i-understand-preview (still accepted,
   no effect). The package description drops the preview notice.
+
+* Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.8.20261110gitd69f0115edc1
+- Release candidate 8.6, a bug-fix release (speakerguardd#151, #152,
+  #148): after a system sleep the supervisor waits for the engine to beat
+  steadily before granting, and the first grant rides out the sink's
+  reopen, so the speakers no longer go silent until a restart after a
+  resume (M1 Pro); the supervisor's hang watch tells a frozen process
+  from a hung loop and no longer restarts it after a freeze with the
+  clocks running; 'run' checks that v2 really holds the speakers before
+  saying there is nothing to do. Also #108, #109 (finding the MCA and the
+  speaker card) and #150 (no CPU frequency floor for the pollers). v2
+  stays a preview and opt-in.
 
 * Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.7.20261110gitf3ceaa2d768a
 - Release candidate 8.5, a bug-fix release (speakerguardd#145, #146):

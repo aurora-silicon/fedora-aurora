@@ -1,4 +1,4 @@
-%global commit beb1b6b99578272729692a4afd711775243350bd
+%global commit 40ef135195724e077a10cf5688b530d32552eb6f
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261110
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.39.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.40.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -243,11 +243,23 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
-* Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.39.20261110gitbeb1b6b99578
-- Release candidate 9 (speakerguardd#144, on top of 8.5):
+* Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.40.20261110git40ef13519572
+- Release candidate 9 (speakerguardd#144, on top of 8.6):
   aurora-speaker-upgrade switches without the preview confirmation, and
   the boot unit no longer needs --i-understand-preview (still accepted,
   no effect). The package description drops the preview notice.
+
+* Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.39.20261110gitd69f0115edc1
+- Release candidate 8.6, a bug-fix release (speakerguardd#151, #152,
+  #148): after a system sleep the supervisor waits for the engine to beat
+  steadily before granting, and the first grant rides out the sink's
+  reopen, so the speakers no longer go silent until a restart after a
+  resume (M1 Pro); the supervisor's hang watch tells a frozen process
+  from a hung loop and no longer restarts it after a freeze with the
+  clocks running; 'run' checks that v2 really holds the speakers before
+  saying there is nothing to do. Also #108, #109 (finding the MCA and the
+  speaker card) and #150 (no CPU frequency floor for the pollers). v2
+  stays a preview and opt-in.
 
 * Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.38.20261110gitf3ceaa2d768a
 - Release candidate 8.5, a bug-fix release (speakerguardd#145, #146):

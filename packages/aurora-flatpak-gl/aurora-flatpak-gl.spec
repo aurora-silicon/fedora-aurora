@@ -17,9 +17,9 @@
 #
 # Source10 is mandatory. scripts/build-rpm builds it for both supported
 # runtimes (or consumes AURORA_FLATPAK_GL_REPO_TAR). Never publish settings alone.
-%{!?commit:%global commit c1753704ed733e6e77fdf8ce6ac83fbf7c5e59d5}
+%{!?commit:%global commit 51b0b650e45310589b973f34f3ea007c6d8848c1}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 19%{?dist}.aurora}
+%{!?host_release:%global host_release 20%{?dist}.aurora}
 %global shortcommit %{sub %{commit} 1 12}
 %global debug_package %{nil}
 %global __requires_exclude_from ^%{_datadir}/aurora-flatpak-gl/
@@ -79,6 +79,13 @@ fi
 %{_datadir}/aurora-flatpak-gl/
 
 %changelog
+* Tue Nov 10 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-20
+- Track aurora-silicon/mesa aurora-wip at 51b0b650: render ray-query scratch
+  only on queues that use it (mesa#200), diagnostic environment switches read
+  once (mesa#201), G17P end-only timestamps, small uploads, rematerialised
+  preamble steps, 4-texel image-to-buffer copies and command memory retirement.
+- Keep native, FEX guest and Flatpak Mesa sources and releases coordinated.
+
 * Thu Nov 05 2026 Michal S. <michal_stopyra@icloud.com> - 26.3.0-19
 - Include the merged Wayland drawable lifetime fix and unmatched-release
   handling (mesa#138).
