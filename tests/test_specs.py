@@ -180,6 +180,42 @@ class SpecTests(unittest.TestCase):
         self.assertIn('/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh', text)
         core_files = text.split('%files core', 1)[1].split('%changelog', 1)[0]
         self.assertIn('%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/', core_files)
+    def test_grub_uuid_refresh_replaces_only_stale_uuid_searches(self):
+        script = ROOT / 'packages' / 'aurora-platform' / 'aurora-grub-uuid'
+        spec = (ROOT / 'packages' / 'aurora-platform' / 'aurora-platform.spec').read_text()
+        self.assertIn('%{_libexecdir}/aurora/aurora-grub-uuid || :',
+                      spec.split('%posttrans core', 1)[1].split('%files', 1)[0])
+        self.assertIn('%{_libexecdir}/aurora/aurora-grub-uuid\n', spec.split('%files core', 1)[1])
+        fresh = ('insmod fat\nsearch --no-floppy --fs-uuid --set=root 81f0fc7d-1e2c\n'
+                 'search --no-floppy --fs-uuid --set=boot 8790-1917\ninsmod blscfg\n')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            (root / 'generated').write_text(fresh)
+            (bindir / 'grub2-mkconfig').write_text(f'#!/bin/sh\ncat {root / "generated"}\n')
+            (bindir / 'grub2-mkconfig').chmod(0o755)
+            cfg = root / 'grub.cfg'
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", AURORA_GRUB_CFG=str(cfg))
+            run = lambda: subprocess.run(['sh', str(script)], env=env, check=True)
+            # Only the ESP UUID search is stale: regenerate, keeping a backup.
+            stale = fresh.replace('8790-1917', '6ADB-FEED')
+            cfg.write_text(stale)
+            run()
+            self.assertEqual(cfg.read_text(), fresh)
+            self.assertEqual((root / 'grub.cfg.aurora-uuid').read_text(), stale)
+            # Any other difference, an added line included, leaves grub.cfg alone.
+            for custom in (stale.replace('insmod blscfg', 'insmod blscfg\nset timeout=5'),
+                           stale.replace('insmod fat', 'insmod ext2'),
+                           fresh.replace('--set=boot 8790-1917', '--set=boot 8790-1917 --hint x')):
+                cfg.write_text(custom)
+                run()
+                self.assertEqual(cfg.read_text(), custom)
+            # Up to date: nothing to do.
+            cfg.write_text(fresh)
+            run()
+            self.assertEqual(cfg.read_text(), fresh)
+
     def test_grub_console_migration_runs_once_and_keeps_hand_made_configs(self):
         script = ROOT / 'packages' / 'aurora-platform' / 'aurora-grub-console'
         spec = (ROOT / 'packages' / 'aurora-platform' / 'aurora-platform.spec').read_text()
@@ -517,10 +553,17 @@ class SpecTests(unittest.TestCase):
             self.assertEqual(dracut.strip(), '-f --regenerate-all', stock)
 
     def test_theme_keeps_the_owners_choice(self):
-        for chosen in ('solar', 'details', 'aurora'):
+        for chosen in ('solar', 'details'):
             theme, dracut = self.run_theme_post(chosen)
             self.assertEqual(theme, chosen)
             self.assertEqual(dracut, '')
+
+    def test_theme_update_rebuilds_the_initramfs(self):
+        # The initramfs carries its own copy of the theme and plymouthd.conf, so an
+        # update of the selected theme must reach it, not only a switch to it.
+        theme, dracut = self.run_theme_post('aurora')
+        self.assertEqual(theme, 'aurora')
+        self.assertEqual(dracut.strip(), '-f --regenerate-all')
 
     def test_kernel_ships_the_page_size_launcher_from_its_own_source(self):
         spec = (ROOT / 'packages' / 'kernel-aurora' / 'kernel-aurora.spec').read_text()
