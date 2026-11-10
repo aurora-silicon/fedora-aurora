@@ -384,6 +384,16 @@ class SpecTests(unittest.TestCase):
                       'if selinux-policy-%{selinuxtype})', core)
         files = text.split('%files selinux', 1)[1].split('%changelog', 1)[0]
         self.assertIn('%{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2', files)
+    def test_platform_selinux_silences_the_gdm_keyring_scan_only(self):
+        # pam_gdm reads /proc/keys looking for the cryptsetup passphrase; the
+        # regulatory certificate keys it may not view are skipped. Nothing is
+        # allowed: one dontaudit, xdm_t on unconfined_service_t keys, view only.
+        te = (ROOT / 'packages' / 'aurora-platform' / 'aurora_platform.te').read_text()
+        self.assertEqual(re.findall(r'(?m)^dontaudit .*$', te),
+                         ['dontaudit xdm_t unconfined_service_t:key view;'])
+        self.assertEqual([r for r in re.findall(r'(?m)^allow .*$', te) if ':key ' in r], [])
+        self.assertRegex(te, r'(?m)^\ttype xdm_t, unconfined_service_t;$')
+        self.assertRegex(te, r'(?m)^\tclass key view;$')
     def test_irqbalance_runs_only_where_the_aic_can_steer(self):
         d = ROOT / 'packages' / 'aurora-platform'
         conf = (d / '50-aurora-irqbalance.conf').read_text()
