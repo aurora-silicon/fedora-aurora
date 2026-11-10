@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 27%{?dist}
+Release: 28%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -236,6 +236,17 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-28
+- load-driver finishes the key-store-only attach that the aurora-sep-luks
+  initrd starts (keystore_only 1, or 2 for a password-unlocked root) instead
+  of loading the driver a second time.
+- The vendor profile's system-auth runs pam_aurora_sep_fde after a pam_unix
+  password change, so passwd and GNOME Settings also change the user's disk
+  password on Secure Enclave LUKS2 volumes (aurora-sep-luks).
+- SELinux 1.5.0: aurora-sep-fde-passwd gets its own domain, entered from
+  passwd_t; systemd-cryptsetup (lvm_t) may use the re-arm node for
+  password-sealed volumes opened after the switch to the real root.
+
 * Tue Nov 10 2026 Diljit Singh <hey@djdev.me> - 1-27
 - load-driver stops at once when the driver reports this boot's identity
   keybag as failed (diag/keybag), as after a Touch ID setup interrupted
