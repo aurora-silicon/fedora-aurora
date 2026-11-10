@@ -1,4 +1,4 @@
-%global commit 90795b4cd1c82c14b28dc85e4e7b151608dfefb3
+%global commit a8f9562ca1c979ea5a90b452565cd4b449343e72
 Name: aurora-sep-luks
 Version: 0.3.0
 Release: 1%{?dist}
