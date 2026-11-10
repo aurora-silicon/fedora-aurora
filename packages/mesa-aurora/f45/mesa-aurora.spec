@@ -1,9 +1,9 @@
-%global commit 51b0b650e45310589b973f34f3ea007c6d8848c1
+%global commit 10161a78e60e4057257e116d404a92bd9b78bb3c
 %global debug_package %{nil}
 Name: mesa-aurora
 Epoch: 1
 Version: 26.3.0
-Release: 20%{?dist}.aurora
+Release: 21%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -202,6 +202,13 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:26.3.0-21
+- Track aurora-silicon/mesa aurora-wip at 10161a78: shader constant order
+  independent of the build host and 32-bit unit tests fixed (mesa#209),
+  native Gallium GL on the M5 Pro and M5 Max with CPU maps waiting for
+  writers on other contexts (mesa#194), G17G perspective varyings (mesa#208),
+  M5 Max admission and G17P/M5 fixes (mesa#195 #202-#206, #157, #125).
+
 * Tue Nov 10 2026 Aurora Silicon <hey@djdev.me> - 1:26.3.0-20
 - Track aurora-silicon/mesa aurora-wip at 51b0b650: render ray-query scratch
   only on queues that use it (mesa#200), diagnostic environment switches read
