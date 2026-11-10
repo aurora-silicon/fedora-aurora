@@ -827,4 +827,14 @@ class SpecTests(unittest.TestCase):
         self.assertIn('make -C sk check', text.split('%check', 1)[1].split('%install', 1)[0])
         pins = json.loads((ROOT / 'sources.json').read_text())
         self.assertIn(pins['aurora-sep-sk']['commit'], text)
+    def test_camera_denoise_user_unit_skips_root_and_system_users(self):
+        d = ROOT / 'packages/aurora-camera-denoise'
+        spec = (d / 'aurora-camera-denoise.spec').read_text()
+        patch = re.search(r'^Patch\d*:\s+(\S+)', spec, re.M).group(1)
+        text = (d / patch).read_text()
+        for line in ('+ConditionUser=!root', '+ConditionUser=!@system',
+                     '+StartLimitIntervalSec=60', '+StartLimitBurst=5', '+RestartSec=5'):
+            self.assertIn(line + '\n', text)
+        # %check runs the unit test the patch adds.
+        self.assertIn('%meson_test', spec.split('%check', 1)[1].split('%install', 1)[0])
 if __name__ == '__main__': unittest.main()
