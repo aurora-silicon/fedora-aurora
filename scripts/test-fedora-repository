@@ -4,6 +4,7 @@
 # the fleet's normal upgrade. Never uses a release signing credential.
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+source "$root/scripts/testlib.sh"
 candidates=${1:?CI artifact directory}
 proof=${2:?proof directory}
 mkdir -p "$proof"
@@ -106,11 +107,11 @@ cat "$proof/upgrade.log"
 # DNF5 returns 1 after the requested refusal of a successfully solved transaction.
 [[ $rc == 0 || $rc == 1 ]]
 grep -Eq 'Transaction Summary:|Nothing to do\.' "$proof/upgrade.log"
-! grep -Ei '(^Problem|conflicting requests|cannot install|nothing provides|\.fc44)' "$proof/upgrade.log"
+nomatch -Ei '(^Problem|conflicting requests|cannot install|nothing provides|\.fc44)' "$proof/upgrade.log"
 # Fedora's shairport-sync gives way to the AirPlay 2 build, which pulls in nqptp.
 grep -Eq '^ +shairport-sync +aarch64 +[^ ]+\.fc45\.aurora\.ap2\.' "$proof/upgrade.log"
 grep -Eq '^ +nqptp +aarch64 +[^ ]+\.fc45\.aurora' "$proof/upgrade.log"
 rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > "$proof/after.txt"
 comm -13 "$proof/before.txt" "$proof/after.txt" > "$proof/installed.txt"
-! grep -F '.fc44' "$proof/installed.txt"
+nomatch -F '.fc44' "$proof/installed.txt"
 echo 'Fedora 45 signed repository and fleet upgrade resolution: PASS'

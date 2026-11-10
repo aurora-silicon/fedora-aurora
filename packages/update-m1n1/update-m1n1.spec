@@ -1,6 +1,6 @@
 Name: update-m1n1
 Version: 20261107
-Release: 2%{?dist}.aurora
+Release: 5%{?dist}.aurora
 Summary: Transactional Aurora Stage 2 updates with retained-kernel DTB checks
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -83,6 +83,25 @@ install -Dm644 %{SOURCE9} %{buildroot}%{_presetdir}/90-aurora-stage2.preset
 %config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261107-5
+- aurora-stage2-commit skips a trial it did not arm. When the aura-try
+  marker names another image (a trial armed by hand or by another tool),
+  the service logs that and exits 0, leaving the marker and image alone.
+  It used to fail the unit with "another aura-try owns the ESP marker".
+
+* Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261107-4
+- Compose Stage 2 from the kernel GRUB boots by default (custom.cfg
+  `set default`, GRUB_DEFAULT, or grubenv saved_entry) instead of the
+  newest installed kernel. A leftover test kernel that sorts above the
+  default no longer decides the live DTB set. A new kernel is still used
+  when kernel-install will make it the default (UPDATEDEFAULT=yes and no
+  custom.cfg pin). Unknown defaults keep the newest kernel, as GRUB does.
+
+* Sun Nov 08 2026 Diljit Singh <hey@djdev.me> - 20261107-3
+- Image builds: with no device tree and no target, stop after the check.
+  The image builder writes Stage 2; mounting a system ESP there failed the
+  kernel transaction and every image build.
+
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261107-2
 - Record one trial attempt per Stage 2 candidate (sha256), not per kernel, so
   aura, U-Boot and m1n1.conf updates on the same kernel are trialled too.

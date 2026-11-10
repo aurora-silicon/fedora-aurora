@@ -1,4 +1,4 @@
-%global commit 44bbfe1858deda8285fefbecd6ad062311ee6983
+%global commit 15f88e1cf81a6b6a91a1856ca06822a093aedeac
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 24%{?dist}.aurora
+Release: 31%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -34,6 +34,9 @@ Macs, including MacBook Neo. Matching DTBs and modules are built together.
 %package core
 Summary: Aurora kernel image and device trees
 Requires: coreutils kmod dracut grubby
+# A kernel-only upgrade must also restore the legacy speaker graphs.
+Requires: aurora-audio >= 4.1-12
+Requires: (aurora-platform-core >= 44-23 if aurora-platform-core)
 Requires: update-m1n1 >= 20261107
 # SN012776 amp settings come from the DT that aura 1.0.0b5 fills in
 # (https://github.com/aurora-silicon/linux/pull/981,
@@ -151,6 +154,73 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-31
+- Install the raw Image as vmlinuz again (back out the EFI zboot image of
+  7.3.0-29). On a J700 the zboot image never reaches the kernel: GRUB
+  loads it and the machine stays dark until the watchdog resets it. The
+  raw Image of the same kernel boots normally there.
+
+* Tue Nov 10 2026 Diljit Singh <hey@djdev.me> - 7.3.0-30
+- Pin integration/aurora 15f88e1c (linux#1365), 54 merges after b1c9943b.
+  It keeps the 120 Hz fix for ProMotion panels on M1 and M2 Macs
+  (linux#1307), and adds: WPA3/SAE offload that keeps the requested CCMP
+  cipher and AWDL join scans on the firmware's budgets (#1058, #1336);
+  the J713 powering its display domains down while blanked (#1059); a GPU
+  fence that never signals no longer wedging the display (#1241); G17
+  recoveries that spare bystander clients and exiting clients that finish
+  their work first (#1240, #1360); the M4 Max internal display on DCP
+  (#1345); Thunderbolt XDomain and NHI fixes (#1319, #1150); GPU and CPU
+  temperatures on M1 Pro/Max laptops, the J700 and the J413, and M1
+  Pro/Max thermal zones (#1342, #1351, #1362); t600x PMU RTC wake alarms
+  (#1312); Magic Mouse multitouch across sleep (#1317); SEP state
+  reporting for aurora-sep status (#1335, #583); the MSR scaler driver
+  (#1315); J704, J815, J604 and J773g device trees (#1231, #1361, #1186,
+  #1181, #1187); and the T6050 (M5 Pro/Max) bare-metal series.
+- The build now also resolves CONFIG_VIDEO_APPLE_SCALER, CONFIG_APPLE_DBGVIEW
+  and CONFIG_APPLE_REGVIEW as modules, which asahi.config requests.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-29
+- Install the EFI zboot image (CONFIG_EFI_ZBOOT, zstd) as vmlinuz instead
+  of the raw Image: about 17 MB instead of 67 MB. GRUB reads the kernel
+  through firmware block I/O, which costs about 30 ms per MB on a MacBook
+  Pro M1 Pro: the boot loader stage takes 1.5 s less there. The kernel
+  itself is the same; the EFI stub decompresses it.
+
+* Mon Nov 09 2026 Diljit Singh <hey@djdev.me> - 7.3.0-28
+- Pin integration/aurora b1c9943b. Fixes ProMotion internal displays that
+  rendered at 60 Hz while set to 120 Hz on legacy DCP firmware (linux#1307).
+- Drop 0001 and 0002. The driver now serves both speaker protection
+  interfaces and boots every card on "Speaker Volume Unlock", the interface
+  speakersafetyd uses (linux#1279); the MCA PCM bound is linux#1258.
+
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-27
+- Fix speaker audio on M1 and M2 Macs: speakersafetyd could not open the
+  speaker sense PCM (snd_pcm_hw_params -ENOMEM), restarted in a loop and
+  never unlocked the speakers, so they stayed silent at the kernel's floor.
+  Bound the MCA PCM buffer at 3 MiB again (linux 79af0bae4d0d had dropped the
+  capture preallocation that used to bound it). Protection is unchanged.
+
+
+* Sun Nov 08 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-26
+- Restore the Asahi Speaker Volume Unlock interface for speakersafetyd and
+  speakerguardd 0.1, retaining the -25 kernel and generation-1 device trees.
+- Restore the matching J700 software-gain contract and legacy audio tests.
+- Require the restored audio profiles for kernel-only updates.
+
+
+* Sun Nov 08 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-25
+- Track aurora-silicon/linux integration/aurora at d4d2678, the fleet32
+  kernel tree. The packaged device trees for the M1 Pro, M2, M4 Pro and
+  J700 then match the ones those Macs boot (integration 50d5865e and later;
+  the DTS changes since then add T6050 boards only).
+- Touch ID re-arm on finger lift, the macOS match policy and the password
+  count reset (#1087, #1134, #1143), SEP host-store fixes (#1189, #1193),
+  J700 speaker full scale (#1201), AVD dma-coherent and command parity
+  (#1116, #1169), the J616s scaler (#1168), the M3 and M4 GPUs on by
+  default (#1170, CONFIG_DRM_ASAHI_G15), NVMe, RTKit, dockchannel and SMC
+  hwmon fixes (#1060, #1082, #1083, #1084), ADT coverage checks (#1111,
+  #1172) and device trees for more M1 to M5 Macs, T6050 included.
+
 * Sun Nov 08 2026 Aurora Silicon <hey@djdev.me> - 7.3.0-24
 - Track aurora-silicon/linux integration/aurora at 44bbfe1 for the CTXR
   follow-ups (#1079): /sys/kernel/execmem_confine/ reports the window and

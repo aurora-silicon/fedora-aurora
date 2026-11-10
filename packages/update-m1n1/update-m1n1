@@ -46,6 +46,12 @@ if [[ $mode != --commit && $mode != --guard ]] && ! python3 /usr/libexec/aurora/
     fi
     exit 1
 fi
+# An image build has no device tree and no ESP: the check above validated
+# every board, and the image builder writes Stage 2 itself.
+if [[ -z $TARGET && $mode != --commit && $mode != --guard && ! -e $AURORA_DEVICE_TREE_COMPATIBLE ]]; then
+    echo "update-m1n1: no device tree; Stage 2 is left to the image builder" >&2
+    exit 0
+fi
 if [[ -z $TARGET ]]; then
     # shellcheck disable=SC1091
     source /usr/share/asahi-scripts/functions.sh
