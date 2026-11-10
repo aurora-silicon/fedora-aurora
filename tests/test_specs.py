@@ -457,7 +457,7 @@ class SpecTests(unittest.TestCase):
         # v2 is back as release candidate 8, installable by hand only: no
         # default package pulls it, and aurora-audio retires only RC7 and older.
         spec = (ROOT / 'packages/speakerguardd-v2/speakerguardd-v2.spec').read_text()
-        self.assertRegex(spec, r'(?m)^Release: 0\.3[3-9]\.')
+        self.assertRegex(spec, r'(?m)^Release: 0\.(3[3-9]|[4-9][0-9])\.')
         self.assertIn('install -Dm644 packaging/session/parity.json', spec)
         for name in ('aurora-platform', 'aurora-audio', 'kernel-aurora'):
             text = (ROOT / 'packages' / name / f'{name}.spec').read_text()

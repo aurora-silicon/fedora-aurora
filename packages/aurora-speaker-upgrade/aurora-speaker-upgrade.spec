@@ -1,11 +1,11 @@
-%global commit d69f0115edc1abe56acc60dff19c08d17096fb41
+%global commit 40ef135195724e077a10cf5688b530d32552eb6f
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261110
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.8.%{snapdate}git%{shortcommit}%{?dist}
-Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning (preview)
+Release: 0.9.%{snapdate}git%{shortcommit}%{?dist}
+Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
 License: MIT
@@ -20,10 +20,6 @@ Recommends: speakerguardd-v2
 %{?systemd_requires}
 
 %description
-speakerguardd v2 is a preview. It does not fully match macOS yet. The legacy
-protection (speakersafetyd, speakerguardd 0.1) is the supported default and
-stays installed. To go back at any time: sudo aurora-speaker-upgrade --revert.
-
 aurora-speaker-upgrade moves an existing install's speakers from the legacy
 protection (speakersafetyd, speakerguardd 0.1) to speakerguardd v2 with the
 Mac's own tuning, and back (--revert). It collects the installer's tuning
@@ -64,6 +60,12 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.9.20261110git40ef13519572
+- Release candidate 9 (speakerguardd#144, on top of 8.6):
+  aurora-speaker-upgrade switches without the preview confirmation, and
+  the boot unit no longer needs --i-understand-preview (still accepted,
+  no effect). The package description drops the preview notice.
+
 * Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.8.20261110gitd69f0115edc1
 - Release candidate 8.6, a bug-fix release (speakerguardd#151, #152,
   #148): after a system sleep the supervisor waits for the engine to beat

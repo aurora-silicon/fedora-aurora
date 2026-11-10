@@ -1,4 +1,4 @@
-%global commit d69f0115edc1abe56acc60dff19c08d17096fb41
+%global commit 40ef135195724e077a10cf5688b530d32552eb6f
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261110
 %global selinuxtype targeted
@@ -8,8 +8,8 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.39.%{snapdate}git%{shortcommit}%{?dist}
-Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
+Release: 0.40.%{snapdate}git%{shortcommit}%{?dist}
+Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
 URL: https://github.com/aurora-silicon/speakerguardd
@@ -36,10 +36,6 @@ Requires: aurora-audio >= 4.1-11
 %{?systemd_requires}
 
 %description
-speakerguardd v2 is a preview. It does not fully match macOS yet. The legacy
-protection (speakersafetyd, speakerguardd 0.1) is the supported default and
-stays installed. To go back at any time: sudo aurora-speaker-upgrade --revert.
-
 speakerguardd 1.0 is a new speaker protection stack that works the way
 macOS's does: the protection unit runs inside the PipeWire speaker graph as
 an LV2 plugin, with the amplifier's voltage and current sense as its second
@@ -247,6 +243,12 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.40.20261110git40ef13519572
+- Release candidate 9 (speakerguardd#144, on top of 8.6):
+  aurora-speaker-upgrade switches without the preview confirmation, and
+  the boot unit no longer needs --i-understand-preview (still accepted,
+  no effect). The package description drops the preview notice.
+
 * Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.39.20261110gitd69f0115edc1
 - Release candidate 8.6, a bug-fix release (speakerguardd#151, #152,
   #148): after a system sleep the supervisor waits for the engine to beat
