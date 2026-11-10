@@ -1,6 +1,6 @@
 Name: plymouth-theme-aurora
 Version: 1
-Release: 6%{?dist}
+Release: 7%{?dist}
 Summary: Aurora boot splash: the bootloader's logo, kept in place, with the distribution's branding
 # The spinner, password entry and watermark images come from the distribution's
 # spinner theme (ImageDir); this package adds the script and aura's logos.
@@ -68,10 +68,7 @@ conf=%{_sysconfdir}/plymouth/plymouthd.conf
 # owner's choice and stays.
 case "$(%{_bindir}/plymouth-set-default-theme 2>/dev/null)" in
   ''|bgrt|spinner|charge)
-    if %{_bindir}/plymouth-set-default-theme aurora; then
-      mkdir -p %{_localstatedir}/lib/rpm-state
-      touch %{_localstatedir}/lib/rpm-state/plymouth-theme-aurora-initrd
-    fi ;;
+    %{_bindir}/plymouth-set-default-theme aurora || : ;;
 esac
 # The theme draws in device pixels, so the logo matches aura's to the pixel;
 # Plymouth's own 2x scale on Retina panels would double it. An owner's own
@@ -79,6 +76,13 @@ esac
 if [ "$(%{_bindir}/plymouth-set-default-theme 2>/dev/null)" = aurora ] &&
    ! grep -qs '^[[:space:]]*DeviceScale[[:space:]]*=' $conf; then
   sed -i '/^[[:space:]]*\[Daemon\][[:space:]]*$/a # Set by plymouth-theme-aurora, which draws in device pixels\nDeviceScale=1' $conf || :
+fi
+# The splash runs from the initramfs, which holds its own copy of the theme
+# and of plymouthd.conf: rebuild it whenever Aurora is the splash, on an
+# update too, or the boot keeps showing the previous theme files.
+if [ "$(%{_bindir}/plymouth-set-default-theme 2>/dev/null)" = aurora ]; then
+  mkdir -p %{_localstatedir}/lib/rpm-state
+  touch %{_localstatedir}/lib/rpm-state/plymouth-theme-aurora-initrd
 fi
 
 %posttrans
@@ -93,8 +97,8 @@ if [ -f $cmdline ] && grep -qE '(^|[[:space:]])rhgb([[:space:]]|$)' $cmdline &&
    ! grep -qE '(^|[[:space:]])plymouth\.ignore-serial-consoles([[:space:]]|$)' $cmdline; then
   %{_sbindir}/grubby --update-kernel=ALL --args=plymouth.ignore-serial-consoles || :
 fi
-# The splash runs from the initramfs. Rebuild it once after switching on a
-# running system; an image build makes its own initramfs afterwards.
+# Rebuild the initramfs once per transaction when asked above, on a running
+# system; an image build makes its own initramfs afterwards.
 flag=%{_localstatedir}/lib/rpm-state/plymouth-theme-aurora-initrd
 if [ -e $flag ]; then
   rm -f $flag
@@ -124,6 +128,11 @@ fi
 %{_prefix}/lib/dracut/modules.d/96aurora-plymouth
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-7
+- Rebuild the initramfs on updates as well: it holds its own copy of the
+  theme and plymouthd.conf, so an updated system kept booting the previous
+  splash (an older theme drew the logo twice aura's size on Retina panels).
+
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-6
 - Add plymouth.ignore-serial-consoles to installed systems that boot with
   rhgb: the Neo's DockChannel console made Plymouth show its text view, so
