@@ -26,9 +26,12 @@ if ! grep -Eq '^GRUB_TERMINAL_OUTPUT="?gfxterm"?[[:space:]]*$' "$conf"; then
     exit 0
 fi
 
+# --no-grubenv-update: Fedora's 10_linux otherwise rewrites every BLS entry's
+# options (and /etc/kernel/cmdline) from /etc/default/grub, dropping arguments
+# added with grubby, such as a J700's apple_sep.os_uuid pin.
 current=$(mktemp) || exit 0
 trap 'rm -f "$current"' EXIT
-if ! grub2-mkconfig > "$current" 2>/dev/null || ! cmp -s "$current" "$cfg"; then
+if ! grub2-mkconfig --no-grubenv-update > "$current" 2>/dev/null || ! cmp -s "$current" "$cfg"; then
     echo "aurora-grub-console: $cfg is not what grub2-mkconfig generates; leaving GRUB_TERMINAL_OUTPUT=gfxterm" >&2
     exit 0
 fi
@@ -36,7 +39,7 @@ fi
 cp -p "$conf" "$conf.aurora-gfxterm"
 # Rewrite in place, keeping the file's owner, mode and SELinux label.
 sed 's/^GRUB_TERMINAL_OUTPUT=.*/GRUB_TERMINAL_OUTPUT="console"/' "$conf.aurora-gfxterm" > "$conf"
-if grub2-mkconfig -o "$cfg" > /dev/null 2>&1; then
+if grub2-mkconfig -o "$cfg" --no-grubenv-update > /dev/null 2>&1; then
     touch "$state"
 else
     # Put both back as they were.

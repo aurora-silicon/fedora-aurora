@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 23%{?dist}
+Release: 28%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -32,7 +32,9 @@ Source21: touchid-setup-needed
 Source22: authselect-vendor-local
 Source23: powerdevilrc
 Source24: aurora-sep-modprobe.conf
-Source25: sleep-aurora-sep.conf
+Source25: aurora-sep
+Source26: sleep-aurora-sep.conf
+Source27: 20-aurora-suspend.conf
 BuildArch: noarch
 BuildRequires: systemd-rpm-macros fprintd authselect-libs
 BuildRequires: selinux-policy-devel make bzip2
@@ -101,6 +103,7 @@ unit %{SOURCE16} %{SOURCE17} aurora-sep-greeter-fingerprint
 install -Dpm0644 %{SOURCE11} %{buildroot}%{_unitdir}/aurora-sep.timer
 install -Dpm0644 %{SOURCE12} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep-load.conf
 install -Dpm0644 %{SOURCE24} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep.conf
+install -Dpm0755 %{SOURCE25} %{buildroot}%{_bindir}/aurora-sep
 install -Dpm0755 %{SOURCE8} %{buildroot}%{_sbindir}/aurora-touchid-setup
 install -Dpm0755 %{SOURCE21} %{buildroot}%{_libexecdir}/aurora/touchid-setup-needed
 install -Dpm0644 %{SOURCE20} %{buildroot}%{_unitdir}/aurora-touchid-setup.service
@@ -110,9 +113,11 @@ install -Dpm0755 %{SOURCE15} %{buildroot}%{_libexecdir}/aurora-sep-sensor-presen
 install -Dpm0644 %{SOURCE10} %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-sep.conf
 install -Dpm0644 %{SOURCE2} %{buildroot}%{_unitdir}/fprintd.service.d/aurora-sep.conf
 install -Dpm0644 %{SOURCE18} %{buildroot}%{_prefix}/lib/systemd/logind.conf.d/50-aurora-sep.conf
-# Every sleep that suspends waits for a SEP load still in progress.
+# Common policy applies even when SEP initialization is skipped or fails.
+install -Dpm0644 %{SOURCE27} %{buildroot}%{_prefix}/lib/systemd/sleep.conf.d/20-aurora-suspend.conf
+# Ordering only: never start a disabled loader or retry a failed load.
 for unit in systemd-suspend systemd-hybrid-sleep systemd-suspend-then-hibernate; do
-    install -Dpm0644 %{SOURCE25} %{buildroot}%{_unitdir}/$unit.service.d/aurora-sep.conf
+    install -Dpm0644 %{SOURCE26} %{buildroot}%{_unitdir}/$unit.service.d/aurora-sep.conf
 done
 install -Dpm0644 %{SOURCE23} %{buildroot}%{_sysconfdir}/xdg/powerdevilrc
 # The vendor authselect profile is built at install time from the installed
@@ -171,15 +176,17 @@ fi
 
 %postun selinux
 %selinux_modules_uninstall -s %{selinuxtype} %{modulename}
-if [ "$1" -eq 0 ] && selinuxenabled 2>/dev/null && [ -c /dev/sep-bio ]; then
-    restorecon /dev/sep-bio || :
+if [ "$1" -eq 0 ] && selinuxenabled 2>/dev/null; then
+    for d in /dev/sep-bio /dev/sep-key /dev/sep-bio-rearm; do
+        [ -c "$d" ] && restorecon "$d" || :
+    done
 fi
 
 %posttrans selinux
 %selinux_relabel_post -s %{selinuxtype}
 # udev labels the device when the driver creates it; label one that exists.
 if selinuxenabled 2>/dev/null; then
-    for d in /dev/sep-bio /dev/sep-bio-rearm; do
+    for d in /dev/sep-bio /dev/sep-key /dev/sep-bio-rearm; do
         [ -c "$d" ] && restorecon "$d" || :
     done
 fi
@@ -210,6 +217,7 @@ fi
 %doc README.md XART-SAFETY.md OS-IDENTITY.md
 %{_libexecdir}/aurora-sep-load
 %{_libexecdir}/aurora-sep-ready
+%{_bindir}/aurora-sep
 %{_libexecdir}/aurora-sep-greeter-fingerprint
 %{_sbindir}/aurora-touchid-setup
 %{_libexecdir}/aurora/touchid-setup-needed
@@ -229,6 +237,8 @@ fi
 %dir %{_unitdir}/fprintd.service.d
 %{_unitdir}/fprintd.service.d/aurora-sep.conf
 %{_unitdir}/fprintd.service.d/50-aurora-sep-no-timeout.conf
+%dir %{_prefix}/lib/systemd/sleep.conf.d
+%{_prefix}/lib/systemd/sleep.conf.d/20-aurora-suspend.conf
 %dir %{_unitdir}/systemd-suspend.service.d
 %{_unitdir}/systemd-suspend.service.d/aurora-sep.conf
 %dir %{_unitdir}/systemd-hybrid-sleep.service.d
@@ -242,13 +252,36 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
-* Mon Nov 09 2026 Diljit Singh <hey@djdev.me> - 1-23
-- Order systemd-suspend, systemd-hybrid-sleep and
-  systemd-suspend-then-hibernate after aurora-sep.service. The T8140 sleep
-  controller refuses a deep sleep until apple_sep is bound, so a sleep that
-  starts while the driver loads now waits for it instead of failing with
-  EBUSY. Only After=: a sleep doesn't start a disabled load or rerun a
-  failed one.
+* Tue Nov 10 2026 Diljit Singh <hey@djdev.me> - 1-28
+- Request only mem on suspend and reset MemorySleepMode to empty, preserving
+  explicit kernel/user mode selection without standby/freeze retries on refusal.
+  Install the common vendor policy independently of SEP activation and retain
+  After-only SEP ordering on the three suspend units.
+
+* Tue Nov 10 2026 Diljit Singh <hey@djdev.me> - 1-27
+- load-driver stops at once when the driver reports this boot's identity
+  keybag as failed (diag/keybag), as after a Touch ID setup interrupted
+  under an older M1 kernel: no trusted key can be sealed then, so it no
+  longer holds the boot for its whole ready timeout. It names aurora-xart
+  status, which explains the state and the fix.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-26
+- Ship aurora-sep (aurora-sep status), the read-only SEP state self-check
+  from aurora-silicon/linux tools/aurora-sep.
+
+* Tue Nov 10 2026 Diljit Singh <hey@djdev.me> - 1-25
+- load-driver returns at once when the kernel enabled no SEP (no *.sep
+  platform device, as on a board without an apple_sep profile) instead
+  of holding the boot for its whole ready timeout.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-24
+- SELinux 1.4.3: confined login users (staff_t, user_t, ...) and their
+  ssh-agent domains may use /dev/sep-key, and a confined ssh-agent may
+  create its OpenSSH 10.1+ socket directory ~/.ssh/agent/.
+
+* Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-23
+- SELinux 1.4.2: label /dev/sep-key (Secure Enclave P-256 keys) with its own
+  type, and let the confined ssh client, ssh-agent and ssh-keygen use it.
 
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-22
 - A password re-arms Touch ID after a lockout: the vendor profile's

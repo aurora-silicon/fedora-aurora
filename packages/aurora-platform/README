@@ -12,3 +12,8 @@ policy), avoiding the stock performance governor's idle CPU frequency floor.
 Only the stock ppd.conf performance mapping is migrated; custom mappings and
 Power Saver are preserved. See docs/power-profiles.md in the source repository
 for upgrade handling, qualification and rollback.
+
+Wake for network access follows the power adapter, as on macOS laptops:
+magic-packet wake is armed on wired interfaces and Wi-Fi phys that support it
+while on AC and disarmed on battery (63-aurora-wake-for-network.rules). Put
+"always" or "never" in /etc/aurora/wake-for-network to override.

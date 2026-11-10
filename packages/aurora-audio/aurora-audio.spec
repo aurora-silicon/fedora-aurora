@@ -1,7 +1,7 @@
 %global commit c967141161bea3badc7754e23d80b39ffb1bdafd
 Name: aurora-audio
 Version: 4.1
-Release: 15%{?dist}
+Release: 16%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
@@ -18,9 +18,9 @@ Conflicts: asahi-audio
 Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplumber >= 0.5.16 bankstown lv2-triforce lsp-plugins-lv2
 # Restore the established Asahi protection stack on existing installations.
 Requires: speakersafetyd speakerguardd
-Obsoletes: speakerguardd-v2 < 1.0.0
-Obsoletes: speakerguardd-v2-selinux < 1.0.0
-Conflicts: speakerguardd-v2 < 1.0.0
+Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33
+Obsoletes: speakerguardd-v2-selinux < 1.0.0~alpha.1-0.33
+Conflicts: speakerguardd-v2 < 1.0.0~alpha.1-0.33
 # The v2 cleanup reads the user database.
 Requires(posttrans): glibc-common coreutils
 
@@ -61,6 +61,11 @@ install -Dm644 %{SOURCE3} %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d
 %{_libexecdir}/aurora-audio/
 
 %changelog
+* Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 4.1-16
+- Retire only the speakerguardd v2 previews up to release candidate 7
+  (1.0.0~alpha.1-0.32 and older), so release candidate 8 can be installed by
+  hand beside aurora-audio. Nothing installs it by default.
+
 * Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-15
 - The J616 (MacBook Pro 16-inch M4 Pro/Max) speaker PCM also wakes on
   period interrupts: its AOP speaker service raises one per period, and a

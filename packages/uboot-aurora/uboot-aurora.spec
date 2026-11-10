@@ -1,8 +1,8 @@
 %global debug_package %{nil}
-%global commit e1ef8b636fc915278490f556477cfbb021b23a11
+%global commit 250385f8c8aaafd47a8f7990f6efe0443c28d0b5
 Name: uboot-aurora
 Version: 2026.07
-Release: 9%{?dist}
+Release: 13%{?dist}
 Summary: Aurora U-Boot for Apple Silicon
 License: GPL-2.0-or-later
 URL: https://github.com/aurora-silicon/u-boot
@@ -17,7 +17,7 @@ BuildRequires: gcc make bc bison flex dtc python3 python3-pyelftools swig openss
 Aurora U-Boot for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n u-boot-e1ef8b636fc915278490f556477cfbb021b23a11
+%autosetup -n u-boot-250385f8c8aaafd47a8f7990f6efe0443c28d0b5
 
 %build
 make O=build-aurora apple_m1_defconfig
@@ -33,6 +33,29 @@ install -Dm644 build-aurora/u-boot-nodtb.bin %{buildroot}/usr/lib/asahi-boot/u-b
 /usr/lib/asahi-boot/u-boot-nodtb.bin
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 2026.07-13
+- Track U-Boot aurora-wip at 250385f. On a normal boot U-Boot stays
+  quiet on screen and keeps the loader's picture, so the aura logo stays
+  up until the kernel and Plymouth take over (u-boot#46).
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 2026.07-12
+- Track U-Boot aurora-wip at ece5d4c. U-Boot leaves the ESP that Stage 1
+  names only when it belongs to no installation (u-boot#21), so a Mac
+  with a second install's ESP keeps the one it started from.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 2026.07-11
+- Track U-Boot aurora-wip at 6363e77. On M4 and later Macs a zboot kernel
+  is decompressed into the CTXR window and boots there on all CPUs
+  (u-boot#45); before, the EFI stub placed it outside the window and only
+  the boot CPU came up. Also: Apple NVMe command fixes (u-boot#26), the
+  J604 keyboard MTP left to Linux (#44) and the J613 MTP live handoff (#30).
+
+* Mon Nov 09 2026 Diljit Singh <hey@djdev.me> - 2026.07-10
+- Track U-Boot aurora-wip at 48c6b2c (u-boot#42). The M4 Max (T6041)
+  boots like the M4 Pro (u-boot#42), and the T6050 (M5 Max, J714c) boots
+  from NVMe by adopting the ANS session an m1n1 Stage 2 hands over
+  (u-boot#41); without /chosen/asahi,nvme-adopt nothing changes.
+
 * Sat Nov 07 2026 Aurora Silicon <hey@djdev.me> - 2026.07-9
 - Track U-Boot aurora-wip at e1ef8b6. On M4 and later Macs it loads the
   kernel and the EFI runtime code into the CTXR window, and keeps
