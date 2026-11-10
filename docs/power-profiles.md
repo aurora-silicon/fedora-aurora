@@ -55,10 +55,11 @@ Power Saver gets a CPU power budget from `aurora-power-budget`, built from
 and packaged here as the `aurora-power-budget` subpackage (enabled by preset, required by `aurora-platform-core`). Like macOS Low Power Mode it is a short-window
 budget, not a fixed frequency table: while the profile daemon reports
 `power-saver`, every 100 ms the budget (the device tree energy model's power
-for every CPU at 0.6 x its cluster maximum) is spent on the frequency steps
+for every CPU at 0.45 x its cluster maximum) is spent on the frequency steps
 that buy the most CPU capacity per milliwatt, and each cluster is capped with
-`scaling_max_freq`. Thermal limits still win; the governor stays `schedutil`;
-light and single-threaded work is not capped. Balanced and Performance are
+`scaling_max_freq`; the biggest cores are also held at 0.64 x their maximum,
+as macOS holds one busy P core. Thermal limits still win; the governor stays
+`schedutil`. Balanced and Performance are
 untouched, and outside Power Saver the daemon only waits on D-Bus. The GPU,
 ANE, display and fan legs of Low Power Mode are not covered yet. Measurements
 are in the aurora-platform README.

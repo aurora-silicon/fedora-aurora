@@ -28,8 +28,9 @@ Requires: (tuned-ppd or power-profiles-daemon)
 
 %description -n aurora-power-budget
 Gives the Power Saver profile a real CPU power limit, like macOS Low Power
-Mode: every 100 ms the budget is split across the CPU clusters by demand,
-using the device tree energy model, and each cluster is capped to its share.
+Mode: every 100 ms a budget from the device tree energy model is spent on
+the frequency steps that buy the most CPU capacity per milliwatt, and each
+cluster is capped to its share.
 Balanced and Performance are untouched.
 
 %prep
