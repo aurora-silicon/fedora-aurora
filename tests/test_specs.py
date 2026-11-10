@@ -499,7 +499,7 @@ class SpecTests(unittest.TestCase):
         self.assertIn("! grep -qs '^[[:space:]]*DeviceScale[[:space:]]*=' $conf", post)
         self.assertIn('DeviceScale=1$/d}', spec.split('%postun', 1)[1])
 
-    def run_theme_post(self, current, cmdline=None):
+    def run_theme_post(self, current, cmdline=None, entries=None):
         """Run the theme's %post and %posttrans against a fake Plymouth with CURRENT set."""
         spec = (ROOT / 'packages' / 'plymouth-theme-aurora' / 'plymouth-theme-aurora.spec').read_text()
         post = spec.split('\n%post\n', 1)[1].split('\n%posttrans\n', 1)[0]
@@ -519,7 +519,10 @@ class SpecTests(unittest.TestCase):
             dracut.write_text(f'#!/bin/bash\necho "$@" >> {log}\n')
             dracut.chmod(0o755)
             grubby = tmp / 'bin/grubby'
-            grubby.write_text(f'#!/bin/bash\necho "$@" >> {tmp / "grubby.log"}\n')
+            grubby.write_text(f'#!/bin/bash\nif [[ $1 == --info=ALL ]]; then cat {tmp / "entries"} 2>/dev/null; exit 0; fi\n'
+                              f'echo "$@" >> {tmp / "grubby.log"}\n')
+            if entries is not None:
+                (tmp / 'entries').write_text(entries)
             grubby.chmod(0o755)
             if cmdline is not None:
                 (tmp / 'etc/kernel').mkdir()
@@ -544,6 +547,15 @@ class SpecTests(unittest.TestCase):
                 (None, '')):
             with self.subTest(cmdline=cmdline):
                 self.run_theme_post('aurora', cmdline)
+                self.assertEqual(self.grubby.strip(), expected)
+        # Entries made before the argument reached /etc/kernel/cmdline still get it.
+        fix = '--update-kernel=ALL --args=plymouth.ignore-serial-consoles'
+        for entries, expected in (
+                ('kernel="/boot/vmlinuz-a"\nargs="ro rhgb quiet"\n', fix),
+                ('args="ro rhgb quiet plymouth.ignore-serial-consoles"\n', ''),
+                ('args="ro quiet"\n', '')):
+            with self.subTest(entries=entries):
+                self.run_theme_post('aurora', 'root=UUID=x ro rhgb quiet plymouth.ignore-serial-consoles', entries)
                 self.assertEqual(self.grubby.strip(), expected)
 
     def test_theme_replaces_only_a_stock_default_and_rebuilds_the_initramfs(self):
