@@ -1,6 +1,6 @@
 Name: update-m1n1
 Version: 20261107
-Release: 5%{?dist}.aurora
+Release: 6%{?dist}.aurora
 Summary: Transactional Aurora Stage 2 updates with retained-kernel DTB checks
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -16,6 +16,7 @@ Source8: aurora-stage2-commit.service
 Source9: 90-aurora-stage2.preset
 Source10: aurora-stage2-guard.service
 Source11: aurora-stage2-guard.timer
+Source12: kernel-install-repair
 Provides: aurora-stage2-ctxr-slot = 1
 BuildArch: noarch
 BuildRequires: python3 dtc coreutils systemd-rpm-macros
@@ -47,6 +48,7 @@ install -Dm755 %{SOURCE2} %{buildroot}%{_sysconfdir}/kernel/install.d/10-devicet
 install -Dm755 %{SOURCE3} %{buildroot}%{_kernel_install_dir}/15-update-m1n1.install
 install -Dm644 %{SOURCE4} %{buildroot}%{_sysconfdir}/sysconfig/update-m1n1
 install -Dm755 %{SOURCE7} %{buildroot}%{_libexecdir}/aurora/aurora-stage2-commit
+install -Dm755 %{SOURCE12} %{buildroot}%{_libexecdir}/aurora/kernel-install-repair
 install -Dm644 %{SOURCE8} %{buildroot}%{_unitdir}/aurora-stage2-commit.service
 install -Dm644 %{SOURCE10} %{buildroot}%{_unitdir}/aurora-stage2-guard.service
 install -Dm644 %{SOURCE11} %{buildroot}%{_unitdir}/aurora-stage2-guard.timer
@@ -66,6 +68,10 @@ install -Dm644 %{SOURCE9} %{buildroot}%{_presetdir}/90-aurora-stage2.preset
 %triggerun -- update-m1n1 < 20261107
 /usr/bin/systemctl --no-reload preset aurora-stage2-commit.service aurora-stage2-guard.timer || :
 
+# A kernel added while an older updater refused it has no boot entry yet.
+%posttrans
+%{_libexecdir}/aurora/kernel-install-repair || :
+
 %transfiletriggerin -- /usr/lib/m1n1 /usr/lib64/m1n1 /usr/share/uboot/apple_m1 /etc/m1n1.conf
 %{_sbindir}/update-m1n1 || :
 
@@ -74,6 +80,7 @@ install -Dm644 %{SOURCE9} %{buildroot}%{_presetdir}/90-aurora-stage2.preset
 %{_sbindir}/update-m1n1
 %{_libexecdir}/aurora/bootchain.py
 %{_libexecdir}/aurora/aurora-stage2-commit
+%{_libexecdir}/aurora/kernel-install-repair
 %{_unitdir}/aurora-stage2-commit.service
 %{_unitdir}/aurora-stage2-guard.service
 %{_unitdir}/aurora-stage2-guard.timer
@@ -83,6 +90,22 @@ install -Dm644 %{SOURCE9} %{buildroot}%{_presetdir}/90-aurora-stage2.preset
 %config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1
 
 %changelog
+* Mon Nov 09 2026 Diljit Singh <hey@djdev.me> - 20261107-6
+- Stop stranding Macs on an old kernel. A refused Stage 2 update failed
+  15-update-m1n1.install, so kernel-install stopped before the new
+  kernel's initramfs and boot entry and the Mac kept booting the old one.
+  A J493 stayed on 7.3.0-20, whose speakers no daemon can unlock, while
+  7.3.0-26 and -27 were installed. Two refusals did it:
+  - A boot entry whose kernel is gone (an Asahi kernel removed on
+    migration) is ignored, with a message: GRUB cannot boot it. An entry
+    whose kernel exists elsewhere, or that names none, still refuses.
+  - A kernel without a dtb-abi marker counts as generation 1, not 0. The
+    first declaration changed no device tree, and those kernels booted
+    the trees that followed. Generation 2 still refuses them.
+- kernel-install-repair, run from %%posttrans, re-runs kernel-install for
+  each kernel-aurora-core newer than every kernel with a boot entry, so a
+  stranded Mac boots its newest kernel after this update.
+
 * Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261107-5
 - aurora-stage2-commit skips a trial it did not arm. When the aura-try
   marker names another image (a trial armed by hand or by another tool),
