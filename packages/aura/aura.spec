@@ -1,5 +1,5 @@
 %global debug_package %{nil}
-%global commit 9befaa04e8b9f668199a9bb242af930d53cbdcb4
+%global commit 014a758bc1400ba772f5512749d9843a6cf00895
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
@@ -26,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-9befaa04e8b9f668199a9bb242af930d53cbdcb4
+%autosetup -n aura-014a758bc1400ba772f5512749d9843a6cf00895
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -63,7 +63,7 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 
 %changelog
 * Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b10-4
-- Pin aura main 9befaa04, labelled 1.0.0b10-g9befaa04 from the archive
+- Pin aura main 014a758b, labelled 1.0.0b10-g014a758b from the archive
   directory as it is not a release tag.
   Since 2296392f: Stage 1 keeps a 178 s watchdog over the boot until a host
   attaches or Stage 2 starts, so a Stage 1 that stops before Stage 2 resets
@@ -71,7 +71,10 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
   a bus reset or disconnect (#130) and starts every no-data status stage on
   XferNotReady (#139); T6000/T8112 get their PMP boot data on a node without
   the pmp alias (#88); aura-try one-shot trials for the boot= kernel (#82);
-  the J604/J715 radio port and J604 MTP DAPF hand-off (#141, #137).
+  the J604/J715 radio port and J604 MTP DAPF hand-off (#141, #137); the M5
+  Pro (T6050) Linux boot and the shared ANS hand-off (#144), which also moves
+  kboot and the remaining hypervisor code into the .init slot so Stage 1
+  links with clang 22.
 
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b10-3
 - Pin aura main 2296392f, labelled 1.0.0b10-g2296392f from the archive
