@@ -144,6 +144,26 @@ class SpecTests(unittest.TestCase):
         for unit in ('systemd-growfs-root.service', 'systemd-growfs@.service'):
             self.assertIn(f'%{{_unitdir}}/{unit}.d/aurora-growfs.conf', files)
         self.assertIn('/usr/lib/aurora/\n', files)
+    def test_reboot_watchdog_fits_the_apple_hardware_watchdog(self):
+        # The Apple SoC watchdog (24 MHz, 32-bit) cannot time out later than
+        # about 178 s; a longer RebootWatchdogSec makes the kernel feed it, so
+        # a stalled reboot is not reset. Both values must stay within range.
+        d = ROOT / 'packages' / 'aurora-platform'
+        conf = (d / '90-aurora-reboot-watchdog.conf').read_text()
+        values = dict(re.findall(r'(?m)^(\w+WatchdogSec)=(\S+)$', conf))
+        self.assertEqual(values, {'RebootWatchdogSec': '2min', 'KExecWatchdogSec': '2min'})
+        self.assertIn('[Manager]', conf.splitlines())
+        hw_max_s = (2**32 - 1) // 24_000_000
+        for value in values.values():
+            seconds = int(value[:-3]) * 60
+            self.assertGreater(seconds, 0)
+            self.assertLessEqual(seconds, hw_max_s)
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: 90-aurora-reboot-watchdog\.conf$')
+        install = text.split('%install', 1)[1].split('%posttrans core', 1)[0]
+        self.assertIn('%{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf', install)
+        core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
+        self.assertIn('%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf\n', core_files)
     def test_initramfs_carries_the_usb4_router_with_the_type_c_controllers(self):
         # dracut-asahi brings tps6598x and sn201202x; their router must come too.
         d = ROOT / 'packages' / 'aurora-platform'

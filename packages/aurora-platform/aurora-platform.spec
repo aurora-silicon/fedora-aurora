@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 31%{?dist}
+Release: 32%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -36,6 +36,7 @@ Source114: 90-aurora-ane.conf
 Source115: aurora-wake-for-network
 Source116: 63-aurora-wake-for-network.rules
 Source117: aurora-grub-uuid
+Source118: 90-aurora-reboot-watchdog.conf
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -130,6 +131,7 @@ install -Dm644 %{SOURCE112} %{buildroot}%{_prefix}/lib/tuned/profiles/aurora-per
 install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 install -Dm755 %{SOURCE115} %{buildroot}%{_libexecdir}/aurora/aurora-wake-for-network
 install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-network.rules
+install -Dm644 %{SOURCE118} %{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 
 %posttrans core
 # Fedora's flicker-free GRUB output, once per system; see the script.
@@ -168,6 +170,7 @@ install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-netw
 %{_udevrulesdir}/62-aurora-gpu-render-only.rules
 %{_udevrulesdir}/63-aurora-wake-for-network.rules
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
+%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
 %{_prefix}/lib/dracut/modules.d/91aurora-early-kms/
 %{_prefix}/lib/dracut/dracut.conf.d/90-aurora-ane.conf
@@ -183,6 +186,14 @@ install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-netw
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-32
+- Reset a stuck reboot after 2 minutes: set RebootWatchdogSec and
+  KExecWatchdogSec to 2min. The Apple SoC watchdog cannot time out later than
+  about 178 s, so with systemd's default of 10 min the kernel kept feeding it
+  and a reboot that stalled was not reset for over 10 minutes. Tested on a
+  MacBook Air (M2): a reboot wedged before the final reboot call is reset
+  2 min after the watchdog is armed, 1 min with 1min.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-31
 - SELinux: stop logging three denials on every login. pam_gdm scans
   /proc/keys for the disk passphrase, and listing needs "view" on each key;
