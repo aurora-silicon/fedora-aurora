@@ -11,9 +11,9 @@
 #            --define 'host_release 0.12.aurora.borealis.<12-hex>%%{?dist}' ...
 # Both lines provide mesa-dri-drivers and mesa-vulkan-drivers at their own
 # version-release, which is what this package requires.
-%{!?commit:%global commit 51b0b650e45310589b973f34f3ea007c6d8848c1}
+%{!?commit:%global commit 10161a78e60e4057257e116d404a92bd9b78bb3c}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 20%{?dist}.aurora}
+%{!?host_release:%global host_release 21%{?dist}.aurora}
 %{!?host_epoch:%global host_epoch 1}
 %global debug_package %{nil}
 # Fedora's x86_64 build flags carry -m64 and would turn the i686 build into a
@@ -202,6 +202,13 @@ fi
 %{_presetdir}/80-aurora-fex-mesa.preset
 
 %changelog
+* Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:26.3.0-21
+- Track aurora-silicon/mesa aurora-wip at 10161a78: shader constant order
+  independent of the build host and 32-bit unit tests fixed (mesa#209),
+  native Gallium GL on the M5 Pro and M5 Max with CPU maps waiting for
+  writers on other contexts (mesa#194), G17G perspective varyings (mesa#208),
+  M5 Max admission and G17P/M5 fixes (mesa#195 #202-#206, #157, #125).
+
 * Tue Nov 10 2026 Aurora Silicon <hey@djdev.me> - 1:26.3.0-20
 - Track aurora-silicon/mesa aurora-wip at 51b0b650: render ray-query scratch
   only on queues that use it (mesa#200), diagnostic environment switches read
