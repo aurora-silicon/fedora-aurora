@@ -1,6 +1,6 @@
 {
   "repository": "https://github.com/aurora-silicon/aurora-sep-userspace",
-  "commit": "b2bd710c46d94e58026d886020e82c8895156735",
+  "commit": "12f26f61b562d40048a9e7e47129d8341175b5c8",
   "files": {
     "0002-aurora-report-unusable-captures-as-retries.patch": "6a594471084ce5d6e65e3edaccc7f10a62dd3bb1cfc2bcdfa6b3f2357906620a",
     "0003-hide-lid-covered-readers-while-the-lid-is-closed.patch": "58b3ec841207942bd48819a8e91a8cc7992e5ffae34285b7e9d3617c2750043f",
@@ -8,7 +8,7 @@
     "aurora_fprintd_lid.te": "900b765aec55be1940f5ddec688c3acce79c52dc42ba914ad72252dbe1a828f7",
     "fprintd-aurora-touchid.conf": "4d3ddca1db4816ba6e7d809096cb758153a25db02e995cfe4720b7e98b82e4d6",
     "libfprint-1.94.100-apple-sep.patch": "55aef4a2019568a13aea48064ed83858a7ce4902636f8e85e46877ce9d8ef172",
-    "libfprint.spec": "dda80af0130791a16d10223ed4c36779f1d33e8f07c61c55228a27db1a1a6b2f",
+    "libfprint.spec": "2254550790ebfd405d4f7fbdb7073720307b7428b76bb150b43c11f734e43730",
     "0004-aurora-refuse-unbound-enrollment.patch": "55793f885982b140beb5fc1b2ade65190a5bc73762369935327155eb7190c6b8",
     "0005-aurora-support-v4-and-v5.patch": "8024015e227ad9172dd5eec2fbe128e6c32f7621571c49f869386123cc08585d",
     "test_interface.py": "73b95e4c39a2fe8c5496cd38545cc67df20c89cc1a88fc3aedf216e997b41da4",
@@ -16,7 +16,8 @@
     "0007-aurora-name-retry-causes-and-keep-waiting.patch": "e14bc4fb3a63ee28d3418d7c7e4823d3bd86e9da784f6e34fd2bef8b11a5f510",
     "0008-aurora-report-the-touch-id-lockout-as-locked-out.patch": "0c75bf129d7416ac534caec4a780dc25a50c478180747213f71c1148e279796b",
     "0009-aurora-say-why-touch-id-needs-the-password.patch": "d3f31fb55bf9c55173123c48192f85b9dd1e8f0db1157d7bb77a785d90490253",
-    "test_lockout_reason.py": "a0bf00b31fe6a3fc999a1f2838aed2143ae0da591469a859e713597033afedbf"
+    "test_lockout_reason.py": "3f56ce86f1c39027cd39f5d3aff6a760d751c2ffcf5e81e78819cb9ba898bb1e",
+    "0010-let-a-front-end-ask-whether-the-reader-needs-the-password.patch": "9aa370942c571cfe1e3ea7cd851b7056477c0b9d29c6a72f02c6ca28431b0ffb"
   },
-  "adaptations": "libfprint.spec keeps the distro-pinned release archive name, retains Fedora's full Meson %check, and runs the upstream compatibility test during %check. Epoch 1 and epoch-qualified matching subpackage dependencies keep native Fedora 45 rebuilds ahead of stock and fc44 Aurora packages; driver patches are aurora11 (0006 finger-lift guidance + lockout named, 0007 retry causes + silent no-finger re-arm, 0008 lockout as FP_DEVICE_ERROR_LOCKED_OUT + libfprint(aurora-sep-lockout), 0009 password reasons FP_DEVICE_ERROR_PASSWORD_REQUIRED{,_AFTER_BOOT} + libfprint(aurora-sep-password-reasons)). Local Patch1009 (0010) restores DATA_FULL for ENOSPC only with a runtime requirement on fprintd(aurora-no-enroll-gc) >= 1; release is aurora12. The imported patch hashes above remain the original provenance."
+  "adaptations": "libfprint.spec keeps the distro-pinned release archive name, retains Fedora's full Meson %check, and runs the upstream compatibility test during %check. Epoch 1 and epoch-qualified matching subpackage dependencies keep native Fedora 45 rebuilds ahead of stock and fc44 Aurora packages; driver patches are aurora12 (0006 finger-lift guidance + lockout named, 0007 retry causes + silent no-finger re-arm, 0008 lockout as FP_DEVICE_ERROR_LOCKED_OUT + libfprint(aurora-sep-lockout), 0009 password reasons FP_DEVICE_ERROR_PASSWORD_REQUIRED{,_AFTER_BOOT} + libfprint(aurora-sep-password-reasons), 0010 fp_device_get_password_required() + libfprint(aurora-sep-password-required)). Local Patch1010 (0011) restores DATA_FULL for ENOSPC only with a runtime requirement on fprintd(aurora-no-enroll-gc) >= 1; release is aurora13. The imported patch hashes above remain the original provenance."
 }

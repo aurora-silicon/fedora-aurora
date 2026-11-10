@@ -2,7 +2,7 @@ Name:		fprintd
 Version:	1.94.5
 # Keep the Aurora driver/account gate ahead of stock Fedora updates.
 Epoch:          1
-Release:	99%{?dist}.aurora4
+Release:	99%{?dist}.aurora5
 Summary:	D-Bus service for Fingerprint reader access
 
 # man page is GFDL-1.1-or-later
@@ -11,7 +11,8 @@ Source0:	fprintd-v%{version}.tar.gz
 Patch0:	0001-preserve-print-on-device-delete-failure.patch
 Patch1:	0002-report-lockout-and-fall-back-to-the-password.patch
 Patch2:	0003-say-why-the-reader-needs-the-password.patch
-Patch3:	0004-aurora-report-data-full-without-garbage-collection.patch
+Patch3:	0004-dont-ask-for-a-finger-the-reader-will-not-take.patch
+Patch4:	0005-aurora-report-data-full-without-garbage-collection.patch
 Source1:	test_account_gate.py
 Source2:	test_enroll_capacity.py
 Url:		http://www.freedesktop.org/wiki/Software/fprint/fprintd
@@ -38,6 +39,8 @@ Requires:	libfprint(aurora-sep) >= 5
 Requires:	libfprint(aurora-sep-lockout)
 # FP_DEVICE_ERROR_PASSWORD_REQUIRED{,_AFTER_BOOT} (0003)
 Requires:	libfprint(aurora-sep-password-reasons)
+# fp_device_get_password_required() (0004), looked up at run time
+Requires:	libfprint(aurora-sep-password-required)
 
 
 %description
@@ -134,10 +137,15 @@ fi
 %{_datadir}/dbus-1/interfaces/net.reactivated.Fprint.Manager.xml
 
 %changelog
-* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1:1.94.5-99.aurora4
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 1:1.94.5-99.aurora5
 - Report enroll-data-full for Aurora without automatically deleting prints
-  (0004); fprintd-enroll explains the removal step, and %check compiles the
+  (0005); fprintd-enroll explains the removal step, and %check compiles the
   enrolment callback against fake storage
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1:1.94.5-99.aurora4
+- Don't emit VerifyFingerSelected while the reader needs the password, so
+  pam_fprintd and GNOME don't ask for a finger before "Your password is
+  required to enable Touch ID."
 
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 1:1.94.5-99.aurora3
 - Report a reader that waits for the first password since boot as

@@ -1,4 +1,4 @@
-%global commit f3ceaa2d768a999a8243d4e2c9cc0f3f15ceb226
+%global commit d69f0115edc1abe56acc60dff19c08d17096fb41
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261110
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.38.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.39.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -247,6 +247,18 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.39.20261110gitd69f0115edc1
+- Release candidate 8.6, a bug-fix release (speakerguardd#151, #152,
+  #148): after a system sleep the supervisor waits for the engine to beat
+  steadily before granting, and the first grant rides out the sink's
+  reopen, so the speakers no longer go silent until a restart after a
+  resume (M1 Pro); the supervisor's hang watch tells a frozen process
+  from a hung loop and no longer restarts it after a freeze with the
+  clocks running; 'run' checks that v2 really holds the speakers before
+  saying there is nothing to do. Also #108, #109 (finding the MCA and the
+  speaker card) and #150 (no CPU frequency floor for the pollers). v2
+  stays a preview and opt-in.
+
 * Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.38.20261110gitf3ceaa2d768a
 - Release candidate 8.5, a bug-fix release (speakerguardd#145, #146):
   --check on a Mac that speakerguardd v2 already protects no longer takes

@@ -144,6 +144,26 @@ class SpecTests(unittest.TestCase):
         for unit in ('systemd-growfs-root.service', 'systemd-growfs@.service'):
             self.assertIn(f'%{{_unitdir}}/{unit}.d/aurora-growfs.conf', files)
         self.assertIn('/usr/lib/aurora/\n', files)
+    def test_reboot_watchdog_fits_the_apple_hardware_watchdog(self):
+        # The Apple SoC watchdog (24 MHz, 32-bit) cannot time out later than
+        # about 178 s; a longer RebootWatchdogSec makes the kernel feed it, so
+        # a stalled reboot is not reset. Both values must stay within range.
+        d = ROOT / 'packages' / 'aurora-platform'
+        conf = (d / '90-aurora-reboot-watchdog.conf').read_text()
+        values = dict(re.findall(r'(?m)^(\w+WatchdogSec)=(\S+)$', conf))
+        self.assertEqual(values, {'RebootWatchdogSec': '2min', 'KExecWatchdogSec': '2min'})
+        self.assertIn('[Manager]', conf.splitlines())
+        hw_max_s = (2**32 - 1) // 24_000_000
+        for value in values.values():
+            seconds = int(value[:-3]) * 60
+            self.assertGreater(seconds, 0)
+            self.assertLessEqual(seconds, hw_max_s)
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: 90-aurora-reboot-watchdog\.conf$')
+        install = text.split('%install', 1)[1].split('%posttrans core', 1)[0]
+        self.assertIn('%{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf', install)
+        core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
+        self.assertIn('%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf\n', core_files)
     def test_initramfs_carries_the_usb4_router_with_the_type_c_controllers(self):
         # dracut-asahi brings tps6598x and sn201202x; their router must come too.
         d = ROOT / 'packages' / 'aurora-platform'
@@ -161,10 +181,14 @@ class SpecTests(unittest.TestCase):
         # hook queues it (and its suppliers) ahead of systemd-udev-trigger.
         d = ROOT / 'packages' / 'aurora-platform'
         setup = (d / 'early-kms-module-setup.sh').read_text()
-        self.assertRegex(setup, r"(?m)^\s+hostonly='' instmods appledrm$")
+        self.assertRegex(setup, r"(?m)^\s+hostonly='' instmods appledrm ")
+        # appledrm waits for every DCP: an external DCP's Type-C chain comes up with it.
+        for module in ('i2c-pasemi-platform', 'phy-apple-atc', 'phy-ti-cd2e22', 'tps6598x'):
+            self.assertIn(module, setup.split('installkernel()', 1)[1].split('}', 1)[0])
         self.assertRegex(setup, r'(?m)^\s+inst_hook pre-trigger \d+ "\$moddir/aurora-early-kms\.sh"$')
         hook = (d / 'aurora-early-kms.sh').read_text()
         self.assertIn("*Capple,display-subsystem*|*Capple,dcp*)", hook)
+        self.assertIn('*Capple,*atcphy*|*Capple,*-i2cC*|*Capple,i2c)', hook)
         self.assertIn('supplier:*', hook)
         self.assertIn('udevadm trigger --action=add --subsystem-match=drm', hook)
         # It queues the display ahead of the coldplug but never waits for it:
@@ -180,6 +204,44 @@ class SpecTests(unittest.TestCase):
         self.assertIn('/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh', text)
         core_files = text.split('%files core', 1)[1].split('%changelog', 1)[0]
         self.assertIn('%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/', core_files)
+    def test_grub_uuid_refresh_replaces_only_stale_uuid_searches(self):
+        script = ROOT / 'packages' / 'aurora-platform' / 'aurora-grub-uuid'
+        spec = (ROOT / 'packages' / 'aurora-platform' / 'aurora-platform.spec').read_text()
+        self.assertIn('%{_libexecdir}/aurora/aurora-grub-uuid || :',
+                      spec.split('%posttrans core', 1)[1].split('%files', 1)[0])
+        self.assertIn('%{_libexecdir}/aurora/aurora-grub-uuid\n', spec.split('%files core', 1)[1])
+        fresh = ('insmod fat\nsearch --no-floppy --fs-uuid --set=root 81f0fc7d-1e2c\n'
+                 'search --no-floppy --fs-uuid --set=boot 8790-1917\ninsmod blscfg\n')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            (root / 'generated').write_text(fresh)
+            # Fails unless the BLS entries are left alone (--no-grubenv-update).
+            (bindir / 'grub2-mkconfig').write_text(
+                f'#!/bin/sh\ncase " $* " in *" --no-grubenv-update "*) ;; *) exit 9;; esac\ncat {root / "generated"}\n')
+            (bindir / 'grub2-mkconfig').chmod(0o755)
+            cfg = root / 'grub.cfg'
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", AURORA_GRUB_CFG=str(cfg))
+            run = lambda: subprocess.run(['sh', str(script)], env=env, check=True)
+            # Only the ESP UUID search is stale: regenerate, keeping a backup.
+            stale = fresh.replace('8790-1917', '6ADB-FEED')
+            cfg.write_text(stale)
+            run()
+            self.assertEqual(cfg.read_text(), fresh)
+            self.assertEqual((root / 'grub.cfg.aurora-uuid').read_text(), stale)
+            # Any other difference, an added line included, leaves grub.cfg alone.
+            for custom in (stale.replace('insmod blscfg', 'insmod blscfg\nset timeout=5'),
+                           stale.replace('insmod fat', 'insmod ext2'),
+                           fresh.replace('--set=boot 8790-1917', '--set=boot 8790-1917 --hint x')):
+                cfg.write_text(custom)
+                run()
+                self.assertEqual(cfg.read_text(), custom)
+            # Up to date: nothing to do.
+            cfg.write_text(fresh)
+            run()
+            self.assertEqual(cfg.read_text(), fresh)
+
     def test_grub_console_migration_runs_once_and_keeps_hand_made_configs(self):
         script = ROOT / 'packages' / 'aurora-platform' / 'aurora-grub-console'
         spec = (ROOT / 'packages' / 'aurora-platform' / 'aurora-platform.spec').read_text()
@@ -192,6 +254,7 @@ class SpecTests(unittest.TestCase):
             # A stand-in grub2-mkconfig that renders the terminal setting.
             (bindir / 'grub2-mkconfig').write_text(
                 '#!/bin/sh\n. "$AURORA_GRUB_DEFAULTS"\n'
+                'case " $* " in *" --no-grubenv-update "*) ;; *) echo "BLS entries rewritten" >&2; exit 9;; esac\n'
                 'out="terminal_output $GRUB_TERMINAL_OUTPUT"\n'
                 'if [ "${1:-}" = -o ]; then echo "$out" > "$2"; else echo "$out"; fi\n')
             (bindir / 'grub2-mkconfig').chmod(0o755)
@@ -341,6 +404,16 @@ class SpecTests(unittest.TestCase):
                       'if selinux-policy-%{selinuxtype})', core)
         files = text.split('%files selinux', 1)[1].split('%changelog', 1)[0]
         self.assertIn('%{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2', files)
+    def test_platform_selinux_silences_the_gdm_keyring_scan_only(self):
+        # pam_gdm reads /proc/keys looking for the cryptsetup passphrase; the
+        # regulatory certificate keys it may not view are skipped. Nothing is
+        # allowed: one dontaudit, xdm_t on unconfined_service_t keys, view only.
+        te = (ROOT / 'packages' / 'aurora-platform' / 'aurora_platform.te').read_text()
+        self.assertEqual(re.findall(r'(?m)^dontaudit .*$', te),
+                         ['dontaudit xdm_t unconfined_service_t:key view;'])
+        self.assertEqual([r for r in re.findall(r'(?m)^allow .*$', te) if ':key ' in r], [])
+        self.assertRegex(te, r'(?m)^\ttype xdm_t, unconfined_service_t;$')
+        self.assertRegex(te, r'(?m)^\tclass key view;$')
     def test_irqbalance_runs_only_where_the_aic_can_steer(self):
         d = ROOT / 'packages' / 'aurora-platform'
         conf = (d / '50-aurora-irqbalance.conf').read_text()
@@ -463,7 +536,7 @@ class SpecTests(unittest.TestCase):
         self.assertIn("! grep -qs '^[[:space:]]*DeviceScale[[:space:]]*=' $conf", post)
         self.assertIn('DeviceScale=1$/d}', spec.split('%postun', 1)[1])
 
-    def run_theme_post(self, current, cmdline=None):
+    def run_theme_post(self, current, cmdline=None, entries=None):
         """Run the theme's %post and %posttrans against a fake Plymouth with CURRENT set."""
         spec = (ROOT / 'packages' / 'plymouth-theme-aurora' / 'plymouth-theme-aurora.spec').read_text()
         post = spec.split('\n%post\n', 1)[1].split('\n%posttrans\n', 1)[0]
@@ -483,7 +556,10 @@ class SpecTests(unittest.TestCase):
             dracut.write_text(f'#!/bin/bash\necho "$@" >> {log}\n')
             dracut.chmod(0o755)
             grubby = tmp / 'bin/grubby'
-            grubby.write_text(f'#!/bin/bash\necho "$@" >> {tmp / "grubby.log"}\n')
+            grubby.write_text(f'#!/bin/bash\nif [[ $1 == --info=ALL ]]; then cat {tmp / "entries"} 2>/dev/null; exit 0; fi\n'
+                              f'echo "$@" >> {tmp / "grubby.log"}\n')
+            if entries is not None:
+                (tmp / 'entries').write_text(entries)
             grubby.chmod(0o755)
             if cmdline is not None:
                 (tmp / 'etc/kernel').mkdir()
@@ -509,6 +585,15 @@ class SpecTests(unittest.TestCase):
             with self.subTest(cmdline=cmdline):
                 self.run_theme_post('aurora', cmdline)
                 self.assertEqual(self.grubby.strip(), expected)
+        # Entries made before the argument reached /etc/kernel/cmdline still get it.
+        fix = '--update-kernel=ALL --args=plymouth.ignore-serial-consoles'
+        for entries, expected in (
+                ('kernel="/boot/vmlinuz-a"\nargs="ro rhgb quiet"\n', fix),
+                ('args="ro rhgb quiet plymouth.ignore-serial-consoles"\n', ''),
+                ('args="ro quiet"\n', '')):
+            with self.subTest(entries=entries):
+                self.run_theme_post('aurora', 'root=UUID=x ro rhgb quiet plymouth.ignore-serial-consoles', entries)
+                self.assertEqual(self.grubby.strip(), expected)
 
     def test_theme_replaces_only_a_stock_default_and_rebuilds_the_initramfs(self):
         for stock in ('', 'bgrt', 'spinner', 'charge'):
@@ -517,10 +602,17 @@ class SpecTests(unittest.TestCase):
             self.assertEqual(dracut.strip(), '-f --regenerate-all', stock)
 
     def test_theme_keeps_the_owners_choice(self):
-        for chosen in ('solar', 'details', 'aurora'):
+        for chosen in ('solar', 'details'):
             theme, dracut = self.run_theme_post(chosen)
             self.assertEqual(theme, chosen)
             self.assertEqual(dracut, '')
+
+    def test_theme_update_rebuilds_the_initramfs(self):
+        # The initramfs carries its own copy of the theme and plymouthd.conf, so an
+        # update of the selected theme must reach it, not only a switch to it.
+        theme, dracut = self.run_theme_post('aurora')
+        self.assertEqual(theme, 'aurora')
+        self.assertEqual(dracut.strip(), '-f --regenerate-all')
 
     def test_kernel_ships_the_page_size_launcher_from_its_own_source(self):
         spec = (ROOT / 'packages' / 'kernel-aurora' / 'kernel-aurora.spec').read_text()
@@ -735,4 +827,15 @@ class SpecTests(unittest.TestCase):
         self.assertIn('make -C sk check', text.split('%check', 1)[1].split('%install', 1)[0])
         pins = json.loads((ROOT / 'sources.json').read_text())
         self.assertIn(pins['aurora-sep-sk']['commit'], text)
+    def test_camera_denoise_user_unit_skips_root_and_system_users(self):
+        d = ROOT / 'packages/aurora-camera-denoise'
+        spec = (d / 'aurora-camera-denoise.spec').read_text()
+        patch = re.search(r'^Patch\d*:\s+(\S+)', spec, re.M).group(1)
+        text = (d / patch).read_text()
+        for line in ('+ConditionUser=!root', '+ConditionUser=!@system',
+                     '+StartLimitIntervalSec=60', '+StartLimitBurst=5', '+RestartSec=5'):
+            self.assertIn(line + '\n', text)
+        self.assertIn('%autosetup -p1 ', spec)
+        # %check runs the unit test the patch adds.
+        self.assertIn('%meson_test', spec.split('%check', 1)[1].split('%install', 1)[0])
 if __name__ == '__main__': unittest.main()
