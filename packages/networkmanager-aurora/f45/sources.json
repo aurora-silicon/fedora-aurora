@@ -1,0 +1,11 @@
+{
+  "networkmanager-aurora": {
+    "repository": "https://gitlab.freedesktop.org/NetworkManager/NetworkManager",
+    "commit": "7406dfbcc35beed79bf2734e3e7376ead320bd99",
+    "version": "1.58.1",
+    "source_url": "https://gitlab.freedesktop.org/NetworkManager/NetworkManager/-/releases/1.58.1/downloads/NetworkManager-1.58.1.tar.xz",
+    "archive_root": "NetworkManager-1.58.1",
+    "archive_file": "NetworkManager-1.58.1.tar.xz",
+    "sha256": "262864cfd198123d3e5dbe91937441b97ee9059d6d712e1a5bfbb1c54668d14d"
+  }
+}

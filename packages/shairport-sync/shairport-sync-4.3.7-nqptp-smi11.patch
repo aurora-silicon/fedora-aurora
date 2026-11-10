@@ -1,0 +1,68 @@
+Aurora 2026-10-25: let Shairport Sync 4.3.7 talk to nqptp 1.2.9 (shared memory interface smi11).
+
+Why: Shairport Sync 4.3.7 was released for nqptp's smi10 interface. nqptp 1.2.9 is smi11: it
+inserts one uint64_t, clock_change_offset, between local_to_master_time_offset and
+master_clock_start_time in each shm_structure_set, and stamps the region with version 11.
+Unpatched, 4.3.7 sees version 11 and stops at startup ("too old for the version of nqptp"),
+or reports clock_version_mismatch, so AirPlay 2 never gets a PTP clock.
+
+What: the header now matches nqptp 1.2.9's struct field for field, and NQPTP_SHM_STRUCTURES_VERSION
+is 11. ptp-utilities.c gains build-time asserts on the record and region sizes and on every
+field offset, with the numbers nqptp 1.2.9's own header gives on LP64 (the nqptp package
+asserts the same numbers in its %check). Every use of the struct in 4.3.7 goes through these
+field names or sizeof (get_nqptp_data's memcpy/memcmp, ptp_get_clock_info, the mmap length),
+so nothing reads the old offsets. 4.3.7 ignores the new field, so the smoother clock hand-off
+that nqptp 1.2.9 adds for Shairport Sync's development branch is not used here.
+
+Upstream never tested this pairing: upstream pairs 4.3.x with nqptp smi10 (1.2.4 to 1.2.8),
+and smi11 with Shairport Sync's development branch. The control-port protocol
+("<smi name> <command> ...") and 4.3.7's startup "T" that makes nqptp 1.2.9 create the region
+on demand are unchanged between the two.
+
+--- a/nqptp-shm-structures.h
++++ b/nqptp-shm-structures.h
+@@ -22,7 +22,7 @@
+ 
+ #define NQPTP_INTERFACE_NAME "/nqptp"
+ 
+-#define NQPTP_SHM_STRUCTURES_VERSION 10
++#define NQPTP_SHM_STRUCTURES_VERSION 11
+ #define NQPTP_CONTROL_PORT 9000
+ 
+ // The control port expects a UDP packet with the first character being a command letter
+@@ -59,6 +59,10 @@
+   uint64_t master_clock_id;             // the current master clock
+   uint64_t local_time;                  // the time when the offset was calculated
+   uint64_t local_to_master_time_offset; // add this to the local time to get master clock time
++  uint64_t clock_change_offset;         // smi11 (nqptp 1.2.9): when the clock changes while it
++                                        // is in use, the difference between the old and new
++                                        // offsets. Shairport Sync 4.3.7 does not use it; it is
++                                        // here so the layout matches nqptp 1.2.9 exactly.
+   uint64_t master_clock_start_time;     // this is when the master clock became master
+ } shm_structure_set;
+ 
+--- a/ptp-utilities.c
++++ b/ptp-utilities.c
+@@ -44,6 +44,22 @@
+ #include "ptp-utilities.h"
+ #include <inttypes.h>
+ #include <unistd.h>
++#include <stddef.h>
++
++// The reader and nqptp 1.2.9 (the writer) must agree on this layout byte for byte: the region
++// is memcpy'd and the main and secondary records are memcmp'd. These are nqptp 1.2.9's
++// offsets (five uint64_t fields per record, the uint16_t version padded to 8).
++_Static_assert(NQPTP_SHM_STRUCTURES_VERSION == 11, "nqptp 1.2.9 is smi11");
++_Static_assert(sizeof(shm_structure_set) == 40, "smi11 record size");
++_Static_assert(offsetof(shm_structure_set, master_clock_id) == 0, "smi11 layout");
++_Static_assert(offsetof(shm_structure_set, local_time) == 8, "smi11 layout");
++_Static_assert(offsetof(shm_structure_set, local_to_master_time_offset) == 16, "smi11 layout");
++_Static_assert(offsetof(shm_structure_set, clock_change_offset) == 24, "smi11 layout");
++_Static_assert(offsetof(shm_structure_set, master_clock_start_time) == 32, "smi11 layout");
++_Static_assert(offsetof(struct shm_structure, version) == 0, "smi11 layout");
++_Static_assert(offsetof(struct shm_structure, main) == 8, "smi11 layout");
++_Static_assert(offsetof(struct shm_structure, secondary) == 48, "smi11 layout");
++_Static_assert(sizeof(struct shm_structure) == 88, "smi11 region size");
+ 
+ int shm_fd;
+ void *mapped_addr = NULL;
