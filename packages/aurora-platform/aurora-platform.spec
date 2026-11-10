@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 31%{?dist}
+Release: 32%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -185,10 +185,17 @@ install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-netw
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
-* Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 44-31
+* Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 44-32
 - aurora-platform-core requires speakerguardd-v2 (release candidate 9 or
   later) and aurora-speaker-upgrade. speakersafetyd stays installed and
   keeps any Mac the self-check refuses.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-31
+- SELinux: stop logging three denials on every login. pam_gdm scans
+  /proc/keys for the disk passphrase, and listing needs "view" on each key;
+  the session worker (xdm_t) may not view cfg80211's regulatory certificate
+  keys when a platform service loaded cfg80211 (unconfined_service_t). It
+  never needs them: dontaudit only, no new access.
 
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-30
 - Bring the external displays' Type-C chain (I2C controller, retimer or PD
