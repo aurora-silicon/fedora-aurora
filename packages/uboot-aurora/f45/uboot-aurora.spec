@@ -1,8 +1,8 @@
 %global debug_package %{nil}
-%global commit 6363e77fe6287b79219a4d06947b0076bdd765fb
+%global commit ece5d4c2ad07936fb694ecd1dc18e1cbee1fa838
 Name: uboot-aurora
 Version: 2026.07
-Release: 11%{?dist}
+Release: 12%{?dist}
 Summary: Aurora U-Boot for Apple Silicon
 License: GPL-2.0-or-later
 URL: https://github.com/aurora-silicon/u-boot
@@ -16,7 +16,7 @@ BuildRequires: gcc make bc bison flex dtc python3 python3-pyelftools swig openss
 Aurora U-Boot for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n u-boot-6363e77fe6287b79219a4d06947b0076bdd765fb
+%autosetup -n u-boot-ece5d4c2ad07936fb694ecd1dc18e1cbee1fa838
 
 %build
 make O=build-aurora apple_m1_defconfig
@@ -32,6 +32,11 @@ install -Dm644 build-aurora/u-boot-nodtb.bin %{buildroot}/usr/lib/asahi-boot/u-b
 /usr/lib/asahi-boot/u-boot-nodtb.bin
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 2026.07-12
+- Track U-Boot aurora-wip at ece5d4c. U-Boot leaves the ESP that Stage 1
+  names only when it belongs to no installation (u-boot#21), so a Mac
+  with a second install's ESP keeps the one it started from.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 2026.07-11
 - Track U-Boot aurora-wip at 6363e77. On M4 and later Macs a zboot kernel
   is decompressed into the CTXR window and boots there on all CPUs
