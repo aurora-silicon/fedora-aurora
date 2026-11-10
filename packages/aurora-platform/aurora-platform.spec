@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 29%{?dist}
+Release: 30%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -183,6 +183,12 @@ install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-netw
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-30
+- Bring the external displays' Type-C chain (I2C controller, retimer or PD
+  controller, Type-C PHY) up in the initramfs with the display: appledrm
+  waits for every DCP, so the internal panel showed black from its DCP's
+  start until the real root loaded the I2C controller.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-29
 - Require aurora-power-budget: Power Saver gets a CPU power budget, as
   macOS Low Power Mode does.
