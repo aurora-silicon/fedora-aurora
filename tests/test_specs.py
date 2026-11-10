@@ -161,10 +161,14 @@ class SpecTests(unittest.TestCase):
         # hook queues it (and its suppliers) ahead of systemd-udev-trigger.
         d = ROOT / 'packages' / 'aurora-platform'
         setup = (d / 'early-kms-module-setup.sh').read_text()
-        self.assertRegex(setup, r"(?m)^\s+hostonly='' instmods appledrm$")
+        self.assertRegex(setup, r"(?m)^\s+hostonly='' instmods appledrm ")
+        # appledrm waits for every DCP: an external DCP's Type-C chain comes up with it.
+        for module in ('i2c-pasemi-platform', 'phy-apple-atc', 'phy-ti-cd2e22', 'tps6598x'):
+            self.assertIn(module, setup.split('installkernel()', 1)[1].split('}', 1)[0])
         self.assertRegex(setup, r'(?m)^\s+inst_hook pre-trigger \d+ "\$moddir/aurora-early-kms\.sh"$')
         hook = (d / 'aurora-early-kms.sh').read_text()
         self.assertIn("*Capple,display-subsystem*|*Capple,dcp*)", hook)
+        self.assertIn('*Capple,*atcphy*|*Capple,*-i2cC*|*Capple,i2c)', hook)
         self.assertIn('supplier:*', hook)
         self.assertIn('udevadm trigger --action=add --subsystem-match=drm', hook)
         # It queues the display ahead of the coldplug but never waits for it:
