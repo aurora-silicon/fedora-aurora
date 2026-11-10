@@ -1,14 +1,12 @@
 %global debug_package %{nil}
-%global commit 21a70e6e210b7a562c2526c25d2ae334d5eb90e4
-# The release this pin is labelled as; the archive build carries it.
-%global release_tag 1.0.0b10
+%global commit dab56f2f6f7469578ae77cfba37baf7f1108040d
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
 %global monitor_free 1
 Name: aura
 Version: 1.0.0~b10
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -28,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-21a70e6e210b7a562c2526c25d2ae334d5eb90e4
+%autosetup -n aura-dab56f2f6f7469578ae77cfba37baf7f1108040d
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -64,6 +62,13 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b10-2
+- Pin aura main dab56f2f. It is not a release tag, so the build is labelled
+  1.0.0b10-gdab56f2f from the archive directory. Since 21a70e6e: the
+  T6040 boot core power-gates too (aura#119), the T8142 ISP accepts the
+  macOS 27.0 firmware (#99), and a Recovery script enrolls a hand-built
+  Stage 1 (#131). The source still has no monitor, so monitor_free stays 1.
+
 * Mon Nov 09 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b10-1
 - Pin aura main 21a70e6e (aura#135), labelled 1.0.0b10 as its VERSION
   file is. Since b8: the M4 GPU and DCP handoffs on 26.6.2 firmware for
