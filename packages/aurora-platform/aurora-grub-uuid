@@ -18,7 +18,10 @@ command -v grub2-mkconfig > /dev/null || exit 0
 
 current=$(mktemp) || exit 0
 trap 'rm -f "$current"' EXIT
-grub2-mkconfig > "$current" 2>/dev/null || exit 0
+# --no-grubenv-update: without it Fedora's 10_linux rewrites every BLS entry's
+# options (and /etc/kernel/cmdline) from /etc/default/grub, dropping arguments
+# added with grubby, such as a J700's apple_sep.os_uuid pin.
+grub2-mkconfig --no-grubenv-update > "$current" 2>/dev/null || exit 0
 cmp -s "$current" "$cfg" && exit 0
 
 # Only changed lines, no added or removed ones, and each a UUID search.

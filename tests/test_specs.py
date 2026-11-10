@@ -193,7 +193,9 @@ class SpecTests(unittest.TestCase):
             bindir = root / 'bin'
             bindir.mkdir()
             (root / 'generated').write_text(fresh)
-            (bindir / 'grub2-mkconfig').write_text(f'#!/bin/sh\ncat {root / "generated"}\n')
+            # Fails unless the BLS entries are left alone (--no-grubenv-update).
+            (bindir / 'grub2-mkconfig').write_text(
+                f'#!/bin/sh\ncase " $* " in *" --no-grubenv-update "*) ;; *) exit 9;; esac\ncat {root / "generated"}\n')
             (bindir / 'grub2-mkconfig').chmod(0o755)
             cfg = root / 'grub.cfg'
             env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", AURORA_GRUB_CFG=str(cfg))
@@ -228,6 +230,7 @@ class SpecTests(unittest.TestCase):
             # A stand-in grub2-mkconfig that renders the terminal setting.
             (bindir / 'grub2-mkconfig').write_text(
                 '#!/bin/sh\n. "$AURORA_GRUB_DEFAULTS"\n'
+                'case " $* " in *" --no-grubenv-update "*) ;; *) echo "BLS entries rewritten" >&2; exit 9;; esac\n'
                 'out="terminal_output $GRUB_TERMINAL_OUTPUT"\n'
                 'if [ "${1:-}" = -o ]; then echo "$out" > "$2"; else echo "$out"; fi\n')
             (bindir / 'grub2-mkconfig').chmod(0o755)
