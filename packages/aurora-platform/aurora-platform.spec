@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 31%{?dist}
+Release: 32%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -52,8 +52,10 @@ Obsoletes: asahi-platform-metapackage-core < 1
 Obsoletes: asahi-platform-metapackage-audio < 1
 Conflicts: asahi-platform-metapackage < 1
 Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
-# Use the established protection daemons; v2 is not shipped in images.
+# The established protection daemons stay installed as the fallback;
+# aurora-speaker-upgrade moves a Mac to v2 only when its self-check passes.
 Requires: speakersafetyd speakerguardd
+Requires: speakerguardd-v2 >= 1.0.0~alpha.1-0.40 aurora-speaker-upgrade >= 0.1-0.10
 Requires: aurora-audio >= 4.1-12
 Requires: alsa-ucm-conf-aurora
 # BlueZ 5.86 attempts an empty default-parameter transaction at startup.
@@ -183,6 +185,11 @@ install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-netw
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 44-32
+- aurora-platform-core requires speakerguardd-v2 (release candidate 9 or
+  later) and aurora-speaker-upgrade. speakersafetyd stays installed and
+  keeps any Mac the self-check refuses.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-31
 - SELinux: stop logging three denials on every login. pam_gdm scans
   /proc/keys for the disk passphrase, and listing needs "view" on each key;
