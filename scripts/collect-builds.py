@@ -21,6 +21,11 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 import updatelib as lib  # noqa: E402
 import fedoralib  # noqa: E402
 
+import os
+
+# gh with retries of transient GitHub API failures (HTTP 5xx/429, timeouts): scripts/gh-retry
+GH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gh-retry')
+
 _spec = importlib.util.spec_from_file_location('importer', ROOT / 'scripts/import-rpm-build.py')
 importer = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(importer)
@@ -66,7 +71,7 @@ def collect(plan, repository, output, downloads, fedora=44):
                 raise ValueError(f'{name}: artifact {item["artifact"]} is not the planned output of run {run}')
             archive = downloads / f'{artifact["id"]}.zip'
             with archive.open('wb') as stream:
-                subprocess.run(['gh', 'api', f'repos/{repository}/actions/artifacts/{artifact["id"]}/zip'],
+                subprocess.run([GH, 'api', f'repos/{repository}/actions/artifacts/{artifact["id"]}/zip'],
                                stdout=stream, check=True)
             if 'sha256:' + lib.sha256_file(archive) != artifact['digest']:
                 raise ValueError(f'{name}: artifact digest mismatch')
@@ -74,7 +79,7 @@ def collect(plan, repository, output, downloads, fedora=44):
             archive.unlink()
             if attests(metadata['head_sha']):
                 for rpm in sorted((artifacts / fedoralib.artifact(name, fedora) / 'out').glob('*rpms/*.rpm')):
-                    subprocess.run(['gh', 'attestation', 'verify', str(rpm), '--repo', repository,
+                    subprocess.run([GH, 'attestation', 'verify', str(rpm), '--repo', repository,
                                     '--signer-workflow', f'{repository}/.github/workflows/rpms.yml',
                                     '--source-digest', metadata['head_sha'], '--deny-self-hosted-runners'],
                                    check=True, stdout=subprocess.DEVNULL)

@@ -26,6 +26,9 @@ sys.path.insert(0, str(ROOT / 'scripts'))
 import updatelib as lib  # noqa: E402
 import fedoralib  # noqa: E402
 
+# gh with retries of transient GitHub API failures (HTTP 5xx/429, timeouts): scripts/gh-retry
+GH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'gh-retry')
+
 CHANNELS = ('testing', 'stable')
 SITE_BUDGET = 200_000_000
 SLOTS = {'testing': (44, 'testing'), 'stable': (44, 'stable'), '45/testing': (45, 'testing')}
@@ -65,7 +68,7 @@ def verify_attestation(directory, repository):
     archive = next(name for name in listed if name.startswith('repository-metadata-') and name.endswith('.tar.gz'))
     if listed[archive] != lib.sha256_file(directory / archive):
         raise ValueError('SHA256SUMS does not match the metadata archive')
-    result = subprocess.run(['gh', 'attestation', 'verify', str(directory / archive), '--repo', repository,
+    result = subprocess.run([GH, 'attestation', 'verify', str(directory / archive), '--repo', repository,
                              '--signer-workflow', f'{repository}/.github/workflows/publish.yml',
                              '--deny-self-hosted-runners', '--format', 'json'],
                             check=True, capture_output=True, text=True)
