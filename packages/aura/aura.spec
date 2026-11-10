@@ -1,12 +1,12 @@
 %global debug_package %{nil}
-%global commit 2296392f5ecea44a4a9d3c01eb3ec308ef1ad5e8
+%global commit 9befaa04e8b9f668199a9bb242af930d53cbdcb4
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
 %global monitor_free 1
 Name: aura
 Version: 1.0.0~b10
-Release: 3%{?dist}
+Release: 4%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -26,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-2296392f5ecea44a4a9d3c01eb3ec308ef1ad5e8
+%autosetup -n aura-9befaa04e8b9f668199a9bb242af930d53cbdcb4
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -62,6 +62,17 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b10-4
+- Pin aura main 9befaa04, labelled 1.0.0b10-g9befaa04 from the archive
+  directory as it is not a release tag.
+  Since 2296392f: Stage 1 keeps a 178 s watchdog over the boot until a host
+  attaches or Stage 2 starts, so a Stage 1 that stops before Stage 2 resets
+  instead of staying dark (aura#127); the high-speed USB proxy recovers from
+  a bus reset or disconnect (#130) and starts every no-data status stage on
+  XferNotReady (#139); T6000/T8112 get their PMP boot data on a node without
+  the pmp alias (#88); aura-try one-shot trials for the boot= kernel (#82);
+  the J604/J715 radio port and J604 MTP DAPF hand-off (#141, #137).
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b10-3
 - Pin aura main 2296392f, labelled 1.0.0b10-g2296392f from the archive
   directory as it is not a release tag.
