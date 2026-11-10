@@ -25,7 +25,7 @@ the Neural Engine one) joins in above per-board sensor gain levels from
 boards.conf. Users can turn it off in denoise.conf or mask the service.
 
 %prep
-%autosetup -n camera-denoise-%{commit}
+%autosetup -p1 -n camera-denoise-%{commit}
 
 %build
 %meson -Ddaemon=enabled -Dgpu=disabled -Dsystemduserunitdir=%{_userunitdir}

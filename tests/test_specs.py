@@ -835,6 +835,7 @@ class SpecTests(unittest.TestCase):
         for line in ('+ConditionUser=!root', '+ConditionUser=!@system',
                      '+StartLimitIntervalSec=60', '+StartLimitBurst=5', '+RestartSec=5'):
             self.assertIn(line + '\n', text)
+        self.assertIn('%autosetup -p1 ', spec)
         # %check runs the unit test the patch adds.
         self.assertIn('%meson_test', spec.split('%check', 1)[1].split('%install', 1)[0])
 if __name__ == '__main__': unittest.main()
