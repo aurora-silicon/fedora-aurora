@@ -840,4 +840,6 @@ class SpecTests(unittest.TestCase):
         spec = (ROOT / 'packages/aurora-camera-denoise/aurora-camera-denoise.spec').read_text()
         files = spec.split('%files', 1)[1].split('%changelog', 1)[0]
         self.assertIn('%{_libdir}/aurora-camera-denoise/cdn-backend-ave.so', files)
+        self.assertIn('%{_libdir}/aurora-camera-denoise/cdn-backend-ane.so', files)
+        self.assertIn('%{_datadir}/aurora-camera-denoise/', files)
 if __name__ == '__main__': unittest.main()
