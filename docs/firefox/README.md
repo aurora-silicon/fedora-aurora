@@ -4,8 +4,8 @@ Firefox 157 already brokers qualifying V4L2 memory-to-memory nodes into the
 RDD process when `MOZ_ENABLE_V4L2` is defined. Stateless Request API decoders
 also need a topology-linked media-controller node and the exact sysfs uevent
 that maps the topology's character-device number back to `/dev/video*`.
-`0001-rdd-v4l2-request.patch` adds those dependencies without disabling or
-broadening the RDD sandbox.
+`packages/firefox/rdd-v4l2-request.patch` adds those dependencies without
+disabling or broadening the RDD sandbox.
 
 ## Root cause
 
@@ -44,95 +44,70 @@ Firefox 157 enables `MOZ_ENABLE_V4L2` automatically for GTK on aarch64; see
 
 ## Scope of the patch
 
-The parent process keeps the existing webcam boundary: it first identifies
-character devices with `V4L2_CAP_VIDEO_M2M` or
-`V4L2_CAP_VIDEO_M2M_MPLANE`. A media node is admitted read/write only when a
-bounded, stable two-pass topology contains a V4L video interface whose device
-number matches that already admitted set. Only the matching video's direct and
-canonical sysfs uevent paths are admitted read-only. Media opens reject
-symlinks and non-character files. No `/dev/media` prefix, sysfs subtree, camera
-exception, permission change, or non-RDD policy is added.
-
-Seccomp gains only the four operations used by this driver:
+The broker adds a `/dev/media*` node read/write only when its media
+topology contains a V4L video interface whose device number is one of the M2M
+video nodes the existing policy already admits, plus that video node's
+`/sys/dev/char/<major>:<minor>/uevent` read-only. Camera media nodes, the
+`/dev/media` prefix and other sysfs paths stay blocked. Seccomp gains exactly
+four ioctls:
 
 - `MEDIA_IOC_G_TOPOLOGY`
 - `MEDIA_IOC_REQUEST_ALLOC`
 - `MEDIA_REQUEST_IOC_QUEUE`
 - `MEDIA_REQUEST_IOC_REINIT`
 
-The broader media ioctl family remains denied. Existing V4L2, DRM and dma-buf
-rules are unchanged. The RDD sandbox remains enabled.
+The rest of the media ioctl family (`MEDIA_IOC_SETUP_LINK`, entity and link
+enumeration) stays denied. Existing V4L2, DRM and dma-buf rules are unchanged
+and the RDD sandbox stays on. The patch is the one proposed to Mozilla in
+[bug 2080696](https://bugzilla.mozilla.org/show_bug.cgi?id=2080696), MPL-2.0.
 
-The patch is MPL-2.0 and targets the public Firefox 157.0.1 release source.
-The Fedora delta is pinned to Fedora 44 dist-git commit
-`1465e7dfc36e96ec3825c12f3dbed41c426e080d`; it is opt-in so an unqualified
-candidate cannot replace Fedora's browser accidentally:
+## Package
+
+`packages/firefox` is Fedora's dist-git recipe for Fedora 44 (`f45/` holds
+what differs for Fedora 45), imported by `scripts/import-fedora-firefox.py`.
+The import keeps every Fedora file byte for byte and changes `firefox.spec`
+only to:
+
+- apply `rdd-v4l2-request.patch` (`Patch900`);
+- add `.aurora1` to Fedora's Release, so `firefox-160.0-1.fc44.aurora1`
+  replaces Fedora's `firefox-160.0-1.fc44`;
+- turn off debuginfo and the WASI SDK build. The WASI SDK compiles its own
+  LLVM toolchain inside the Firefox build, which does not fit the hosted
+  runner's six hours; without it the wasm-sandboxed third-party libraries
+  (RLBox) are built as normal code, as on Fedora's s390x.
+
+Fedora's lookaside archives (`sources`) and its API key files (listed in
+`distgit.json` with their SHA-256) are fetched at build time by
+`scripts/fetch-fedora-lookaside.py`; the keys are Fedora's and are not copied
+into this repository.
+
+The recipe is marked `# aurora-builder: heavy`. Pushes and pull requests never
+build it (about three hours on the arm64 runner); a manual `rpms.yml` run with
+`packages=firefox` builds it for Fedora 44 and 45 in the `rpm-heavy` job.
+Merging that branch with a merge commit lets publication take that build.
+
+## Updates
+
+The Aurora repository has priority over Fedora's, so a Fedora Firefox update
+reaches Aurora systems only after it is rebuilt here.
+`.github/workflows/track-firefox.yml` runs every two hours: it imports the
+current f44/f45 heads, pushes `auto/firefox-<version>-<f44>-<f45>` when they
+changed, dispatches its Firefox build and source checks, and on a later run
+merges it once both passed and starts publication for both releases. A failed
+proposal build fails the workflow. `TRACK_FIREFOX=false` stops the tracker and
+`AUTO_MERGE_FIREFOX=false` keeps proposals unmerged.
+
+To import by hand:
 
 ```sh
-python3 docs/firefox/prepare-fedora.py /path/to/clean/firefox-distgit
-rpmbuild -ba --with avd_request firefox.spec
+python3 scripts/import-fedora-firefox.py          # clones f44 and f45
+python3 scripts/import-fedora-firefox.py --check  # is packages/firefox current?
 ```
 
-`scripts/build-firefox-rdd-v4l2-request` performs the same pinned preparation
-inside a controller build slot. `--source-only` produces an SRPM without a
-host build.
+## Checks
 
-## Offline checks
-
-```sh
-python3 docs/firefox/check-rdd-v4l2-request.py
-python3 -m unittest tests.test_firefox_rdd_v4l2_request
-```
-
-The focused C++ harness extracts the production topology helper and covers a
-linked decoder, an unrelated controller, non-video interfaces, invalid media
-names, regular files, failed calls, zero/oversized topology, and count/version
-changes. It does not replace a Firefox compile, broker integration test, or
-hardware run.
-
-## ENG hardware recipe
-
-Use the candidate RPM and the packaged `aurora` VA driver. Do not set
-`MOZ_DISABLE_RDD_SANDBOX` or change sandbox levels. This creates a fresh
-profile and a muted page for every attempt. `CLIP` must be a licensed 4K AV1
-WebM whose hash is recorded with the evidence.
-
-```sh
-CLIP=/absolute/path/to/4k-av1.webm
-RUN_DIR=$(mktemp -d "$PWD/firefox-rdd-av1.XXXXXX")
-PROFILE=$RUN_DIR/profile
-mkdir -p "$PROFILE"
-sha256sum "$CLIP" > "$RUN_DIR/clip.sha256"
-cat > "$PROFILE/user.js" <<'PREFS'
-user_pref("media.ffmpeg.vaapi.enabled", true);
-user_pref("media.hardware-video-decoding.enabled", true);
-user_pref("media.av1.enabled", true);
-PREFS
-python3 - "$CLIP" "$RUN_DIR/play.html" <<'PY'
-import html
-import sys
-from pathlib import Path
-
-uri = html.escape(Path(sys.argv[1]).resolve().as_uri(), quote=True)
-Path(sys.argv[2]).write_text(
-    '<!doctype html><meta charset="utf-8">'
-    f'<video autoplay loop muted controls src="{uri}"></video>'
-)
-PY
-MOZ_ENABLE_WAYLAND=1 \
-LIBVA_DRIVER_NAME=aurora \
-MOZ_LOG='PlatformDecoderModule:5,FFmpegVideo:5' \
-MOZ_LOG_FILE="$RUN_DIR/moz.log" \
-firefox --no-remote --profile "$PROFILE" "$RUN_DIR/play.html" \
-  >"$RUN_DIR/launch.log" 2>&1
-rg -n 'IsHardwareAccelerated=true|vaInitialize failed|no V4L2 Request API decoder' \
-  "$RUN_DIR"/moz.log* "$RUN_DIR/launch.log"
-```
-
-A pass requires `IsHardwareAccelerated=true` for the AV1 decoder, visible
-4K playback without corruption, no VA initialization/device-discovery error,
-and an RDD process still running with seccomp filtering enabled. Preserve the
-RPM NEVRA, browser version, clip hash, full logs, `/proc/<RDD pid>/status`, and
-its fd targets while playback is active. Repeat with a 4K VP9 WebM. A software
-fallback, crash, hang, or missing expected log is a failure, not an
-inconclusive pass.
+`tests/test_firefox.py` covers the spec edit, the fetched key files and the
+patch's broker and seccomp scope. The hardware check plays muted H.264, HEVC,
+VP9 and AV1 clips in a fresh profile and requires `IsHardwareAccelerated=true`,
+the RDD process holding the decoder's `/dev/media*` and `/dev/video*` nodes
+with `Seccomp: 2`, no camera media node, and no new SELinux denial.
