@@ -44,13 +44,13 @@ class FirefoxRecipeTests(unittest.TestCase):
     def test_spec_edit_adds_the_patch_and_an_aurora_release(self):
         text = importer.edit_spec(FEDORA_SPEC, '0' * 40, 'Wed Nov 11 2026')
         self.assertTrue(text.startswith('# aurora-builder: heavy\n'))
-        self.assertIn('Release:        2%{?dist}.aurora1\n', text)
+        self.assertIn('Release:        2%{?dist}.aurora2\n', text)
         self.assertIn('Patch604:       last.patch\n\n# Aurora: V4L2 stateless decoders in RDD', text)
         self.assertIn('Patch900:       rdd-v4l2-request.patch\n', text)
         self.assertIn('%patch -P900 -p1 -b .rdd-v4l2-request\n\nrm -f .mozconfig\n', text)
         self.assertIn('%global create_debuginfo  0\n', text)
         self.assertIn('%else\n  %bcond wasi_sdk 0\n%endif\n%endif', text)
-        self.assertIn('%changelog\n* Wed Nov 11 2026 Aurora Silicon <hey@djdev.me> - 161.0-2.aurora1\n'
+        self.assertIn('%changelog\n* Wed Nov 11 2026 Aurora Silicon <hey@djdev.me> - 161.0-2.aurora2\n'
                       "- Rebuild of Fedora's firefox-161.0-2.\n", text)
         self.assertIn('* Fri Nov 06 2026 Fedora Packager', text)
 
@@ -97,6 +97,11 @@ class FirefoxRecipeTests(unittest.TestCase):
                          ['MEDIA_IOC_G_TOPOLOGY', 'MEDIA_IOC_REQUEST_ALLOC',
                           'MEDIA_REQUEST_IOC_QUEUE', 'MEDIA_REQUEST_IOC_REINIT'])
         self.assertNotIn("'|'", added)
+
+    def test_rdd_allows_sysinfo_for_mesa(self):
+        patch = (PACKAGE / 'rdd-v4l2-request.patch').read_text()
+        self.assertEqual(patch.count('\nFrom '), 1)
+        self.assertIn('+      case __NR_sysinfo:\n+        return Allow();\n', patch)
 
     def test_broker_admits_media_nodes_only_through_an_allowed_video_node(self):
         patch = (PACKAGE / 'rdd-v4l2-request.patch').read_text()

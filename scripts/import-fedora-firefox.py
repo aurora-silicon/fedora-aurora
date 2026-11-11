@@ -31,11 +31,13 @@ RELEASES = {44: 'f44', 45: 'f45'}
 FETCHED = ('google-api-key', 'google-loc-api-key', 'mozilla-api-key')
 OURS = ('rdd-v4l2-request.patch',)
 SKIP = {'.git', '.gitignore', 'sources'} | set(FETCHED)
-AURORA_RELEASE = '.aurora1'
+AURORA_RELEASE = '.aurora2'
 CHANGELOG = """\
 * {date} Aurora Silicon <hey@djdev.me> - {evr}
 - Rebuild of Fedora's firefox-{version}-{release}.
 - Allow V4L2 stateless (Request API) decoders in the RDD sandbox.
+- Allow sysinfo in the RDD sandbox, so Mesa's zink driver can create the
+  GBM device behind VA-API DMABuf surfaces.
 - No debuginfo and no WASI SDK build, to fit the native builder.
 
 """

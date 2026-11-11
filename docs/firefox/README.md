@@ -7,6 +7,14 @@ that maps the topology's character-device number back to `/dev/video*`.
 `packages/firefox/rdd-v4l2-request.patch` adds those dependencies without
 disabling or broadening the RDD sandbox.
 
+The same file carries a second patch that allows `sysinfo` in the RDD
+process. Mesa's zink driver reads the physical memory size with
+`sysconf(_SC_PHYS_PAGES)` (glibc implements it with `sysinfo`) and does not
+create a screen without it. Without that screen the GBM device behind the
+VA-API DMABuf surfaces fails: the decoder opens and decodes the first frame,
+`CreateImageVAAPI()` cannot get a `VideoFrameSurface`, and playback falls back
+to software. Content processes already allow `sysinfo`.
+
 ## Root cause
 
 The failure occurs during VA driver initialization, before a coded frame is
@@ -69,7 +77,7 @@ The import keeps every Fedora file byte for byte and changes `firefox.spec`
 only to:
 
 - apply `rdd-v4l2-request.patch` (`Patch900`);
-- add `.aurora1` to Fedora's Release, so `firefox-160.0-1.fc44.aurora1`
+- add `.aurora2` to Fedora's Release, so `firefox-160.0-1.fc44.aurora2`
   replaces Fedora's `firefox-160.0-1.fc44`;
 - turn off debuginfo and the WASI SDK build. The WASI SDK compiles its own
   LLVM toolchain inside the Firefox build, which does not fit the hosted

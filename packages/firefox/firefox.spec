@@ -194,7 +194,7 @@ ExcludeArch: i686
 Summary:        Mozilla Firefox Web browser
 Name:           firefox
 Version:        160.0
-Release:        1%{?dist}.aurora1
+Release:        1%{?dist}.aurora2
 URL:            https://www.mozilla.org/firefox/
 # Automatically converted from old format: MPLv1.1 or GPLv2+ or LGPLv2+ - review is highly recommended.
 License:        LicenseRef-Callaway-MPLv1.1 OR GPL-2.0-or-later OR LicenseRef-Callaway-LGPLv2+
@@ -1198,9 +1198,11 @@ fi
 #---------------------------------------------------------------------
 
 %changelog
-* Wed Nov 11 2026 Aurora Silicon <hey@djdev.me> - 160.0-1.aurora1
+* Wed Nov 11 2026 Aurora Silicon <hey@djdev.me> - 160.0-1.aurora2
 - Rebuild of Fedora's firefox-160.0-1.
 - Allow V4L2 stateless (Request API) decoders in the RDD sandbox.
+- Allow sysinfo in the RDD sandbox, so Mesa's zink driver can create the
+  GBM device behind VA-API DMABuf surfaces.
 - No debuginfo and no WASI SDK build, to fit the native builder.
 
 * Fri Nov 06 2026 Martin Stransky <stransky@redhat.com> - 160.0-1
