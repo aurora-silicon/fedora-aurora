@@ -1,6 +1,6 @@
 Name:           iio-sensor-proxy
 Version:        3.9
-Release:        1%{?dist}.aurora1
+Release:        3%{?dist}.aurora1
 Summary:        IIO accelerometer sensor to input device proxy
 
 # tests/unittest_inspector.py is LGPL-2.1-or-later but it is not packaged
@@ -77,9 +77,10 @@ This package contains the documentation for %{name}.
 %{_datadir}/gtk-doc/html/%{name}/
 
 %changelog
-* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 3.9-1.aurora1
-- Fedora 45: follow Fedora's 3.9 with SSC support disabled (libssc is
-  not packaged), keeping the ColorTemperature property and the tests
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 3.9-3.aurora1
+- Fedora 45: follow Fedora's 3.9-3 with SSC support disabled (libssc is
+  not packaged), keeping the ColorTemperature property and the tests;
+  the release stays above Fedora's so the Aurora build replaces it
 - Fedora 45 history is in Fedora dist-git rpms/iio-sensor-proxy (f45, fe0de0f)
 
 * Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 3.8-2.aurora1
