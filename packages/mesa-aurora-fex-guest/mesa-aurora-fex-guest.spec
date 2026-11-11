@@ -10,9 +10,9 @@
 #            --define 'host_release 0.12.aurora.borealis.<12-hex>%%{?dist}' ...
 # Both lines provide mesa-dri-drivers and mesa-vulkan-drivers at their own
 # version-release, which is what this package requires.
-%{!?commit:%global commit 10161a78e60e4057257e116d404a92bd9b78bb3c}
+%{!?commit:%global commit 7f7a7ffa76bbc9fc27ed19328297eccdbe083a0f}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 21%{?dist}.aurora}
+%{!?host_release:%global host_release 22%{?dist}.aurora}
 %global debug_package %{nil}
 # Fedora's x86_64 build flags carry -m64 and would turn the i686 build into a
 # second x86_64 one; meson's release buildtype sets the optimisation instead.
@@ -199,6 +199,14 @@ fi
 %{_presetdir}/80-aurora-fex-mesa.preset
 
 %changelog
+* Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-22
+- Track aurora-silicon/mesa aurora-wip at 7f7a7ffa: G13/G14 buffer device
+  address capture/replay (mesa#222), G13/G14 sparse texel buffer residency
+  and strict residency for vkd3d-proton only (mesa#235), divergent subgroup
+  shuffles in vertex shaders (mesa#234), G17 occlusion query results with
+  wait and no colour attachments (mesa#233), AGX3 uniform TCS image atomics
+  (mesa#213), ray tracing hit-object parser tests (mesa#220).
+
 * Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-21
 - Track aurora-silicon/mesa aurora-wip at 10161a78: shader constant order
   independent of the build host and 32-bit unit tests fixed (mesa#209),

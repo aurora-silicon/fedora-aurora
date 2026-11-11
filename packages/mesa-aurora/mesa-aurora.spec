@@ -1,8 +1,8 @@
-%global commit 10161a78e60e4057257e116d404a92bd9b78bb3c
+%global commit 7f7a7ffa76bbc9fc27ed19328297eccdbe083a0f
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 21%{?dist}.aurora
+Release: 22%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -200,6 +200,14 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-22
+- Track aurora-silicon/mesa aurora-wip at 7f7a7ffa: G13/G14 buffer device
+  address capture/replay (mesa#222), G13/G14 sparse texel buffer residency
+  and strict residency for vkd3d-proton only (mesa#235), divergent subgroup
+  shuffles in vertex shaders (mesa#234), G17 occlusion query results with
+  wait and no colour attachments (mesa#233), AGX3 uniform TCS image atomics
+  (mesa#213), ray tracing hit-object parser tests (mesa#220).
+
 * Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-21
 - Track aurora-silicon/mesa aurora-wip at 10161a78: shader constant order
   independent of the build host and 32-bit unit tests fixed (mesa#209),
