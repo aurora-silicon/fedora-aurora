@@ -1,4 +1,4 @@
-%global commit dda9784b09bc5e1adf2af73bd79e2bdc67bdc474
+%global commit 26db27188637ec52a6d9bb9f0abffa12d5571656
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261112
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.43.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.44.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -247,6 +247,14 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.44.20261112git26db27188637
+- speakerguardd#165: the session parity attestations are regenerated at the
+  current voicing law, so `speakerguardd-selfcheck verify` accepts the
+  shipped tunings again (dda9784b refused every Mac after #157 changed
+  law-hashed files). No verdict changes.
+- speakerguardd#166: verify gates every tuning at volume sliders 0.7, 0.46
+  and 0.25.
+
 * Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.43.20261112gitdda9784b09bc
 - speakerguardd#163: speakerguardd-provision session-stop and
   session-start (bounded: 15 s after SIGTERM, then SIGKILL); the graph
