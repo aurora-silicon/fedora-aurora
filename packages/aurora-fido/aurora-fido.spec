@@ -1,4 +1,4 @@
-%global commit 86e1e09deef38e343f3316510f3d17244ad909fe
+%global commit d579a030e7a1d392f1f78ea686c4fb814e6c037a
 Name: aurora-fido
 Version: 0.2.0
 Release: 1%{?dist}
