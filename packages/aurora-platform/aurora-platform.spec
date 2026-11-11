@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 22%{?dist}
+Release: 32%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -32,6 +32,11 @@ Source110: 50-aurora-irqbalance.conf
 Source111: 62-aurora-gpu-render-only.rules
 Source112: aurora-performance.conf
 Source113: aurora-ppd-config
+Source114: 90-aurora-ane.conf
+Source115: aurora-wake-for-network
+Source116: 63-aurora-wake-for-network.rules
+Source117: aurora-grub-uuid
+Source118: 90-aurora-reboot-watchdog.conf
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -48,20 +53,26 @@ Obsoletes: asahi-platform-metapackage-core < 1
 Obsoletes: asahi-platform-metapackage-audio < 1
 Conflicts: asahi-platform-metapackage < 1
 Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
-# Both speaker protection stacks, on every Mac: speakerguardd-v2's fleet
-# gate starts exactly one of them per boot (v2 on a gated board whose kernel
-# has the v2 interface, the older daemons everywhere else).
-Requires: speakersafetyd speakerguardd speakerguardd-v2
-Requires: aurora-audio alsa-ucm-conf-aurora
+# Use the established protection daemons; v2 is not shipped in images.
+Requires: speakersafetyd speakerguardd
+Requires: aurora-audio >= 4.1-12
+Requires: alsa-ucm-conf-aurora
 # BlueZ 5.86 attempts an empty default-parameter transaction at startup.
 # 5.87 includes the upstream empty-TLV fix; retain real error reporting.
 Requires: bluez >= 5.87
 Requires: aurora-camera-denoise
+# The VA-API driver for the video decoder, so players and browsers that
+# use VA-API decode in hardware (images install it; this brings it to Macs
+# that update with dnf).
+Requires: libva-v4l2-request-avd
 Requires: aurora-kbd-light
 # The Aurora repository with its key and dnf vendor policies, so a Fedora
 # Asahi Remix system with these services keeps following Aurora's builds.
 Requires: aurora-repos
 Requires: tuned
+Requires: aurora-power-budget
+# Wake for network access (magic packet) follows the power adapter.
+Requires: ethtool iw
 Requires: python3
 Requires: (aurora-platform-selinux = %{version}-%{release} if selinux-policy-%{selinuxtype})
 
@@ -113,13 +124,20 @@ install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwd
 install -Dm755 %{SOURCE105} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-usb4/module-setup.sh
 install -Dm755 %{SOURCE106} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/module-setup.sh
 install -Dm755 %{SOURCE107} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh
+install -Dpm0644 %{SOURCE114} %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-ane.conf
 install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-console
+install -Dm755 %{SOURCE117} %{buildroot}%{_libexecdir}/aurora/aurora-grub-uuid
 install -Dm644 %{SOURCE112} %{buildroot}%{_prefix}/lib/tuned/profiles/aurora-performance/tuned.conf
 install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
+install -Dm755 %{SOURCE115} %{buildroot}%{_libexecdir}/aurora/aurora-wake-for-network
+install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-network.rules
+install -Dm644 %{SOURCE118} %{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 
 %posttrans core
 # Fedora's flicker-free GRUB output, once per system; see the script.
 %{_libexecdir}/aurora/aurora-grub-console || :
+# A grub.cfg whose only stale lines are partition UUID searches; see the script.
+%{_libexecdir}/aurora/aurora-grub-uuid || :
 %{_libexecdir}/aurora/aurora-ppd-config || :
 
 # Also cover tuned-ppd installed/upgraded without an aurora-platform update.
@@ -150,11 +168,16 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 %{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf
 %{_udevrulesdir}/61-aurora-dmi-id.rules
 %{_udevrulesdir}/62-aurora-gpu-render-only.rules
+%{_udevrulesdir}/63-aurora-wake-for-network.rules
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
+%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
 %{_prefix}/lib/dracut/modules.d/91aurora-early-kms/
+%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-ane.conf
 %{_libexecdir}/aurora/aurora-grub-console
+%{_libexecdir}/aurora/aurora-grub-uuid
 %{_libexecdir}/aurora/aurora-ppd-config
+%{_libexecdir}/aurora/aurora-wake-for-network
 %dir %{_prefix}/lib/tuned/profiles/aurora-performance
 %{_prefix}/lib/tuned/profiles/aurora-performance/tuned.conf
 
@@ -163,6 +186,67 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-32
+- Reset a stuck reboot after 2 minutes: set RebootWatchdogSec and
+  KExecWatchdogSec to 2min. The Apple SoC watchdog cannot time out later than
+  about 178 s, so with systemd's default of 10 min the kernel kept feeding it
+  and a reboot that stalled was not reset for over 10 minutes. Tested on a
+  MacBook Air (M2): a reboot wedged before the final reboot call is reset
+  2 min after the watchdog is armed, 1 min with 1min.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-31
+- SELinux: stop logging three denials on every login. pam_gdm scans
+  /proc/keys for the disk passphrase, and listing needs "view" on each key;
+  the session worker (xdm_t) may not view cfg80211's regulatory certificate
+  keys when a platform service loaded cfg80211 (unconfined_service_t). It
+  never needs them: dontaudit only, no new access.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-30
+- Bring the external displays' Type-C chain (I2C controller, retimer or PD
+  controller, Type-C PHY) up in the initramfs with the display: appledrm
+  waits for every DCP, so the internal panel showed black from its DCP's
+  start until the real root loaded the I2C controller.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-29
+- Require aurora-power-budget: Power Saver gets a CPU power budget, as
+  macOS Low Power Mode does.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-28
+- Regenerate a grub.cfg whose only stale lines are partition UUID searches
+  (aurora-grub-uuid): a 'search --fs-uuid --set=boot' for an ESP UUID that no
+  longer exists made GRUB print an error on screen on every boot.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-27
+- Wake for network access as macOS defaults it on laptops: magic-packet
+  wake is armed on wired interfaces that support it and on Wi-Fi phys that
+  offer magic-packet WoWLAN while the power adapter is connected, and
+  disarmed on battery. /etc/aurora/wake-for-network can set always or
+  never instead.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-26
+- Leave the Neural Engine driver (ane_t6021) out of the initramfs
+  (90-aurora-ane.conf). Its probe boots the ANE firmware, about 1.2 s on
+  the M2, and the initramfs could not switch to the real root until it
+  returned. It now loads from the real root.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-25
+- 91aurora-early-kms queues the display devices ahead of the coldplug but no
+  longer waits for them. appledrm registers only once every display
+  processor, the external ones included, has started, which took about
+  1.3 s on the M1 Pro; the root file system and the rest of the initramfs
+  waited for it. Plymouth adds the KMS device when it appears.
+
+* Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-24
+- aurora-platform-core requires libva-v4l2-request-avd, the VA-API driver
+  for the video decoder. New images install it, but Macs that update with
+  dnf never got it, so VA-API players and browsers had no driver and
+  decoded in software.
+
+* Sun Nov 08 2026 Aurora Silicon <hey@djdev.me> - 44-23
+- Restore legacy speaker protection as the shipped stack and require the
+  restored Asahi DSP profiles. Do not install the speakerguardd v2 preview.
+
+
 * Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-22
 - Let plymouthd map a DRM card that the kernel created after the policy
   load and udev has not relabelled yet. Such a node briefly carries the

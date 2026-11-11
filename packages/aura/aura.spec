@@ -1,14 +1,12 @@
 %global debug_package %{nil}
-%global commit 9a173ff5bf6264d56fdc4a6d2dae96ed482cb195
-# Tagged release; preserve its label in the source archive build.
-%global release_tag 1.0.0b5
+%global commit bd9f3e8273dc79ae9095c19c2c4f32218446ad4e
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
-%global monitor_free 0
+%global monitor_free 1
 Name: aura
-Version: 1.0.0~b5
-Release: 2%{?dist}
+Version: 1.0.0~b10
+Release: 5%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -18,7 +16,8 @@ BuildRequires: clang llvm lld rust rust-src cargo make python3
 Provides: m1n1 = 1.6.1
 Conflicts: m1n1
 # A Mach-O Mac needs the update-m1n1 that leaves boot.bin alone.
-Requires: update-m1n1 aurora-stage2-ctxr-slot uboot-aurora
+Requires: update-m1n1 >= 20261107
+Requires: aurora-stage2-ctxr-slot uboot-aurora
 %if %{monitor_free}
 Requires: aurora-ctxr-execmem
 %endif
@@ -27,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-9a173ff5bf6264d56fdc4a6d2dae96ed482cb195
+%autosetup -n aura-bd9f3e8273dc79ae9095c19c2c4f32218446ad4e
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -63,6 +62,71 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b10-5
+- Pin aura main bd9f3e82, labelled 1.0.0b10-gbd9f3e82 from the archive
+  directory as it is not a release tag.
+  Since 014a758b: an opt-in DT entry (apple,adt-dvfs) gets the PMP media
+  performance request levels from the ADT, so the M1 Pro and M2 encoder vote
+  with this Mac's own values (aura#150); the T8140 APCIe tables are published
+  for an OS that powers ANS's PCIe block back (#112).
+
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b10-4
+- Pin aura main 014a758b, labelled 1.0.0b10-g014a758b from the archive
+  directory as it is not a release tag.
+  Since 2296392f: Stage 1 keeps a 178 s watchdog over the boot until a host
+  attaches or Stage 2 starts, so a Stage 1 that stops before Stage 2 resets
+  instead of staying dark (aura#127); the high-speed USB proxy recovers from
+  a bus reset or disconnect (#130) and starts every no-data status stage on
+  XferNotReady (#139); T6000/T8112 get their PMP boot data on a node without
+  the pmp alias (#88); aura-try one-shot trials for the boot= kernel (#82);
+  the J604/J715 radio port and J604 MTP DAPF hand-off (#141, #137); the M5
+  Pro (T6050) Linux boot and the shared ANS hand-off (#144), which also moves
+  kboot and the remaining hypervisor code into the .init slot so Stage 1
+  links with clang 22.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b10-3
+- Pin aura main 2296392f, labelled 1.0.0b10-g2296392f from the archive
+  directory as it is not a release tag.
+  Since dab56f2f: Stage 1's payload scan ends at a Mach-O boot object's
+  __PRELINK_INFO, so an unpadded Mach-O Stage 1 no longer hands
+  m1n1.config-lost=1 to Stage 2, which made M3 boards drop all graphics
+  (aura#134); the J613 native external display path behind its own
+  opt-in (#86); T8142 secondaries keep their writable state out of CTRR_D
+  and the GPU firmware's data is reserved (#100, #143).
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b10-2
+- Pin aura main dab56f2f. It is not a release tag, so the build is labelled
+  1.0.0b10-gdab56f2f from the archive directory. Since 21a70e6e: the
+  T6040 boot core power-gates too (aura#119), the T8142 ISP accepts the
+  macOS 27.0 firmware (#99), and a Recovery script enrolls a hand-built
+  Stage 1 (#131). The source still has no monitor, so monitor_free stays 1.
+
+* Mon Nov 09 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b10-1
+- Pin aura main 21a70e6e (aura#135), labelled 1.0.0b10 as its VERSION
+  file is. Since b8: the M4 GPU and DCP handoffs on 26.6.2 firmware for
+  every M4 Mac (b9: aura#106, #110), M4 PIODMA gated on firmware (#116),
+  ACIO v2 USB4 routers kept with their tuning (#103), T6041 SIO tables
+  (#120), the speaker assembly ID for the kernel (#121), the T8140 DCP
+  power chain (#125), AOP motion calibration on T6000 and T8112 (#124),
+  J713 external displays (#108), the T6041 display on J614C (#132), and
+  aura-try trials that reboot when they cannot start their payload and
+  keep U-Boot off the watchdog (#128, #129, #135). The source still has
+  no monitor, so monitor_free stays 1.
+
+* Sun Nov 08 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b8-1
+- Pin aura v1.0.0b8 (30e93e89, aura#105): 1.0.0b7 plus aura#104, which runs
+  the T8132 storage and memory steps on every T8132 board, not only the
+  J713, so the J604, J623, J624, J715 and J773g can read their internal
+  disk. The source still has no monitor, so monitor_free stays 1.
+
+* Sat Nov 07 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b7-1
+- Pin aura v1.0.0b7 (78bac92d, aura#102). It has no monitor and runs Linux
+  at EL2 in the CTXR window on M4 and later Macs (aura#77), so monitor_free
+  is 1: ship /usr/share/aura/monitor-free and require aurora-ctxr-execmem.
+
+* Sat Nov 07 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b5-3
+- Require trial-aware Stage 2 updates while retaining the CTXR slot contract.
+
 * Fri Nov 06 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b5-2
 - Require the update-m1n1 that can write m1n1/boot-ctxr.bin on Mach-O Macs and
   leave m1n1/boot.bin as it is.

@@ -1,12 +1,14 @@
 %global commit 456c567527d6bbba27d0aaeec1199032e0ec88c3
 Name: aurora-camera-denoise
 Version: 0.1.0
-Release: 5%{?dist}
+Release: 6%{?dist}
 Summary: Noise filter for the built-in camera on Apple silicon
 License: MIT
 URL: https://github.com/aurora-silicon/camera-denoise
 Source0: https://github.com/aurora-silicon/camera-denoise/archive/%{commit}/%{name}-%{commit}.tar.gz
 Source1: 80-aurora-camera-denoise.preset
+# camera-denoise#8: no unit for root/system users, bounded restarts
+Patch0: 0001-systemd-skip-root-and-system-users.patch
 ExclusiveArch: aarch64
 BuildRequires: gcc meson ninja-build pkgconf-pkg-config systemd-rpm-macros
 BuildRequires: pkgconfig(libpipewire-0.3) >= 1.0
@@ -23,7 +25,7 @@ the Neural Engine one) joins in above per-board sensor gain levels from
 boards.conf. Users can turn it off in denoise.conf or mask the service.
 
 %prep
-%autosetup -n camera-denoise-%{commit}
+%autosetup -p1 -n camera-denoise-%{commit}
 
 %build
 %meson -Ddaemon=enabled -Dgpu=disabled -Dsystemduserunitdir=%{_userunitdir}
@@ -59,6 +61,11 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_userpresetdir}/80-aurora-camera-denoise
 %{_userpresetdir}/80-aurora-camera-denoise.preset
 
 %changelog
+* Tue Nov 10 2026 Aurora Silicon <ryan@aurorasilicon.org> - 0.1.0-6
+- The user service no longer runs in root's or the greeter's user manager,
+  where it failed every 2 s without a PipeWire session, and it stops after
+  5 failures in a minute (camera-denoise#8).
+
 * Fri Nov 06 2026 Aurora Silicon <ryan@aurorasilicon.org> - 0.1.0-5
 - Publish only formats the filter can fill: DMA-BUF-preferring clients
   (browsers, zero-copy players) now get a picture (camera-denoise#7).
