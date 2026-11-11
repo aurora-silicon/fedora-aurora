@@ -17,9 +17,9 @@
 #
 # Source10 is mandatory. scripts/build-rpm builds it for both supported
 # runtimes (or consumes AURORA_FLATPAK_GL_REPO_TAR). Never publish settings alone.
-%{!?commit:%global commit 7f7a7ffa76bbc9fc27ed19328297eccdbe083a0f}
+%{!?commit:%global commit be147e36250b3dbacb6ddcee3e68acfad610f17d}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 22%{?dist}.aurora}
+%{!?host_release:%global host_release 23%{?dist}.aurora}
 %global shortcommit %{sub %{commit} 1 12}
 %global debug_package %{nil}
 %global __requires_exclude_from ^%{_datadir}/aurora-flatpak-gl/
@@ -79,6 +79,13 @@ fi
 %{_datadir}/aurora-flatpak-gl/
 
 %changelog
+* Thu Nov 12 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-23
+- Track aurora-silicon/mesa aurora-wip at be147e36: transform feedback
+  keeps a captured point size (mesa#211), revert of the varying
+  optimisation that broke fast-linked pipeline libraries with viewport
+  arrays (mesa#212), no signext optimisation over an abs source in the
+  AGX compiler (mesa#232, OpenCL 64-bit multiplies).
+
 * Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-22
 - Track aurora-silicon/mesa aurora-wip at 7f7a7ffa: G13/G14 buffer device
   address capture/replay (mesa#222), G13/G14 sparse texel buffer residency

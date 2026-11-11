@@ -11,9 +11,9 @@
 #            --define 'host_release 0.12.aurora.borealis.<12-hex>%%{?dist}' ...
 # Both lines provide mesa-dri-drivers and mesa-vulkan-drivers at their own
 # version-release, which is what this package requires.
-%{!?commit:%global commit 7f7a7ffa76bbc9fc27ed19328297eccdbe083a0f}
+%{!?commit:%global commit be147e36250b3dbacb6ddcee3e68acfad610f17d}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 22%{?dist}.aurora}
+%{!?host_release:%global host_release 23%{?dist}.aurora}
 %{!?host_epoch:%global host_epoch 1}
 %global debug_package %{nil}
 # Fedora's x86_64 build flags carry -m64 and would turn the i686 build into a
@@ -202,6 +202,13 @@ fi
 %{_presetdir}/80-aurora-fex-mesa.preset
 
 %changelog
+* Thu Nov 12 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:26.3.0-23
+- Track aurora-silicon/mesa aurora-wip at be147e36: transform feedback
+  keeps a captured point size (mesa#211), revert of the varying
+  optimisation that broke fast-linked pipeline libraries with viewport
+  arrays (mesa#212), no signext optimisation over an abs source in the
+  AGX compiler (mesa#232, OpenCL 64-bit multiplies).
+
 * Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:26.3.0-22
 - Track aurora-silicon/mesa aurora-wip at 7f7a7ffa: G13/G14 buffer device
   address capture/replay (mesa#222), G13/G14 sparse texel buffer residency
