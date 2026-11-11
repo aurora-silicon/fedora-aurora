@@ -1,10 +1,10 @@
-%global commit ea73fdf0eebc388b49ad348a315b2f8e8f546936
+%global commit dda9784b09bc5e1adf2af73bd79e2bdc67bdc474
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261111
+%global snapdate 20261112
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.10.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.11.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning (preview)
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -64,6 +64,14 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.11.20261112gitdda9784b09bc
+- speakerguardd#163: the seat user's PipeWire, WirePlumber and
+  pipewire-pulse stop before the speaker interface switches and start
+  again after it, on a switch and on a rollback. A unit still stopping
+  15 s after SIGTERM is killed, so a busy WirePlumber no longer runs the
+  session restart past its time limit. Also the installer collector from
+  aurora-installer de37d8eb (speakerguardd#157).
+
 * Wed Nov 11 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.10.20261111gitea73fdf0eebc
 - Release candidate 8.8 (speakerguardd#153-#156 on top of RC8.7): the
   speakers' volume is kept across graph restarts and a first start begins

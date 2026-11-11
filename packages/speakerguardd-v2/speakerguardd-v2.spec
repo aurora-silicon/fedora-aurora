@@ -1,4 +1,4 @@
-%global commit d2bc197249b43934dc9a99ade9c6142769aa0d3b
+%global commit dda9784b09bc5e1adf2af73bd79e2bdc67bdc474
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261112
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.42.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.43.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -247,6 +247,15 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.43.20261112gitdda9784b09bc
+- speakerguardd#163: speakerguardd-provision session-stop and
+  session-start (bounded: 15 s after SIGTERM, then SIGKILL); the graph
+  refresh and the revert restart the session through them instead of
+  try-restart. Also speakerguardd#157 (lsm2 fill from the owner's own
+  collection), #164 (spp3 reports whether the closed-loop temperature
+  is current) and #161 (the J713's speaker service PCMs open at their own
+  width).
+
 * Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.42.20261112gitd2bc197249b4
 - speakerguardd#162: the gate reads the kernel's interface only from the
   speaker card and waits for it, whatever order the cards register in
