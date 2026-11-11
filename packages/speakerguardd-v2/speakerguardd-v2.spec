@@ -1,6 +1,6 @@
-%global commit d69f0115edc1abe56acc60dff19c08d17096fb41
+%global commit 24451b6f817d82d9e7805c4f61054034b99f8961
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261110
+%global snapdate 20261111
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.39.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.40.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -247,6 +247,15 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Wed Nov 11 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.40.20261111git24451b6f817d
+- Release candidate 8.7 (speakerguardd#149): with nothing playing the
+  speaker path powers down (amps and sense unlinked, both PCMs closed, the
+  grant given back), as macOS does: about 1 W less at idle on a MacBook Air
+  M2, 0.4 W on a MacBook Pro M1 Pro. The stream that wakes the speakers
+  loses nothing: its first frames are held until the amps play, then
+  played in order. The self-check's graph step accounts for the sink
+  starting again with each first stream. v2 stays a preview and opt-in.
+
 * Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.39.20261110gitd69f0115edc1
 - Release candidate 8.6, a bug-fix release (speakerguardd#151, #152,
   #148): after a system sleep the supervisor waits for the engine to beat
