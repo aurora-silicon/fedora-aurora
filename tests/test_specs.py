@@ -432,6 +432,19 @@ class SpecTests(unittest.TestCase):
         text = (d / 'aurora-platform.spec').read_text()
         core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
         self.assertIn('%{_udevrulesdir}/62-aurora-gpu-render-only.rules', core_files)
+    def test_host_clicks_only_where_an_actuator_is(self):
+        # macOS plays every click from the host; only MTP trackpads with an
+        # actuator node switch, so SPI and external trackpads keep theirs.
+        d = ROOT / 'packages' / 'aurora-platform'
+        rules = [l for l in (d / '64-aurora-trackpad-clicks.rules').read_text().splitlines()
+                 if l and not l.startswith('#')]
+        self.assertEqual(rules, ['ACTION=="add|bind", SUBSYSTEM=="hid", DRIVER=="magicmouse", '
+                                 'ENV{HID_NAME}=="Apple MTP multi-touch", TEST=="../of_node/actuator", '
+                                 'ATTR{[module/hid_magicmouse]parameters/haptic_press}="Y"'])
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: 64-aurora-trackpad-clicks\.rules$')
+        core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
+        self.assertIn('%{_udevrulesdir}/64-aurora-trackpad-clicks.rules', core_files)
     def test_platform_core_carries_no_kernel_or_boot_chain(self):
         d = ROOT / 'packages' / 'aurora-platform'
         text = (d / 'aurora-platform.spec').read_text()

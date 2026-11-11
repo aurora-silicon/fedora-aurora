@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 35%{?dist}
+Release: 36%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -38,6 +38,7 @@ Source116: 63-aurora-wake-for-network.rules
 Source117: aurora-grub-uuid
 Source118: 90-aurora-reboot-watchdog.conf
 Source119: aurora-early-kms-wait.sh
+Source120: 64-aurora-trackpad-clicks.rules
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -139,6 +140,7 @@ install -Dm644 %{SOURCE112} %{buildroot}%{_prefix}/lib/tuned/profiles/aurora-per
 install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 install -Dm755 %{SOURCE115} %{buildroot}%{_libexecdir}/aurora/aurora-wake-for-network
 install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-network.rules
+install -Dm644 %{SOURCE120} %{buildroot}%{_udevrulesdir}/64-aurora-trackpad-clicks.rules
 install -Dm644 %{SOURCE118} %{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 
 %posttrans core
@@ -177,6 +179,7 @@ install -Dm644 %{SOURCE118} %{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-
 %{_udevrulesdir}/61-aurora-dmi-id.rules
 %{_udevrulesdir}/62-aurora-gpu-render-only.rules
 %{_udevrulesdir}/63-aurora-wake-for-network.rules
+%{_udevrulesdir}/64-aurora-trackpad-clicks.rules
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 %{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
@@ -194,6 +197,15 @@ install -Dm644 %{SOURCE118} %{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Wed Nov 11 2026 DjDeveloperr <hey@djdev.me> - 44-36
+- Play trackpad clicks from the host, as macOS does, on Macs whose MTP
+  trackpad has a haptic actuator: 64-aurora-trackpad-clicks.rules sets
+  hid_magicmouse haptic_press when the trackpad binds. macOS takes click
+  control from the actuator at boot. Tested on a MacBook Pro (M5 Pro),
+  where the owner reported "haptic works"; the force-click threshold is not
+  touch-tested yet. An empty /etc/udev/rules.d file of the same name keeps
+  the firmware's click.
+
 * Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-35
 - 91aurora-early-kms waits up to 2 s before the pivot for appledrm's DRM
   device, so Plymouth takes it over while the initramfs udevd runs instead
