@@ -1,4 +1,4 @@
-%global commit 9ada96648e942b9e48854bb77dee894dd30a9ea3
+%global commit 84d091f7aded084ef1bfa4447695bc1399cd03b5
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -154,8 +154,8 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
-* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-33
-- Pin integration/aurora 9ada9664 (linux#1344), 15 merges (74 commits)
+* Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-33
+- Pin integration/aurora 84d091f7 (linux#1519), 21 merges (109 commits)
   after 451dc709:
   - SEP and Touch ID: password-keyed per-user key bags (#921), and
     /dev/sep-key gains CANCEL and releases sealed secrets only after a
@@ -175,9 +175,19 @@ fi
   - M5 Pro/Max (T6050): USB4 DisplayPort tunnels, display clocks and the
     J714s external displays (#1268, #1270, #1271, #1515), with host tests
     (#1524).
+  - SEP, continued: one Touch ID match releases one key operation, with
+    reply-wait, SCRD and ioctl hardening (#1541); disk-encryption secrets
+    sealed to a user's key bag per OS install and unlockable from the
+    initrd (#1339); sep-key interface 4 with keys under a user's key bag
+    and the password checked by the enclave (#1544).
+  - GPU: bounded large G17 pins can release clean page cache (#1526).
+  - Wi-Fi: MT7932 probes asynchronously (#1545).
+  - Boot log: three per-boot info/debug floods are quieter (hwmon thermal
+    zones, DCP audio, asahi IO map; #1519).
 - config and fedora.config are unchanged; olddefconfig adds
-  CONFIG_APPLE_AURORA_BOOT_SECURITY=y. vmlinuz stays the raw Image, and
-  the DT ABI generation stays 1.
+  CONFIG_APPLE_AURORA_BOOT_SECURITY=y and leaves the new
+  CONFIG_APPLE_SEP_KEY_RESEARCH off. vmlinuz stays the raw Image, and the
+  DT ABI generation stays 1.
 
 * Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-32
 - Pin integration/aurora 451dc709 (linux#1507), 85 merges (645 commits)
