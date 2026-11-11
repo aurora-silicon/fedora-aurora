@@ -1,7 +1,7 @@
-%global commit 74bb45ab9946634668bac3e2a8c655a5e81fd7b9
+%global commit aa7a42ff3f26ac47c07b4cdb4ab1bfc5337291af
 Name: aurora-camera-denoise
 Version: 0.1.0
-Release: 8%{?dist}
+Release: 9%{?dist}
 Summary: Noise filter for the built-in camera on Apple silicon
 License: MIT
 URL: https://github.com/aurora-silicon/camera-denoise
@@ -61,6 +61,11 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_userpresetdir}/80-aurora-camera-denoise
 %{_userpresetdir}/80-aurora-camera-denoise.preset
 
 %changelog
+* Thu Nov 12 2026 Aurora Silicon <ryan@aurorasilicon.org> - 0.1.0-9
+- Update to aa7a42ff3f26: the Neural Engine stage runs on the driver's
+  mapped surfaces in place where the kernel offers them (camera-denoise#12),
+  2.7 ms of CPU per frame at 30 fps instead of about 8-10 ms with copies.
+
 * Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 0.1.0-8
 - Update to 74bb45ab9946: add the Neural Engine low-light stage
   (cdn-backend-ane.so, camera-denoise#11). In low light a small open CNN
