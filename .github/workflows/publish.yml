@@ -3,10 +3,10 @@ on:
   workflow_dispatch:
     inputs:
       fedora-release:
-        description: Fedora release (45 publishes testing only)
+        description: Fedora release (44 is frozen; publish it only to fix a security problem)
         type: choice
         options: ['44', '45']
-        default: '44'
+        default: '45'
       build-run:
         description: Optional native RPM run IDs (recipes must match merged main). Empty resolves the newest build of every package
         default: ''
@@ -43,8 +43,8 @@ concurrency:
   group: repository-publication
   cancel-in-progress: false
 env:
-  FEDORA_RELEASE: ${{ inputs.fedora-release || '44' }}
-  FEDORA_IMAGE: ${{ inputs.fedora-release == '45' && 'registry.fedoraproject.org/fedora:45' || 'registry.fedoraproject.org/fedora:44@sha256:b96f024cecbe9515eb049107d2856e7ad923f7aac09a3c90e7a0d52a46fa3454' }}
+  FEDORA_RELEASE: ${{ inputs.fedora-release || '45' }}
+  FEDORA_IMAGE: ${{ inputs.fedora-release == '44' && 'registry.fedoraproject.org/fedora:44@sha256:b96f024cecbe9515eb049107d2856e7ad923f7aac09a3c90e7a0d52a46fa3454' || 'registry.fedoraproject.org/fedora:45' }}
 jobs:
   plan:
     if: >-
@@ -493,5 +493,5 @@ jobs:
     uses: ./.github/workflows/deploy-snapshot.yml
     with:
       channel: testing
-      fedora-release: ${{ inputs.fedora-release || '44' }}
+      fedora-release: ${{ inputs.fedora-release || '45' }}
       release-tag: ${{ needs.release.outputs.tag }}

@@ -1,4 +1,8 @@
-# Fedora 45 testing repository
+# Fedora 45 repository
+
+Since the [Fedora 44 sunset](fedora44-sunset.md), Fedora 45 is the release that
+automatic builds, publication and images use, and it has a stable channel.
+The sections below describe how Fedora 45 support was added beside Fedora 44.
 
 Fedora 44 keeps `44/testing/aarch64` and `44/stable/aarch64`. Fedora 45 adds
 `45/testing/aarch64` only. `aurora-repos` uses `$releasever`, so the same repository

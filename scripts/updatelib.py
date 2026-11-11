@@ -824,7 +824,7 @@ def load_channels(root, repository, remote='origin'):
 
 
 def record_channel(state, channel, entry, keep=200):
-    if channel not in ('testing', 'stable', '45/testing'):
+    if channel not in ('testing', 'stable', '45/testing', '45/stable'):
         raise ValueError('unknown channel')
     state = json.loads(json.dumps(state))
     state['channels'][channel] = entry
@@ -833,7 +833,7 @@ def record_channel(state, channel, entry, keep=200):
     counts = {44: 0, 45: 0}
     retained = []
     for item in history:
-        fedora = 45 if item.get('channel') == '45/testing' else 44
+        fedora = 45 if str(item.get('channel', '')).startswith('45/') else 44
         if counts[fedora] < keep:
             retained.append(item)
             counts[fedora] += 1

@@ -3,17 +3,17 @@ on:
   workflow_dispatch:
     inputs:
       fedora-release:
-        description: Fedora release (45 supports testing only)
+        description: Fedora release (44 is frozen; use it for rollbacks and stable promotion only)
         type: choice
         options: ['44', '45']
-        default: '44'
+        default: '45'
       channel:
         description: Update channel to change
         type: choice
         options: [testing, stable]
         default: testing
       release-tag:
-        description: Immutable signed snapshot for the selected Fedora release. For 44 stable, empty promotes testing
+        description: Immutable signed snapshot for the selected Fedora release. For stable, empty promotes what the same release's testing serves
         default: ''
       allow-downgrade:
         description: Allow a package version to go backwards (rollback); requires stable-promotion approval
@@ -27,7 +27,7 @@ on:
     inputs:
       fedora-release:
         type: string
-        default: '44'
+        default: '45'
       channel:
         type: string
         required: true
@@ -57,7 +57,7 @@ jobs:
     permissions: {}
     steps:
       - env:
-          FEDORA_RELEASE: ${{ inputs.fedora-release || '44' }}
+          FEDORA_RELEASE: ${{ inputs.fedora-release || '45' }}
           CHANNEL: ${{ inputs.channel }}
           TAG: ${{ inputs.release-tag }}
         run: echo "Approved $CHANNEL change to ${TAG:-the current testing snapshot}." >> "$GITHUB_STEP_SUMMARY"
@@ -79,7 +79,7 @@ jobs:
         name: Authenticate every channel's snapshot and assemble the site
         env:
           GH_TOKEN: ${{ github.token }}
-          FEDORA_RELEASE: ${{ inputs.fedora-release || '44' }}
+          FEDORA_RELEASE: ${{ inputs.fedora-release || '45' }}
           CHANNEL: ${{ inputs.channel }}
           RELEASE_TAG: ${{ inputs.release-tag }}
           ALLOW_DOWNGRADE: ${{ inputs.allow-downgrade }}
@@ -134,7 +134,7 @@ jobs:
           name: channel-state
       - name: Record the channel change on the channels branch
         env:
-          FEDORA_RELEASE: ${{ inputs.fedora-release || '44' }}
+          FEDORA_RELEASE: ${{ inputs.fedora-release || '45' }}
           CHANNEL: ${{ inputs.channel }}
         run: python3 scripts/channel-site.py record --fedora-release "$FEDORA_RELEASE" --channel "$CHANNEL" --state channel-state.json
 
@@ -142,7 +142,7 @@ jobs:
     # Optional (AUTO_IMAGES=true): rebuild the three images from the feed
     # testing now serves. Payloads and catalog adoption remain separate steps.
     needs: [assemble, record]
-    if: always() && needs.record.result == 'success' && inputs.channel == 'testing' && (inputs.fedora-release == '44' || inputs.fedora-release == '') && vars.AUTO_IMAGES == 'true'
+    if: always() && needs.record.result == 'success' && inputs.channel == 'testing' && (inputs.fedora-release == '45' || inputs.fedora-release == '') && vars.AUTO_IMAGES == 'true'
     runs-on: ubuntu-24.04
     permissions:
       actions: write

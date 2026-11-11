@@ -2,7 +2,8 @@
 """Assemble the Fedora DNF metadata site for every channel and record state.
 
 GitHub Pages serves one site per repository, so every deployment publishes all
-channels: 44/testing/aarch64, 44/stable/aarch64 and 45/testing/aarch64. Each holds the exact
+channels: 44/testing/aarch64, 44/stable/aarch64, 45/testing/aarch64 and 45/stable/aarch64.
+Each holds the exact
 signed metadata of an immutable snapshot release (its RPMs stay at the
 release's URLs). A channel is the same signed bytes at another path, so
 promotion never re-signs anything. `assemble` authenticates the snapshots and
@@ -28,13 +29,14 @@ import fedoralib  # noqa: E402
 
 CHANNELS = ('testing', 'stable')
 SITE_BUDGET = 200_000_000
-SLOTS = {'testing': (44, 'testing'), 'stable': (44, 'stable'), '45/testing': (45, 'testing')}
+SLOTS = {'testing': (44, 'testing'), 'stable': (44, 'stable'),
+         '45/testing': (45, 'testing'), '45/stable': (45, 'stable')}
 
 
 def channel_key(channel, fedora=44):
     fedora = fedoralib.release(fedora)
-    if fedora == 45 and channel != 'testing':
-        raise ValueError('Fedora 45 is testing-only; stable remains Fedora 44')
+    if channel not in CHANNELS:
+        raise ValueError('unknown channel')
     return channel if fedora == 44 else f'{fedora}/{channel}'
 
 
@@ -132,10 +134,12 @@ def assemble(args):
     current = {channel: state['channels'].get(channel, {}).get('tag') for channel in SLOTS}
     tag = args.tag
     if args.channel == 'stable':
-        tag = tag or current['testing']
+        # Promote what the same release's testing channel served.
+        testing = channel_key('testing', args.fedora_release)
+        tag = tag or current[testing]
         if not tag:
             raise SystemExit('Nothing is on testing to promote.')
-        served = lib.served_on(state, 'testing', 'tag', tag)
+        served = lib.served_on(state, testing, 'tag', tag)
         if not served:
             raise SystemExit(f'{tag} has never been served on testing; promote only what testing users had.')
         first = min(item['deployed_at'] for item in served)

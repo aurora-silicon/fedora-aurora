@@ -39,6 +39,7 @@ jobs:
           FULL: ${{ steps.plan.outputs.full }}
           PACKAGES: ${{ steps.plan.outputs.packages }}
           X86_PACKAGES: ${{ steps.plan.outputs.x86_packages }}
+          REQUESTED: ${{ github.event.inputs.packages || '' }}
         run: |
           python3 - <<'PYCODE' >> "$GITHUB_OUTPUT"
           import json, os, sys
@@ -50,10 +51,11 @@ jobs:
           for key, selected, all_names in [('builds', 'PACKAGES', [n for n in names if n not in x86]),
                                            ('x86-builds', 'X86_PACKAGES', sorted(x86))]:
               chosen = json.loads(os.environ[selected])
-              rows = [{'release': '44', 'package': n} for n in chosen]
-              # Fedora 45 has no base repository, so publication needs the complete
-              # set: push and manual runs build all of it, a pull request only what
-              # it changed (ci-plan.py).
+              # Fedora 44 is frozen: only a manual run that names packages (a
+              # security fix for the frozen feed) builds them for 44 as well.
+              rows = [{'release': '44', 'package': n} for n in chosen] if os.environ['REQUESTED'].strip() else []
+              # Fedora 45 publication needs the complete set: push and manual runs
+              # build all of it, a pull request only what it changed (ci-plan.py).
               rows += [{'release': '45', 'package': n}
                        for n in (all_names if os.environ['FULL'] == 'true' else chosen)]
               print(key + '=' + json.dumps(rows))
