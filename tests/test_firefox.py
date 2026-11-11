@@ -78,6 +78,12 @@ class FirefoxRecipeTests(unittest.TestCase):
             self.assertFalse((PACKAGE / name).exists(), name)
             self.assertFalse((PACKAGE / 'f45' / name).exists(), name)
 
+    def test_helper_scripts_keep_their_executable_bit(self):
+        # The spec copies node-stdout-nonblocking-wrapper into the build and runs it.
+        import os
+        self.assertTrue(os.access(PACKAGE / 'node-stdout-nonblocking-wrapper', os.X_OK))
+        self.assertFalse(os.access(PACKAGE / 'firefox.spec', os.X_OK))
+
     def test_lookaside_list_is_fedora_format(self):
         for line in (PACKAGE / 'sources').read_text().splitlines():
             self.assertRegex(line, r'^SHA512 \([A-Za-z0-9._+-]+\) = [0-9a-f]{128}$')

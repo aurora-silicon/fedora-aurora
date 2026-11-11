@@ -95,16 +95,16 @@ def files_of(tree, branch, commit, date):
         data = path.read_bytes()
         if path.name == 'firefox.spec':
             data = edit_spec(data.decode(), commit, date).encode()
-        files[path.name] = data
+        files[path.name] = (data, path.stat().st_mode & 0o111 != 0)
     for name in FETCHED:
         if not (tree / name).is_file():
             raise SystemExit(f'{tree}: {name} is missing')
-    files['distgit.json'] = (json.dumps({
+    files['distgit.json'] = ((json.dumps({
         'repository': REPOSITORY, 'branch': branch,
         'commit': commit,
         'fetch': {name: hashlib.sha256((tree / name).read_bytes()).hexdigest() for name in FETCHED},
-    }, indent=2) + '\n').encode()
-    files['sources'] = (tree / 'sources').read_bytes()
+    }, indent=2) + '\n').encode(), False)
+    files['sources'] = ((tree / 'sources').read_bytes(), False)
     return files
 
 
@@ -136,9 +136,10 @@ def main():
     wanted = {name: data for name, data in base.items()}
     wanted.update({f'f45/{name}': data for name, data in overlay.items()})
     for name in OURS:
-        wanted[name] = (PACKAGE / name).read_bytes()
-    present = {p.relative_to(PACKAGE).as_posix(): p.read_bytes() for p in PACKAGE.rglob('*') if p.is_file()} \
-        if PACKAGE.exists() else {}
+        wanted[name] = ((PACKAGE / name).read_bytes(), False)
+    # Content and the executable bit: the spec copies helper scripts and runs them.
+    present = {p.relative_to(PACKAGE).as_posix(): (p.read_bytes(), p.stat().st_mode & 0o111 != 0)
+               for p in PACKAGE.rglob('*') if p.is_file()} if PACKAGE.exists() else {}
     if args.check:
         if present != wanted:
             changed = sorted(set(present) ^ set(wanted) | {n for n in present.keys() & wanted.keys()
@@ -148,14 +149,15 @@ def main():
         return
     for name in set(present) - set(wanted):
         (PACKAGE / name).unlink()
-    for name, data in wanted.items():
+    for name, (data, executable) in wanted.items():
         target = PACKAGE / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        if present.get(name) != data:
+        if present.get(name) != (data, executable):
             target.write_bytes(data)
+            target.chmod(0o755 if executable else 0o644)
     if (PACKAGE / 'f45').is_dir() and not any((PACKAGE / 'f45').iterdir()):
         (PACKAGE / 'f45').rmdir()
-    version = re.search(r'^Version:\s+(\S+)$', base['firefox.spec'].decode(), re.M)[1]
+    version = re.search(r'^Version:\s+(\S+)$', base['firefox.spec'][0].decode(), re.M)[1]
     print(f'Imported Firefox {version}: f44 {commits[44][:12]}, f45 {commits[45][:12]}'
           f'{" (overlay: " + ", ".join(sorted(overlay)) + ")" if overlay else ""}')
 
