@@ -1,4 +1,4 @@
-%global commit f81f516f738f391ebb2551443b6bc2d1c6e92e15
+%global commit 96f5aa45e6209cf94632d885a5b7c4c1bcc68209
 Name: aurora-sep-luks
 Version: 0.3.0
 Release: 1%{?dist}
@@ -79,6 +79,9 @@ make -C luks test/test-seal CFLAGS="%{optflags}"
   GNOME Settings also change the disk password
 - Root volumes unlock in the initrd with the user's password through the SEP
   (keystore_only=2 kernels)
+- boot-chain = audit (default) logs, per unlock, what require would refuse
+  (chain state, first unverified link, volume); aurora-sep-fde boot-chain
+  require switches a Mac once it boots verified and rebuilds the initramfs
 
 * Sun Nov 08 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.2.0-1
 - Open SEP-sealed volumes in the initrd, root included (90aurora-sep dracut
