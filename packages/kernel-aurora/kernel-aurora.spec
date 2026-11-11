@@ -1,4 +1,4 @@
-%global commit 451dc7096e06d378e2b73150e6d3bbe244646a3d
+%global commit 84d091f7aded084ef1bfa4447695bc1399cd03b5
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 32%{?dist}.aurora
+Release: 33%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -38,6 +38,9 @@ Requires: coreutils kmod dracut grubby
 Requires: aurora-audio >= 4.1-12
 Requires: (aurora-platform-core >= 44-23 if aurora-platform-core)
 Requires: update-m1n1 >= 20261107
+# sep-key interfaces 3 and 4 (linux#1506, #1544): aurora-fido before 0.2.0-2
+# speaks only 1 and 2 and crash-loops against this kernel.
+Conflicts: aurora-fido < 0.2.0-2
 # SN012776 amp settings come from the DT that aura 1.0.0b5 fills in
 # (https://github.com/aurora-silicon/linux/pull/981,
 # https://github.com/aurora-silicon/aura/pull/75); under an older Stage 2
@@ -154,6 +157,43 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-33
+- Pin integration/aurora 84d091f7 (linux#1519), 21 merges (109 commits)
+  after 451dc709:
+  - SEP and Touch ID: password-keyed per-user key bags (#921), and
+    /dev/sep-key gains CANCEL and releases sealed secrets only after a
+    touch (#1506).
+  - Boot chain: the boot chain record is reported in
+    /sys/firmware/aurora/boot_security, with integrity lockdown when the
+    firmware reports an enforced chain (#1344,
+    CONFIG_APPLE_AURORA_BOOT_SECURITY=y by default).
+  - Media: the AVE temporal filter (MCTF) node with its T8140 DART stream
+    and lossless output straight to the capture buffer (#1513, #1516,
+    #1522), and Apple lossless 4:2:0 pictures on the scaler (#1520).
+  - Display: a compact DP audio endpoint query sized for the catalog
+    (#1523), which stops the J616s DCP crash on a gdm restart with an
+    external display.
+  - M4 Pro/Max: the T6040 DWI read-only view (#1512) and the read-only
+    boot NOR firmware partition (#1514).
+  - M5 Pro/Max (T6050): USB4 DisplayPort tunnels, display clocks and the
+    J714s external displays (#1268, #1270, #1271, #1515), with host tests
+    (#1524).
+  - SEP, continued: one Touch ID match releases one key operation, with
+    reply-wait, SCRD and ioctl hardening (#1541); disk-encryption secrets
+    sealed to a user's key bag per OS install and unlockable from the
+    initrd (#1339); sep-key interface 4 with keys under a user's key bag
+    and the password checked by the enclave (#1544).
+  - GPU: bounded large G17 pins can release clean page cache (#1526).
+  - Wi-Fi: MT7932 probes asynchronously (#1545).
+  - Boot log: three per-boot info/debug floods are quieter (hwmon thermal
+    zones, DCP audio, asahi IO map; #1519).
+- kernel-aurora-core conflicts with aurora-fido before 0.2.0-2, which
+  does not speak sep-key interfaces 3 and 4 and crash-loops here.
+- config and fedora.config are unchanged; olddefconfig adds
+  CONFIG_APPLE_AURORA_BOOT_SECURITY=y and leaves the new
+  CONFIG_APPLE_SEP_KEY_RESEARCH off. vmlinuz stays the raw Image, and the
+  DT ABI generation stays 1.
+
 * Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-32
 - Pin integration/aurora 451dc709 (linux#1507), 85 merges (645 commits)
   after 15f88e1c:
