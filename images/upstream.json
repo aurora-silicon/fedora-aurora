@@ -1,6 +1,6 @@
 {
-  "repository": "https://pagure.io/fedora-asahi/kiwi-descriptions.git",
+  "repository": "https://forge.fedoraproject.org/asahi/kiwi-descriptions.git",
   "branch": "f44",
-  "commit": "960ea8dc8fb33952a874bb4da94a07a055bb11ab",
+  "commit": "bf502c9e39d99e7be58f60b976d09b1e7ef711c4",
   "fedora_release": "44"
 }

@@ -9,8 +9,8 @@ This directory contains the Fedora image producer for the native Aurora installe
 Requirements: Python 3.9+, Git and GnuPG. The image worker additionally needs a native AArch64 Linux host with KIWI and its Fedora build dependencies.
 
 ```sh
-git clone --branch f44 https://pagure.io/fedora-asahi/kiwi-descriptions.git upstream-kiwi
-git -C upstream-kiwi checkout 960ea8dc8fb33952a874bb4da94a07a055bb11ab
+git clone --branch f44 https://forge.fedoraproject.org/asahi/kiwi-descriptions.git upstream-kiwi
+git -C upstream-kiwi checkout bf502c9e39d99e7be58f60b976d09b1e7ef711c4
 python3 images/configure.py \
   --upstream upstream-kiwi \
   --output out/fedora-kde \
@@ -22,7 +22,7 @@ python3 images/configure.py \
 
 The repository URL and public key must belong to the RPM set being tested. The script records their identities and produces the exact KIWI build command in `aurora-image.json`. The repository must provide all listed Aurora RPMs before that command can build an image. `fedora-gnome` and `fedora-minimal` select the other descriptions.
 
-The upstream description and its GPL-3.0-or-later license are copied into the generated directory. `upstream.json` records the exact source revision. The producer leaves that checkout untouched and refuses to overwrite an existing output directory.
+The upstream description and its GPL-3.0-or-later license are copied into the generated directory. `upstream.json` records the exact Fedora 44 source revision and `upstream-f45.json` the Fedora 45 one; `--fedora-release 45` selects the latter, and `scripts/build-image` picks the lock that matches the builder's Fedora release. Fedora Asahi Remix moved its repositories from pagure.io to forge.fedoraproject.org; the pagure copy no longer receives changes. The producer leaves that checkout untouched and refuses to overwrite an existing output directory.
 
 ## Image and package contracts
 
