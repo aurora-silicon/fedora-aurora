@@ -6,3 +6,8 @@
 /var/lib/aurora-sep-xart-(owned|allow-once|policy-previous)\.bin	--	gen_context(system_u:object_r:aurora_sep_state_t,s0)
 /usr/libexec/aurora-sep-load	--	gen_context(system_u:object_r:aurora_sep_load_exec_t,s0)
 /usr/local/sbin/aurora-sep-load	--	gen_context(system_u:object_r:aurora_sep_load_exec_t,s0)
+/dev/sep-bio-rearm	-c	gen_context(system_u:object_r:aurora_sep_rearm_device_t,s0)
+/dev/sep-key	-c	gen_context(system_u:object_r:aurora_sep_key_device_t,s0)
+/var/lib/aurora-sep-touchid-lockout\.bin	--	gen_context(system_u:object_r:aurora_sep_state_t,s0)
+/usr/libexec/aurora-touchid-rearm	--	gen_context(system_u:object_r:aurora_touchid_rearm_exec_t,s0)
+/run/aurora-touchid-rearm\.sock	-s	gen_context(system_u:object_r:aurora_touchid_rearm_var_run_t,s0)

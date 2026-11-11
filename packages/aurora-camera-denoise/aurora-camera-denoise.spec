@@ -1,7 +1,7 @@
-%global commit 456c567527d6bbba27d0aaeec1199032e0ec88c3
+%global commit 4a2d2402d991837b95ea19f89bdd6965d8622ae4
 Name: aurora-camera-denoise
 Version: 0.1.0
-Release: 5%{?dist}
+Release: 7%{?dist}
 Summary: Noise filter for the built-in camera on Apple silicon
 License: MIT
 URL: https://github.com/aurora-silicon/camera-denoise
@@ -23,7 +23,7 @@ the Neural Engine one) joins in above per-board sensor gain levels from
 boards.conf. Users can turn it off in denoise.conf or mask the service.
 
 %prep
-%autosetup -n camera-denoise-%{commit}
+%autosetup -p1 -n camera-denoise-%{commit}
 
 %build
 %meson -Ddaemon=enabled -Dgpu=disabled -Dsystemduserunitdir=%{_userunitdir}
@@ -55,10 +55,26 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_userpresetdir}/80-aurora-camera-denoise
 %{_bindir}/aurora-camera-denoise-metrics
 %{_datadir}/aurora-camera-denoise/
 %dir %{_libdir}/aurora-camera-denoise
+%{_libdir}/aurora-camera-denoise/cdn-backend-ave.so
 %{_userunitdir}/aurora-camera-denoise.service
 %{_userpresetdir}/80-aurora-camera-denoise.preset
 
 %changelog
+* Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 0.1.0-7
+- Update to 4a2d2402d991. The temporal filter now runs by default on the
+  video encoder's motion-compensated filter, the hardware macOS uses, when
+  the kernel has its device and the scaler's lossless form (camera-denoise#9,
+  #10). Its output matches macOS, and on the MacBook Neo it takes 4% of one
+  core at 30 fps where the CPU filter takes 39%. Other kernels keep the CPU
+  filter. The plugin is cdn-backend-ave.so.
+- Also brings opt-in camera effects controls (camera-denoise#2, #3, #4, #6).
+- camera-denoise#8 is upstream now; drop its patch.
+
+* Tue Nov 10 2026 Aurora Silicon <ryan@aurorasilicon.org> - 0.1.0-6
+- The user service no longer runs in root's or the greeter's user manager,
+  where it failed every 2 s without a PipeWire session, and it stops after
+  5 failures in a minute (camera-denoise#8).
+
 * Fri Nov 06 2026 Aurora Silicon <ryan@aurorasilicon.org> - 0.1.0-5
 - Publish only formats the filter can fill: DMA-BUF-preferring clients
   (browsers, zero-copy players) now get a picture (camera-denoise#7).

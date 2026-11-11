@@ -1,0 +1,268 @@
+#!/bin/bash
+# Only in a disposable Fedora 44 aarch64 container. No host devices/mounts.
+# Inputs: released RPMs + SHA256SUMS, or pinned build RPMs + receipts/*.json.
+# Build artifacts may be unsigned; these are test inputs, not release adoption.
+set -euo pipefail
+input=${1:?input directory}
+proof=${2:?proof directory}
+[[ $(uname -m) == aarch64 && $(id -u) == 0 ]]
+# shellcheck disable=SC1091
+[[ $(. /etc/os-release; echo "$VERSION_ID") == 44 ]]
+mkdir -p "$proof" /boot/efi/m1n1 /etc/sysconfig
+cat > /etc/sysconfig/update-m1n1 <<'CONFIG'
+M1N1=/usr/lib64/m1n1/m1n1.bin
+U_BOOT=/usr/share/uboot/apple_m1/u-boot-nodtb.bin
+DTBS=/boot/dtb
+TARGET=/boot/efi/m1n1/boot.bin
+CONFIG
+# Bootstrap the container without creating boot entries for its host's kernel.
+# Fedora's base container has dnf5 but does not include Python.
+dnf install -y --setopt=tsflags=noscripts rpm-build dtc python3 coreutils bash \
+  util-linux gzip grubby asahi-scripts update-m1n1 createrepo_c systemd \
+  clang gcc kernel-headers gnupg2 git make
+python3 - "$input" <<'PY'
+import hashlib
+import json
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+expected = {}
+for manifest in root.glob('SHA256SUMS.*'):
+    for line in manifest.read_text().splitlines():
+        digest, name = line.split(None, 1)
+        # GitHub release asset names normalize '~' to '.', while older
+        # manifests retain the original RPM filename. Validate the bytes.
+        expected.setdefault(name.lstrip('*').replace('~', '.'), set()).add(digest)
+for receipt in (root / 'receipts').glob('*.json'):
+    for artifact in json.loads(receipt.read_text())['artifacts']:
+        expected.setdefault(artifact['filename'].replace('~', '.'), set()).add(artifact['sha256'])
+for package in root.glob('*.rpm'):
+    digest = hashlib.sha256(package.read_bytes()).hexdigest()
+    assert digest in expected.get(package.name.replace('~', '.'), set()), package
+    print(package.name, digest)
+PY
+rpm --import keys/RPM-GPG-KEY-aurora
+for package in "$input"/*.rpm; do rpmkeys --checksig "$package"; done
+
+rpm -q asahi-scripts update-m1n1 grubby systemd > "$proof/fedora-nevra.txt"
+rpm -q --scripts --filetriggers update-m1n1 > "$proof/vendor-triggers.txt"
+cp /usr/bin/update-m1n1 "$proof/vendor-update-m1n1"
+cp /usr/lib/kernel/install.d/{10-devicetree,15-update-m1n1}.install "$proof/"
+rpm -q --qf '%{NAME} %{VERSION}-%{RELEASE}\n' -p "$input"/*.rpm > "$proof/input-nevra.txt"
+
+baseline=("$input"/kernel-aurora-core-7.3.0-5.*.rpm "$input"/aura-*-1.fc44.aarch64.rpm "$input"/uboot-aurora-*-4.fc44.aarch64.rpm)
+dnf install -y --allowerasing --setopt=tsflags=noscripts "${baseline[@]}"
+old=7.3.0-5.fc44.aurora.aarch64
+new=7.3.0-8.fc44.aurora.aarch64
+cp -a "/usr/lib/modules/$old/dtb" "/boot/dtb-$old"
+ln -s "dtb-$old" /boot/dtb
+update-m1n1
+cp /boot/efi/m1n1/boot.bin "$proof/baseline-boot.bin"
+
+# A plain DNF upgrade of the released boot-chain RPMs. Later initramfs/GRUB
+# plugins may diagnose the deliberately incomplete container boot environment;
+# retain that output and independently assert both early plugins' effects.
+mkdir -p /tmp/bootchain-repo
+cp "$input"/kernel-aurora-core-7.3.0-8.*.rpm "$input"/aura-*-2.fc44.aarch64.rpm \
+  "$input"/uboot-aurora-*-5.fc44.aarch64.rpm /tmp/bootchain-repo/
+createrepo_c /tmp/bootchain-repo
+gpgcheck=1
+[[ ! -d $input/receipts ]] || gpgcheck=0  # Already digest-checked, unsigned CI fixtures.
+dnf upgrade -y --repofrompath=candidate,file:///tmp/bootchain-repo \
+  --setopt=candidate.gpgcheck="$gpgcheck" --setopt=candidate.gpgkey="file://$PWD/keys/RPM-GPG-KEY-aurora" \
+  kernel-aurora-core aura uboot-aurora 2>&1 | tee "$proof/dnf-upgrade.log"
+[[ $(readlink /boot/dtb) == "dtb-$new" ]]
+rpm -q kernel-aurora-core aura uboot-aurora > "$proof/upgraded-nevra.txt"
+cp /boot/efi/m1n1/boot.bin "$proof/upgraded-boot.bin"
+python3 - "$new" <<'PY'
+from pathlib import Path
+import sys
+payload = Path('/boot/efi/m1n1/boot.bin').read_bytes()
+for board in ('t6000-j316s', 't8112-j413', 't8140-j700'):
+    blob = Path(f'/usr/lib/modules/{sys.argv[1]}/dtb/apple/{board}.dtb').read_bytes()
+    assert blob in payload, board
+print('Released upgrade embeds the new J316s, J413 and J700 DTBs')
+PY
+
+# Retain a synthetic legacy kernel/tree whose DART format models the older
+# fallback. This is a fixture, not a claim that Aurora shipped a 7.1 RPM.
+mkdir -p /usr/lib/modules/7.1-legacy/dtb/apple
+printf legacy > /usr/lib/modules/7.1-legacy/vmlinuz
+for pair in t6000-j316s t8112-j413 t8140-j700; do
+  board=${pair#*-}
+  printf '/dts-v1/; / { compatible = "apple,%s"; dart { #iommu-cells = <1>; }; };\n' "$board" \
+    | dtc -q -I dts -O dtb -o "/usr/lib/modules/7.1-legacy/dtb/apple/$pair.dtb"
+done
+update-m1n1 2>&1 | tee "$proof/vendor-retained-legacy.log"
+
+# Reproduce the Neo mechanism using the real kernel-install plugins.
+mkdir -p /usr/lib/modules/7.3-no-dtb
+cp "/usr/lib/modules/$new/vmlinuz" /usr/lib/modules/7.3-no-dtb/vmlinuz
+sha256sum /boot/efi/m1n1/boot.bin > "$proof/pre-missing.sha256"
+if kernel-install add 7.3-no-dtb /usr/lib/modules/7.3-no-dtb/vmlinuz > "$proof/vendor-missing-dtb.log" 2>&1; then
+  echo 'Expected vendor kernel-install to fail for absent DTBs' >&2; exit 1
+fi
+[[ $(readlink /boot/dtb) == dtb-7.3-no-dtb ]]
+[[ ! -d /boot/dtb && -s /boot/efi/m1n1/boot.bin.new ]]
+sha256sum --check "$proof/pre-missing.sha256"
+cp /boot/efi/m1n1/boot.bin.new "$proof/vendor-partial-boot.bin.new"
+mv /boot/efi/m1n1/boot.bin.new /boot/efi/m1n1/vendor-failed-staging
+ln -sfn "dtb-$new" /boot/dtb
+
+# Historical input RPMs have no marker. Model the new package declaration
+# explicitly without claiming that those published RPMs shipped it.
+install -m644 packages/kernel-aurora/dtb-abi "/usr/lib/modules/$new/dtb-abi"
+
+# Build the replacement RPM, including its failure-injection %check suite.
+bash scripts/build-rpm update-m1n1 > "$proof/rpmbuild.log" 2>&1
+cp out/rpms/update-m1n1-*.rpm "$proof/"
+# Exercise the candidate core's actual %preun body with two coinstalled RPM
+# versions. The historical $1=0 guard incorrectly skipped this first erase.
+python3 - <<'PY'
+from pathlib import Path
+source = Path('packages/kernel-aurora/kernel-aurora.spec').read_text()
+body = source.split('%preun core\n', 1)[1].split('\n%posttrans', 1)[0].split('\n%files', 1)[0].strip()
+marker_install = next(line for line in source.splitlines() if line.startswith('install -m644 %{SOURCE6} '))
+assert '/usr/lib/modules/%{krel}/dtb-abi' in source.split('%files core', 1)[1].split('%files modules', 1)[0]
+top = Path('/tmp/erase-probe')
+(top / 'SPECS').mkdir(parents=True)
+(top / 'SOURCES').mkdir()
+(top / 'SOURCES/dtb-abi').write_bytes(Path('packages/kernel-aurora/dtb-abi').read_bytes())
+for release in (1, 2):
+    scriptlet = body.replace('%{krel}', f'erase-probe-1-{release}')
+    install = marker_install.replace('%{krel}', f'erase-probe-1-{release}')
+    (top / f'SPECS/probe-{release}.spec').write_text(f'''Name: bootchain-erase-probe
+Version: 1
+Release: {release}
+Summary: Disposable install-only erase-scriptlet fixture
+License: MIT
+BuildArch: noarch
+Provides: installonlypkg(kernel)
+Source6: dtb-abi
+%description
+Disposable fixture for the Aurora kernel core erase scriptlet.
+%install
+mkdir -p %{{buildroot}}/usr/share/bootchain-erase-probe
+echo {release} > %{{buildroot}}/usr/share/bootchain-erase-probe/{release}
+mkdir -p %{{buildroot}}/usr/lib/modules/erase-probe-1-{release}
+{install}
+%preun
+{scriptlet}
+%files
+/usr/share/bootchain-erase-probe/{release}
+/usr/lib/modules/erase-probe-1-{release}/dtb-abi
+''')
+PY
+for release in 1 2; do
+  rpmbuild -bb --define '_topdir /tmp/erase-probe' "/tmp/erase-probe/SPECS/probe-$release.spec" >> "$proof/erase-probe-build.log" 2>&1
+done
+cat > /tmp/record-erase.install <<'HOOK'
+#!/bin/sh
+printf '%s %s\n' "$1" "$2" >> /tmp/erased-kernels.log
+HOOK
+chmod +x /tmp/record-erase.install
+dnf install -y /tmp/erase-probe/RPMS/noarch/*.rpm > "$proof/erase-probe-install.log" 2>&1
+cmp packages/kernel-aurora/dtb-abi /usr/lib/modules/erase-probe-1-1/dtb-abi
+rpm -qf /usr/lib/modules/erase-probe-1-1/dtb-abi > "$proof/marker-owner.txt"
+KERNEL_INSTALL_PLUGINS=/tmp/record-erase.install dnf remove -y bootchain-erase-probe-1-1.noarch > "$proof/erase-probe-remove.log" 2>&1
+[[ $(cat /tmp/erased-kernels.log) == 'remove erase-probe-1-1' ]]
+[[ $(rpm -q bootchain-erase-probe) == bootchain-erase-probe-1-2.noarch ]]
+cp /tmp/erased-kernels.log "$proof/erased-kernels.log"
+KERNEL_INSTALL_PLUGINS=/tmp/record-erase.install dnf remove -y bootchain-erase-probe > /dev/null 2>&1
+dnf upgrade -y out/rpms/update-m1n1-*.noarch.rpm 2>&1 | tee "$proof/dnf-updater-upgrade.log"
+rpm -q update-m1n1 > "$proof/candidate-nevra.txt"
+[[ -f /etc/kernel/install.d/10-devicetree.install ]]
+before=$(sha256sum /boot/efi/m1n1/boot.bin)
+if kernel-install add 7.3-no-dtb /usr/lib/modules/7.3-no-dtb/vmlinuz > "$proof/candidate-missing-dtb.log" 2>&1; then
+  echo 'Expected candidate to refuse missing DTBs' >&2; exit 1
+fi
+[[ $(readlink /boot/dtb) == "dtb-$new" && -d /boot/dtb ]]
+[[ ! -e /boot/efi/m1n1/boot.bin.new ]]
+[[ $(sha256sum /boot/efi/m1n1/boot.bin) == "$before" ]]
+cat > /tmp/after-remove.install <<'HOOK'
+#!/bin/sh
+printf '%s %s\n' "$1" "$2" > /tmp/after-remove.log
+HOOK
+chmod +x /tmp/after-remove.install
+ln -sfn dtb-7.3-no-dtb /boot/dtb
+KERNEL_INSTALL_PLUGINS='/etc/kernel/install.d/10-devicetree.install /usr/lib/kernel/install.d/15-update-m1n1.install /tmp/after-remove.install' \
+  kernel-install remove 7.3-no-dtb > "$proof/candidate-remove-refused.log" 2>&1
+[[ $(cat /tmp/after-remove.log) == 'remove 7.3-no-dtb' ]]
+[[ ! -L /boot/dtb && ! -e /boot/dtb ]]
+[[ $(sha256sum /boot/efi/m1n1/boot.bin) == "$before" ]]
+ln -s "dtb-$new" /boot/dtb
+rm -r /usr/lib/modules/7.3-no-dtb
+# Kernels from before the marker count as generation 1, the first declared
+# one, so they no longer hold back the new kernel's trees.
+update-m1n1 > "$proof/candidate-retained-legacy.log" 2>&1
+if grep -F 'generation 0' "$proof/candidate-retained-legacy.log"; then
+  echo 'Expected kernels without a marker to count as generation 1' >&2; exit 1
+fi
+[[ $(readlink /boot/dtb) == "dtb-$new" ]]
+
+# Remove the synthetic legacy fixture, then exercise the actual old core
+# RPM's %preun/remove hook in the disposable root. This is explicit test setup,
+# never automatic fallback deletion by the updater.
+rm -r /usr/lib/modules/7.1-legacy
+# Same-generation retained kernels must pass despite different board DTBs.
+install -m644 packages/kernel-aurora/dtb-abi "/usr/lib/modules/$old/dtb-abi"
+if cmp -s "/usr/lib/modules/$old/dtb/apple/t8112-j413.dtb" "/usr/lib/modules/$new/dtb/apple/t8112-j413.dtb"; then
+  echo 'Expected different DTBs for the same-generation retained kernels' >&2
+  exit 1
+fi
+update-m1n1 > "$proof/candidate-same-generation.log" 2>&1
+rpm -q kernel-aurora-core > "$proof/same-generation-kernels.txt"
+[[ $(wc -l < "$proof/same-generation-kernels.txt") == 2 ]]
+[[ $(readlink /boot/dtb) == "dtb-$new" ]]
+before=$(sha256sum /boot/efi/m1n1/boot.bin)
+backup=$(sha256sum /boot/efi/m1n1/boot.bin.old)
+printf '2\n' > "/usr/lib/modules/$new/dtb-abi"
+if update-m1n1 > "$proof/candidate-generation-bump.log" 2>&1; then
+  echo 'Expected generation 2 to refuse retained generation 1' >&2; exit 1
+fi
+grep -F "$old (generation 1)" "$proof/candidate-generation-bump.log"
+[[ $(sha256sum /boot/efi/m1n1/boot.bin) == "$before" ]]
+[[ $(sha256sum /boot/efi/m1n1/boot.bin.old) == "$backup" ]]
+[[ $(readlink /boot/dtb) == "dtb-$new" ]]
+install -m644 packages/kernel-aurora/dtb-abi "/usr/lib/modules/$new/dtb-abi"
+# Verify that the diagnostic's owned kernel image path resolves the exact RPM.
+dnf remove --assumeno "/usr/lib/modules/$old/vmlinuz" > "$proof/remove-command-preview.log" 2>&1 || true
+grep -F 'kernel-aurora-core' "$proof/remove-command-preview.log"
+grep -F '7.3.0-5.fc44.aurora' "$proof/remove-command-preview.log"
+dnf remove -y "kernel-aurora-core-$old" 2>&1 | tee "$proof/dnf-remove-fallback.log"
+rpm -q kernel-aurora-core > "$proof/remaining-kernel.txt"
+[[ $(cat "$proof/remaining-kernel.txt") == "kernel-aurora-core-$new" ]]
+update-m1n1 > "$proof/candidate-success.log" 2>&1
+cp /boot/efi/m1n1/boot.bin "$proof/candidate-boot.bin"
+cp /boot/efi/m1n1/boot.bin.old "$proof/candidate-boot.bin.old"
+[[ $(readlink /boot/dtb) == "dtb-$new" && -d /boot/dtb ]]
+python3 - "$new" <<'PY'
+import gzip
+from pathlib import Path
+import sys
+payload = Path('/boot/efi/m1n1/boot.bin').read_bytes()
+aura = Path('/usr/lib64/m1n1/m1n1.bin').read_bytes()
+assert payload.startswith(aura)
+offset = len(aura)
+# Traverse the FDT records by their own totalsize field, independent of the
+# updater's construction logic, and verify the trailing compressed U-Boot.
+count = 0
+while payload[offset:offset+4] == b'\xd0\x0d\xfe\xed':
+    size = int.from_bytes(payload[offset+4:offset+8], 'big')
+    assert size >= 40 and offset + size <= len(payload)
+    offset += size
+    count += 1
+assert count > 0
+assert gzip.decompress(payload[offset:]) == Path('/usr/share/uboot/apple_m1/u-boot-nodtb.bin').read_bytes()
+print('Candidate Stage 2:', count, 'complete FDT records and matching U-Boot')
+PY
+sha256sum /boot/efi/m1n1/boot.bin.old > /tmp/bootchain-backup.sha256
+update-m1n1 > "$proof/parallel-1.log" 2>&1 & first=$!
+update-m1n1 > "$proof/parallel-2.log" 2>&1 & second=$!
+wait "$first"
+wait "$second"
+sha256sum --check /tmp/bootchain-backup.sha256
+python3 -m unittest discover -s tests -p 'test_*.py' > "$proof/source-tests.log" 2>&1
+python3 images/test_configure.py > "$proof/image-tests.log" 2>&1
+find "$proof" -maxdepth 1 -type f ! -name SHA256SUMS -exec sha256sum {} + > "$proof/SHA256SUMS"
+echo 'Boot-chain upgrade, refusal, recovery and source checks passed'

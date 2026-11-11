@@ -43,10 +43,119 @@ vendor and upgrade without a vendor change) and the second one makes the vendor 
 switch in one go.
 
 A kernel update runs `kernel-install`: dracut builds the initramfs (with `dracut-asahi` and
-`98aurora-peripherals`, which read this Mac's firmware from the ESP at boot), grubby adds the boot entry
-and `/boot/dtb` link, and the `15-update-m1n1.install` plugin rewrites the ESP Stage 2. aura and U-Boot
-updates trigger `update-m1n1` through RPM file triggers on `/usr/lib64/m1n1` and
-`/usr/share/uboot/apple_m1`.
+`98aurora-peripherals`, which read this Mac's firmware from the ESP at boot), and grubby adds the boot
+entry. The `15-update-m1n1.install` plugin runs `update-m1n1` with the kernel version
+being added or removed. It prepares the versioned DTB directory and changes `/boot/dtb` only after
+validating the shared Stage 2 update. aura and U-Boot updates use the same updater through RPM file
+triggers on `/usr/lib64/m1n1` and `/usr/share/uboot/apple_m1`.
+
+## Device trees and the next boot
+
+Device trees describe the Mac's hardware. They ship with the kernel, but the bootloader needs them
+inside the ESP Stage 2 image to apply the firmware fixups before Linux starts. A kernel update therefore
+also prepares a Stage 2 image containing the new device trees.
+
+With aura Stage 1 version 1.0.0b4 or later, the updater leaves the working image in place. It writes
+`<target>.next` beside it, reads it back, checks the DTB headers and this Mac's root compatible, and
+checks that its display aliases are still present. It then writes the ESP root file `aura-try` with
+exactly `armed\n<ESP-relative .next path>\n`. The marker is written through `aura-try.tmp`, synced and
+renamed, then the filesystem and ESP block device are flushed. Stage 1 spends the marker on disk
+before trying the candidate. A failed trial therefore boots the configured image on the next boot.
+The updater reads the installed Stage 1 version from the live device tree, not from the aura RPM.
+Older Stage 1 installations keep the direct atomic replacement and `<target>.old` backup.
+
+On a trial boot, `aurora-stage2-commit.service` runs once after the system reaches `multi-user.target`.
+It checks that the root filesystem is mounted on NVMe, no DT-described device remains in deferred
+probe, and every enabled DCP has a bound driver. Debugfs must expose `devices_deferred` for that check.
+The service also checks that the candidate still matches its recorded hash and that the booted trial
+path names that candidate. It saves `<target>.prev`, atomically renames `.next` over the live image,
+flushes the ESP, verifies the live image's SHA-256, and removes the marker. The backup remains available
+for recovery. If a write or read-back fails, it restores the previous live image and keeps the candidate.
+
+The trial retains Stage 1's watchdog fallback. A twelve-minute `aurora-stage2-guard.timer` also reboots
+an uncommitted trial, covering a Linux boot that feeds the hardware watchdog but cannot pass the checks
+or reach the commit service. It does nothing after a successful commit or on an ordinary boot.
+
+If Stage 1 fell back, the commit service writes one journal line saying so, keeps the working image,
+and leaves `.next` and `.next.json` for inspection. Before arming the marker, the updater records the
+attempt under `/var/lib/aurora-stage2/attempts/<candidate sha256>`. Package triggers and later boots
+never automatically try a candidate that fell back or whose arming was interrupted. Any change to the
+Stage 2 inputs (kernel device trees, aura, U-Boot or `/etc/m1n1.conf`) is a new candidate with its own
+trial, including on the kernel already in use; the previous candidate and receipt are kept beside the
+target as `.failed-<sha256>` files. A commit marks its record `committed`, so reverting to that exact
+image later is trialled again. An already armed marker, another trial's marker, or a running trial
+prevents replacement of the candidate. After a trial boot commits, the rest of that boot behaves like an
+ordinary boot and package updates can stage the next candidate. Records written by 20261107-1 are named
+after the kernel version and still block the candidate whose hash they contain.
+
+`journalctl -u aurora-stage2-commit -u aurora-stage2-guard` shows the outcome. After a failed trial,
+inspect the retained candidate and receipt before making any manual recovery change. A new package
+transaction does not remove a fallback kernel or reset a recorded trial attempt.
+
+## DT ABI generations
+
+`kernel-aurora-core` ships `/usr/lib/modules/<release>/dtb-abi`, an integer declaring the DT ABI
+generation. Device trees can change within a generation while retained kernels remain compatible.
+Only an incompatible ABI change needs a higher generation. An older package without the file counts
+as generation 1, the first declared generation: declaring it changed no device tree, and those
+kernels booted the trees that followed. Malformed declarations are refused.
+
+The updater refuses a selected tree generation only when a retained kernel has a lower generation.
+Equal and higher retained generations are allowed, even when the DTB bytes differ. It validates that
+kernel images and device trees exist, including retained boot entries and rescue kernels. A boot
+entry whose `linux` file exists neither under /boot nor under / is ignored with a message, since
+GRUB cannot boot it; such entries outlive a kernel removed while an older updater refused. Custom
+`DTBS` settings must match an installed tree set with a known generation. Refusal preserves the live
+Stage 2 and `/boot/dtb`, lists the older kernels, and suggests an explicit removal command. First
+verify a working compatible fallback. No fallback is deleted automatically, and failed erase-time
+refreshes still allow the erased kernel's own boot files to be cleaned up.
+
+## Checking updater changes
+
+Run `scripts/test-stage2-transactions <proof-directory>` in a disposable Fedora 44 aarch64 container
+on the buildbox. It builds the updater RPM and synthetic boot-input RPMs, exercises the real RPM
+trigger and kernel-install hooks, and runs the updater tests against both source and the installed
+helper. Those tests cover an armed trial without a commit, a successful trial commit, fallback,
+the older Stage 1 path, generation refusal, DT checks and interrupted writes. The simulated proc/sys
+trees never expose a host device. `scripts/test-bootchain-upgrade` retains the earlier transaction
+checks using pinned historical input RPMs. Both paths require container isolation.
+
+## CTXR Stage 2 slots
+
+`update-m1n1` is Aurora's package (`packages/update-m1n1`). The `priority=1` repository and vendor
+policies move an installed system to it, and `aura` requires its trial-aware version. The same generation
+and trial checks apply to the CTXR slot described below.
+
+The aura package ships `/usr/share/aura/monitor-free` once its pinned source has no monitor. `aura.spec`
+declares that in `%global monitor_free`, and `%prep` refuses a source that disagrees (`src/ctxr_exec.c`, or
+no `src/monitor.c`). aura 1.0.0b7 was the first pin without the monitor (aura#77), so `monitor_free` is 1. Macs that
+don't boot a Mach-O Stage 1 keep updating `boot.bin`, using `.next` trials when Stage 1 supports them.
+
+Such an aura moves the kernel into the CTXR window, which only a kernel built with
+`CONFIG_ARM64_CTXR_EXECMEM` keeps its code inside. With `monitor_free` 1, aura requires
+`aurora-ctxr-execmem`, which `kernel-aurora-core` provides when `kernel-aurora.spec` sets `ctxr_execmem` 1.
+Its `%build` checks that against the resolved configuration, so it can be set only with a kernel pin that
+has aurora-silicon/linux#985. `tests/test_update_m1n1.py` fails if `monitor_free` is set without it.
+RPM checks this per package, not per boot: `kernel-aurora` is install-only, so any installed
+`kernel-aurora-core` that provides `aurora-ctxr-execmem` satisfies aura, while older kernels without it stay
+installed and in the GRUB menu. Booting one of those with an aura that has no monitor would hit the faults
+this rule exists for, until dnf removes it as the install-only limit rotates kernels out.
+Every kernel pin since 4731456 has it, and `packages/kernel-aurora/config` turns it on, so `ctxr_execmem` is 1.
+
+With the marker, a Mac that boots a Mach-O Stage 1 (`/proc/device-tree/compatible` names one of the chips
+in the installer's `AuraStage1Format.usesMachO`: T8130 and later, T6040 and later) gets
+`m1n1/boot-ctxr.bin` instead, with only this board's DTBs. A trial uses `boot-ctxr.bin.next` and a `.prev`
+backup on commit; older Stage 1 uses direct replacement and `.old`. It leaves `boot.bin` untouched,
+because the padded Stage 1 these Macs enroll chainloads `boot-ctxr.bin`. Earlier chips continue to
+target `boot.bin`. Missing board trees and candidates above the 16 MiB
+CTXR slot limit are refused before either live image or the boot link changes.
+
+Image builds set `AURORA_DEVICE_TREE_COMPATIBLE=/nonexistent`, so `update-m1n1` writes `boot.bin` as before
+whichever Mac builds the image. If the image's aura has the marker, `scripts/prepare-ctxr-stage2.py` then
+adds `boot-ctxr.bin`, a copy of it, to the image's ESP, and `boot-ctxr-<board>.bin`, a copy of
+`boot-<board>.bin`, for each Mach-O board. The installer picks the board's file over the combined one. The
+script fails the image if any of them is over 16 MiB. Without the marker the image has no `boot-ctxr.bin`,
+and the installer refuses it on Mach-O Macs, so no Mac gets a `boot-ctxr.bin` that updates don't refresh.
 
 ## Repository metadata check
 

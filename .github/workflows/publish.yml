@@ -67,6 +67,15 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Retry transient GitHub API failures of every gh call
+        run: |
+          set -euo pipefail
+          real=$(command -v gh)
+          mkdir -p "$RUNNER_TEMP/gh-retry-bin"
+          printf '#!/bin/sh\nexec "%s/scripts/gh-retry" "$@"\n' "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/gh-retry-bin/gh"
+          chmod 755 "$RUNNER_TEMP/gh-retry-bin/gh"
+          echo "GH_RETRY_GH=$real" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/gh-retry-bin" >> "$GITHUB_PATH"
       - id: mode
         env:
           DRY_RUN: ${{ inputs.dry-run || false }}
@@ -109,13 +118,15 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z $RELEASE_TAG ]]; then
-            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[].tag_name' > existing-tags
+            "$GITHUB_WORKSPACE/scripts/gh-retry" api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[].tag_name' > existing-tags
             prefix=testing-
             [[ $FEDORA_RELEASE == 44 ]] || prefix=testing-f45-
             RELEASE_TAG=$(python3 scripts/next-tag.py "$prefix" < existing-tags)
           fi
           python3 -c 'import os,sys; sys.path.insert(0,"scripts"); import fedoralib; fedoralib.snapshot(os.environ["RELEASE_TAG"], int(os.environ["FEDORA_RELEASE"]))'
-          ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1
+          if "$GITHUB_WORKSPACE/scripts/gh-retry" release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists" >&2; exit 1
+          fi
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -140,6 +151,15 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - name: Retry transient GitHub API failures of every gh call
+        run: |
+          set -euo pipefail
+          real=$(command -v gh)
+          mkdir -p "$RUNNER_TEMP/gh-retry-bin"
+          printf '#!/bin/sh\nexec "%s/scripts/gh-retry" "$@"\n' "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/gh-retry-bin/gh"
+          chmod 755 "$RUNNER_TEMP/gh-retry-bin/gh"
+          echo "GH_RETRY_GH=$real" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/gh-retry-bin" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: build-plan
@@ -152,10 +172,10 @@ jobs:
           if [[ -n $BUILD_RUN ]]; then
             read -r -a runs <<< "$BUILD_RUN"
             for run in "${runs[@]}"; do
-              gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" > "build-$run.json"
+              "$GITHUB_WORKSPACE/scripts/gh-retry" api "repos/$GITHUB_REPOSITORY/actions/runs/$run" > "build-$run.json"
               names=()
               while read -r name; do names+=(--name "$name"); done < <(
-                gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" --paginate \
+                "$GITHUB_WORKSPACE/scripts/gh-retry" api "repos/$GITHUB_REPOSITORY/actions/runs/$run/artifacts?per_page=100" --paginate \
                   --jq '.artifacts[] | select(.expired == false) | .name' |
                   python3 -c 'import os,sys; names=sys.stdin.read().splitlines(); f=os.environ["FEDORA_RELEASE"]; print("\n".join(n for n in names if (n.startswith("rpm-f45-") if f == "45" else n.startswith("rpm-") and not n.startswith("rpm-f45-"))))'
               )
@@ -181,7 +201,7 @@ jobs:
           options=()
           if [[ -n $BASE_RELEASE ]]; then
             python3 -c 'import os,sys; sys.path.insert(0,"scripts"); import fedoralib; fedoralib.snapshot(os.environ["BASE_RELEASE"], int(os.environ["FEDORA_RELEASE"]))'
-            gh release download "$BASE_RELEASE" --repo "$GITHUB_REPOSITORY" --pattern '*.rpm' --pattern manifest.json --dir base-rpms
+            "$GITHUB_WORKSPACE/scripts/gh-retry" release download "$BASE_RELEASE" --repo "$GITHUB_REPOSITORY" --pattern '*.rpm' --pattern manifest.json --dir base-rpms
             options=(--base base-rpms)
           fi
           check=(--old base-rpms --new complete-rpms)
@@ -242,12 +262,24 @@ jobs:
     permissions:
       actions: write
     steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          sparse-checkout: scripts
+      - name: Retry transient GitHub API failures of every gh call
+        run: |
+          set -euo pipefail
+          real=$(command -v gh)
+          mkdir -p "$RUNNER_TEMP/gh-retry-bin"
+          printf '#!/bin/sh\nexec "%s/scripts/gh-retry" "$@"\n' "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/gh-retry-bin/gh"
+          chmod 755 "$RUNNER_TEMP/gh-retry-bin/gh"
+          echo "GH_RETRY_GH=$real" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/gh-retry-bin" >> "$GITHUB_PATH"
       - env:
           GH_TOKEN: ${{ github.token }}
           REBUILD: ${{ needs.collect.outputs.rebuild || needs.plan.outputs.rebuild }}
         run: |
           set -euo pipefail
-          active=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/rpms.yml/runs?branch=main&per_page=20" \
+          active=$("$GITHUB_WORKSPACE/scripts/gh-retry" api "repos/$GITHUB_REPOSITORY/actions/workflows/rpms.yml/runs?branch=main&per_page=20" \
             --jq '[.workflow_runs[] | select(.status != "completed")] | length')
           if (( active )); then
             echo "A main RPM build is already running; publication waits for it." >> "$GITHUB_STEP_SUMMARY"
@@ -270,6 +302,15 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+      - name: Retry transient GitHub API failures of every gh call
+        run: |
+          set -euo pipefail
+          real=$(command -v gh)
+          mkdir -p "$RUNNER_TEMP/gh-retry-bin"
+          printf '#!/bin/sh\nexec "%s/scripts/gh-retry" "$@"\n' "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/gh-retry-bin/gh"
+          chmod 755 "$RUNNER_TEMP/gh-retry-bin/gh"
+          echo "GH_RETRY_GH=$real" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/gh-retry-bin" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: unsigned-candidate
@@ -315,6 +356,15 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+      - name: Retry transient GitHub API failures of every gh call
+        run: |
+          set -euo pipefail
+          real=$(command -v gh)
+          mkdir -p "$RUNNER_TEMP/gh-retry-bin"
+          printf '#!/bin/sh\nexec "%s/scripts/gh-retry" "$@"\n' "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/gh-retry-bin/gh"
+          chmod 755 "$RUNNER_TEMP/gh-retry-bin/gh"
+          echo "GH_RETRY_GH=$real" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/gh-retry-bin" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: unsigned-candidate
@@ -364,6 +414,15 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+      - name: Retry transient GitHub API failures of every gh call
+        run: |
+          set -euo pipefail
+          real=$(command -v gh)
+          mkdir -p "$RUNNER_TEMP/gh-retry-bin"
+          printf '#!/bin/sh\nexec "%s/scripts/gh-retry" "$@"\n' "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/gh-retry-bin/gh"
+          chmod 755 "$RUNNER_TEMP/gh-retry-bin/gh"
+          echo "GH_RETRY_GH=$real" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/gh-retry-bin" >> "$GITHUB_PATH"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: signed-snapshot
@@ -417,7 +476,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ needs.plan.outputs.release-tag }}
         run: |
-          gh release create "$RELEASE_TAG" assets/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+          "$GITHUB_WORKSPACE/scripts/gh-retry" release create "$RELEASE_TAG" assets/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --prerelease --title "Fedora Aurora $RELEASE_TAG" \
             --notes 'Signed development package set. Every asset carries a GitHub build provenance attestation (SHA256SUMS). Deploying it to a channel is a separate step; image installation qualification is recorded separately.'
           echo "Published [$RELEASE_TAG](https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG)." >> "$GITHUB_STEP_SUMMARY"

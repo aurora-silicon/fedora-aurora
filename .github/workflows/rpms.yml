@@ -21,6 +21,7 @@ jobs:
   plan:
     runs-on: ubuntu-24.04
     outputs:
+      full: ${{ steps.plan.outputs.full }}
       packages: ${{ steps.plan.outputs.packages }}
       x86_packages: ${{ steps.plan.outputs.x86_packages }}
       builds: ${{ steps.matrix.outputs.builds }}
@@ -35,6 +36,7 @@ jobs:
           python3 scripts/ci-plan.py >> "$GITHUB_OUTPUT"
       - id: matrix
         env:
+          FULL: ${{ steps.plan.outputs.full }}
           PACKAGES: ${{ steps.plan.outputs.packages }}
           X86_PACKAGES: ${{ steps.plan.outputs.x86_packages }}
         run: |
@@ -47,8 +49,13 @@ jobs:
           x86 = {n for n in names if '# aurora-builder: x86_64' in Path(f'packages/{n}/{n}.spec').read_text().splitlines()}
           for key, selected, all_names in [('builds', 'PACKAGES', [n for n in names if n not in x86]),
                                            ('x86-builds', 'X86_PACKAGES', sorted(x86))]:
-              rows = [{'release': '44', 'package': n} for n in json.loads(os.environ[selected])]
-              rows += [{'release': '45', 'package': n} for n in all_names]
+              chosen = json.loads(os.environ[selected])
+              rows = [{'release': '44', 'package': n} for n in chosen]
+              # Fedora 45 has no base repository, so publication needs the complete
+              # set: push and manual runs build all of it, a pull request only what
+              # it changed (ci-plan.py).
+              rows += [{'release': '45', 'package': n}
+                       for n in (all_names if os.environ['FULL'] == 'true' else chosen)]
               print(key + '=' + json.dumps(rows))
           PYCODE
   rpm:
@@ -176,7 +183,10 @@ jobs:
           retention-days: 14
 
   repository-fedora45:
-    needs: [rpm, rpm-x86]
+    # Resolves the fleet upgrade from the complete fc45 set; a pull request
+    # that builds a subset leaves this to the push run on main.
+    needs: [plan, rpm, rpm-x86]
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     steps:
@@ -207,13 +217,17 @@ jobs:
           retention-days: 30
 
   touchid-fedora45-validation:
-    needs: rpm
+    # On a subset pull request, touchid-fedora45.yml runs on its own path filter.
+    needs: [plan, rpm]
+    if: needs.plan.outputs.full == 'true'
     uses: ./.github/workflows/touchid-fedora45.yml
     with:
       ci-candidates: true
 
   upower-fedora45-validation:
-    needs: rpm
+    # On a subset pull request, upower-fedora45.yml runs on its own path filter.
+    needs: [plan, rpm]
+    if: needs.plan.outputs.full == 'true'
     uses: ./.github/workflows/upower-fedora45.yml
     with:
       ci-candidates: true

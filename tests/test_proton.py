@@ -101,6 +101,49 @@ class ProtonPreparation(unittest.TestCase):
         self.assertEqual(Path(result.stdout).name, self.source.name)
         self.assertTrue(Path(result.stdout).is_dir())
 
+    def test_competing_publication_with_nonzero_mv_status(self):
+        # Newer coreutils reports failure when --no-clobber skips a target.
+        # Publish a competing copy immediately before mv would see it.
+        commands = self.root / 'commands'
+        commands.mkdir()
+        move = commands / 'mv'
+        move.write_text('#!' + shutil.which('python3') + '\n' +
+                        'import os, pathlib, shutil, sys\n'
+                        'target = pathlib.Path(sys.argv[-1])\n'
+                        'shutil.copytree(sys.argv[-2], target)\n'
+                        '(target / "user_settings.py").write_text("personal settings")\n'
+                        'if os.environ.get("UNMANAGED_TARGET"):\n'
+                        '    (target / ".aurora-proton-source").unlink()\n'
+                        'sys.exit(1)\n')
+        move.chmod(0o755)
+        self.env['PATH'] = str(commands) + os.pathsep + os.environ['PATH']
+        for unmanaged in (False, True):
+            with self.subTest(unmanaged=unmanaged):
+                self.env['XDG_DATA_HOME'] = str(self.home / ('unmanaged' if unmanaged else 'managed'))
+                self.env['UNMANAGED_TARGET'] = '1' if unmanaged else ''
+                result = self.run_prepare()
+                target = Path(self.env['XDG_DATA_HOME']) / 'aurora-proton' / self.source.name
+                if unmanaged:
+                    self.assertNotEqual(result.returncode, 0)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(Path(result.stdout.strip()), target)
+                    self.assertTrue((target / 'proton').is_file())
+                self.assertEqual((target / 'user_settings.py').read_text(), 'personal settings')
+                self.assertEqual(list(target.parent.glob('.install.*')), [])
+                shutil.rmtree(target)
+
+    def test_publication_failure_without_target_is_reported(self):
+        commands = self.root / 'commands'
+        commands.mkdir()
+        move = commands / 'mv'
+        move.write_text('#!/bin/sh\nexit 1\n')
+        move.chmod(0o755)
+        self.env['PATH'] = str(commands) + os.pathsep + os.environ['PATH']
+        result = self.run_prepare()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(list((self.home / 'data/aurora-proton').iterdir()), [])
+
     def test_simultaneous_steam_and_play_preparation_is_safe(self):
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             results = list(executor.map(lambda _: self.run_prepare(), range(2)))

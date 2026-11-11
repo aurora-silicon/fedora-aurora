@@ -1,8 +1,8 @@
-%global commit c1753704ed733e6e77fdf8ce6ac83fbf7c5e59d5
+%global commit 7f7a7ffa76bbc9fc27ed19328297eccdbe083a0f
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 19%{?dist}.aurora
+Release: 22%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -200,6 +200,28 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-22
+- Track aurora-silicon/mesa aurora-wip at 7f7a7ffa: G13/G14 buffer device
+  address capture/replay (mesa#222), G13/G14 sparse texel buffer residency
+  and strict residency for vkd3d-proton only (mesa#235), divergent subgroup
+  shuffles in vertex shaders (mesa#234), G17 occlusion query results with
+  wait and no colour attachments (mesa#233), AGX3 uniform TCS image atomics
+  (mesa#213), ray tracing hit-object parser tests (mesa#220).
+
+* Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-21
+- Track aurora-silicon/mesa aurora-wip at 10161a78: shader constant order
+  independent of the build host and 32-bit unit tests fixed (mesa#209),
+  native Gallium GL on the M5 Pro and M5 Max with CPU maps waiting for
+  writers on other contexts (mesa#194), G17G perspective varyings (mesa#208),
+  M5 Max admission and G17P/M5 fixes (mesa#195 #202-#206, #157, #125).
+
+* Tue Nov 10 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-20
+- Track aurora-silicon/mesa aurora-wip at 51b0b650: render ray-query scratch
+  only on queues that use it (mesa#200), diagnostic environment switches read
+  once (mesa#201), G17P end-only timestamps, small uploads, rematerialised
+  preamble steps, 4-texel image-to-buffer copies and command memory retirement.
+- Keep native, FEX guest and Flatpak Mesa sources and releases coordinated.
+
 * Thu Nov 05 2026 Michal S. <michal_stopyra@icloud.com> - 26.3.0-19
 - Include the merged Wayland drawable lifetime fix and unmatched-release
   handling (mesa#138).

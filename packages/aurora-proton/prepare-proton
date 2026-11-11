@@ -27,7 +27,11 @@ trap 'rm -rf -- "$temporary"' EXIT
 cp -a --reflink=auto --no-preserve=ownership "$source/." "$temporary/"
 chmod -R u+rwX "$temporary"
 printf '%s\n' "$source" > "$temporary/.aurora-proton-source"
-mv -T --no-clobber "$temporary" "$target"
+# A concurrent launcher may have published the complete revision first.
+# coreutils versions differ in the exit status of a skipped --no-clobber move.
+mv -T --no-clobber "$temporary" "$target" || {
+  [[ -x "$target/proton" && -f "$marker" && "$(cat "$marker")" == "$source" ]] || exit 1
+}
 [[ -f "$marker" && "$(cat "$marker")" == "$source" ]] || {
   echo "Compatibility tool target appeared during installation: $target" >&2
   exit 1
