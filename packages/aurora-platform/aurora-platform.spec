@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 32%{?dist}
+Release: 33%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -66,6 +66,9 @@ Requires: aurora-camera-denoise
 # that update with dnf).
 Requires: libva-v4l2-request-avd
 Requires: aurora-kbd-light
+# One built-in panel brightness, shared with the boot loader and macOS
+# through NVRAM backlight-nits.
+Requires: aurora-panel-nits
 # The Aurora repository with its key and dnf vendor policies, so a Fedora
 # Asahi Remix system with these services keeps following Aurora's builds.
 Requires: aurora-repos
@@ -186,6 +189,12 @@ install -Dm644 %{SOURCE118} %{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-33
+- Require aurora-panel-nits: the built-in panel starts at the boot loader's
+  NVRAM backlight-nits level instead of systemd-backlight's saved level, and
+  the user's level is stored back to NVRAM, so the panel does not step when
+  Linux takes over and the boot loader and macOS start at the same level.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-32
 - Reset a stuck reboot after 2 minutes: set RebootWatchdogSec and
   KExecWatchdogSec to 2min. The Apple SoC watchdog cannot time out later than
