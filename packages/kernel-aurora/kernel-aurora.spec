@@ -38,6 +38,9 @@ Requires: coreutils kmod dracut grubby
 Requires: aurora-audio >= 4.1-12
 Requires: (aurora-platform-core >= 44-23 if aurora-platform-core)
 Requires: update-m1n1 >= 20261107
+# sep-key interfaces 3 and 4 (linux#1506, #1544): aurora-fido before 0.2.0-2
+# speaks only 1 and 2 and crash-loops against this kernel.
+Conflicts: aurora-fido < 0.2.0-2
 # SN012776 amp settings come from the DT that aura 1.0.0b5 fills in
 # (https://github.com/aurora-silicon/linux/pull/981,
 # https://github.com/aurora-silicon/aura/pull/75); under an older Stage 2
@@ -184,6 +187,8 @@ fi
   - Wi-Fi: MT7932 probes asynchronously (#1545).
   - Boot log: three per-boot info/debug floods are quieter (hwmon thermal
     zones, DCP audio, asahi IO map; #1519).
+- kernel-aurora-core conflicts with aurora-fido before 0.2.0-2, which
+  does not speak sep-key interfaces 3 and 4 and crash-loops here.
 - config and fedora.config are unchanged; olddefconfig adds
   CONFIG_APPLE_AURORA_BOOT_SECURITY=y and leaves the new
   CONFIG_APPLE_SEP_KEY_RESEARCH off. vmlinuz stays the raw Image, and the
