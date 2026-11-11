@@ -10,7 +10,7 @@
 # has no DRM master to defer to, light every output with its own empty
 # buffer: the panel flashes black before the splash comes back.
 #
-# Wait, briefly, for the device and for udev to announce it, so Plymouth
+# Wait, briefly, for the device and for udev to initialize it, so Plymouth
 # opens it (and holds DRM master) while the initramfs udevd still runs. No
 # wait without the display subsystem or its driver, or once the device exists.
 
@@ -26,7 +26,7 @@ aurora_early_kms_wait() {
     while [ "$tries" -lt 40 ]; do
         for card in "$dev"/drm/card*; do
             [ -e "$card" ] || continue
-            udevadm wait --settle --timeout=1 "/dev/dri/${card##*/}" 2>/dev/null
+            udevadm wait --timeout=1 "/dev/dri/${card##*/}" 2>/dev/null
             return 0
         done
         [ -e "$dev/driver" ] || [ "$tries" -lt 20 ] || return 0
