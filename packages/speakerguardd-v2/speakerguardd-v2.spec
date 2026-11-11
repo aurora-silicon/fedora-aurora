@@ -1,4 +1,4 @@
-%global commit 24451b6f817d82d9e7805c4f61054034b99f8961
+%global commit ea73fdf0eebc388b49ad348a315b2f8e8f546936
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261111
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.40.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.41.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -247,6 +247,13 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Wed Nov 11 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.41.20261111gitea73fdf0eebc
+- Release candidate 8.8 (speakerguardd#153-#156 on top of RC8.7): the
+  speakers' volume is kept across graph restarts and a first start begins
+  at 30 % instead of 100 %; the first start after the switch test no
+  longer waits 60 s; lsm2 applies MaxTemperatureAttenuation as macOS does.
+  v2 stays a preview and opt-in.
+
 * Wed Nov 11 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.40.20261111git24451b6f817d
 - Release candidate 8.7 (speakerguardd#149): with nothing playing the
   speaker path powers down (amps and sense unlinked, both PCMs closed, the

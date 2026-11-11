@@ -1,10 +1,10 @@
-%global commit 24451b6f817d82d9e7805c4f61054034b99f8961
+%global commit ea73fdf0eebc388b49ad348a315b2f8e8f546936
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261111
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.9.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.10.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning (preview)
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -64,6 +64,13 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
+* Wed Nov 11 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.10.20261111gitea73fdf0eebc
+- Release candidate 8.8 (speakerguardd#153-#156 on top of RC8.7): the
+  speakers' volume is kept across graph restarts and a first start begins
+  at 30 % instead of 100 %; the first start after the switch test no
+  longer waits 60 s; lsm2 applies MaxTemperatureAttenuation as macOS does.
+  v2 stays a preview and opt-in.
+
 * Wed Nov 11 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.9.20261111git24451b6f817d
 - Release candidate 8.7 (speakerguardd#149): with nothing playing the
   speaker path powers down (amps and sense unlinked, both PCMs closed, the
