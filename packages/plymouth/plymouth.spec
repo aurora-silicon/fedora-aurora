@@ -1,7 +1,7 @@
 Summary: Graphical Boot Animation and Logger
 Name: plymouth
 Version: 26.134.222
-Release: 6%{?dist}.aurora5
+Release: 6%{?dist}.aurora6
 License: GPL-2.0-or-later
 URL: http://www.freedesktop.org/wiki/Software/Plymouth
 
@@ -25,9 +25,13 @@ Source3: test-keyboard-lifetime.c
 Source4: test-script-keyboard.c
 Source5: check-keyboard-lifetime.sh
 Source6: test-drm-sdr.c
+Source7: test-drm-damage.c
 # The DRM master can hand off before the HDR compositor closes its file.
 Patch: 0002-drm-Reset-inherited-HDR-connector-state-before-SDR.patch
 Patch: 0001-Fix-splash-keyboard-lifetime.patch
+# Dirty only the copied areas: a full-buffer flush makes simpledrm copy the
+# whole boot framebuffer for every animation frame.
+Patch: 0003-drm-Flush-only-the-damaged-areas.patch
 BuildRequires: xorg-x11-server-Xvfb
 BuildRequires: font(cantarell)
 
@@ -287,6 +291,15 @@ echo "Plymouth terminal-input PTY regression passed"
     -Wl,-rpath,$PWD/%{_vpath_builddir}/src/libply \
     -lply-splash-core -lply $(pkg-config --libs libdrm libevdev) -lm
 timeout 15s ./test-drm-sdr
+%{__cc} -D_GNU_SOURCE -Wall \
+    -I. -Isrc/libply -Isrc/libply-splash-core \
+    $(pkg-config --cflags libdrm libevdev) \
+    %{SOURCE7} -o test-drm-damage \
+    -L%{_vpath_builddir}/src/libply-splash-core -L%{_vpath_builddir}/src/libply \
+    -Wl,-rpath,$PWD/%{_vpath_builddir}/src/libply-splash-core \
+    -Wl,-rpath,$PWD/%{_vpath_builddir}/src/libply \
+    -lply-splash-core -lply $(pkg-config --libs libdrm libevdev) -lm
+timeout 15s ./test-drm-damage
 
 
 %install
@@ -463,6 +476,9 @@ fi
 %files system-theme
 
 %changelog
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.134.222-6.aurora6
+- Flush only the damaged areas to the DRM device instead of the whole buffer
+
 * Wed Nov 04 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.134.222-6.aurora5
 - Clear inherited HDR metadata and colorspace before presenting the SDR splash
 - Test DRM handoffs, cloned outputs and failed commits without hardware
