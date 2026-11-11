@@ -1,10 +1,10 @@
-%global commit d69f0115edc1abe56acc60dff19c08d17096fb41
+%global commit 24451b6f817d82d9e7805c4f61054034b99f8961
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261110
+%global snapdate 20261111
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.8.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.9.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning (preview)
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -64,6 +64,15 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
+* Wed Nov 11 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.9.20261111git24451b6f817d
+- Release candidate 8.7 (speakerguardd#149): with nothing playing the
+  speaker path powers down (amps and sense unlinked, both PCMs closed, the
+  grant given back), as macOS does: about 1 W less at idle on a MacBook Air
+  M2, 0.4 W on a MacBook Pro M1 Pro. The stream that wakes the speakers
+  loses nothing: its first frames are held until the amps play, then
+  played in order. The self-check's graph step accounts for the sink
+  starting again with each first stream. v2 stays a preview and opt-in.
+
 * Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.8.20261110gitd69f0115edc1
 - Release candidate 8.6, a bug-fix release (speakerguardd#151, #152,
   #148): after a system sleep the supervisor waits for the engine to beat
