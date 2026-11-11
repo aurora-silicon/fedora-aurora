@@ -1,4 +1,4 @@
-%global commit 15f88e1cf81a6b6a91a1856ca06822a093aedeac
+%global commit 451dc7096e06d378e2b73150e6d3bbe244646a3d
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 31%{?dist}.aurora
+Release: 32%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -154,6 +154,56 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-32
+- Pin integration/aurora 451dc709 (linux#1507), 85 merges (645 commits)
+  after 15f88e1c:
+  - GPU: M5 GPU and firmware-27 display support (#1012) with its G17 and
+    M5 fixes (#1503, #1504, #1508, #1229, #1177); lower host latency and
+    CPU capacity hints for G13/G14 submission and syncobj waits (#1500,
+    #1481); quiet teardown of a closing client (#1427); a single
+    reservation lock in gpuvm exec (#1392); the M3 MacBook Air GPU runtime
+    (CONFIG_DRM_ASAHI_M3_T8122, from asahi.config; #964).
+  - SEP and Touch ID: the aurora-sep tool takes the distribution packages'
+    changes (#1036); the SEP chardevs are published without holding their
+    slot locks (#1449); the xART guard list is opened per access (#1264);
+    unreadable identity state is kept (#962).
+  - Media: AVE H.264 encode with B pictures on the M1 Pro and M2 6070
+    firmware (#1387, #1440, #1484); media PMP performance requests from
+    the boot loader (#1485); PMP performance for the M1 Pro scaler and
+    ProRes (#1507).
+  - ANE: H16 starts its firmware once the PMP runs and restarts a stopped
+    startup at once (#1502, #1412); T8112 sets the firmware perf mode at
+    power-on (#1450); an engine that a power cycle cannot restore stays
+    wedged (#1446).
+  - Display: the DP audio endpoint probes again when the EDID is not read
+    yet (#1482); EDR switches on without a mode set (#1424); the loader's
+    panel mode is adopted at takeover (#1439); the firmware-27 FORTIFY
+    build fix (#1457); AFK endpoint initialisation (#1444).
+  - M4 Pro/Max (T6041): J614c SD reader, keyboard backlight, front camera,
+    SEP, boot NOR and NVRAM, PMP, cpuidle and GPU temperatures (#1465,
+    #1464, #1463, #1461, #1458, #1459, #1453, #1447); CPU energy model and
+    die zone (#1452); the J616c ISP (#1368); 40-core M4 Max GPU work and
+    the 25G83 profile (#1442, #1373); the J616s AOP audio IOMMU (#1505);
+    boot NOR supply (#1330).
+  - M5 Pro/Max (T6050): J714s device trees (#1428-#1434), PMP (#1376), CPU
+    capacities (#1399), CLPC floors (#1405), WFI idle (#1152), a root port
+    the boot loader left down (#1182).
+  - Power and sensors: SMC PMU rails on the J413 and T6000 (#1462, #1448,
+    #1390), J413 CPU temperatures (#1371), the M2 Pro/Max CPU energy model
+    (#932), charge hold with CHLS (#1474), no manufacture date on the J700
+    (#1478), lid-open reports during sleep (#1160), PCIe power domains kept
+    in s2idle (#1311).
+  - Also: kdump crash kernels (#1200), experimental MT7932 AWDL (#1346,
+    #1469; off by default), SPI HID reply checks and keyboard/trackpad
+    wake (#842, #1347), T6040 ATC PHY hard recovery (#1350),
+    thunderbolt-net across partner restarts (#1338), TIPD power-role swap
+    settle (#1402), GL9755 SD power sequencing (#1327), Centauri sibling
+    probing (#1421), J604 device tree and firmware fixes (#1329, #1389,
+    #1367), and APIF removal (#1363).
+- config and fedora.config are unchanged. olddefconfig resolves the one line
+  asahi.config gained (CONFIG_DRM_ASAHI_M3_T8122=y).
+- vmlinuz stays the raw Image, and the DT ABI generation stays 1.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-31
 - Install the raw Image as vmlinuz again (back out the EFI zboot image of
   7.3.0-29). On a J700 the zboot image never reaches the kernel: GRUB
