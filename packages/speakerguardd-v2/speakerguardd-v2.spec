@@ -1,6 +1,6 @@
-%global commit ea73fdf0eebc388b49ad348a315b2f8e8f546936
+%global commit d2bc197249b43934dc9a99ade9c6142769aa0d3b
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261111
+%global snapdate 20261112
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.41.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.42.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -247,6 +247,12 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.42.20261112gitd2bc197249b4
+- speakerguardd#162: the gate reads the kernel's interface only from the
+  speaker card and waits for it, whatever order the cards register in
+  (a J616s on 7.3.0-33 registered the jack card 2 s before the speaker
+  card); tests for the card order. v2 stays a preview and opt-in.
+
 * Wed Nov 11 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.41.20261111gitea73fdf0eebc
 - Release candidate 8.8 (speakerguardd#153-#156 on top of RC8.7): the
   speakers' volume is kept across graph restarts and a first start begins
