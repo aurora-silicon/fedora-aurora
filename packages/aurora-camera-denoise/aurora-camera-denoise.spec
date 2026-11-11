@@ -1,7 +1,7 @@
-%global commit 4a2d2402d991837b95ea19f89bdd6965d8622ae4
+%global commit 74bb45ab9946634668bac3e2a8c655a5e81fd7b9
 Name: aurora-camera-denoise
 Version: 0.1.0
-Release: 7%{?dist}
+Release: 8%{?dist}
 Summary: Noise filter for the built-in camera on Apple silicon
 License: MIT
 URL: https://github.com/aurora-silicon/camera-denoise
@@ -56,10 +56,17 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_userpresetdir}/80-aurora-camera-denoise
 %{_datadir}/aurora-camera-denoise/
 %dir %{_libdir}/aurora-camera-denoise
 %{_libdir}/aurora-camera-denoise/cdn-backend-ave.so
+%{_libdir}/aurora-camera-denoise/cdn-backend-ane.so
 %{_userunitdir}/aurora-camera-denoise.service
 %{_userpresetdir}/80-aurora-camera-denoise.preset
 
 %changelog
+* Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 0.1.0-8
+- Update to 74bb45ab9946: add the Neural Engine low-light stage
+  (cdn-backend-ane.so, camera-denoise#11). In low light a small open CNN
+  runs on top of the temporal filter, built by our ANE compiler for the
+  M4 Pro (H16G) at 1080p; other Macs keep the temporal filter alone.
+
 * Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 0.1.0-7
 - Update to 4a2d2402d991. The temporal filter now runs by default on the
   video encoder's motion-compensated filter, the hardware macOS uses, when
