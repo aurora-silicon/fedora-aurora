@@ -19,7 +19,7 @@ The platform includes `avd-fw` from Aurora's firmware fork and `upower` from Aur
 
 ## Updates and distribution
 
-Fedora 45 is the current release; Fedora 44 is frozen ([Fedora 44 sunset](docs/fedora44-sunset.md)). [Fedora 45](docs/fedora45-testing.md) describes the release-specific build and publication path. `aurora-repos` selects the channel for the installed release through `$releasever`.
+Fedora 45 is the current release; Fedora 44 is frozen ([Fedora 44 sunset](docs/fedora44-sunset.md)). [Fedora 45](docs/fedora45-testing.md) describes the release-specific build and publication path. `aurora-repos` selects the channel for the installed release through `$releasever`. [Upgrading from Fedora 44 to 45](docs/upgrade-fedora45.md) covers `dnf system-upgrade` for installed systems.
 
 See [the release procedure](RELEASING.md) for package publication, image and catalog pairing, native installer delivery, hardware qualification and snapshot restoration.
 
