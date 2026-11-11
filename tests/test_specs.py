@@ -828,14 +828,16 @@ class SpecTests(unittest.TestCase):
         pins = json.loads((ROOT / 'sources.json').read_text())
         self.assertIn(pins['aurora-sep-sk']['commit'], text)
     def test_camera_denoise_user_unit_skips_root_and_system_users(self):
-        d = ROOT / 'packages/aurora-camera-denoise'
-        spec = (d / 'aurora-camera-denoise.spec').read_text()
-        patch = re.search(r'^Patch\d*:\s+(\S+)', spec, re.M).group(1)
-        text = (d / patch).read_text()
-        for line in ('+ConditionUser=!root', '+ConditionUser=!@system',
-                     '+StartLimitIntervalSec=60', '+StartLimitBurst=5', '+RestartSec=5'):
-            self.assertIn(line + '\n', text)
-        self.assertIn('%autosetup -p1 ', spec)
-        # %check runs the unit test the patch adds.
+        # camera-denoise#8 (ConditionUser, start limits) is in the pinned
+        # commit and %check runs its unit test (tests/check-unit.sh).
+        spec = (ROOT / 'packages/aurora-camera-denoise/aurora-camera-denoise.spec').read_text()
+        pins = json.loads((ROOT / 'sources.json').read_text())
+        self.assertIn(pins['aurora-camera-denoise']['commit'], spec)
+        self.assertNotEqual(pins['aurora-camera-denoise']['commit'],
+                            '456c567527d6bbba27d0aaeec1199032e0ec88c3')
         self.assertIn('%meson_test', spec.split('%check', 1)[1].split('%install', 1)[0])
+    def test_camera_denoise_ships_the_encoder_filter_plugin(self):
+        spec = (ROOT / 'packages/aurora-camera-denoise/aurora-camera-denoise.spec').read_text()
+        files = spec.split('%files', 1)[1].split('%changelog', 1)[0]
+        self.assertIn('%{_libdir}/aurora-camera-denoise/cdn-backend-ave.so', files)
 if __name__ == '__main__': unittest.main()
