@@ -1,6 +1,6 @@
 Name:    kwin
 Version: 6.8.2
-Release: 2%{?dist}.aurora1
+Release: 3%{?dist}.aurora1
 Summary: KDE Window manager
 
 License: BSD-2-Clause AND BSD-3-Clause AND CC0-1.0 AND GPL-2.0-only AND GPL-2.0-or-later AND GPL-3.0-only AND GPL-3.0-or-later AND LGPL-2.0-only AND LGPL-2.0-or-later AND LGPL-2.1-only AND LGPL-2.1-or-later AND LGPL-3.0-only AND (GPL-2.0-only OR GPL-3.0-only) AND (LGPL-2.1-only OR LGPL-3.0-only) AND MIT
@@ -14,7 +14,9 @@ Source0: http://download.kde.org/%{stable_kf6}/plasma/%{maj_ver_kf6}.%{min_ver_k
 Source10: macros.kwin.in
 
 ## upstream patches
-
+# compositor: handle possibly missing render device
+# https://invent.kde.org/plasma/kwin/-/commit/c9d720793bbcef9483ab290673032d39441c0e6f
+Patch1: c9d720793bbcef9483ab290673032d39441c0e6f.patch
 
 ## proposed patches
 
@@ -295,6 +297,14 @@ sed -i \
 
 
 %changelog
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 6.8.2-3.aurora1
+- Rebase onto Fedora 6.8.2-3: take the compositor fix for a missing render
+  device (kwin_wayland crash with DisplayLink/evdi outputs), from Fedora
+  dist-git c6f0d01 (Steve Cossette), upstream c9d72079 (Xaver Hugl)
+
+* Tue Nov 03 2026 Steve Cossette <farchord@gmail.com> - 6.8.2-3
+- Fix for a kwin crash
+
 * Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 6.8.2-2.aurora1
 - Night Light: opt-in ambient white point (AmbientWhitePoint in kwinrc),
   following the ambient light's colour temperature from iio-sensor-proxy,
