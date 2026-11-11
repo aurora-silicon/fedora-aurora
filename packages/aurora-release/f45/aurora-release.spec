@@ -1,6 +1,6 @@
 Name: aurora-release
 Version: 45
-Release: 8%{?dist}
+Release: 9%{?dist}
 Summary: Aurora Fedora Remix release identity
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -29,6 +29,10 @@ Source104: macros.dist
 Source105: malcontent-signal.conf
 Source106: malcontent-webd-update-signal.conf
 Source107: 80-aurora-sshd.preset
+Source108: 80-aurora-image.preset
+Source109: drkonqi-ordering.conf
+Source110: nm-dispatcher-persist.conf
+Source111: plasma-setup-xdg-autostart.conf
 
 %description
 Aurora Fedora Remix release identity.
@@ -38,10 +42,11 @@ Summary: Aurora drop-ins for system services awaiting upstream fixes
 Requires: systemd
 
 %description -n aurora-system-fixes
-systemd unit drop-ins that carry fixes for Fedora system services until the
-upstream release ships them. Each drop-in names the upstream change that
-retires it. It does not change the distribution identity, so it can be
-installed on any Fedora release Aurora supports.
+systemd unit drop-ins and tmpfiles entries that carry fixes for Fedora
+system services until the upstream release ships them. Each file names the
+upstream change or problem that retires it. It does not change the
+distribution identity, so it can be installed on any Fedora release Aurora
+supports.
 
 %prep
 
@@ -58,6 +63,7 @@ for path in /usr/lib/systemd/system-preset/{85-display-manager,90-default,99-def
 done
 # Without Fedora's desktop identities, 90-default.preset would enable sshd.
 install -Dm644 %{SOURCE107} %{buildroot}/usr/lib/systemd/system-preset/80-aurora-sshd.preset
+install -Dm644 %{SOURCE108} %{buildroot}/usr/lib/systemd/system-preset/80-aurora-image.preset
 install -Dm644 /usr/share/licenses/fedora-release-common/LICENSE %{buildroot}%{_licensedir}/%{name}/fedora-release-LICENSE
 install -Dm644 %{_sourcedir}/system-release %{buildroot}/etc/fedora-release
 ln -s fedora-release %{buildroot}/etc/redhat-release
@@ -67,6 +73,11 @@ for unit in malcontent-timerd malcontent-timer-extension-agent malcontent-webd; 
   install -Dm644 %{SOURCE105} %{buildroot}%{_unitdir}/$unit.service.d/50-aurora-signal.conf
 done
 install -Dm644 %{SOURCE106} %{buildroot}%{_unitdir}/malcontent-webd-update.service.d/50-aurora-signal.conf
+for unit in drkonqi-coredump-cleanup.timer drkonqi-sentry-postman.path; do
+  install -Dm644 %{SOURCE109} %{buildroot}%{_userunitdir}/$unit.d/50-aurora-ordering.conf
+done
+install -Dm644 %{SOURCE110} %{buildroot}%{_unitdir}/NetworkManager-dispatcher.service.d/50-aurora-persist.conf
+install -Dm644 %{SOURCE111} %{buildroot}%{_tmpfilesdir}/plasma-setup-xdg-autostart.conf
 
 
 %files
@@ -85,8 +96,23 @@ install -Dm644 %{SOURCE106} %{buildroot}%{_unitdir}/malcontent-webd-update.servi
 %files -n aurora-system-fixes
 %dir %{_unitdir}/malcontent-*.service.d
 %{_unitdir}/malcontent-*.service.d/50-aurora-signal.conf
+%dir %{_userunitdir}/drkonqi-*.d
+%{_userunitdir}/drkonqi-*.d/50-aurora-ordering.conf
+%dir %{_unitdir}/NetworkManager-dispatcher.service.d
+%{_unitdir}/NetworkManager-dispatcher.service.d/50-aurora-persist.conf
+%{_tmpfilesdir}/plasma-setup-xdg-autostart.conf
 
 %changelog
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 45-9
+- Carry the Fedora 44 fixes from 44-9 and 44-10, which Fedora 45 still
+  needs (same Plasma 6.8.2, plasma-setup 6.8.2, and NetworkManager 1.58
+  still starts nm-dispatcher without --persist): preset the default
+  targets and the systemd-resolved sockets on, break drkonqi's ordering
+  cycle (KDE bug 528003), keep nm-dispatcher running until NetworkManager
+  has stopped (NetworkManager issue 1643) and keep Plasma Setup's
+  autostart entry non-executable. An upgrade from Fedora 44 no longer
+  drops them.
+
 * Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 45-8
 - Preserve the Fedora 45 release identity and dependency capabilities.
 
