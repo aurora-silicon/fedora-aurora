@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 38%{?dist}
+Release: 39%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -172,10 +172,14 @@ install -Dm755 %{SOURCE125} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora
 # A grub.cfg whose only stale lines are partition UUID searches; see the script.
 %{_libexecdir}/aurora/aurora-grub-uuid || :
 %{_libexecdir}/aurora/aurora-ppd-config || :
-# MTE stays off on chips whose tag storage no boot loader reserves yet.
-if tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -qxE 'apple,(t6050|t8142)' &&
-    ! grep -qE '(^|[[:space:]])arm64\.nomte([[:space:]]|$)' /etc/kernel/cmdline 2>/dev/null; then
-  grubby --update-kernel=ALL --args=arm64.nomte || :
+# On these chips MTE needs its tag storage reserved: aura marks that with
+# /chosen/aurora,mte-tag-storage. Without the mark MTE stays off.
+if tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -qxE 'apple,(t6050|t8142)'; then
+  if [ -e /proc/device-tree/chosen/aurora,mte-tag-storage ]; then
+    grubby --update-kernel=ALL --remove-args=arm64.nomte || :
+  elif ! grep -qE '(^|[[:space:]])arm64\.nomte([[:space:]]|$)' /etc/kernel/cmdline 2>/dev/null; then
+    grubby --update-kernel=ALL --args=arm64.nomte || :
+  fi
 fi
 
 # Also cover tuned-ppd installed/upgraded without an aurora-platform update.
@@ -243,6 +247,12 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Thu Nov 12 2026 DjDeveloperr <hey@djdev.me> - 44-39
+- Let M5 (T8142) and M5 Pro/Max (T6050) Macs use MTE once aura reserves its
+  tag storage: when the device tree carries /chosen/aurora,mte-tag-storage,
+  aurora-platform-core removes arm64.nomte from every boot entry. Without
+  it, arm64.nomte is added as in 44-37.
+
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-38
 - New opt-in subpackage aurora-platform-kdump: save Linux's own crashes
   with kdump. iBoot keeps no record of a Linux panic, so a crash kernel
