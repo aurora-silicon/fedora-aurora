@@ -29,8 +29,8 @@ are in /etc/default/aurora-kbd-light.
 %make_install PREFIX=%{_prefix} UNITDIR=%{_unitdir}
 # On for every Mac, like the keyboard backlight on macOS.
 install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/80-aurora-kbd-light.preset
-# The unit's boot start comes before the keyboard backlight LED and the light
-# sensor exist; udev starts it again when either appears.
+# The unit's boot start can come before the keyboard backlight LED and the
+# light sensor exist; udev starts it, if it is enabled, when either appears.
 install -Dm644 %{SOURCE2} %{buildroot}%{_udevrulesdir}/90-aurora-kbd-light.rules
 
 %post
@@ -50,8 +50,9 @@ install -Dm644 %{SOURCE2} %{buildroot}%{_udevrulesdir}/90-aurora-kbd-light.rules
 
 %changelog
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-2
-- Start the service when the keyboard backlight LED or the AOP light sensor
-  appears; at boot its condition was checked before either existed.
+- Start the service, if it is enabled, when the keyboard backlight LED or the
+  AOP light sensor appears; at boot its condition could be checked before
+  either existed.
 
 * Thu Nov 05 2026 DjDeveloperr <hey@djdev.me> - 0.1.0-1
 - Package kbd-light 727076b83eb6: the keyboard backlight follows the ambient
