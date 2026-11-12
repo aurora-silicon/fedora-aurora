@@ -1,5 +1,5 @@
 %global debug_package %{nil}
-%global commit 31db12e2a1d93d44056e9982947e25a7c92d62f5
+%global commit eca16db081657b127f476511f7aa16a6128d5a15
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
@@ -26,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-31db12e2a1d93d44056e9982947e25a7c92d62f5
+%autosetup -n aura-eca16db081657b127f476511f7aa16a6128d5a15
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -63,7 +63,7 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 
 %changelog
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b11-1
-- Update to aura 1.0.0b11 (test build of the release branch). Since bd9f3e82: memory a device may
+- Update to aura 1.0.0b11 (v1.0.0b11, eca16db0). Since bd9f3e82: memory a device may
   still reach stays allocated after a DART or NVMe failure (aura#175), DART
   Gen3 invalidation timeouts and dart_free_l2() roots (#180), a watchdog
   reset for faults before wdt_disable() (#138), the M1 Pro and M2 encoder
