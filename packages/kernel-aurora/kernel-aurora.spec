@@ -1,4 +1,4 @@
-%global commit 2b05915f81bc066670cd872be3cbdd916753bf26
+%global commit 590f08d53face7c77cf9c2195ad5c7ab72ccb2f9
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 34%{?dist}.aurora
+Release: 33.99.dcpm3%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -157,6 +157,11 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-33.99.dcpm3
+- Test build, not for release: integration/aurora 05f3aabb plus linux
+  dcp/m3-pro-promotion-stamps 590f08d (14.7 ProMotion panels stamp their
+  swaps: J514S, J516S, J514C).
+
 * Thu Nov 12 2026 Diljit Singh <hey@djdev.me> - 7.3.0-34
 - Pin integration/aurora 2b05915f (linux#1445), 68 merges (341 commits)
   after 84d091f7:
