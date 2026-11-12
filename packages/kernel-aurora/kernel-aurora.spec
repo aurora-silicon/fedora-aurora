@@ -14,7 +14,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 36%{?dist}.aurora
+Release: 37%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -43,7 +43,10 @@ Requires: coreutils kmod dracut grubby
 # A kernel-only upgrade must also restore the legacy speaker graphs.
 Requires: aurora-audio >= 4.1-12
 Requires: (aurora-platform-core >= 44-23 if aurora-platform-core)
-Requires: update-m1n1 >= 20261107
+# 20261107-6 counts a kernel without a dtb-abi marker as generation 1. An older
+# update-m1n1 refuses it, and kernel-install then stops before this kernel's
+# initramfs and boot entry (#319).
+Requires: update-m1n1 >= 20261107-6
 # sep-key interfaces 3 and 4 (linux#1506, #1544): aurora-fido before 0.2.0-2
 # speaks only 1 and 2 and crash-loops against this kernel.
 Conflicts: aurora-fido < 0.2.0-2
@@ -148,8 +151,19 @@ fi
 %posttrans -n aurora-userpages
 # Images are built with user4k=on; add it to an installed system's boot
 # entries and future kernels. Any user4k= the owner has set stays.
+# The record tells %%postun the argument is this package's to take back.
 if [ -f /etc/kernel/cmdline ] && ! grep -qE '(^|[[:space:]])user4k=' /etc/kernel/cmdline; then
-  grubby --update-kernel=ALL --args=user4k=on || :
+  grubby --update-kernel=ALL --args=user4k=on &&
+    mkdir -p /var/lib/aurora-userpages && : > /var/lib/aurora-userpages/user4k-added || :
+fi
+
+%postun -n aurora-userpages
+# A full erase takes back the user4k=on that %%posttrans added, and nothing an
+# owner set. Systems that got it before the record existed keep it.
+if [ "$1" -eq 0 ] && [ -e /var/lib/aurora-userpages/user4k-added ]; then
+  grubby --update-kernel=ALL --remove-args=user4k=on || :
+  rm -f /var/lib/aurora-userpages/user4k-added
+  rmdir /var/lib/aurora-userpages 2>/dev/null || :
 fi
 
 %files
@@ -172,6 +186,15 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Thu Nov 12 2026 Diljit Singh <hey@djdev.me> - 7.3.0-37
+- kernel-aurora-core requires update-m1n1 20261107-6 or later. An older one
+  counts a kernel without a dtb-abi marker as DT ABI generation 0 and refuses
+  this kernel's trees, and kernel-install then stops before the initramfs and
+  the boot entry (#319). A kernel-only upgrade now brings the fixed updater.
+- aurora-userpages takes back the user4k=on it added when it is erased, and
+  nothing an owner set: %%posttrans records that it added the argument, and
+  %%postun removes it only with that record (#317).
+
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-36
 - Pin integration/aurora 92195659 (linux#1663), 29 merges (111 commits)
   after 2b05915f:
