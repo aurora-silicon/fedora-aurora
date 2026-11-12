@@ -1,6 +1,6 @@
 # Aurora Fedora Remix
 
-This directory contains the Fedora image producer for the native Aurora installer. The base is Fedora 44 with a pinned Fedora Asahi KIWI description, Aurora's hardware packages and Aurora's own release identity. KDE Plasma is the initial default; GNOME and minimal use the same package and boot contracts. Follow [the release procedure](../RELEASING.md) to qualify and promote a compatible package, image, catalog and application set.
+This directory contains the Fedora image producer for the native Aurora installer. The base is Fedora 45 (Fedora 44 on request) with a pinned Fedora Asahi KIWI description, Aurora's hardware packages and Aurora's own release identity. KDE Plasma is the initial default; GNOME and minimal use the same package and boot contracts. Follow [the release procedure](../RELEASING.md) to qualify and promote a compatible package, image, catalog and application set.
 
 `configure.py` prepares the image description. It validates the source revision and repository signing key, replaces the upstream hardware and branding package selections, and keeps the Fedora partition layout. Native image builds retain filesystem bundles and package/initramfs inventories. Signed installer payload publication is a separate workflow with its own resource compatibility and hardware qualification gates.
 

@@ -2,6 +2,11 @@ name: Promote the testing snapshot to stable
 on:
   workflow_dispatch:
     inputs:
+      fedora-release:
+        description: Fedora release whose testing snapshot is promoted
+        type: choice
+        options: ['45', '44']
+        default: '45'
       release-tag:
         description: Snapshot to promote; empty promotes what testing serves now
         default: ''
@@ -16,5 +21,6 @@ jobs:
       actions: write
     uses: ./.github/workflows/deploy-snapshot.yml
     with:
+      fedora-release: ${{ inputs.fedora-release }}
       channel: stable
       release-tag: ${{ inputs.release-tag }}

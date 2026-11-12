@@ -4,7 +4,7 @@ Fedora-native packaging, image builds and the signed update repository for Auror
 
 ## Build
 
-All hardware sources are pinned by commit and SHA-256 in `sources.json`. RPM specs are under `packages/`; KIWI image configuration is under `images/`. Build a package on Fedora 44 AArch64:
+All hardware sources are pinned by commit and SHA-256 in `sources.json`. RPM specs are under `packages/`; KIWI image configuration is under `images/`. Build a package on Fedora 45 AArch64:
 
 ```sh
 sudo dnf install rpm-build dnf5-plugins python3 git
@@ -19,7 +19,7 @@ The platform includes `avd-fw` from Aurora's firmware fork and `upower` from Aur
 
 ## Updates and distribution
 
-[Fedora 45 testing](docs/fedora45-testing.md) describes the release-specific build and publication path. `aurora-repos` selects `44/testing/aarch64` or `45/testing/aarch64` through `$releasever`; stable remains Fedora 44 only. [Upgrading from Fedora 44 to 45](docs/upgrade-fedora45.md) covers `dnf system-upgrade` for installed systems.
+Fedora 45 is the current release; Fedora 44 is frozen ([Fedora 44 sunset](docs/fedora44-sunset.md)). [Fedora 45](docs/fedora45-testing.md) describes the release-specific build and publication path. `aurora-repos` selects the channel for the installed release through `$releasever`. [Upgrading from Fedora 44 to 45](docs/upgrade-fedora45.md) covers `dnf system-upgrade` for installed systems.
 
 See [the release procedure](RELEASING.md) for package publication, image and catalog pairing, native installer delivery, hardware qualification and snapshot restoration.
 

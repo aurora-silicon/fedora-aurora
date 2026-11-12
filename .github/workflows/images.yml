@@ -13,10 +13,10 @@ on:
         options: [testing, stable]
         default: testing
       fedora-release:
-        description: Fedora release of the image (45 has a testing channel only)
+        description: Fedora release of the image (44 is frozen)
         type: choice
-        options: ['44', '45']
-        default: '44'
+        options: ['45', '44']
+        default: '45'
 permissions:
   contents: read
 defaults:
@@ -38,11 +38,10 @@ jobs:
         env:
           PROFILE: ${{ inputs.profile }}
           CHANNEL: ${{ inputs.channel || 'testing' }}
-          FEDORA_RELEASE: ${{ inputs.fedora-release || '44' }}
+          FEDORA_RELEASE: ${{ inputs.fedora-release || '45' }}
         run: |
           set -euo pipefail
           [[ $FEDORA_RELEASE == 44 || $FEDORA_RELEASE == 45 ]]
-          [[ $FEDORA_RELEASE == 44 || $CHANNEL == testing ]] || { echo 'Fedora 45 has no stable channel' >&2; exit 1; }
           docker run --rm --privileged -v /dev:/dev -v /run/udev:/run/udev:ro -v "$PWD:/src" -w /src \
             -e AURORA_REPOSITORY_URL="https://aurorasilicon.org/fedora-aurora/\$releasever/$CHANNEL/aarch64" \
             "registry.fedoraproject.org/fedora:$FEDORA_RELEASE" bash -euo pipefail -c '
@@ -56,9 +55,9 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          # Fedora 45 candidates keep a separate name, so the payload workflow,
+          # Fedora 44 candidates keep a separate name, so the payload workflow,
           # which takes only <profile>-candidate, never publishes them.
-          name: ${{ inputs.profile }}${{ inputs.fedora-release == '45' && '-f45' || '' }}-candidate
+          name: ${{ inputs.profile }}${{ inputs.fedora-release == '44' && '-f44' || '' }}-candidate
           compression-level: 0
           path: |
             image-build.log

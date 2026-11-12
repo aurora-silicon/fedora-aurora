@@ -169,10 +169,11 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(old['check-firmware.py'].read_bytes(), new['check-firmware.py'].read_bytes())
         self.assertIn('python3 %{SOURCE1} build', new['avd-fw.spec'].read_text())
 
-    def test_pages_preserve_all_three_channels_when_either_testing_channel_changes(self):
+    def test_pages_preserve_all_four_channels_when_either_testing_channel_changes(self):
         site = module('channel-site')
         state = updatelib.empty_channels('aurora-silicon/fedora-aurora')
-        for key, tag in [('testing', 'testing-old.1'), ('stable', 'testing-old.1'), ('45/testing', 'testing-f45-old.1')]:
+        for key, tag in [('testing', 'testing-old.1'), ('stable', 'testing-old.1'), ('45/testing', 'testing-f45-old.1'),
+                         ('45/stable', 'testing-f45-older.1')]:
             state = updatelib.record_channel(state, key, {'tag': tag})
         for fedora in (44, 45):
             with self.subTest(fedora=fedora), tempfile.TemporaryDirectory() as temporary:
@@ -198,11 +199,42 @@ class ReleaseTests(unittest.TestCase):
                 for key, (release, channel) in site.SLOTS.items():
                     tag = args.tag if key == site.channel_key('testing', fedora) else state['channels'][key]['tag']
                     self.assertEqual((root / f'site/{release}/{channel}/aarch64/repomd.fixture').read_text(), tag)
-                self.assertFalse((root / 'site/45/stable').exists())
                 result = json.loads((root / 'state').read_text())
                 self.assertEqual(result['channels']['stable'], state['channels']['stable'])
+                self.assertEqual(result['channels']['45/stable'], state['channels']['45/stable'])
+        self.assertEqual(site.channel_key('stable', 45), '45/stable')
         with self.assertRaises(ValueError):
-            site.channel_key('stable', 45)
+            site.channel_key('unstable', 45)
+
+    def test_f45_stable_promotes_what_f45_testing_served(self):
+        site = module('channel-site')
+        state = updatelib.empty_channels('aurora-silicon/fedora-aurora')
+        state = updatelib.record_channel(state, 'testing', {'tag': 'testing-old.1', 'deployed_at': '2026-10-01T00:00:00Z'})
+        state = updatelib.record_channel(state, '45/testing', {'tag': 'testing-f45-soaked.1',
+                                                               'deployed_at': '2026-10-02T00:00:00Z'})
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            args = SimpleNamespace(repository=state['repository'], fedora_release=45, channel='stable', tag='',
+                                   min_soak_hours=24, site=str(root / 'site'), work=str(root / 'work'),
+                                   state_out=str(root / 'state'), site_url='https://example.invalid',
+                                   allow_downgrade=False)
+
+            def fetch(repository, tag, channel, destination, work, home, fingerprint, release=44):
+                target = destination / f'{release}/{channel}/aarch64'
+                target.mkdir(parents=True)
+                (target / 'repomd.fixture').write_text(tag)
+                return 'verified'
+
+            with patch.object(site.lib, 'load_channels', return_value=state), \
+                 patch.object(site, 'keyring', return_value=(root, 'fingerprint')), \
+                 patch.object(site, 'fetch_snapshot', side_effect=fetch), \
+                 patch.object(site, 'live_repository', return_value=None), \
+                 patch.object(site.lib, 'gh_api', return_value={'target_commitish': 'main', 'created_at': 'fixture'}), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                site.assemble(args)
+            self.assertEqual((root / 'site/45/stable/aarch64/repomd.fixture').read_text(), 'testing-f45-soaked.1')
+            self.assertEqual((root / 'site/44/testing/aarch64/repomd.fixture').read_text(), 'testing-old.1')
+            self.assertFalse((root / 'site/44/stable').exists())
 
     def test_f45_history_does_not_evict_the_f44_promotion_history(self):
         state = updatelib.empty_channels('aurora-silicon/fedora-aurora')

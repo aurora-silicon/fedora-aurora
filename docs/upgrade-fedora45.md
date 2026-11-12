@@ -6,9 +6,9 @@ and every Aurora package has a Fedora 45 build in `45/testing/aarch64`.
 
 ## Before you start
 
-- The system must use the **testing** channel, which is the default. Fedora 45
-  has no stable channel yet. On a system set to stable, the Aurora repository
-  for 45 does not exist, and the upgrade stops before it changes anything
+- Both channels can upgrade: a system on testing moves to `45/testing`, one on
+  stable to `45/stable`. If the Fedora 45 channel it follows has not been
+  published yet, the upgrade stops before it changes anything
   (`skip_if_unavailable=False`).
 - Bring Fedora 44 fully up to date and reboot if a kernel was updated:
 
@@ -35,8 +35,8 @@ Discover may offer it too).
 - `aurora-release` 45 replaces 44: `/etc/os-release` reports
   `Aurora Fedora Remix 45` and `%{fedora}` is 45.
 - `aurora.repo` uses `$releasever`, so dnf now reads
-  `https://aurorasilicon.org/fedora-aurora/45/testing/aarch64`. The signing key
-  is the same.
+  `https://aurorasilicon.org/fedora-aurora/45/<channel>/aarch64`. The signing
+  key is the same.
 - Every Aurora package moves to its `.fc45` build. Aurora's builds of Fedora
   packages (NetworkManager, Mutter, PipeWire, UPower and others) follow Fedora
   45's versions where Fedora 45 is newer.
