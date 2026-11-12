@@ -1,12 +1,12 @@
 %global debug_package %{nil}
-%global commit ea20cedb7e698c9ba5b7e392a7b6777e868ae40c
+%global commit 54678354b70d64506408d9b157f85ac6065d194b
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
 %global monitor_free 1
 Name: aura
-Version: 1.0.0~b12
-Release: 2%{?dist}
+Version: 1.0.0~b12.1
+Release: 1%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -26,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-ea20cedb7e698c9ba5b7e392a7b6777e868ae40c
+%autosetup -n aura-54678354b70d64506408d9b157f85ac6065d194b
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -42,6 +42,14 @@ cp build/aura.bin ../aurora-stage1/aura-raw.bin
 cp build/aura.macho ../aurora-stage1/aura.macho
 cp build/aura-boot.macho ../aurora-stage1/aura-boot.macho
 make clean
+# The secure-flavour Stage 1 that aurora-secboot stage1 build fills with the
+# owner's key. Its built-in key, used only while the key block is unfilled, is a
+# fresh one whose private half is never written down, so an unfilled image
+# verifies nothing.
+python3 -c 'import os, sys; sys.path.insert(0, "tools"); import secboot_sign; sys.stdout.buffer.write(secboot_sign.pubkey(os.urandom(32)))' > ../aurora-stage1/nobody.pub
+make %{?_smp_mflags} BUILDSTD=1 RELEASE=1 CHAINLOADING=1 USE_CLANG=1 BUILTIN_LOGO=aurora SECBOOT=audit SECBOOT_FLAVOUR=secure SECBOOT_PUBKEY=../aurora-stage1/nobody.pub %{?release_tag:AURA_VERSION_TAG=%{release_tag}}
+cp build/aura.bin ../aurora-stage1/aura-secure-raw.bin
+make clean
 make %{?_smp_mflags} BUILDSTD=1 RELEASE=1 CHAINLOADING=1 ESP_STAGE2=1 USE_CLANG=1 BUILTIN_LOGO=aurora %{?release_tag:AURA_VERSION_TAG=%{release_tag}}
 
 %install
@@ -54,6 +62,7 @@ install -Dm644 /dev/null %{buildroot}%{_datadir}/aura/monitor-free
 install -Dm644 ../aurora-stage1/aura-raw.bin %{buildroot}%{_datadir}/aura/stage1/aura-raw.bin
 install -Dm644 ../aurora-stage1/aura-boot.macho %{buildroot}%{_datadir}/aura/stage1/aura-boot.macho
 install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/aura.macho
+install -Dm644 ../aurora-stage1/aura-secure-raw.bin %{buildroot}%{_datadir}/aura/stage1/aura-secure-raw.bin
 # aura's own Stage 1 and signing tools, for aurora-secboot stage1 build and stage2 sign.
 for t in fill_stage1_config.py secboot_sign.py macho_boot_object.py; do
   install -Dm644 tools/$t %{buildroot}%{_datadir}/aura/tools/$t
@@ -67,6 +76,16 @@ install -Dm644 tools/recovery/enroll-stage1.sh %{buildroot}%{_datadir}/aura/tool
 %{_datadir}/aura/
 
 %changelog
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b12.1-1
+- Update to aura 1.0.0b12.1 (v1.0.0b12.1, 54678354): 1.0.0b12 plus
+  tools/macho_boot_object.py --execute-window (aura#195), secboot_sign.py
+  sign-image for aura Stage 2 images (#197) and a secure-flavour Stage 1
+  that links with this toolchain (#200). The default Stage 1 and the ESP
+  Stage 2 are 1.0.0b12's code.
+- Ship the secure-flavour Stage 1 as aura/stage1/aura-secure-raw.bin, for
+  aurora-secboot stage1 build. Its built-in key is a throwaway one, so an
+  image whose key block is not filled verifies nothing.
+
 * Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b12-2
 - Ship aura's Stage 1 and signing tools under /usr/share/aura/tools, for
   aurora-secboot stage1 build and stage2 sign on an existing install. No
