@@ -11,9 +11,9 @@
 #            --define 'host_release 0.12.aurora.borealis.<12-hex>%%{?dist}' ...
 # Both lines provide mesa-dri-drivers and mesa-vulkan-drivers at their own
 # version-release, which is what this package requires.
-%{!?commit:%global commit be147e36250b3dbacb6ddcee3e68acfad610f17d}
+%{!?commit:%global commit 33cf8cfc66830cb093e3a35c024b92d1b01a9773}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 23%{?dist}.aurora}
+%{!?host_release:%global host_release 24%{?dist}.aurora}
 %{!?host_epoch:%global host_epoch 1}
 %global debug_package %{nil}
 # Fedora's x86_64 build flags carry -m64 and would turn the i686 build into a
@@ -202,6 +202,18 @@ fi
 %{_presetdir}/80-aurora-fex-mesa.preset
 
 %changelog
+* Thu Nov 12 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:26.3.0-24
+- Track aurora-silicon/mesa aurora-wip at 33cf8cfc: GL stages writes to
+  busy buffers and copies them on the GPU instead of waiting for the GPU
+  (mesa#254, the Minecraft GL stutter), M5-family uniform ranges laid out
+  in dwords so the native fragment program builder takes every GL draw
+  (mesa#256), M5 G17G submission and CPU-path fixes (mesa#207, mesa#219),
+  G17P stage uniforms, layered RGBA8 renders, state-0 images and mesh
+  shaders (mesa#215, mesa#210, mesa#224, mesa#223), AGX3 packer fixes
+  (mesa#230, mesa#216), Honeykrisp fragment shader interlock (mesa#226),
+  coherent images on multi-cluster G13/G14 (mesa#247), resumed render pass
+  ordering (mesa#249) and kills with subgroup ops (mesa#245).
+
 * Thu Nov 12 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:26.3.0-23
 - Track aurora-silicon/mesa aurora-wip at be147e36: transform feedback
   keeps a captured point size (mesa#211), revert of the varying
