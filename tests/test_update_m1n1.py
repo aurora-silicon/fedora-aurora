@@ -481,6 +481,13 @@ class Recipes(unittest.TestCase):
         unit = (ROOT / 'packages/update-m1n1/aurora-kernel-install-repair.service').read_text()
         self.assertIn('ExecStart=/usr/libexec/aurora/kernel-install-repair --after-transaction\n', unit)
         self.assertIn('Type=oneshot\n', unit)
+        # Due until a run succeeds: also at boot, as after an offline upgrade.
+        self.assertIn('ConditionPathExists=/var/lib/update-m1n1/repair-pending\n', unit)
+        self.assertIn('[Install]\nWantedBy=multi-user.target\n', unit)
+        self.assertIn('enable aurora-kernel-install-repair.service\n',
+                      (ROOT / 'packages/update-m1n1/90-aurora-stage2.preset').read_text())
+        self.assertIn('%triggerun -- update-m1n1 < 20261107-7\n'
+                      '/usr/bin/systemctl --no-reload preset aurora-kernel-install-repair.service || :\n', spec)
         posttrans = self.step('update-m1n1', '%posttrans', 'fi')
         for booted, call in ((True, 'systemctl --no-block start aurora-kernel-install-repair.service'),
                              (False, 'kernel-install-repair')):
@@ -496,10 +503,12 @@ class Recipes(unittest.TestCase):
                     tool.chmod(0o755)
                 script = posttrans.split('\n', 1)[1].replace('/run/systemd/system', str(root / 'run/systemd/system'))
                 script = script.replace('%{_libexecdir}', str(root / 'libexec'))
+                script = script.replace('/var/lib/update-m1n1', str(root / 'state'))
                 result = subprocess.run(['sh', '-ec', script], capture_output=True, text=True,
                                         env=dict(os.environ, PATH=f'{root / "bin"}:{os.environ["PATH"]}'))
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual([line.strip() for line in log.read_text().splitlines()], [call])
+                self.assertTrue((root / 'state/repair-pending').exists())
 
     def test_the_package_keeps_the_upstream_license(self):
         spec = SPEC.read_text()

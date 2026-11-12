@@ -1,10 +1,15 @@
 [Unit]
 Description=Finish installing Aurora kernels whose kernel-install stopped early
 # Started by update-m1n1's %posttrans. The script queries the rpm database,
-# so it waits for that transaction to end before it does anything.
+# so it waits for that transaction to end before it does anything. It also runs
+# at boot until a run succeeds, as after an offline upgrade that rebooted first.
+ConditionPathExists=/var/lib/update-m1n1/repair-pending
 
 [Service]
 Type=oneshot
 ExecStart=/usr/libexec/aurora/kernel-install-repair --after-transaction
 # The transaction's own %posttrans may still run dracut for each new kernel.
 TimeoutStartSec=20min
+
+[Install]
+WantedBy=multi-user.target
