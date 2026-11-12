@@ -144,6 +144,26 @@ class SpecTests(unittest.TestCase):
         for unit in ('systemd-growfs-root.service', 'systemd-growfs@.service'):
             self.assertIn(f'%{{_unitdir}}/{unit}.d/aurora-growfs.conf', files)
         self.assertIn('/usr/lib/aurora/\n', files)
+    def test_reboot_watchdog_fits_the_apple_hardware_watchdog(self):
+        # The Apple SoC watchdog (24 MHz, 32-bit) cannot time out later than
+        # about 178 s; a longer RebootWatchdogSec makes the kernel feed it, so
+        # a stalled reboot is not reset. Both values must stay within range.
+        d = ROOT / 'packages' / 'aurora-platform'
+        conf = (d / '90-aurora-reboot-watchdog.conf').read_text()
+        values = dict(re.findall(r'(?m)^(\w+WatchdogSec)=(\S+)$', conf))
+        self.assertEqual(values, {'RebootWatchdogSec': '2min', 'KExecWatchdogSec': '2min'})
+        self.assertIn('[Manager]', conf.splitlines())
+        hw_max_s = (2**32 - 1) // 24_000_000
+        for value in values.values():
+            seconds = int(value[:-3]) * 60
+            self.assertGreater(seconds, 0)
+            self.assertLessEqual(seconds, hw_max_s)
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: 90-aurora-reboot-watchdog\.conf$')
+        install = text.split('%install', 1)[1].split('%posttrans core', 1)[0]
+        self.assertIn('%{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf', install)
+        core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
+        self.assertIn('%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf\n', core_files)
     def test_initramfs_carries_the_usb4_router_with_the_type_c_controllers(self):
         # dracut-asahi brings tps6598x and sn201202x; their router must come too.
         d = ROOT / 'packages' / 'aurora-platform'
@@ -412,6 +432,19 @@ class SpecTests(unittest.TestCase):
         text = (d / 'aurora-platform.spec').read_text()
         core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
         self.assertIn('%{_udevrulesdir}/62-aurora-gpu-render-only.rules', core_files)
+    def test_host_clicks_only_where_an_actuator_is(self):
+        # macOS plays every click from the host; only MTP trackpads with an
+        # actuator node switch, so SPI and external trackpads keep theirs.
+        d = ROOT / 'packages' / 'aurora-platform'
+        rules = [l for l in (d / '64-aurora-trackpad-clicks.rules').read_text().splitlines()
+                 if l and not l.startswith('#')]
+        self.assertEqual(rules, ['ACTION=="add|bind", SUBSYSTEM=="hid", DRIVER=="magicmouse", '
+                                 'ENV{HID_NAME}=="Apple MTP multi-touch", TEST=="../of_node/actuator", '
+                                 'ATTR{[module/hid_magicmouse]parameters/haptic_press}="Y"'])
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: 64-aurora-trackpad-clicks\.rules$')
+        core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
+        self.assertIn('%{_udevrulesdir}/64-aurora-trackpad-clicks.rules', core_files)
     def test_platform_core_carries_no_kernel_or_boot_chain(self):
         d = ROOT / 'packages' / 'aurora-platform'
         text = (d / 'aurora-platform.spec').read_text()
@@ -437,7 +470,7 @@ class SpecTests(unittest.TestCase):
         # v2 is back as release candidate 8, installable by hand only: no
         # default package pulls it, and aurora-audio retires only RC7 and older.
         spec = (ROOT / 'packages/speakerguardd-v2/speakerguardd-v2.spec').read_text()
-        self.assertRegex(spec, r'(?m)^Release: 0\.3[3-9]\.')
+        self.assertRegex(spec, r'(?m)^Release: 0\.(3[3-9]|[4-9][0-9])\.')
         self.assertIn('install -Dm644 packaging/session/parity.json', spec)
         for name in ('aurora-platform', 'aurora-audio', 'kernel-aurora'):
             text = (ROOT / 'packages' / name / f'{name}.spec').read_text()
@@ -807,4 +840,19 @@ class SpecTests(unittest.TestCase):
         self.assertIn('make -C sk check', text.split('%check', 1)[1].split('%install', 1)[0])
         pins = json.loads((ROOT / 'sources.json').read_text())
         self.assertIn(pins['aurora-sep-sk']['commit'], text)
+    def test_camera_denoise_user_unit_skips_root_and_system_users(self):
+        # camera-denoise#8 (ConditionUser, start limits) is in the pinned
+        # commit and %check runs its unit test (tests/check-unit.sh).
+        spec = (ROOT / 'packages/aurora-camera-denoise/aurora-camera-denoise.spec').read_text()
+        pins = json.loads((ROOT / 'sources.json').read_text())
+        self.assertIn(pins['aurora-camera-denoise']['commit'], spec)
+        self.assertNotEqual(pins['aurora-camera-denoise']['commit'],
+                            '456c567527d6bbba27d0aaeec1199032e0ec88c3')
+        self.assertIn('%meson_test', spec.split('%check', 1)[1].split('%install', 1)[0])
+    def test_camera_denoise_ships_the_encoder_filter_plugin(self):
+        spec = (ROOT / 'packages/aurora-camera-denoise/aurora-camera-denoise.spec').read_text()
+        files = spec.split('%files', 1)[1].split('%changelog', 1)[0]
+        self.assertIn('%{_libdir}/aurora-camera-denoise/cdn-backend-ave.so', files)
+        self.assertIn('%{_libdir}/aurora-camera-denoise/cdn-backend-ane.so', files)
+        self.assertIn('%{_datadir}/aurora-camera-denoise/', files)
 if __name__ == '__main__': unittest.main()

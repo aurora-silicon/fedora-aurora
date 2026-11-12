@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 31%{?dist}
+Release: 36%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -36,6 +36,9 @@ Source114: 90-aurora-ane.conf
 Source115: aurora-wake-for-network
 Source116: 63-aurora-wake-for-network.rules
 Source117: aurora-grub-uuid
+Source118: 90-aurora-reboot-watchdog.conf
+Source119: aurora-early-kms-wait.sh
+Source120: 64-aurora-trackpad-clicks.rules
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -65,6 +68,12 @@ Requires: aurora-camera-denoise
 # that update with dnf).
 Requires: libva-v4l2-request-avd
 Requires: aurora-kbd-light
+# One built-in panel brightness, shared with the boot loader and macOS
+# through NVRAM backlight-nits.
+Requires: aurora-panel-nits
+# NVRAM tools that parse the current NVRAM v3 stores, and the Bluetooth
+# pairings made in macOS (they replace asahi-nvram and asahi-btsync).
+Requires: aurora-nvram aurora-btsync
 # The Aurora repository with its key and dnf vendor policies, so a Fedora
 # Asahi Remix system with these services keeps following Aurora's builds.
 Requires: aurora-repos
@@ -123,6 +132,7 @@ install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwd
 install -Dm755 %{SOURCE105} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-usb4/module-setup.sh
 install -Dm755 %{SOURCE106} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/module-setup.sh
 install -Dm755 %{SOURCE107} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh
+install -Dm755 %{SOURCE119} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms-wait.sh
 install -Dpm0644 %{SOURCE114} %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-ane.conf
 install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-console
 install -Dm755 %{SOURCE117} %{buildroot}%{_libexecdir}/aurora/aurora-grub-uuid
@@ -130,6 +140,8 @@ install -Dm644 %{SOURCE112} %{buildroot}%{_prefix}/lib/tuned/profiles/aurora-per
 install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 install -Dm755 %{SOURCE115} %{buildroot}%{_libexecdir}/aurora/aurora-wake-for-network
 install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-network.rules
+install -Dm644 %{SOURCE120} %{buildroot}%{_udevrulesdir}/64-aurora-trackpad-clicks.rules
+install -Dm644 %{SOURCE118} %{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 
 %posttrans core
 # Fedora's flicker-free GRUB output, once per system; see the script.
@@ -167,7 +179,9 @@ install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-netw
 %{_udevrulesdir}/61-aurora-dmi-id.rules
 %{_udevrulesdir}/62-aurora-gpu-render-only.rules
 %{_udevrulesdir}/63-aurora-wake-for-network.rules
+%{_udevrulesdir}/64-aurora-trackpad-clicks.rules
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
+%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
 %{_prefix}/lib/dracut/modules.d/91aurora-early-kms/
 %{_prefix}/lib/dracut/dracut.conf.d/90-aurora-ane.conf
@@ -183,6 +197,39 @@ install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-netw
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Wed Nov 11 2026 DjDeveloperr <hey@djdev.me> - 44-36
+- Play trackpad clicks from the host, as macOS does, on Macs whose MTP
+  trackpad has a haptic actuator: 64-aurora-trackpad-clicks.rules sets
+  hid_magicmouse haptic_press when the trackpad binds. macOS takes click
+  control from the actuator at boot. Tested on a MacBook Pro (M5 Pro),
+  where the owner reported "haptic works"; the force-click threshold is not
+  touch-tested yet. An empty /etc/udev/rules.d file of the same name keeps
+  the firmware's click.
+
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-35
+- 91aurora-early-kms waits up to 2 s before the pivot for appledrm's DRM
+  device, so Plymouth takes it over while the initramfs udevd runs instead
+  of after an fbdev modeset blanks the panel
+
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-34
+- Require aurora-nvram and aurora-btsync, which replace asahi-nvram and
+  asahi-btsync: stock asahi-nvram panics on current NVRAM v3 stores, and
+  aurora-btsync refreshes the keys of devices macOS paired again.
+
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-33
+- Require aurora-panel-nits: the built-in panel starts at the boot loader's
+  NVRAM backlight-nits level instead of systemd-backlight's saved level, and
+  the user's level is stored back to NVRAM, so the panel does not step when
+  Linux takes over and the boot loader and macOS start at the same level.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-32
+- Reset a stuck reboot after 2 minutes: set RebootWatchdogSec and
+  KExecWatchdogSec to 2min. The Apple SoC watchdog cannot time out later than
+  about 178 s, so with systemd's default of 10 min the kernel kept feeding it
+  and a reboot that stalled was not reset for over 10 minutes. Tested on a
+  MacBook Air (M2): a reboot wedged before the final reboot call is reset
+  2 min after the watchdog is armed, 1 min with 1min.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-31
 - SELinux: stop logging three denials on every login. pam_gdm scans
   /proc/keys for the disk passphrase, and listing needs "view" on each key;

@@ -1,0 +1,11 @@
+{
+  "gnome-settings-daemon": {
+    "repository": "https://gitlab.gnome.org/GNOME/gnome-settings-daemon",
+    "commit": "4a75955f7481e2bb19fa73fa67456e83d67e8563",
+    "version": "51.1",
+    "source_url": "https://download.gnome.org/sources/gnome-settings-daemon/51/gnome-settings-daemon-51.1.tar.xz",
+    "archive_root": "gnome-settings-daemon-51.1",
+    "archive_file": "gnome-settings-daemon-51.1.tar.xz",
+    "sha256": "e7de8d30ae2d63c7a9a21f8f0247219275cbc1d7f5ed09205e4a47642666f6ae"
+  }
+}

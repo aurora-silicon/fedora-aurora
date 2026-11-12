@@ -1,0 +1,112 @@
+#!/bin/bash
+# Only in a disposable Fedora 44 aarch64 container. No host devices/mounts.
+#
+# Installs an Aurora Fedora 44 system from the signed Aurora repository and
+# upgrades it to Fedora 45 with `dnf system-upgrade`, the documented path,
+# then checks what the upgraded system runs. The offline transaction that a
+# real upgrade runs after its reboot is run here directly.
+#
+#   AURORA_REPOSITORY_URL  Aurora repository, with $releasever (default: the
+#                          published testing feed).
+#   AURORA_EXTRA_PACKAGES  More packages for the Fedora 44 system, such as a
+#                          desktop (default: the platform and graphics only).
+set -euo pipefail
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+source "$root/scripts/testlib.sh"
+proof=${1:?proof directory}
+url=${AURORA_REPOSITORY_URL:-https://aurorasilicon.org/fedora-aurora/\$releasever/testing/aarch64}
+read -r -a extra <<< "${AURORA_EXTRA_PACKAGES:-}"
+[[ $(uname -m) == aarch64 && $(id -u) == 0 ]]
+# shellcheck disable=SC1091
+[[ $(. /etc/os-release; echo "$VERSION_ID") == 44 ]]
+mkdir -p "$proof"
+exec > >(tee "$proof/system-upgrade.log") 2>&1
+
+# The container has no Mac boot chain; give update-m1n1 a scratch ESP so the
+# kernel and boot-chain scriptlets run as they do on a Mac.
+mkdir -p /boot/efi/m1n1 /etc/sysconfig
+cat > /etc/sysconfig/update-m1n1 <<'CONFIG'
+M1N1=/usr/lib64/m1n1/m1n1.bin
+U_BOOT=/usr/share/uboot/apple_m1/u-boot-nodtb.bin
+DTBS=/boot/dtb
+TARGET=/boot/efi/m1n1/boot.bin
+CONFIG
+export AURORA_DEVICE_TREE_COMPATIBLE=/nonexistent
+
+# Fedora 44 as the installer leaves it: the Aurora repository and key come
+# from aurora-repos, and nothing else points at a release.
+install -Dm644 "$root/keys/RPM-GPG-KEY-aurora" /etc/pki/rpm-gpg/RPM-GPG-KEY-aurora
+rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-aurora
+sed "s|^baseurl=.*|baseurl=$url|" "$root/packages/aurora-repos/aurora.repo" > /etc/yum.repos.d/aurora.repo
+dnf5 install -y --setopt=install_weak_deps=False dnf5-plugins python3
+# The container image's own release identity; images never carry it.
+rpm -e --nodeps fedora-release-identity-container
+dnf5 install -y --setopt=install_weak_deps=False --allowerasing \
+  aurora-release aurora-repos aurora-platform \
+  mesa-aurora-dri-drivers mesa-aurora-vulkan-drivers "${extra[@]}"
+# Keep any aurora.repo the package installs; point it at the same feed.
+sed -i "s|^baseurl=.*|baseurl=$url|" /etc/yum.repos.d/aurora.repo
+grep -qx 'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-aurora' /etc/yum.repos.d/aurora.repo
+# shellcheck disable=SC1091
+[[ $(. /etc/os-release; echo "$VERSION_ID $NAME") == '44 Aurora Fedora Remix' ]]
+# Fedora's upgrade guide starts from a fully updated system.
+dnf5 upgrade -y --refresh
+rpm -qa --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH} %{VENDOR}\n' | sort > "$proof/fedora44-packages.txt"
+
+# The documented upgrade.
+dnf5 system-upgrade download -y --releasever=45 2>&1 | tee "$proof/download.log"
+dnf5 offline status | tee "$proof/offline-status.txt"
+grep -qi 'reboot' "$proof/offline-status.txt"
+# `dnf5 offline reboot` links /system-update to the stored transaction and
+# reboots; systemd's system-update.target then runs this from
+# dnf5-offline-transaction.service.
+state=/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml
+grep -q '^status = "download-complete"' "$state"
+sed -i 's/^status = "download-complete"/status = "ready"/' "$state"
+ln -sfn /usr/lib/sysimage/libdnf5/offline /system-update
+# It reboots over D-Bus when it is done, which a container cannot do; the
+# transaction itself must have finished.
+dnf5 offline _execute > "$proof/offline-transaction.log" 2>&1 || true
+cat "$proof/offline-transaction.log"
+[[ ! -e /system-update ]]
+nomatch -iE 'transaction failed|scriptlet.*fail|error: ' "$proof/offline-transaction.log"
+
+rpm -qa --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH} %{VENDOR}\n' | sort > "$proof/fedora45-packages.txt"
+# shellcheck disable=SC1091
+[[ $(. /etc/os-release; echo "$VERSION_ID $NAME") == '45 Aurora Fedora Remix' ]]
+[[ $(rpm -q --qf '%{VERSION}' aurora-release) == 45 ]]
+[[ $(rpm -E '%{fedora}') == 45 ]]
+# Every Aurora package moved to its Fedora 45 build. The Fedora 44 kernel
+# stays installed beside the new one as the fallback, as after any kernel
+# update. Fedora packages that Fedora 45 does not rebuild are only recorded.
+grep -E '\.fc44(\.|[[:space:]])' "$proof/fedora45-packages.txt" > "$proof/fc44-left.txt" || true
+grep -vE '^kernel-aurora(-core|-modules-extra)? ' "$proof/fc44-left.txt" > "$proof/fc44-aurora-left.txt" || true
+nomatch -E 'Aurora Silicon$|^aurora-(release|repos) ' "$proof/fc44-aurora-left.txt"
+grep -E '^kernel-aurora-core .*\.fc45\.aurora' "$proof/fedora45-packages.txt"
+# Nothing Aurora shipped on Fedora 44 was dropped by the upgrade.
+python3 - "$proof" <<'PY'
+import sys
+from pathlib import Path
+proof = Path(sys.argv[1])
+def aurora(name):
+    return {line.split()[0] for line in (proof / name).read_text().splitlines()
+            if line.endswith('Aurora Silicon') or line.split()[0] in ('aurora-release', 'aurora-repos')}
+lost = aurora('fedora44-packages.txt') - aurora('fedora45-packages.txt')
+assert not lost, f'Aurora packages removed by the upgrade: {sorted(lost)}'
+print(len(aurora('fedora45-packages.txt')), 'Aurora packages carried to Fedora 45')
+PY
+# The Aurora repository now follows Fedora 45 and the system is consistent.
+dnf5 repo info aurora | tee "$proof/aurora-repo.txt"
+grep -q '/45/' "$proof/aurora-repo.txt"
+dnf5 check | tee "$proof/dnf-check.txt"
+dnf5 upgrade --assumeno --refresh 2>&1 | tee "$proof/after-upgrade.txt"
+grep -q 'Nothing to do' "$proof/after-upgrade.txt"
+# The Fedora 45 kernel is installed, with its device trees, and the boot
+# chain was rebuilt from it.
+krel=$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-aurora-core | sort -V | tail -1)
+[[ $krel == *.fc45.aurora.aarch64 ]]
+[[ -s /usr/lib/modules/$krel/vmlinuz && -d /usr/lib/modules/$krel/dtb/apple ]]
+[[ $(readlink /boot/dtb) == "dtb-$krel" ]]
+[[ -s /boot/efi/m1n1/boot.bin ]]
+rpm -q kernel-aurora-core aura uboot-aurora update-m1n1 > "$proof/bootchain-nevra.txt"
+echo "Fedora 44 -> 45 system-upgrade passed: $(rpm -q aurora-release), kernel $krel"

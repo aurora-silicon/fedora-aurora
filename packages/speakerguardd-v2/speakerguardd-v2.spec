@@ -1,6 +1,6 @@
-%global commit d69f0115edc1abe56acc60dff19c08d17096fb41
+%global commit 836a0efa19fc733f870651316ed04ff243667e39
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261110
+%global snapdate 20261112
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.39.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.45.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -247,6 +247,52 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.45.20261112git836a0efa19fc
+- speakerguardd#167: a capture of the amps' sink is unlinked until the
+  grant, so nothing wakes the sink before it; grants that a fault ends
+  within 2 s are spaced out from the second one in a row (250 ms up to
+  4 s); a late helper-liveness check vouches for up to 250 ms (12 ms
+  before), a dead helper still counts at once.
+
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.44.20261112git26db27188637
+- speakerguardd#165: the session parity attestations are regenerated at the
+  current voicing law, so `speakerguardd-selfcheck verify` accepts the
+  shipped tunings again (dda9784b refused every Mac after #157 changed
+  law-hashed files). No verdict changes.
+- speakerguardd#166: verify gates every tuning at volume sliders 0.7, 0.46
+  and 0.25.
+
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.43.20261112gitdda9784b09bc
+- speakerguardd#163: speakerguardd-provision session-stop and
+  session-start (bounded: 15 s after SIGTERM, then SIGKILL); the graph
+  refresh and the revert restart the session through them instead of
+  try-restart. Also speakerguardd#157 (lsm2 fill from the owner's own
+  collection), #164 (spp3 reports whether the closed-loop temperature
+  is current) and #161 (the J713's speaker service PCMs open at their own
+  width).
+
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.42.20261112gitd2bc197249b4
+- speakerguardd#162: the gate reads the kernel's interface only from the
+  speaker card and waits for it, whatever order the cards register in
+  (a J616s on 7.3.0-33 registered the jack card 2 s before the speaker
+  card); tests for the card order. v2 stays a preview and opt-in.
+
+* Wed Nov 11 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.41.20261111gitea73fdf0eebc
+- Release candidate 8.8 (speakerguardd#153-#156 on top of RC8.7): the
+  speakers' volume is kept across graph restarts and a first start begins
+  at 30 % instead of 100 %; the first start after the switch test no
+  longer waits 60 s; lsm2 applies MaxTemperatureAttenuation as macOS does.
+  v2 stays a preview and opt-in.
+
+* Wed Nov 11 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.40.20261111git24451b6f817d
+- Release candidate 8.7 (speakerguardd#149): with nothing playing the
+  speaker path powers down (amps and sense unlinked, both PCMs closed, the
+  grant given back), as macOS does: about 1 W less at idle on a MacBook Air
+  M2, 0.4 W on a MacBook Pro M1 Pro. The stream that wakes the speakers
+  loses nothing: its first frames are held until the amps play, then
+  played in order. The self-check's graph step accounts for the sink
+  starting again with each first stream. v2 stays a preview and opt-in.
+
 * Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.39.20261110gitd69f0115edc1
 - Release candidate 8.6, a bug-fix release (speakerguardd#151, #152,
   #148): after a system sleep the supervisor waits for the engine to beat

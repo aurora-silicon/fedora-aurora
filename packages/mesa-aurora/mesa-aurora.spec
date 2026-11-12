@@ -1,8 +1,8 @@
-%global commit 51b0b650e45310589b973f34f3ea007c6d8848c1
+%global commit be147e36250b3dbacb6ddcee3e68acfad610f17d
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 20%{?dist}.aurora
+Release: 23%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -200,6 +200,28 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Thu Nov 12 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-23
+- Track aurora-silicon/mesa aurora-wip at be147e36: transform feedback
+  keeps a captured point size (mesa#211), revert of the varying
+  optimisation that broke fast-linked pipeline libraries with viewport
+  arrays (mesa#212), no signext optimisation over an abs source in the
+  AGX compiler (mesa#232, OpenCL 64-bit multiplies).
+
+* Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-22
+- Track aurora-silicon/mesa aurora-wip at 7f7a7ffa: G13/G14 buffer device
+  address capture/replay (mesa#222), G13/G14 sparse texel buffer residency
+  and strict residency for vkd3d-proton only (mesa#235), divergent subgroup
+  shuffles in vertex shaders (mesa#234), G17 occlusion query results with
+  wait and no colour attachments (mesa#233), AGX3 uniform TCS image atomics
+  (mesa#213), ray tracing hit-object parser tests (mesa#220).
+
+* Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-21
+- Track aurora-silicon/mesa aurora-wip at 10161a78: shader constant order
+  independent of the build host and 32-bit unit tests fixed (mesa#209),
+  native Gallium GL on the M5 Pro and M5 Max with CPU maps waiting for
+  writers on other contexts (mesa#194), G17G perspective varyings (mesa#208),
+  M5 Max admission and G17P/M5 fixes (mesa#195 #202-#206, #157, #125).
+
 * Tue Nov 10 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-20
 - Track aurora-silicon/mesa aurora-wip at 51b0b650: render ray-query scratch
   only on queues that use it (mesa#200), diagnostic environment switches read

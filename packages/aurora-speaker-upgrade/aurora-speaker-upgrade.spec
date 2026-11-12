@@ -1,10 +1,10 @@
-%global commit d69f0115edc1abe56acc60dff19c08d17096fb41
+%global commit 836a0efa19fc733f870651316ed04ff243667e39
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261110
+%global snapdate 20261112
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.8.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.13.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning (preview)
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -64,6 +64,38 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.13.20261112git836a0efa19fc
+- Rebuilt from speakerguardd#167 (no change to this tool).
+
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.12.20261112git26db27188637
+- Follow speakerguardd-v2 to 26db2718 (speakerguardd#165, #166): the
+  parity attestations match the current voicing law again, and verify
+  gates every tuning at volume sliders 0.7, 0.46 and 0.25.
+
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.11.20261112gitdda9784b09bc
+- speakerguardd#163: the seat user's PipeWire, WirePlumber and
+  pipewire-pulse stop before the speaker interface switches and start
+  again after it, on a switch and on a rollback. A unit still stopping
+  15 s after SIGTERM is killed, so a busy WirePlumber no longer runs the
+  session restart past its time limit. Also the installer collector from
+  aurora-installer de37d8eb (speakerguardd#157).
+
+* Wed Nov 11 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.10.20261111gitea73fdf0eebc
+- Release candidate 8.8 (speakerguardd#153-#156 on top of RC8.7): the
+  speakers' volume is kept across graph restarts and a first start begins
+  at 30 % instead of 100 %; the first start after the switch test no
+  longer waits 60 s; lsm2 applies MaxTemperatureAttenuation as macOS does.
+  v2 stays a preview and opt-in.
+
+* Wed Nov 11 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.9.20261111git24451b6f817d
+- Release candidate 8.7 (speakerguardd#149): with nothing playing the
+  speaker path powers down (amps and sense unlinked, both PCMs closed, the
+  grant given back), as macOS does: about 1 W less at idle on a MacBook Air
+  M2, 0.4 W on a MacBook Pro M1 Pro. The stream that wakes the speakers
+  loses nothing: its first frames are held until the amps play, then
+  played in order. The self-check's graph step accounts for the sink
+  starting again with each first stream. v2 stays a preview and opt-in.
+
 * Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.8.20261110gitd69f0115edc1
 - Release candidate 8.6, a bug-fix release (speakerguardd#151, #152,
   #148): after a system sleep the supervisor waits for the engine to beat

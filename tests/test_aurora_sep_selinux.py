@@ -59,8 +59,11 @@ class SelinuxModuleTests(unittest.TestCase):
 
     def test_state_access_is_scoped(self):
         allowed = set(re.findall(r'allow\s+(\w+)\s+aurora_sep_state_t:', self.te))
+        # aurora_sep_fde_t: aurora-sep-fde-passwd re-wraps key bags after a
+        # password change; lvm_t: systemd-cryptsetup opening password-sealed
+        # volumes after the switch to the real root (aurora-sep-luks).
         self.assertEqual(allowed, {'kernel_t', 'init_t', 'fprintd_t', 'kmod_t',
-                                   'aurora_touchid_rearm_t'})
+                                   'aurora_touchid_rearm_t', 'aurora_sep_fde_t', 'lvm_t'})
         self.assertRegex(self.te, r'allow init_t aurora_sep_state_t:file read_file_perms;')
 
     def test_the_loader_runs_in_its_own_domain(self):
@@ -99,8 +102,10 @@ class TouchIdRearmPolicyTests(unittest.TestCase):
         self.fc = (PKG / 'aurora_sep.fc').read_text()
 
     def test_only_the_rearm_domain_opens_the_rearm_device(self):
+        # Plus the disk-key paths (aurora-sep-luks): the password-change
+        # helper and systemd-cryptsetup after the switch to the real root.
         users = set(re.findall(r'allow\s+(\w+)\s+aurora_sep_rearm_device_t:', self.te))
-        self.assertEqual(users, {'aurora_touchid_rearm_t'})
+        self.assertEqual(users, {'aurora_touchid_rearm_t', 'aurora_sep_fde_t', 'lvm_t'})
         self.assertIn('/dev/sep-bio-rearm\t-c\tgen_context(system_u:object_r:aurora_sep_rearm_device_t,s0)', self.fc)
 
     def test_confined_users_and_their_agents_reach_the_key_node(self):
