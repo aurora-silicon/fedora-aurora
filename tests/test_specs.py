@@ -472,6 +472,13 @@ class SpecTests(unittest.TestCase):
         spec = (ROOT / 'packages/speakerguardd-v2/speakerguardd-v2.spec').read_text()
         self.assertRegex(spec, r'(?m)^Release: 0\.(3[3-9]|[4-9][0-9])\.')
         self.assertIn('install -Dm644 packaging/session/parity.json', spec)
+        # The speaker graph needs Aurora's PipeWire; Fedora's never provides it.
+        self.assertRegex(spec, r'(?m)^Requires: pipewire-speaker-graph >= 2$')
+        pw = (ROOT / 'packages/pipewire/pipewire.spec').read_text()
+        libs = pw.split('%package libs', 1)[1].split('%description libs', 1)[0]
+        self.assertRegex(libs, r'(?m)^Provides:\s+pipewire-speaker-graph = 2$')
+        for n in ('1006', '1007', '1008', '1010'):
+            self.assertRegex(pw, rf'(?m)^Patch{n}:')
         for name in ('aurora-platform', 'aurora-audio', 'kernel-aurora'):
             text = (ROOT / 'packages' / name / f'{name}.spec').read_text()
             self.assertNotRegex(text, r'(?m)^(Requires|Recommends):.*\b(speakerguardd-v2|aurora-speaker-upgrade)\b', name)
