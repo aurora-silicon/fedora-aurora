@@ -34,6 +34,10 @@ Mozilla Firefox
 %prep
 %patch -P604 -p1
 rm -f .mozconfig
+%build
+%ifarch %{ix86} s390x ppc64le
+export RUSTFLAGS="-Cdebuginfo=0"
+%endif
 %changelog
 * Fri Nov 06 2026 Fedora Packager <p@example.invalid> - 161.0-2
 - Update
@@ -50,13 +54,15 @@ class FirefoxRecipeTests(unittest.TestCase):
         self.assertIn('%patch -P900 -p1 -b .rdd-v4l2-request\n\nrm -f .mozconfig\n', text)
         self.assertIn('%global create_debuginfo  0\n', text)
         self.assertIn('%else\n  %bcond wasi_sdk 0\n%endif\n%endif', text)
+        self.assertIn('%ifarch %{ix86} s390x ppc64le aarch64\nexport RUSTFLAGS="-Cdebuginfo=0"\n', text)
         self.assertIn('%changelog\n* Wed Nov 11 2026 Aurora Silicon <hey@djdev.me> - 161.0-2.aurora2\n'
                       "- Rebuild of Fedora's firefox-161.0-2.\n", text)
         self.assertIn('* Fri Nov 06 2026 Fedora Packager', text)
 
     def test_spec_edit_refuses_a_recipe_it_does_not_recognise(self):
         for old, new in [('rm -f .mozconfig\n', ''), ('  %bcond wasi_sdk 1\n', ''),
-                         ('Release:        2%{?dist}', 'Release:        2')]:
+                         ('Release:        2%{?dist}', 'Release:        2'),
+                         ('export RUSTFLAGS="-Cdebuginfo=0"\n', '')]:
             with self.subTest(removed=old), self.assertRaises(SystemExit):
                 importer.edit_spec(FEDORA_SPEC.replace(old, new), '0' * 40, 'Wed Nov 11 2026')
 
