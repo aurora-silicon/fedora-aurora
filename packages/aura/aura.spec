@@ -6,7 +6,7 @@
 %global monitor_free 1
 Name: aura
 Version: 1.0.0~b12
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -54,6 +54,11 @@ install -Dm644 /dev/null %{buildroot}%{_datadir}/aura/monitor-free
 install -Dm644 ../aurora-stage1/aura-raw.bin %{buildroot}%{_datadir}/aura/stage1/aura-raw.bin
 install -Dm644 ../aurora-stage1/aura-boot.macho %{buildroot}%{_datadir}/aura/stage1/aura-boot.macho
 install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/aura.macho
+# aura's own Stage 1 and signing tools, for aurora-secboot stage1 build and stage2 sign.
+for t in fill_stage1_config.py secboot_sign.py macho_boot_object.py; do
+  install -Dm644 tools/$t %{buildroot}%{_datadir}/aura/tools/$t
+done
+install -Dm644 tools/recovery/enroll-stage1.sh %{buildroot}%{_datadir}/aura/tools/enroll-stage1.sh
 
 %files
 %license LICENSE 3rdparty_licenses/*
@@ -62,6 +67,12 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b12-2
+- Ship aura's Stage 1 and signing tools under /usr/share/aura/tools, for
+  aurora-secboot stage1 build and stage2 sign on an existing install. No
+  secure-flavour Stage 1 image yet: with this toolchain a 1.0.0b12
+  SECBOOT=audit Stage 1 reaches the DCP log buffer at 0x120000.
+
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b12-1
 - Update to 1.0.0b12 (ea20cedb). The T8140 encoder handoff now enables the
   encoder's whole power-domain chain (aura#190): with the fabric power states

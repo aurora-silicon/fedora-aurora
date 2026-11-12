@@ -1,6 +1,6 @@
 Name: update-m1n1
 Version: 20261107
-Release: 6%{?dist}.aurora
+Release: 7%{?dist}.aurora
 Summary: Transactional Aurora Stage 2 updates with retained-kernel DTB checks
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -53,6 +53,9 @@ install -Dm644 %{SOURCE8} %{buildroot}%{_unitdir}/aurora-stage2-commit.service
 install -Dm644 %{SOURCE10} %{buildroot}%{_unitdir}/aurora-stage2-guard.service
 install -Dm644 %{SOURCE11} %{buildroot}%{_unitdir}/aurora-stage2-guard.timer
 install -Dm644 %{SOURCE9} %{buildroot}%{_presetdir}/90-aurora-stage2.preset
+# bootchain.py hands each Stage 2 to "aurora-secboot stage2 hook"; aurora-secboot stage1 build --enforce
+# looks for this marker before it builds a Stage 1 that refuses unsigned Stage 2s.
+install -Dm644 /dev/null %{buildroot}%{_datadir}/aurora/stage2-sign-hook
 
 %post
 %systemd_post aurora-stage2-commit.service aurora-stage2-guard.timer
@@ -85,11 +88,18 @@ install -Dm644 %{SOURCE9} %{buildroot}%{_presetdir}/90-aurora-stage2.preset
 %{_unitdir}/aurora-stage2-guard.service
 %{_unitdir}/aurora-stage2-guard.timer
 %{_presetdir}/90-aurora-stage2.preset
+%{_datadir}/aurora/stage2-sign-hook
 %config(noreplace) %{_sysconfdir}/kernel/install.d/10-devicetree.install
 %{_kernel_install_dir}/15-update-m1n1.install
 %config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1
 
 %changelog
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261107-7
+- Hand each composed Stage 2 to aurora-secboot's stage2 hook when it is
+  installed, so an owner-key Stage 1 gets a Stage 2 signed with the
+  owner's key; a signing failure keeps the last Stage 2. Ship the
+  stage2-sign-hook marker that aurora-secboot stage1 build checks.
+
 * Mon Nov 09 2026 Diljit Singh <hey@djdev.me> - 20261107-6
 - Stop stranding Macs on an old kernel. A refused Stage 2 update failed
   15-update-m1n1.install, so kernel-install stopped before the new
