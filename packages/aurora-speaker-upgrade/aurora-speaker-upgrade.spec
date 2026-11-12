@@ -1,10 +1,10 @@
-%global commit 26db27188637ec52a6d9bb9f0abffa12d5571656
+%global commit 836a0efa19fc733f870651316ed04ff243667e39
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261112
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.12.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.13.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning (preview)
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -64,6 +64,9 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.13.20261112git836a0efa19fc
+- Rebuilt from speakerguardd#167 (no change to this tool).
+
 * Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.12.20261112git26db27188637
 - Follow speakerguardd-v2 to 26db2718 (speakerguardd#165, #166): the
   parity attestations match the current voicing law again, and verify
