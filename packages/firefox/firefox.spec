@@ -835,7 +835,7 @@ MOZ_LINK_FLAGS="%{build_ldflags}"
 MOZ_LINK_FLAGS="$MOZ_LINK_FLAGS -Wl,--no-keep-memory"
 %endif
 %endif
-%ifarch %{ix86} s390x ppc64le
+%ifarch %{ix86} s390x ppc64le aarch64
 export RUSTFLAGS="-Cdebuginfo=0"
 %endif
 %if %{build_with_asan}
@@ -1203,7 +1203,8 @@ fi
 - Allow V4L2 stateless (Request API) decoders in the RDD sandbox.
 - Allow sysinfo in the RDD sandbox, so Mesa's zink driver can create the
   GBM device behind VA-API DMABuf surfaces.
-- No debuginfo and no WASI SDK build, to fit the native builder.
+- No debuginfo, no Rust debug info and no WASI SDK build, to fit the native
+  builder.
 
 * Fri Nov 06 2026 Martin Stransky <stransky@redhat.com> - 160.0-1
 - Update to latest upstream (160.0)

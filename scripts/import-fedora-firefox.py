@@ -38,7 +38,8 @@ CHANGELOG = """\
 - Allow V4L2 stateless (Request API) decoders in the RDD sandbox.
 - Allow sysinfo in the RDD sandbox, so Mesa's zink driver can create the
   GBM device behind VA-API DMABuf surfaces.
-- No debuginfo and no WASI SDK build, to fit the native builder.
+- No debuginfo, no Rust debug info and no WASI SDK build, to fit the native
+  builder.
 
 """
 
@@ -64,6 +65,12 @@ def edit_spec(text, commit, date):
             '# script, not this file.\n\n') + text
     text = once(text, r'^%global create_debuginfo  1$', '%global create_debuginfo  0', 'debuginfo')
     text = once(text, r'^  %bcond wasi_sdk 1$', '  %bcond wasi_sdk 0', 'WASI SDK')
+    # With no debuginfo package, Rust debug info only costs memory: gkrust at
+    # -Cdebuginfo=2 -Ccodegen-units=1 is killed by the OOM killer on the
+    # 16 GB arm64 builder with Fedora 45's Rust.  Fedora already builds Rust
+    # without debug info on its smaller architectures.
+    text = once(text, r'^%ifarch %\{ix86\} s390x ppc64le\n(export RUSTFLAGS="-Cdebuginfo=0")$',
+                r'%ifarch %{ix86} s390x ppc64le aarch64\n\g<1>', 'Rust debug info')
     text = once(text, r'^(Release:\s+\S+%\{\?dist\})$', r'\g<1>' + AURORA_RELEASE, 'Release')
     patches = list(re.finditer(r'^Patch\d+:.*$', text.split('\n%description', 1)[0], re.M))
     if not patches:
