@@ -1,4 +1,4 @@
-%global commit 84d091f7aded084ef1bfa4447695bc1399cd03b5
+%global commit 2b05915f81bc066670cd872be3cbdd916753bf26
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 33%{?dist}.aurora
+Release: 34%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -157,6 +157,31 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Thu Nov 12 2026 Diljit Singh <hey@djdev.me> - 7.3.0-34
+- Pin integration/aurora 2b05915f (linux#1445), 68 merges (341 commits)
+  after 84d091f7:
+  - MacBook Neo (T8140): suspend-to-RAM at EL2 with the DRAM-kept wake
+    (#1445, which carries #1208-#1443), the ISP powered only while the
+    camera streams (#1580), DisplayPort audio (#1280), UART0 (#1574) and
+    the MTP transmit lock (#1010).
+  - M5 Pro/Max (T6050): Neural Engine (#1595), video encoder and decoder
+    (#1597, #1577), Touch ID (#1587), speakers and microphones (#1554,
+    #1557), AOP sensors (#1521, #1542, #1548), the SD reader (#1570), the
+    haptic actuator (#1576) and firmware-27 HDR on external displays
+    (#1600).
+  - M5 MacBook Air (T8142): GPU on firmware 27 (#1413), sound (#1423,
+    #1533), Bluetooth (#1529), and panel, CPU and SEP fixes (#1528, #1531,
+    #1535, #1536, #1537).
+  - Shared: ISP IPC containment (#1560), SEP request-path log rate limits
+    (#1578, #1590), the SIO AES skcipher (#1572), the PIODMA dmaengine
+    (#1562), T6041 USB3 and DP audio (#1472, #1473, #1476) and the PMP's
+    idle accounting without cpufreq (#1594).
+- config and fedora.config are unchanged. asahi.config now sets
+  CONFIG_APPLE_SOC_SLEEP=y and CONFIG_RTC_DRV_APPLE_PMU=y (was m); olddefconfig
+  adds CONFIG_APPLE_PIODMA=m, CONFIG_APPLE_CLUSTER_PWRGATE=y,
+  CONFIG_SND_SOC_APPLE_T8152_AOP_AUDIO=m and CONFIG_CRYPTO_DEV_APPLE_SIO_AES=m.
+  vmlinuz stays the raw Image, and dtb-abi is unchanged (generation 1).
+
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-33
 - Pin integration/aurora 84d091f7 (linux#1519), 21 merges (109 commits)
   after 451dc709:
