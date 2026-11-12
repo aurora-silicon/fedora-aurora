@@ -144,6 +144,27 @@ class SpecTests(unittest.TestCase):
         for unit in ('systemd-growfs-root.service', 'systemd-growfs@.service'):
             self.assertIn(f'%{{_unitdir}}/{unit}.d/aurora-growfs.conf', files)
         self.assertIn('/usr/lib/aurora/\n', files)
+    def test_secboot_subpackage_ships_the_uki_pipeline(self):
+        text = (ROOT / 'packages' / 'aurora-firstboot' / 'aurora-firstboot.spec').read_text()
+        sub = text.split('%package -n aurora-secboot', 1)[1].split('%description', 1)[0]
+        for tool in ('systemd-ukify', 'systemd-boot-unsigned', 'sbsigntools', 'openssl', 'python3'):
+            self.assertRegex(sub, rf'(?m)^Requires: .*\b{tool}\b')
+        self.assertIn('make install-secboot install-selinux-secboot', text)
+        self.assertIn('selinux/aurora_secboot.pp', text.split('%build', 1)[1].split('%install', 1)[0])
+        files = text.split('%files -n aurora-secboot', 1)[1].split('%changelog', 1)[0]
+        for path in ('%{_bindir}/aurora-secboot', '%{_prefix}/lib/kernel/install.d/92-aurora-secboot.install',
+                     '%{_unitdir}/aurora-secboot-adopt.service', '%config(noreplace) %{_sysconfdir}/aurora/secboot.conf',
+                     '%dir %attr(0700,root,root) %{_sharedstatedir}/aurora/secboot',
+                     '%{_datadir}/selinux/packages/%{selinuxtype}/aurora_secboot.pp'):
+            self.assertIn(path, files)
+        # Fedora builds with dracut; the mkinitcpio hook belongs to ALARM.
+        self.assertNotIn('initcpio', text)
+        post = text.split('%post -n aurora-secboot', 1)[1].split('%preun', 1)[0]
+        self.assertIn('%selinux_modules_install', post)
+        self.assertIn('restorecon -R %{_sharedstatedir}/aurora/secboot',
+                      text.split('%posttrans -n aurora-secboot', 1)[1].split('%post', 1)[0])
+        for lab in ('debug_shell', 'panic=', 'watchdog_sec'):
+            self.assertNotIn(lab, text)
     def test_reboot_watchdog_fits_the_apple_hardware_watchdog(self):
         # The Apple SoC watchdog (24 MHz, 32-bit) cannot time out later than
         # about 178 s; a longer RebootWatchdogSec makes the kernel feed it, so

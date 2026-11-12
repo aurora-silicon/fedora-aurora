@@ -1,8 +1,8 @@
-%global commit 8fc36c44f7353c7c1c0ffa3aff3ae0aa69f9ce54
+%global commit 9997aefd58d1af2b1006503b4f159f1dd6b0339a
 %global selinuxtype targeted
 Name: aurora-firstboot
 Version: 0.1.13
-Release: 3%{?dist}
+Release: 4%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-platform
@@ -33,11 +33,29 @@ the frequency steps that buy the most CPU capacity per milliwatt, and each
 cluster is capped to its share.
 Balanced and Performance are untouched.
 
+%package -n aurora-secboot
+Summary: Signed unified kernel images for the Aurora secure boot path
+Requires: python3 systemd systemd-ukify systemd-boot-unsigned sbsigntools openssl
+Requires: selinux-policy-targeted
+Requires(post): policycoreutils
+Requires(postun): policycoreutils
+Requires(posttrans): policycoreutils
+
+%description -n aurora-secboot
+aurora-secboot builds a unified kernel image (kernel, initramfs and command
+line in one PE file) for every kernel that kernel-install adds, signs it with
+the owner's UEFI db key when one exists, and can make it the boot loader of
+the secure boot path. The command line in the image always carries
+lockdown=integrity. Shim and GRUB stay the boot path until the owner runs
+aurora-secboot enable. It also makes owner keys, builds the U-Boot Secure
+Boot variable seed, moves the Stage 2 key the installer left on the EFI
+partition into the encrypted root, and reports the state of the boot chain.
+
 %prep
 %autosetup -n aurora-platform-%{commit}
 
 %build
-make selinux/aurora_firstboot.pp
+make selinux/aurora_firstboot.pp selinux/aurora_secboot.pp
 
 %install
 make install-common install-dracut install-selinux DESTDIR=%{buildroot} PREFIX=%{_prefix}
@@ -49,6 +67,10 @@ make install-power DESTDIR=%{buildroot} PREFIX=%{_prefix}
 install -Dm644 /dev/stdin %{buildroot}/usr/lib/systemd/system-preset/90-aurora-power-budget.preset <<'EOF'
 enable aurora-power-budget.service
 EOF
+make install-secboot install-selinux-secboot DESTDIR=%{buildroot} PREFIX=%{_prefix} SYSCONFDIR=%{_sysconfdir} LOCALSTATEDIR=%{_localstatedir}
+install -Dm644 /dev/stdin %{buildroot}/usr/lib/systemd/system-preset/90-aurora-secboot.preset <<'EOF'
+enable aurora-secboot-adopt.service
+EOF
 
 %post -n aurora-power-budget
 %systemd_post aurora-power-budget.service
@@ -56,6 +78,20 @@ EOF
 %systemd_preun aurora-power-budget.service
 %postun -n aurora-power-budget
 %systemd_postun_with_restart aurora-power-budget.service
+
+%post -n aurora-secboot
+# Keep the owner's signing keys away from confined services.
+%selinux_modules_install -s %{selinuxtype} %{_datadir}/selinux/packages/%{selinuxtype}/aurora_secboot.pp
+%systemd_post aurora-secboot-adopt.service
+%preun -n aurora-secboot
+%systemd_preun aurora-secboot-adopt.service
+%postun -n aurora-secboot
+%systemd_postun aurora-secboot-adopt.service
+%selinux_modules_uninstall -s %{selinuxtype} aurora_secboot
+%posttrans -n aurora-secboot
+if selinuxenabled; then
+  restorecon -R %{_sharedstatedir}/aurora/secboot || :
+fi
 
 %post
 # Label the setup programs as ordinary executables so systemd runs them in
@@ -109,7 +145,28 @@ fi
 /usr/lib/systemd/system-preset/90-aurora-power-budget.preset
 %{_datadir}/doc/aurora-power-budget/
 
+%files -n aurora-secboot
+%license LICENSE
+%{_bindir}/aurora-secboot
+%{_prefix}/lib/kernel/install.d/92-aurora-secboot.install
+%{_unitdir}/aurora-secboot-adopt.service
+/usr/lib/systemd/system-preset/90-aurora-secboot.preset
+%dir %{_sysconfdir}/aurora
+%config(noreplace) %{_sysconfdir}/aurora/secboot.conf
+%dir %attr(0700,root,root) %{_sharedstatedir}/aurora/secboot
+%{_datadir}/doc/aurora-secboot/
+%{_datadir}/selinux/packages/%{selinuxtype}/aurora_secboot.pp
+
 %changelog
+* Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-4
+- New subpackage aurora-secboot: kernel-install builds a unified kernel
+  image for each kernel with ukify and signs it with sbsign when the owner's
+  db key exists. aurora-secboot enable makes the newest verified image
+  EFI/BOOT/BOOTAA64.EFI and keeps shim beside it. The image's command line
+  carries lockdown=integrity and none of the shell or lab boot options.
+  The aurora_secboot SELinux module labels /var/lib/aurora/secboot as a
+  security file type (aurora-platform 9997aef).
+
 * Sun Nov 08 2026 Aurora Silicon <hey@djdev.me> - 0.1.13-3
 - New subpackage aurora-power-budget: Power Saver gets a CPU power budget
   (100 ms, split across clusters from the device tree energy model), as macOS
