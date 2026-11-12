@@ -257,6 +257,11 @@ class SpecTests(unittest.TestCase):
         for drv in ('aurora', 'appledrm', 'thunderbolt', 'apple[-_]pmp', 'aop', 'i2c[-_]pasemi.*', 'xhci.*'):
             self.assertIn(drv, omit.group(1).split())
         self.assertNotIn('nvme', omit.group(1))
+        # No squashfs image behind a busybox /init in the crash kernel.
+        squash = re.search(r'(?m)^omit_dracutmodules\+="([^"]*)"$', conf)
+        self.assertIsNotNone(squash)
+        for mod in ('squash', 'squash-squashfs', 'squash-lib'):
+            self.assertIn(mod, squash.group(1).split())
         # The hook takes CRASHTIME from a vmcoreinfo-like stream.
         vmcore = b'\x7fELF\x00\x01OSRELEASE=7.3.0\nCRASHTIME=1794139056\n\x00\x02'
         out = subprocess.run(['sh', '-c', "tr -c '[:print:]' '\\n' | sed -n 's/^CRASHTIME=\\([0-9][0-9]*\\)$/\\1/p' | head -n 1"],

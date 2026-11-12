@@ -259,10 +259,13 @@ fi
   dump directories carry the panic time.
 - kdump.service is skipped, not failed, on a boot without crash kernel
   memory.
-- Tested on a MacBook Pro (M1 Pro): sysrq-c saved a 200 MiB vmcore and
-  the Mac was back on its default kernel 42 s after the panic. On a
-  MacBook Air (M2) the crash kernel still stalls before the disk comes up
-  and the watchdog restarts the Mac after about 3 minutes without a dump.
+- Build that initramfs without the squashfs layer. Behind it sits a small
+  busybox /init, and with Fedora 44's dracut 108 that /init never loaded
+  its first module in the crash kernel, so the MacBook Air (M2) saved no
+  dump and its watchdog restarted it after about 3 minutes.
+- Tested with sysrq-c on 7.3.0-aurora-fleet67: MacBook Air (M2), 222 MiB
+  vmcore, back on the default kernel 17 s after the panic; MacBook Pro
+  (M1 Pro), 200 MiB vmcore, back after 42 s.
 
 * Wed Nov 11 2026 DjDeveloperr <hey@djdev.me> - 44-37
 - Boot M5 (T8142) and M5 Pro/Max (T6050) Macs with arm64.nomte:

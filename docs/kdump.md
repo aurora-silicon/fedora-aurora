@@ -53,6 +53,9 @@ install added.
     left running (GPU, display, Thunderbolt, AOP, PMP, ANE, audio, USB,
     keyboard, I2C, SPI). Probing them in the crash kernel stalled udev
     before `nvme_apple` loaded.
+  - builds a plain initramfs instead of a squashfs image behind a busybox
+    `/init`. With dracut 108 (Fedora 44) that `/init` never loaded its
+    first module in the crash kernel.
   - adds the dracut module `aurora-kdump-clock`. The crash kernel cannot
     restart the SMC, so it has no RTC and would date the dump wrongly; the
     hook sets the clock from the panic time in the crashed kernel's
@@ -72,7 +75,7 @@ lives in its own reservation.
 | Mac | Kernel | Result |
 |---|---|---|
 | MacBook Pro 16" (M1 Pro) | 7.3.0-aurora-fleet67 | Works. sysrq-c: 200 MiB vmcore and both logs saved in 4 s, dump directory dated to the panic second, back on the default kernel 42 s after the panic. |
-| MacBook Air (M2) | 7.3.0-aurora-fleet67 | No dump yet. The crash kernel stalls before it starts userspace; its watchdog restarts the Mac about 3 minutes after the panic. |
+| MacBook Air (M2) | 7.3.0-aurora-fleet67 | Works. sysrq-c: 222 MiB vmcore and both logs saved, back on the default kernel 17 s after the panic. Before the squashfs layer was dropped from the crash kernel's initramfs, it stalled and the watchdog restarted the Mac after about 3 minutes. |
 | MacBook Neo (A18 Pro) | test kernels with aurora-silicon/linux#1200 | Works (two dumps, crash on CPU 0 and on a CTXR-confined core). After one later run the default kernel hung on the next boot; not understood yet. |
 | MacBook Pro (M4 Pro) | not tested | |
 
