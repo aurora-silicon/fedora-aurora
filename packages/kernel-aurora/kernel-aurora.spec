@@ -1,6 +1,12 @@
 %global commit 9219565939723cd5bc381941bc3978d52610d753
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
+# modules_install signs every module (CONFIG_MODULE_SIG_ALL) after
+# INSTALL_MOD_STRIP has stripped it. rpm's strip passes would rewrite each .ko
+# and drop the appended signature, so they are off; %%check verifies them.
+%global __brp_strip %{nil}
+%global __brp_strip_comment_note %{nil}
+%global __brp_strip_lto %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
 # (aurora-silicon/linux#985), which keeps every kernel code page inside the CTXR
 # window an aura without the monitor moves the kernel into. kernel-aurora-core
@@ -118,7 +124,16 @@ sed -i 's@%{buildroot}@@' modules.files
 find %{buildroot}/usr/lib/modules/%{krel} -maxdepth 1 -type f ! -name vmlinuz ! -name config ! -name System.map ! -name dtb-abi >> metadata.files
 sed -i 's@%{buildroot}@@' metadata.files
 install -Dm755 tools/aurora-userpages/userpages %{buildroot}%{_bindir}/userpages
+%{__strip} %{buildroot}%{_bindir}/userpages
 install -Dm644 tools/aurora-userpages/README.rst %{buildroot}%{_docdir}/aurora-userpages/README.rst
+
+%check
+# Every installed module must still carry its signature.
+unsigned=$(find %{buildroot}/usr/lib/modules/%{krel} -name '*.ko' -exec sh -c 'tail -c 28 "$1" | grep -q "~Module signature appended~" || echo "$1"' _ {} \; | head -5)
+if [ -n "$unsigned" ]; then
+  echo "kernel-aurora.spec: unsigned modules: $unsigned" >&2
+  exit 1
+fi
 
 %posttrans core
 if [ -x /usr/bin/kernel-install ]; then
@@ -185,7 +200,8 @@ fi
   (CONFIG_SECURITY_LOCKDOWN_LSM=y, _EARLY=y, LOCK_DOWN_KERNEL_FORCE_NONE=y,
   CONFIG_APPLE_AURORA_BOOT_SECURITY_LOCKDOWN=y), which selects
   CONFIG_MODULE_SIG=y: modules are signed with a per-build key, so the
-  build needs the openssl tool.
+  build needs the openssl tool. rpm's strip passes are off so the
+  signatures survive, and %%check verifies every module is signed.
   vmlinuz stays the raw Image, and dtb-abi is unchanged (generation 1).
 
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-35
