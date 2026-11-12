@@ -19,7 +19,7 @@ Source5: validate-config.py
 Source6: dtb-abi
 ExclusiveArch: aarch64
 BuildRequires: make gcc gcc-c++ clang llvm lld rust rust-src rustfmt cargo bindgen-cli
-BuildRequires: bc bison flex dtc openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
+BuildRequires: bc bison flex dtc openssl openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
 Requires: kernel-aurora-core = %{version}-%{release}
 Requires: kernel-aurora-modules-extra = %{version}-%{release}
 # Not versioned: older installed kernels must not hold back its updates.
@@ -184,7 +184,8 @@ fi
   CONFIG_I2C_DP855=m, CONFIG_SENSORS_TMP103=m and the lockdown LSM
   (CONFIG_SECURITY_LOCKDOWN_LSM=y, _EARLY=y, LOCK_DOWN_KERNEL_FORCE_NONE=y,
   CONFIG_APPLE_AURORA_BOOT_SECURITY_LOCKDOWN=y), which selects
-  CONFIG_MODULE_SIG=y: modules are signed with a per-build key.
+  CONFIG_MODULE_SIG=y: modules are signed with a per-build key, so the
+  build needs the openssl tool.
   vmlinuz stays the raw Image, and dtb-abi is unchanged (generation 1).
 
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-35
