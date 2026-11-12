@@ -1,9 +1,9 @@
-%global commit be147e36250b3dbacb6ddcee3e68acfad610f17d
+%global commit 33cf8cfc66830cb093e3a35c024b92d1b01a9773
 %global debug_package %{nil}
 Name: mesa-aurora
 Epoch: 1
 Version: 26.3.0
-Release: 23%{?dist}.aurora
+Release: 24%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -202,6 +202,18 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Thu Nov 12 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:26.3.0-24
+- Track aurora-silicon/mesa aurora-wip at 33cf8cfc: GL stages writes to
+  busy buffers and copies them on the GPU instead of waiting for the GPU
+  (mesa#254, the Minecraft GL stutter), M5-family uniform ranges laid out
+  in dwords so the native fragment program builder takes every GL draw
+  (mesa#256), M5 G17G submission and CPU-path fixes (mesa#207, mesa#219),
+  G17P stage uniforms, layered RGBA8 renders, state-0 images and mesh
+  shaders (mesa#215, mesa#210, mesa#224, mesa#223), AGX3 packer fixes
+  (mesa#230, mesa#216), Honeykrisp fragment shader interlock (mesa#226),
+  coherent images on multi-cluster G13/G14 (mesa#247), resumed render pass
+  ordering (mesa#249) and kills with subgroup ops (mesa#245).
+
 * Thu Nov 12 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:26.3.0-23
 - Track aurora-silicon/mesa aurora-wip at be147e36: transform feedback
   keeps a captured point size (mesa#211), revert of the varying
