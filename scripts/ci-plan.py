@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 root = Path(__file__).resolve().parents[1]
 names = sorted(p.parent.name for p in (root / "packages").glob("*/*.spec"))
@@ -26,6 +27,41 @@ if event_name == "pull_request":
             ["git", "rev-parse", os.environ["GITHUB_SHA"] + "^1"], cwd=root, text=True).strip()
     except subprocess.CalledProcessError:
         pass
+
+
+def last_main_build(sha):
+    """The commit of the newest successful main push build that sha descends from, or None.
+
+    GitHub keeps one pending run per concurrency group, and a newer push cancels
+    the older pending one, so a push can't rely on the run for its own parent
+    having built anything. A failed run doesn't count either: the next one
+    builds its packages again.
+    """
+    route = (f"repos/{os.environ.get('GITHUB_REPOSITORY', '')}/actions/workflows/rpms.yml/runs"
+             "?branch=main&event=push&status=success&per_page=50")
+    try:
+        runs = json.loads(subprocess.check_output([str(root / "scripts/gh-retry"), "api", route],
+                                                  cwd=root, text=True))["workflow_runs"]
+    except (subprocess.CalledProcessError, OSError, ValueError, KeyError) as error:
+        print(f"ci-plan: can't list the main builds ({error}); building every package", file=sys.stderr)
+        return None
+    for run in sorted(runs, key=lambda run: run.get("created_at", ""), reverse=True):
+        head = run.get("head_sha", "")
+        if not head or head == sha:
+            continue
+        if subprocess.run(["git", "merge-base", "--is-ancestor", head, sha], cwd=root,
+                          stderr=subprocess.DEVNULL).returncode == 0:
+            print(f"ci-plan: building what changed since run {run.get('id')} ({head})", file=sys.stderr)
+            return head
+        print(f"ci-plan: the last main build {head} isn't in this history; building every package",
+              file=sys.stderr)
+        return None
+    print("ci-plan: no successful main build; building every package", file=sys.stderr)
+    return None
+
+
+if event_name == "push" and not requested:
+    before = last_main_build(os.environ["GITHUB_SHA"]) or ""
 if requested:
     if not set(requested) <= set(names):
         raise SystemExit("Unknown requested package")

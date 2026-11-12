@@ -12,11 +12,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class PlanTests(unittest.TestCase):
     def plan(self, changed_sources, shared_tooling=False, split=False, event_name="push", requires=None,
-             requested='', heavy_change=False):
+             requested='', heavy_change=False, cancelled_sources=None, last_build='base', called=None):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'scripts').mkdir()
             shutil.copyfile(ROOT / 'scripts/ci-plan.py', root / 'scripts/ci-plan.py')
+            shutil.copyfile(ROOT / 'scripts/gh-retry', root / 'scripts/gh-retry')
+            (root / 'scripts/gh-retry').chmod(0o755)
             for name in ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora']:
                 recipe = root / 'packages' / name / (name + '.spec')
                 recipe.parent.mkdir(parents=True)
@@ -40,7 +42,13 @@ class PlanTests(unittest.TestCase):
             git('init', '-q')
             git('add', '.')
             git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'base')
-            before = git('rev-parse', 'HEAD')
+            base = before = git('rev-parse', 'HEAD')
+            if cancelled_sources:
+                # A push whose own build was cancelled while it waited.
+                sources.update(cancelled_sources)
+                (root / 'sources.json').write_text(json.dumps(sources))
+                git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qam', 'cancelled')
+                before = git('rev-parse', 'HEAD')
             sources.update(changed_sources)
             (root / 'sources.json').write_text(json.dumps(sources))
             if heavy_change:
@@ -55,9 +63,23 @@ class PlanTests(unittest.TestCase):
             event = root / 'event.json'
             event.write_text(json.dumps({'before': before, 'pull_request': {'base': {'sha': before}},
                                          'inputs': {'packages': requested}}))
+            # The successful main builds the plan finds, newest first, through a fake gh.
+            heads = {'base': [base], 'none': [], 'foreign': ['f' * 40]}[last_build]
+            runs = root / 'runs.json'
+            runs.write_text(json.dumps({'workflow_runs': [
+                {'id': 100 - i, 'head_sha': head, 'created_at': f'2026-11-12T0{9 - i}:00:00Z'}
+                for i, head in enumerate(heads)]}))
+            marker = root / 'gh-called'
+            fake = root / 'fake-gh'
+            fake.write_text(f'#!/bin/sh\ntouch {marker}\ncat {runs}\n')
+            fake.chmod(0o755)
             env = {**os.environ, 'GITHUB_EVENT_PATH': str(event), 'GITHUB_EVENT_NAME': event_name,
-                   'GITHUB_SHA': git('rev-parse', 'HEAD')}
-            output = subprocess.check_output(['python3', str(root / 'scripts/ci-plan.py')], env=env, text=True)
+                   'GITHUB_SHA': git('rev-parse', 'HEAD'), 'GITHUB_REPOSITORY': 'aurora-silicon/fedora-aurora',
+                   'GH_RETRY_GH': str(fake)}
+            output = subprocess.check_output(['python3', str(root / 'scripts/ci-plan.py')], env=env, text=True,
+                                             stderr=subprocess.DEVNULL)
+            if called is not None:
+                called.append(marker.exists())
             plan = dict(line.split('=', 1) for line in output.splitlines())
             plan = {key: json.loads(value) for key, value in plan.items()}
             return plan if split else plan['packages'] + plan['x86_packages'] + plan['heavy_packages']
@@ -135,3 +157,24 @@ class PlanTests(unittest.TestCase):
     def test_shared_lookaside_fetcher_invalidates_every_build(self):
         self.assertEqual(self.plan({}, shared_tooling='fetch-fedora-lookaside.py'),
                          ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])
+
+    def test_push_builds_what_a_cancelled_push_changed_too(self):
+        self.assertEqual(self.plan({'mesa-aurora': {'commit': 'new'}},
+                                   cancelled_sources={'kernel-aurora': {'commit': 'new'}}),
+                         ['kernel-aurora', 'mesa-aurora'])
+
+    def test_push_after_a_last_build_outside_its_history_builds_everything(self):
+        self.assertEqual(self.plan({'mesa-aurora': {'commit': 'new'}}, last_build='foreign'),
+                         ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])
+
+    def test_push_without_a_successful_main_build_builds_everything(self):
+        self.assertEqual(self.plan({'mesa-aurora': {'commit': 'new'}}, last_build='none'),
+                         ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])
+
+    def test_pull_request_plans_from_its_base_without_the_build_history(self):
+        called = []
+        self.assertEqual(self.plan({'mesa-aurora': {'commit': 'new'}}, event_name='pull_request',
+                                   cancelled_sources={'kernel-aurora': {'commit': 'new'}}, last_build='none',
+                                   called=called),
+                         ['mesa-aurora'])
+        self.assertEqual(called, [False])
