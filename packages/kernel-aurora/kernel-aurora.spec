@@ -1,6 +1,10 @@
 %global commit 9219565939723cd5bc381941bc3978d52610d753
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
+# rpm's brp-strip runs strip -g on every unstripped ELF file, the modules too, which
+# drops the signature Kbuild appended at modules_install. INSTALL_MOD_STRIP=1 has
+# already stripped them, before they were signed.
+%global __strip /bin/true
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
 # (aurora-silicon/linux#985), which keeps every kernel code page inside the CTXR
 # window an aura without the monitor moves the kernel into. kernel-aurora-core
@@ -117,7 +121,7 @@ find %{buildroot}/usr/lib/modules/%{krel} -type f -name '*.ko' > modules.files
 sed -i 's@%{buildroot}@@' modules.files
 find %{buildroot}/usr/lib/modules/%{krel} -maxdepth 1 -type f ! -name vmlinuz ! -name config ! -name System.map ! -name dtb-abi >> metadata.files
 sed -i 's@%{buildroot}@@' metadata.files
-install -Dm755 tools/aurora-userpages/userpages %{buildroot}%{_bindir}/userpages
+install -Dm755 -s tools/aurora-userpages/userpages %{buildroot}%{_bindir}/userpages
 install -Dm644 tools/aurora-userpages/README.rst %{buildroot}%{_docdir}/aurora-userpages/README.rst
 
 %posttrans core
@@ -174,6 +178,8 @@ fi
   CONFIG_I2C_DP855=m and CONFIG_SENSORS_TMP103=m; both sleep options
   stay y and CONFIG_PINCTRL_APPLE_GPIO stays m.
 - BuildRequires openssl: the build now generates the module signing key.
+- Keep the modules' signatures: rpm's strip would drop them. INSTALL_MOD_STRIP
+  strips the modules before they're signed, and userpages is stripped at install.
 
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-35
 - Require aura 1.0.0~b11 or later. On the MacBook Neo this kernel's DT
