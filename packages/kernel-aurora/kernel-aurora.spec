@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 34%{?dist}.aurora
+Release: 35%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -45,7 +45,7 @@ Conflicts: aurora-fido < 0.2.0-2
 # (https://github.com/aurora-silicon/linux/pull/981,
 # https://github.com/aurora-silicon/aura/pull/75); under an older Stage 2
 # the speakers stay off.
-Requires: aura >= 1.0.0~b5
+Requires: aura >= 1.0.0~b11
 Provides: kernel-uname-r = %{krel}
 %if %{ctxr_execmem}
 Provides: aurora-ctxr-execmem
@@ -157,6 +157,11 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-35
+- Require aura 1.0.0~b11 or later. On the MacBook Neo this kernel's DT
+  leaves the video encoder for aura to enable from the ADT (aura#167), and
+  its DisplayPort audio needs the T8140 SIO tables (aura#122).
+
 * Thu Nov 12 2026 Diljit Singh <hey@djdev.me> - 7.3.0-34
 - Pin integration/aurora 2b05915f (linux#1445), 68 merges (341 commits)
   after 84d091f7:
