@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fedoralib
 
 SHARED = ('.github/workflows/rpms.yml', 'scripts/build-rpm',
-          'scripts/fetch-sources.py', 'scripts/build-receipt.py', 'scripts/build-flatpak-gl-repo', 'scripts/fedoralib.py')
+          'scripts/fetch-sources.py', 'scripts/fetch-fedora-lookaside.py', 'scripts/build-receipt.py', 'scripts/build-flatpak-gl-repo', 'scripts/fedoralib.py')
 # Recipes whose payload is x86 code for FEX guests are built on x86_64.
 X86_BUILDER = '# aurora-builder: x86_64'
 

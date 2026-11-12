@@ -9,12 +9,21 @@ import subprocess
 import tempfile
 import unittest
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def distgit_inputs(directory):
+    """Files a dist-git import fetches at build time (scripts/fetch-fedora-lookaside.py)."""
+    if not (directory / 'distgit.json').is_file():
+        return set()
+    names = set(json.loads((directory / 'distgit.json').read_text()).get('fetch', {}))
+    return names | set(re.findall(r'^SHA512 \(([^)]+)\) = ', (directory / 'sources').read_text(), re.M))
 class SpecTests(unittest.TestCase):
     def test_declared_local_sources_and_patches_are_present(self):
         pins = json.loads((ROOT / 'sources.json').read_text())
         for spec in (ROOT / 'packages').glob('*/*.spec'):
             extras = pins.get(spec.parent.name, {}).get('extra_sources', {})
             fetched = {record.get("archive_file", f"{name}-{record['commit']}.tar.gz") for name, record in extras.items()}
+            fetched |= distgit_inputs(spec.parent)
             with self.subTest(spec=spec.name):
                 for kind, value in re.findall(r'^(Source\d*|Patch\d*):\s+(\S+)', spec.read_text(), re.M):
                     if '%{' not in value and not value.startswith('http') and value not in fetched:

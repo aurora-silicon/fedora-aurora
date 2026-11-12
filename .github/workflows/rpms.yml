@@ -26,6 +26,7 @@ jobs:
       x86_packages: ${{ steps.plan.outputs.x86_packages }}
       builds: ${{ steps.matrix.outputs.builds }}
       x86-builds: ${{ steps.matrix.outputs.x86-builds }}
+      heavy-builds: ${{ steps.matrix.outputs.heavy-builds }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -39,6 +40,7 @@ jobs:
           FULL: ${{ steps.plan.outputs.full }}
           PACKAGES: ${{ steps.plan.outputs.packages }}
           X86_PACKAGES: ${{ steps.plan.outputs.x86_packages }}
+          HEAVY_PACKAGES: ${{ steps.plan.outputs.heavy_packages }}
         run: |
           python3 - <<'PYCODE' >> "$GITHUB_OUTPUT"
           import json, os, sys
@@ -46,16 +48,19 @@ jobs:
           sys.path.insert(0, 'scripts')
           import fedoralib
           names = fedoralib.package_names('.')
-          x86 = {n for n in names if '# aurora-builder: x86_64' in Path(f'packages/{n}/{n}.spec').read_text().splitlines()}
-          for key, selected, all_names in [('builds', 'PACKAGES', [n for n in names if n not in x86]),
-                                           ('x86-builds', 'X86_PACKAGES', sorted(x86))]:
+          marked = lambda kind: {n for n in names if f'# aurora-builder: {kind}' in Path(f'packages/{n}/{n}.spec').read_text().splitlines()}
+          x86, heavy = marked('x86_64'), marked('heavy')
+          # Heavy recipes are never part of the implicit full set (ci-plan.py).
+          for key, selected, all_names in [('builds', 'PACKAGES', [n for n in names if n not in x86 | heavy]),
+                                           ('x86-builds', 'X86_PACKAGES', sorted(x86)),
+                                           ('heavy-builds', 'HEAVY_PACKAGES', None)]:
               chosen = json.loads(os.environ[selected])
               rows = [{'release': '44', 'package': n} for n in chosen]
               # Fedora 45 has no base repository, so publication needs the complete
               # set: push and manual runs build all of it, a pull request only what
               # it changed (ci-plan.py).
               rows += [{'release': '45', 'package': n}
-                       for n in (all_names if os.environ['FULL'] == 'true' else chosen)]
+                       for n in (all_names if os.environ['FULL'] == 'true' and all_names is not None else chosen)]
               print(key + '=' + json.dumps(rows))
           PYCODE
   rpm:
@@ -125,6 +130,67 @@ jobs:
             build.log
           retention-days: 30
       # A failed attempt keeps its log under a name publication never reads.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: failure()
+        with:
+          name: failed-${{ matrix.release == '44' && 'rpm-' || 'rpm-f45-' }}${{ matrix.package }}-attempt-${{ github.run_attempt }}
+          path: build.log
+          retention-days: 14
+  rpm-heavy:
+    # Recipes marked "# aurora-builder: heavy" (Firefox): built only when a
+    # manual run names them, with the hosted runner's full time and swap.
+    needs: plan
+    if: needs.plan.outputs.heavy-builds != '[]'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 355
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.heavy-builds) }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Prepare build capacity
+        run: |
+          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/share/dotnet /usr/local/share/boost /opt/hostedtoolcache /usr/local/.ghcup || true
+          docker system prune -af || true
+          # Firefox's Rust half (gkrust) needs more than the runner's 16 GB at three jobs.
+          sudo swapoff -a || true
+          sudo fallocate -l 24G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile
+          free -g
+          df -h "$GITHUB_WORKSPACE"
+          test "$(df --output=avail -B1 "$GITHUB_WORKSPACE" | tail -1)" -ge 42949672960
+      - name: Build Fedora ${{ matrix.release }} RPMs natively
+        run: |
+          set -euo pipefail
+          docker run --rm -e AURORA_FEDORA_RELEASE=${{ matrix.release }} --platform linux/arm64 -v "$PWD:/src" -w /src \
+            registry.fedoraproject.org/fedora:${{ matrix.release }} bash -euo pipefail -c '
+              dnf install -y rpm-build dnf5-plugins python3 git tar gzip coreutils findutils
+              AURORA_INSTALL_BUILDDEPS=1 AURORA_BUILD_JOBS=3 bash scripts/build-rpm "$1"
+            ' build '${{ matrix.package }}' 2>&1 | tee build.log
+      # Provenance for the exact RPM bytes; publication verifies it.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: success() && github.event_name != 'pull_request'
+        with:
+          subject-path: |
+            out/rpms/*.rpm
+            out/srpms/*.rpm
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: success()
+        with:
+          name: ${{ matrix.release == '44' && 'rpm-' || 'rpm-f45-' }}${{ matrix.package }}
+          path: |
+            out/rpms/*.rpm
+            out/srpms/*.rpm
+            out/manifests/*.json
+            build.log
+          retention-days: 30
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:

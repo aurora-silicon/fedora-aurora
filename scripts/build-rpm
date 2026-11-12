@@ -25,6 +25,11 @@ PY
 then
   python3 "$root/scripts/fetch-sources.py" "$package" --fedora-release "$release" --output "$top/SOURCES"
 fi
+# A recipe imported from Fedora dist-git (packages/firefox) pins its archives
+# by Fedora's lookaside digests and fetches Fedora's own key files.
+if [[ -f $top/SOURCES/distgit.json ]]; then
+  python3 "$root/scripts/fetch-fedora-lookaside.py" "$top/SOURCES"
+fi
 if [[ ${AURORA_INSTALL_BUILDDEPS:-0} == 1 ]]; then
   dnf builddep -y "$top/SPECS/$package.spec"
 fi
@@ -43,7 +48,7 @@ fi
 # vendor change on systems that don't have the policy yet.
 vendor=(--define "vendor Aurora Silicon")
 [[ $package == aurora-release || $package == aurora-repos ]] && vendor=()
-rpmbuild -ba --define "_topdir $top" --define "_smp_mflags -j${AURORA_BUILD_JOBS:-6}" "${vendor[@]}" "$top/SPECS/$package.spec"
+rpmbuild -ba --define "_topdir $top" --define "_smp_build_ncpus ${AURORA_BUILD_JOBS:-6}" --define "_smp_mflags -j${AURORA_BUILD_JOBS:-6}" "${vendor[@]}" "$top/SPECS/$package.spec"
 mkdir -p "$root/out/rpms" "$root/out/srpms"
 find "$top/RPMS" -type f -name '*.rpm' -exec cp -p {} "$root/out/rpms/" \;
 find "$top/SRPMS" -type f -name '*.rpm' -exec cp -p {} "$root/out/srpms/" \;
