@@ -1,11 +1,11 @@
 %global debug_package %{nil}
-%global commit eca16db081657b127f476511f7aa16a6128d5a15
+%global commit ea20cedb7e698c9ba5b7e392a7b6777e868ae40c
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
 %global monitor_free 1
 Name: aura
-Version: 1.0.0~b11
+Version: 1.0.0~b12
 Release: 1%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
@@ -26,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-eca16db081657b127f476511f7aa16a6128d5a15
+%autosetup -n aura-ea20cedb7e698c9ba5b7e392a7b6777e868ae40c
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -62,6 +62,14 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b12-1
+- Update to 1.0.0b12 (ea20cedb). The T8140 encoder handoff now enables the
+  encoder's whole power-domain chain (aura#190): with the fabric power states
+  in linux#1298 the chain to venc0_me1 is seven deep, and 1.0.0b11 left the
+  MacBook Neo's encoder 0 disabled. Also the J604 AOP handoff (#149), J616s
+  hibernation and S2R windows at EL2 (#148), J813 arm64.nomte (#183) and the
+  26.7.x iBoot train mapped to 26.6.2 component handoffs.
+
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b11-1
 - Update to aura 1.0.0b11 (v1.0.0b11, eca16db0). Since bd9f3e82: memory a device may
   still reach stays allocated after a DART or NVMe failure (aura#175), DART

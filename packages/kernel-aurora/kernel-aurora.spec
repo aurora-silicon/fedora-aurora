@@ -51,7 +51,7 @@ Conflicts: aurora-fido < 0.2.0-2
 # (https://github.com/aurora-silicon/linux/pull/981,
 # https://github.com/aurora-silicon/aura/pull/75); under an older Stage 2
 # the speakers stay off.
-Requires: aura >= 1.0.0~b11
+Requires: aura >= 1.0.0~b12
 Provides: kernel-uname-r = %{krel}
 %if %{ctxr_execmem}
 Provides: aurora-ctxr-execmem
@@ -177,8 +177,8 @@ fi
   after 2b05915f:
   - MacBook Neo (T8140): the AVE complex is now the parent power domain of
     the video encoders and the PMC VENC cluster vote (#1663). With encoder 0
-    enabled by aura 1.0.0~b11, the first wake from suspend-to-RAM no longer
-    resets the Mac. Also a faster DRAM-kept wake with the PHY set up again
+    enabled by aura, the first wake from suspend-to-RAM no longer resets the
+    Mac. Also a faster DRAM-kept wake with the PHY set up again
     after a deep sleep (#1658), the internal panel lit from the resume
     (#1631), SoC fabric power states (#1298), the second encoder described
     (#1626) and SIO AES revision 5 (#1622).
@@ -202,6 +202,8 @@ fi
   CONFIG_MODULE_SIG=y: modules are signed with a per-build key, so the
   build needs the openssl tool. rpm's strip passes are off so the
   signatures survive, and %%check verifies every module is signed.
+- Require aura 1.0.0~b12 or later: with #1298's fabric power states, 1.0.0~b11
+  cannot enable the MacBook Neo's encoder 0 (aura#190).
   vmlinuz stays the raw Image, and dtb-abi is unchanged (generation 1).
 
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-35
