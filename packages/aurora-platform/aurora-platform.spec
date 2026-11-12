@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 37%{?dist}
+Release: 38%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -39,6 +39,11 @@ Source117: aurora-grub-uuid
 Source118: 90-aurora-reboot-watchdog.conf
 Source119: aurora-early-kms-wait.sh
 Source120: 64-aurora-trackpad-clicks.rules
+Source121: aurora-kdump-dracut.conf
+Source122: aurora-kdump.service.conf
+Source123: aurora-kdump-setup
+Source124: aurora-kdump-clock-module-setup.sh
+Source125: aurora-kdump-clock.sh
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -97,6 +102,19 @@ chain are managed separately. It replaces asahi-platform-metapackage, whose
 -core subpackage requires the stock kernel-16k, and is protected from removal
 in the same way.
 
+%package kdump
+Summary: Save Linux crashes to /var/crash with kdump
+Requires: aurora-platform-core = %{version}-%{release}
+Requires: kdump-utils makedumpfile grubby
+
+%description kdump
+Opt-in crash dumps for Linux on Apple silicon. iBoot keeps no record of a
+Linux panic, so a crash kernel saves the vmcore and the crashed kernel's log
+to /var/crash; aurora-panic-log lists them. Installing this package enables
+kdump.service and reserves 512 MiB for the crash kernel from the next
+boot; removing it undoes both. See docs/kdump.md for the Macs it is
+tested on.
+
 %package selinux
 Summary: SELinux policy fixes for the Aurora hardware services
 Requires: selinux-policy-%{selinuxtype}
@@ -142,6 +160,11 @@ install -Dm755 %{SOURCE115} %{buildroot}%{_libexecdir}/aurora/aurora-wake-for-ne
 install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-network.rules
 install -Dm644 %{SOURCE120} %{buildroot}%{_udevrulesdir}/64-aurora-trackpad-clicks.rules
 install -Dm644 %{SOURCE118} %{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
+install -Dm644 %{SOURCE121} %{buildroot}%{_prefix}/lib/kdump/dracut.conf.d/99-zz-aurora.conf
+install -Dm644 %{SOURCE122} %{buildroot}%{_unitdir}/kdump.service.d/50-aurora-kdump.conf
+install -Dm755 %{SOURCE123} %{buildroot}%{_libexecdir}/aurora/aurora-kdump-setup
+install -Dm755 %{SOURCE124} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora-kdump-clock/module-setup.sh
+install -Dm755 %{SOURCE125} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora-kdump-clock/aurora-kdump-clock.sh
 
 %posttrans core
 # Fedora's flicker-free GRUB output, once per system; see the script.
@@ -160,6 +183,17 @@ fi
 # Transaction file triggers look up installed packages by directory prefix.
 %transfiletriggerin core -- %{_sysconfdir}/tuned/
 %{_libexecdir}/aurora/aurora-ppd-config || :
+
+%post kdump
+# Installing the package is the opt-in; see the script.
+if [ "$1" -eq 1 ]; then
+  %{_libexecdir}/aurora/aurora-kdump-setup enable || :
+fi
+
+%preun kdump
+if [ "$1" -eq 0 ]; then
+  %{_libexecdir}/aurora/aurora-kdump-setup disable || :
+fi
 
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
@@ -197,11 +231,45 @@ fi
 %dir %{_prefix}/lib/tuned/profiles/aurora-performance
 %{_prefix}/lib/tuned/profiles/aurora-performance/tuned.conf
 
+%files kdump
+%{_libexecdir}/aurora/aurora-kdump-setup
+%{_prefix}/lib/kdump/dracut.conf.d/99-zz-aurora.conf
+%{_prefix}/lib/dracut/modules.d/99aurora-kdump-clock/
+%dir %{_unitdir}/kdump.service.d
+%{_unitdir}/kdump.service.d/50-aurora-kdump.conf
+
 %files selinux
 %{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-38
+- New opt-in subpackage aurora-platform-kdump: save Linux's own crashes
+  with kdump. iBoot keeps no record of a Linux panic, so a crash kernel
+  writes the vmcore and the crashed kernel's log to /var/crash, and
+  aurora-panic-log lists them. Installing it enables kdump.service and adds
+  crashkernel=512M unless one is set; removing it disables the service and
+  removes the crashkernel= it added. kdump-utils' 320 MiB default is too
+  small once the initramfs is unpacked whole (next item): the M1 Pro's
+  crash kernel ran out of memory and saved nothing.
+- The crash kernel's initramfs gets nvme_apple (kdump-utils replaces
+  dracut-asahi's module list) and leaves out the drivers of coprocessors
+  and buses the crashed kernel left running; probing them stalled the
+  crash kernel before the disk came up.
+- A dracut hook in that initramfs sets the clock from the panic time in
+  the crashed kernel's vmcoreinfo (the crash kernel has no SMC RTC), so
+  dump directories carry the panic time.
+- kdump.service is skipped, not failed, on a boot without crash kernel
+  memory.
+- Build that initramfs without the squashfs layer. Behind it sits a small
+  busybox /init, and with Fedora 44's dracut 108 that /init never loaded
+  its first module in the crash kernel, so the MacBook Air (M2) saved no
+  dump and its watchdog restarted it after about 3 minutes.
+- Tested with sysrq-c on 7.3.0-aurora-fleet67 with this initramfs:
+  MacBook Air (M2) at 320 MiB, 222 MiB vmcore, back on the default kernel
+  17 s after the panic; MacBook Pro (M1 Pro) at 512 MiB, 269 MiB vmcore,
+  back after 42 s.
+
 * Wed Nov 11 2026 DjDeveloperr <hey@djdev.me> - 44-37
 - Boot M5 (T8142) and M5 Pro/Max (T6050) Macs with arm64.nomte:
   aurora-platform-core adds it with grubby to every boot entry and to
