@@ -1,4 +1,4 @@
-%global commit b0fd72737f19b6f63434776efdcacd7befaecce0
+%global commit 71772a08305a512d2a93191e6a72c1d3e8f2d068
 %global selinuxtype targeted
 Name: aurora-firstboot
 Version: 0.1.13
@@ -165,7 +165,8 @@ fi
   EFI/BOOT/BOOTAA64.EFI and keeps shim beside it. The image's command line
   carries lockdown=integrity and none of the shell or lab boot options.
   The aurora_secboot SELinux module labels /var/lib/aurora/secboot as a
-  security file type (aurora-platform b0fd727).
+  security file type. uki build --os-release names the os-release file
+  to embed (aurora-platform 71772a0).
 
 * Sun Nov 08 2026 Aurora Silicon <hey@djdev.me> - 0.1.13-3
 - New subpackage aurora-power-budget: Power Saver gets a CPU power budget
