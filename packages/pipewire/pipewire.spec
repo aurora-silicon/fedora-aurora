@@ -74,7 +74,7 @@ Version:        %{majorversion}.%{minorversion}.%{microversion}
 # Fedora's release plus a suffix, so this sorts above the Fedora 1.6.9 build
 # it replaces (1.fc44 < 1.fc44.aurora5). Hold it with a versionlock: a newer
 # Fedora PipeWire would replace it and drop these patches.
-Release:        %{baserelease}%{?snapdate:.%{snapdate}git%{shortcommit}}%{?dist}.aurora8
+Release:        %{baserelease}%{?snapdate:.%{snapdate}git%{shortcommit}}%{?dist}.aurora9
 Vendor:         Aurora Silicon
 # PipeWire is generally MIT but includes plugins using libraries under other licenses.
 # See the module specific License for details.
@@ -202,6 +202,12 @@ Summary:        Libraries for PipeWire clients
 License:        MIT AND GPL-2.0-or-later AND BSD-2-Clause AND LGPL-2.0-or-later
 Recommends:     %{name}%{?_isa} = %{version}-%{release}
 Obsoletes:      %{name}-libpulse < %{version}-%{release}
+# The fixes speakerguardd-v2's speaker graph runs on (filter-graph and the
+# ALSA plugin are in this package), as one level that Fedora's PipeWire never
+# provides: 1 = Patch1006 (the volume is applied once, on the graph's
+# control, after a repeated volume or mute update); 2 = Patch1007, 1008 and
+# 1010 (a start the kernel refused before the grant recovers).
+Provides:       pipewire-speaker-graph = 2
 
 %description libs
 This package contains the runtime libraries for any application that wishes
@@ -976,6 +982,10 @@ systemctl --no-reload preset --global pipewire.socket >/dev/null 2>&1 || :
 %{_datadir}/pipewire/pipewire.conf.d/50-raop.conf
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.6.9-1.aurora9
+- libs: provide pipewire-speaker-graph = 2 (Patch1006-1008, Patch1010), so
+  speakerguardd-v2 can require this build instead of any PipeWire
+
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.6.9-1.aurora8
 - alsa: a stream whose start the driver refused is prepared again on the
   next start, instead of failing every later start with -EPIPE

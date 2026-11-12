@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.45.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.46.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -24,6 +24,11 @@ BuildRequires: systemd-rpm-macros
 BuildRequires: selinux-policy-devel make bzip2
 Requires: (%{name}-selinux = %{version}-%{release} if selinux-policy-%{selinuxtype})
 Requires: pipewire-module-filter-chain-lv2
+# Aurora's PipeWire build: it applies the volume once, on the voicing
+# control (Fedora's attenuates a second time after a repeated volume or mute
+# update), and recovers a start the kernel refused. The unversioned
+# requirement above is met by Fedora's PipeWire, which lacks both.
+Requires: pipewire-speaker-graph >= 2
 # Provisioning, the gate, the self-check and the session helper: Python,
 # the ALSA tools (the gate's interface probe and the silent switch test),
 # pw-link/pw-dump for the speaker graph, loginctl for the seat user and
@@ -247,6 +252,11 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.46.20261112git836a0efa19fc
+- Require pipewire-speaker-graph >= 2 (Aurora's PipeWire): with Fedora's,
+  a repeated volume or mute update made PipeWire apply the volume a second
+  time in software on top of the voicing control.
+
 * Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.45.20261112git836a0efa19fc
 - speakerguardd#167: a capture of the amps' sink is unlinked until the
   grant, so nothing wakes the sink before it; grants that a fault ends
