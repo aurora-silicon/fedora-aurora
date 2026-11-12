@@ -121,7 +121,9 @@ find %{buildroot}/usr/lib/modules/%{krel} -type f -name '*.ko' > modules.files
 sed -i 's@%{buildroot}@@' modules.files
 find %{buildroot}/usr/lib/modules/%{krel} -maxdepth 1 -type f ! -name vmlinuz ! -name config ! -name System.map ! -name dtb-abi >> metadata.files
 sed -i 's@%{buildroot}@@' metadata.files
-install -Dm755 -s tools/aurora-userpages/userpages %{buildroot}%{_bindir}/userpages
+install -Dm755 tools/aurora-userpages/userpages %{buildroot}%{_bindir}/userpages
+# What brp-strip did before __strip was turned off.
+strip -g %{buildroot}%{_bindir}/userpages
 install -Dm644 tools/aurora-userpages/README.rst %{buildroot}%{_docdir}/aurora-userpages/README.rst
 
 %posttrans core
@@ -179,7 +181,7 @@ fi
   stay y and CONFIG_PINCTRL_APPLE_GPIO stays m.
 - BuildRequires openssl: the build now generates the module signing key.
 - Keep the modules' signatures: rpm's strip would drop them. INSTALL_MOD_STRIP
-  strips the modules before they're signed, and userpages is stripped at install.
+  strips the modules before they're signed, and userpages is stripped in %install.
 
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-35
 - Require aura 1.0.0~b11 or later. On the MacBook Neo this kernel's DT
