@@ -1,9 +1,9 @@
-%global commit 7f7a7ffa76bbc9fc27ed19328297eccdbe083a0f
+%global commit be147e36250b3dbacb6ddcee3e68acfad610f17d
 %global debug_package %{nil}
 Name: mesa-aurora
 Epoch: 1
 Version: 26.3.0
-Release: 22%{?dist}.aurora
+Release: 23%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -202,6 +202,13 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Thu Nov 12 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:26.3.0-23
+- Track aurora-silicon/mesa aurora-wip at be147e36: transform feedback
+  keeps a captured point size (mesa#211), revert of the varying
+  optimisation that broke fast-linked pipeline libraries with viewport
+  arrays (mesa#212), no signext optimisation over an abs source in the
+  AGX compiler (mesa#232, OpenCL 64-bit multiplies).
+
 * Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:26.3.0-22
 - Track aurora-silicon/mesa aurora-wip at 7f7a7ffa: G13/G14 buffer device
   address capture/replay (mesa#222), G13/G14 sparse texel buffer residency
