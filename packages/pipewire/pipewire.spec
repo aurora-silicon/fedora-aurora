@@ -74,7 +74,7 @@ Version:        %{majorversion}.%{minorversion}.%{microversion}
 # Fedora's release plus a suffix, so this sorts above the Fedora 1.6.9 build
 # it replaces (1.fc44 < 1.fc44.aurora5). Hold it with a versionlock: a newer
 # Fedora PipeWire would replace it and drop these patches.
-Release:        %{baserelease}%{?snapdate:.%{snapdate}git%{shortcommit}}%{?dist}.aurora7
+Release:        %{baserelease}%{?snapdate:.%{snapdate}git%{shortcommit}}%{?dist}.aurora8
 Vendor:         Aurora Silicon
 # PipeWire is generally MIT but includes plugins using libraries under other licenses.
 # See the module specific License for details.
@@ -121,6 +121,10 @@ Patch1008:      1008-alsa-a-start-on-a-suspended-PCM-is-expected-not-an-error.pa
 # also when it was switched on after the card was set up (upstream efb5aa06;
 # WirePlumber 0.5.18 reads hdmi.product.name for the node description).
 Patch1009:      1009-alsa-put-the-ELD-product-name-on-HDMI-DP-nodes.patch
+# A start the kernel refused (the speaker PCM without a grant) left the
+# stream marked prepared, so every later start skipped the silence prefill
+# and failed with -EPIPE until PipeWire restarted: prepare it again.
+Patch1010:      1010-alsa-prepare-a-stream-again-after-its-start-failed.patch
 
 ## upstream patches
 
@@ -972,6 +976,10 @@ systemctl --no-reload preset --global pipewire.socket >/dev/null 2>&1 || :
 %{_datadir}/pipewire/pipewire.conf.d/50-raop.conf
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.6.9-1.aurora8
+- alsa: a stream whose start the driver refused is prepared again on the
+  next start, instead of failing every later start with -EPIPE
+
 * Mon Nov 09 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.6.9-1.aurora7
 - alsa: put the ELD product name on HDMI/DP nodes (upstream efb5aa06), so a
   display's audio output is named after the display

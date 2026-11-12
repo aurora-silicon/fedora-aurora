@@ -1,4 +1,4 @@
-%global commit 26db27188637ec52a6d9bb9f0abffa12d5571656
+%global commit 836a0efa19fc733f870651316ed04ff243667e39
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261112
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.44.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.45.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -247,6 +247,13 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.45.20261112git836a0efa19fc
+- speakerguardd#167: a capture of the amps' sink is unlinked until the
+  grant, so nothing wakes the sink before it; grants that a fault ends
+  within 2 s are spaced out from the second one in a row (250 ms up to
+  4 s); a late helper-liveness check vouches for up to 250 ms (12 ms
+  before), a dead helper still counts at once.
+
 * Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.44.20261112git26db27188637
 - speakerguardd#165: the session parity attestations are regenerated at the
   current voicing law, so `speakerguardd-selfcheck verify` accepts the
