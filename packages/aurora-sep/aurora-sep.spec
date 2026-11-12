@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 29%{?dist}
+Release: 30%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -33,6 +33,8 @@ Source22: authselect-vendor-local
 Source23: powerdevilrc
 Source24: aurora-sep-modprobe.conf
 Source25: aurora-sep
+Source26: sleep-aurora-sep.conf
+Source27: 20-aurora-suspend.conf
 BuildArch: noarch
 BuildRequires: systemd-rpm-macros fprintd authselect-libs
 BuildRequires: selinux-policy-devel make bzip2
@@ -111,6 +113,12 @@ install -Dpm0755 %{SOURCE15} %{buildroot}%{_libexecdir}/aurora-sep-sensor-presen
 install -Dpm0644 %{SOURCE10} %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-sep.conf
 install -Dpm0644 %{SOURCE2} %{buildroot}%{_unitdir}/fprintd.service.d/aurora-sep.conf
 install -Dpm0644 %{SOURCE18} %{buildroot}%{_prefix}/lib/systemd/logind.conf.d/50-aurora-sep.conf
+# Common policy applies even when SEP initialization is skipped or fails.
+install -Dpm0644 %{SOURCE27} %{buildroot}%{_prefix}/lib/systemd/sleep.conf.d/20-aurora-suspend.conf
+# Ordering only: never start a disabled loader or retry a failed load.
+for unit in systemd-suspend systemd-hybrid-sleep systemd-suspend-then-hibernate; do
+    install -Dpm0644 %{SOURCE26} %{buildroot}%{_unitdir}/$unit.service.d/aurora-sep.conf
+done
 install -Dpm0644 %{SOURCE23} %{buildroot}%{_sysconfdir}/xdg/powerdevilrc
 # The vendor authselect profile is built at install time from the installed
 # authselect (see authselect-vendor-local); list its files as ghosts.
@@ -229,6 +237,14 @@ fi
 %dir %{_unitdir}/fprintd.service.d
 %{_unitdir}/fprintd.service.d/aurora-sep.conf
 %{_unitdir}/fprintd.service.d/50-aurora-sep-no-timeout.conf
+%dir %{_prefix}/lib/systemd/sleep.conf.d
+%{_prefix}/lib/systemd/sleep.conf.d/20-aurora-suspend.conf
+%dir %{_unitdir}/systemd-suspend.service.d
+%{_unitdir}/systemd-suspend.service.d/aurora-sep.conf
+%dir %{_unitdir}/systemd-hybrid-sleep.service.d
+%{_unitdir}/systemd-hybrid-sleep.service.d/aurora-sep.conf
+%dir %{_unitdir}/systemd-suspend-then-hibernate.service.d
+%{_unitdir}/systemd-suspend-then-hibernate.service.d/aurora-sep.conf
 %{_presetdir}/80-aurora-sep.preset
 
 %files selinux
@@ -236,11 +252,17 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
-* Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-29
+* Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-30
 - aurora-touchid-setup reads the M5 (T8142) factory seal, whose MANB holds
   its objects in a SEQUENCE because one name repeats (two scrt SEP
   certificates); a repeated name there is dropped, a repeat in a SET is
   still refused (alarm-aurora#253).
+
+* Thu Nov 12 2026 Diljit Singh <hey@djdev.me> - 1-29
+- Request only mem on suspend and reset MemorySleepMode to empty, preserving
+  explicit kernel/user mode selection without standby/freeze retries on refusal.
+  Install the common vendor policy independently of SEP activation and retain
+  After-only SEP ordering on the three suspend units.
 
 * Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-28
 - load-driver finishes the key-store-only attach that the aurora-sep-luks
