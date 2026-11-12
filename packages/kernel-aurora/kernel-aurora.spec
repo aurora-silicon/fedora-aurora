@@ -1,4 +1,4 @@
-%global commit 2b05915f81bc066670cd872be3cbdd916753bf26
+%global commit 9219565939723cd5bc381941bc3978d52610d753
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 35%{?dist}.aurora
+Release: 36%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -19,7 +19,7 @@ Source5: validate-config.py
 Source6: dtb-abi
 ExclusiveArch: aarch64
 BuildRequires: make gcc gcc-c++ clang llvm lld rust rust-src rustfmt cargo bindgen-cli
-BuildRequires: bc bison flex dtc openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
+BuildRequires: bc bison flex dtc openssl openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
 Requires: kernel-aurora-core = %{version}-%{release}
 Requires: kernel-aurora-modules-extra = %{version}-%{release}
 # Not versioned: older installed kernels must not hold back its updates.
@@ -157,6 +157,24 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Thu Nov 12 2026 Diljit Singh <hey@djdev.me> - 7.3.0-36
+- Pin integration/aurora 92195659, 30 merges (111 commits) after 2b05915f:
+  - MacBook Neo (T8140): the AVE complex powered as the video encoders'
+    parent domain, which fixes the first-wake reset on units with
+    encoder 0 enabled (#1663); 0.21 s faster DRAM-kept wake and the USB
+    PHY set up again after a deep sleep (#1658); the internal panel
+    started from the resume (#1631); SoC fabric power-state parents
+    (#1298); the second encoder described (#1626).
+  - Shared: the boot-security lockdown for secure-path boots (#1636),
+    which turns on the early lockdown LSM and, with it, module signing;
+    SIO AES revision 5 (#1622); the DP855 panel bus and TMP103 (#1642);
+    G17 GPU fixes for 25G83 (#1644, #1662).
+- olddefconfig adds the lockdown LSM (lockdown none unless a secure-path
+  boot raises it), module signing with a build-time key (SHA-512),
+  CONFIG_I2C_DP855=m and CONFIG_SENSORS_TMP103=m; both sleep options
+  stay y and CONFIG_PINCTRL_APPLE_GPIO stays m.
+- BuildRequires openssl: the build now generates the module signing key.
+
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-35
 - Require aura 1.0.0~b11 or later. On the MacBook Neo this kernel's DT
   leaves the video encoder for aura to enable from the ADT (aura#167), and
