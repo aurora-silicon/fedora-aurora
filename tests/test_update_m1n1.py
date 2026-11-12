@@ -486,7 +486,7 @@ class Recipes(unittest.TestCase):
         self.assertIn('[Install]\nWantedBy=multi-user.target\n', unit)
         self.assertIn('enable aurora-kernel-install-repair.service\n',
                       (ROOT / 'packages/update-m1n1/90-aurora-stage2.preset').read_text())
-        self.assertIn('%triggerun -- update-m1n1 < 20261107-7\n'
+        self.assertIn('%triggerpostun -- update-m1n1 < 20261107-8\n'
                       '/usr/bin/systemctl --no-reload preset aurora-kernel-install-repair.service || :\n', spec)
         posttrans = self.step('update-m1n1', '%posttrans', 'fi')
         for booted, call in ((True, 'systemctl --no-block start aurora-kernel-install-repair.service'),

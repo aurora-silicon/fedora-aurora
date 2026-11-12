@@ -73,7 +73,7 @@ install -Dm644 /dev/null %{buildroot}%{_datadir}/aurora/stage2-sign-hook
 # administrator's preset policy exactly once during the vendor transition.
 %triggerun -- update-m1n1 < 20261107
 /usr/bin/systemctl --no-reload preset aurora-stage2-commit.service aurora-stage2-guard.timer || :
-%triggerun -- update-m1n1 < 20261107-7
+%triggerpostun -- update-m1n1 < 20261107-8
 /usr/bin/systemctl --no-reload preset aurora-kernel-install-repair.service || :
 
 # A kernel added while an older updater refused it has no boot entry yet. The
