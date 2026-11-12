@@ -7,18 +7,21 @@ over when Linux panics, writes the crashed kernel's memory and log to
 `/var/crash`, and restarts the Mac. `aurora-panic-log` (aurora-diag)
 lists the saved dumps.
 
-kdump is opt-in. It reserves crash kernel memory on every boot (320 MiB
-on a Mac with 4 to 64 GiB), so no image or meta package installs it.
+kdump is opt-in. It reserves 512 MiB of memory for the crash kernel on
+every boot, so no image or meta package installs it.
 
 ## Turning it on
 
     sudo dnf install aurora-platform-kdump
     sudo reboot
 
-Installing the package enables `kdump.service` and adds kdump-utils'
-default `crashkernel=` to every boot entry and to `/etc/kernel/cmdline`
-(`kdumpctl reset-crashkernel`). The memory is reserved from the next
-boot. A `crashkernel=` you set yourself is kept.
+Installing the package enables `kdump.service` and adds
+`crashkernel=512M` to every boot entry (grubby) and to
+`/etc/kernel/cmdline`. The memory is reserved from the next boot. A
+`crashkernel=` you set yourself is kept. kdump-utils' own default is
+320 MiB on these Macs, but the crash kernel unpacks its whole initramfs
+(about 85 MB on Fedora 45) and ran out of memory at 320 MiB on the
+M1 Pro.
 
 To check it after the reboot:
 
@@ -74,8 +77,8 @@ lives in its own reservation.
 
 | Mac | Kernel | Result |
 |---|---|---|
-| MacBook Pro 16" (M1 Pro) | 7.3.0-aurora-fleet67 | Works. sysrq-c: 200 MiB vmcore and both logs saved in 4 s, dump directory dated to the panic second, back on the default kernel 42 s after the panic. |
-| MacBook Air (M2) | 7.3.0-aurora-fleet67 | Works. sysrq-c: 222 MiB vmcore and both logs saved, back on the default kernel 17 s after the panic. Before the squashfs layer was dropped from the crash kernel's initramfs, it stalled and the watchdog restarted the Mac after about 3 minutes. |
+| MacBook Pro 16" (M1 Pro) | 7.3.0-aurora-fleet67 | Works at 512 MiB. sysrq-c: 269 MiB vmcore and both logs saved in 4 s, dump directory dated to the panic second, back on the default kernel 42 s after the panic. At 320 MiB the crash kernel saved nothing and the watchdog restarted the Mac after about 3 minutes. |
+| MacBook Air (M2) | 7.3.0-aurora-fleet67 | Works (tested at 320 MiB). sysrq-c: 222 MiB vmcore and both logs saved, back on the default kernel 17 s after the panic. Before the squashfs layer was dropped from the crash kernel's initramfs, it stalled and the watchdog restarted the Mac after about 3 minutes. |
 | MacBook Neo (A18 Pro) | test kernels with aurora-silicon/linux#1200 | Works (two dumps, crash on CPU 0 and on a CTXR-confined core). After one later run the default kernel hung on the next boot; not understood yet. |
 | MacBook Pro (M4 Pro) | not tested | |
 

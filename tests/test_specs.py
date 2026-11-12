@@ -298,7 +298,7 @@ class SpecTests(unittest.TestCase):
             bindir = root / 'bin'
             bindir.mkdir()
             log = root / 'calls'
-            for tool in ('kdumpctl', 'systemctl', 'grubby'):
+            for tool in ('systemctl', 'grubby'):
                 (bindir / tool).write_text(f'#!/bin/sh\necho {tool} "$@" >> "{log}"\n')
                 (bindir / tool).chmod(0o755)
             cmdline, state = root / 'cmdline', root / 'state' / 'kdump-crashkernel-added'
@@ -318,9 +318,10 @@ class SpecTests(unittest.TestCase):
             log.write_text('')
             cmdline.write_text('root=UUID=x ro\n')
             run('enable')
-            self.assertEqual(log.read_text(), 'systemctl enable kdump.service\nkdumpctl reset-crashkernel --kernel=ALL\n')
+            self.assertEqual(log.read_text(), 'systemctl enable kdump.service\ngrubby --update-kernel=ALL --args=crashkernel=512M\n')
+            self.assertEqual(cmdline.read_text(), 'root=UUID=x ro crashkernel=512M\n')
             self.assertTrue(state.exists())
-            cmdline.write_text('root=UUID=x ro crashkernel=2G-4G:256M,4G-64G:320M,64G-:576M quiet\n')
+            cmdline.write_text('root=UUID=x ro crashkernel=512M quiet\n')
             log.write_text('')
             run('disable')
             self.assertEqual(log.read_text(), 'systemctl disable kdump.service\ngrubby --update-kernel=ALL --remove-args=crashkernel\n')

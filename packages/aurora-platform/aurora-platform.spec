@@ -111,8 +111,8 @@ Requires: kdump-utils makedumpfile grubby
 Opt-in crash dumps for Linux on Apple silicon. iBoot keeps no record of a
 Linux panic, so a crash kernel saves the vmcore and the crashed kernel's log
 to /var/crash; aurora-panic-log lists them. Installing this package enables
-kdump.service and reserves kdump-utils' default crash kernel memory from the
-next boot; removing it undoes both. See docs/kdump.md for the Macs it is
+kdump.service and reserves 512 MiB for the crash kernel from the next
+boot; removing it undoes both. See docs/kdump.md for the Macs it is
 tested on.
 
 %package selinux
@@ -247,9 +247,11 @@ fi
 - New opt-in subpackage aurora-platform-kdump: save Linux's own crashes
   with kdump. iBoot keeps no record of a Linux panic, so a crash kernel
   writes the vmcore and the crashed kernel's log to /var/crash, and
-  aurora-panic-log lists them. Installing it enables kdump.service and sets
-  kdump-utils' default crashkernel= (320 MiB on 4 to 64 GiB); removing it
-  disables the service and removes the crashkernel= it added.
+  aurora-panic-log lists them. Installing it enables kdump.service and adds
+  crashkernel=512M unless one is set; removing it disables the service and
+  removes the crashkernel= it added. kdump-utils' 320 MiB default is too
+  small once the initramfs is unpacked whole (next item): the M1 Pro's
+  crash kernel ran out of memory and saved nothing.
 - The crash kernel's initramfs gets nvme_apple (kdump-utils replaces
   dracut-asahi's module list) and leaves out the drivers of coprocessors
   and buses the crashed kernel left running; probing them stalled the
@@ -263,9 +265,10 @@ fi
   busybox /init, and with Fedora 44's dracut 108 that /init never loaded
   its first module in the crash kernel, so the MacBook Air (M2) saved no
   dump and its watchdog restarted it after about 3 minutes.
-- Tested with sysrq-c on 7.3.0-aurora-fleet67: MacBook Air (M2), 222 MiB
-  vmcore, back on the default kernel 17 s after the panic; MacBook Pro
-  (M1 Pro), 200 MiB vmcore, back after 42 s.
+- Tested with sysrq-c on 7.3.0-aurora-fleet67 with this initramfs:
+  MacBook Air (M2) at 320 MiB, 222 MiB vmcore, back on the default kernel
+  17 s after the panic; MacBook Pro (M1 Pro) at 512 MiB, 269 MiB vmcore,
+  back after 42 s.
 
 * Wed Nov 11 2026 DjDeveloperr <hey@djdev.me> - 44-37
 - Boot M5 (T8142) and M5 Pro/Max (T6050) Macs with arm64.nomte:
