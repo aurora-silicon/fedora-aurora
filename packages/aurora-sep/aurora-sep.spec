@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 28%{?dist}
+Release: 29%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -236,6 +236,12 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-29
+- aurora-touchid-setup reads the M5 (T8142) factory seal, whose MANB holds
+  its objects in a SEQUENCE because one name repeats (two scrt SEP
+  certificates); a repeated name there is dropped, a repeat in a SET is
+  still refused (alarm-aurora#253).
+
 * Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-28
 - load-driver finishes the key-store-only attach that the aurora-sep-luks
   initrd starts (keystore_only 1, or 2 for a password-unlocked root) instead
