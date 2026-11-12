@@ -855,4 +855,19 @@ class SpecTests(unittest.TestCase):
         self.assertIn('%{_libdir}/aurora-camera-denoise/cdn-backend-ave.so', files)
         self.assertIn('%{_libdir}/aurora-camera-denoise/cdn-backend-ane.so', files)
         self.assertIn('%{_datadir}/aurora-camera-denoise/', files)
+    def test_diagnostics_are_opt_in_and_follow_their_pin(self):
+        text = (ROOT / 'packages/aurora-diag/aurora-diag.spec').read_text()
+        pin = json.loads((ROOT / 'sources.json').read_text())['aurora-diag']
+        self.assertIn('%global commit ' + pin['commit'] + '\n', text)
+        self.assertRegex(text, r'(?m)^Version: ' + re.escape(pin['version']) + '$')
+        self.assertEqual(pin['archive_root'], 'aurora-diag-' + pin['commit'])
+        self.assertIn('make check', text.split('%check', 1)[1].split('%install', 1)[0])
+        files = text.split('%files', 1)[1]
+        for path in ('%{_bindir}/aurora-diag', '%{_bindir}/aurora-panic-log', '%{_datadir}/aurora-diag'):
+            self.assertIn(path, files)
+        self.assertRegex(text, r'(?m)^Requires: python3$')
+        for spec in (ROOT / 'packages').glob('*/*.spec'):
+            if spec.parent.name != 'aurora-diag':
+                self.assertNotRegex(spec.read_text(), r'(?m)^(Requires|Recommends|Supplements)(\(\w+\))?:.*\baurora-diag\b', spec.name)
+        self.assertNotIn('"aurora-diag"', (ROOT / 'images/configure.py').read_text())
 if __name__ == '__main__': unittest.main()

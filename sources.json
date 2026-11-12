@@ -510,5 +510,13 @@
     "archive_root": "kwin-6.8.2",
     "archive_file": "kwin-6.8.2.tar.xz",
     "sha256": "ea5e68d957c7d70abed97222a592d4445fda29129e20942658badd224ee138b4"
+  },
+  "aurora-diag": {
+    "repository": "https://github.com/aurora-silicon/aurora-diag",
+    "commit": "a343f3309ce7aa6eaa0b2dc89af59da425fdd1f9",
+    "version": "0.4.0",
+    "source_url": "https://codeload.github.com/aurora-silicon/aurora-diag/tar.gz/a343f3309ce7aa6eaa0b2dc89af59da425fdd1f9",
+    "archive_root": "aurora-diag-a343f3309ce7aa6eaa0b2dc89af59da425fdd1f9",
+    "sha256": "92d16f1fef8b79f625e44aa748693658d63dec6dd0f051d45c9e0eec2a3292ce"
   }
 }
