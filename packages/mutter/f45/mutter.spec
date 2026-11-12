@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       7%{?dist}.aurora
+Release:       8%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -39,6 +39,7 @@ Patch2:        0002-input-capture-disable-on-eis-disconnect.patch
 Patch3:        0003-x11-assign-frame-counters-on-actor-views.patch
 Patch4:        0004-backends-take-the-pq-reference-white-from-pq-reference-luminance.patch
 Patch5:        0005-onscreen-native-use-variable-refresh-rate-on-the-whole-desktop-of-built-in-panels.patch
+Patch6:        0006-renderer-native-drop-power-save-page-flip-onscreens-on-dispose.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -257,6 +258,11 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-8.aurora
+- Drop the onscreens queued for power save page flips when the renderer is
+  disposed, before the Cogl display goes away. gnome-shell no longer
+  crashes at shutdown when the displays are in power save
+
 * Fri Nov 06 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-7.aurora
 - Use variable refresh rate on the whole desktop of a built-in panel in a
   variable refresh rate mode, so an idle desktop lets the panel drop to its
