@@ -1,6 +1,6 @@
-%global commit 836a0efa19fc733f870651316ed04ff243667e39
+%global commit 26b88eac71bfe15411fd1b3ac75efcd7239502e3
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261112
+%global snapdate 20261113
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.46.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.47.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -252,6 +252,12 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Nov 13 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.47.20261113git26b88eac71bf
+- speakerguardd#158: the T6050 AOP audio transport (same driver
+  configuration as the T8142).
+- speakerguardd#159: aurora-speaker-upgrade goes on to route 3 after an
+  unknown speaker ID.
+
 * Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.46.20261112git836a0efa19fc
 - Require pipewire-speaker-graph >= 2 (Aurora's PipeWire): with Fedora's,
   a repeated volume or mute update made PipeWire apply the volume a second
