@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 38%{?dist}
+Release: 39%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -68,6 +68,8 @@ Requires: alsa-ucm-conf-aurora
 # 5.87 includes the upstream empty-TLV fix; retain real error reporting.
 Requires: bluez >= 5.87
 Requires: aurora-camera-denoise
+# The Wi-Fi firmware follows the installed macOS, as on macOS.
+Requires: aurora-wifi-firmware
 # The VA-API driver for the video decoder, so players and browsers that
 # use VA-API decode in hardware (images install it; this brings it to Macs
 # that update with dnf).
@@ -243,6 +245,11 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-39
+- aurora-platform-core requires aurora-wifi-firmware: the ESP's Wi-Fi
+  firmware follows the installed macOS's, read from the macOS system volume
+  at boot and used from the next boot.
+
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-38
 - New opt-in subpackage aurora-platform-kdump: save Linux's own crashes
   with kdump. iBoot keeps no record of a Linux panic, so a crash kernel
