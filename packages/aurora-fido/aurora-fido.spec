@@ -1,7 +1,7 @@
-%global commit b214617b17ad0e421a2661c42c6e3b77932ac155
+%global commit 2ea454e0a222aea7b970f9bf061ee6ea3cd326ec
 Name: aurora-fido
-Version: 0.1.0
-Release: 1%{?dist}
+Version: 0.2.0
+Release: 2%{?dist}
 Summary: Touch ID as a FIDO2/U2F security key (opt in)
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-sep-userspace
@@ -10,14 +10,14 @@ ExclusiveArch: aarch64
 BuildRequires: gcc make pkgconf-pkg-config json-c-devel
 BuildRequires: python3-devel python3-cryptography
 BuildRequires: systemd-rpm-macros
+# /dev/sep-key interface 2+ (enclave-checked Touch ID keys) comes with the kernel.
 Requires: aurora-sep
-Requires: fprintd
-Requires: python3 python3-cryptography python3-gobject-base
+Requires: python3 python3-cryptography
 Requires: systemd-udev
-# The password dialog of the touchid-or-password policy.
-Requires: polkit
 # The "Touch ID to sign in to <site>" notification.
 Recommends: libnotify
+# The per-user agent's native front-end on the session bus (vault = user).
+Recommends: python3-jeepney
 Recommends: glib2
 # Clients: browsers need nothing; these are the command-line tools.
 Suggests: fido2-tools pam-u2f
@@ -25,14 +25,14 @@ Suggests: fido2-tools pam-u2f
 %description
 aurora-fidod makes this Mac's Secure Enclave and Touch ID look like a USB
 security key to Linux: WebAuthn and passkeys in Firefox and Chromium, SSH
-ecdsa-sk keys, pam_u2f and systemd-cryptenroll --fido2-device. Every
-operation that needs the user asks for a Touch ID match.
+ecdsa-sk keys, pam_u2f and systemd-cryptenroll --fido2-device. Keys live
+in the Secure Enclave, which checks the Touch ID match inside every
+signature itself: root on this Mac cannot sign without a finger.
 
-It is installed off. Turn it on with `sudo aurora-fido enable`, off with
-`sudo aurora-fido disable`; `aurora-fido status` says which key store it
-uses. Keys live in the Secure Enclave when the kernel has /dev/sep-key and
-are sealed by it otherwise (root on this Mac can copy sealed keys); see
-/usr/share/doc/aurora-fido/fido.md.
+It is installed off. Turn it on with `sudo aurora-fido enable` (refused on
+a kernel without /dev/sep-key), off with `sudo aurora-fido disable`;
+`aurora-fido status` shows the policy and any 0.1 credentials that must be
+registered again. See /usr/share/doc/aurora-fido/fido.md.
 
 %prep
 %autosetup -n aurora-sep-userspace-%{commit}
@@ -48,13 +48,16 @@ make -C fido check PYTHON=%{python3}
 %install
 %make_install -C fido PREFIX=%{_prefix} LIBEXECDIR=%{_libexecdir}/aurora-fido \
 	UNITDIR=%{_unitdir} UDEVRULESDIR=%{_udevrulesdir} PRESETDIR=%{_presetdir} \
+	USERUNITDIR=%{_userunitdir} USERPRESETDIR=%{_userpresetdir} \
 	DOCDIR=%{_docdir}/%{name}
 %py_byte_compile %{python3} %{buildroot}%{_prefix}/lib/aurora-fido
 
 %post
 %systemd_post aurora-fido.service
+%systemd_user_post aurora-passkeyd.service
 %preun
 %systemd_preun aurora-fido.service
+%systemd_user_preun aurora-passkeyd.service
 %postun
 %systemd_postun_with_restart aurora-fido.service
 
@@ -65,15 +68,31 @@ make -C fido check PYTHON=%{python3}
 %dir %{_libexecdir}/aurora-fido
 %{_libexecdir}/aurora-fido/aurora-fidod
 %{_libexecdir}/aurora-fido/aurora-fido-seal
+%{_libexecdir}/aurora-fido/aurora-passkeyd
 %{_prefix}/lib/aurora-fido/
 %{_unitdir}/aurora-fido.service
 %{_presetdir}/90-aurora-fido.preset
+%{_userunitdir}/aurora-passkeyd.service
+%{_userpresetdir}/90-aurora-passkeyd.preset
 %{_udevrulesdir}/60-aurora-fido.rules
-%{_datadir}/polkit-1/actions/org.aurora.fido.policy
 %dir %{_sysconfdir}/aurora-fido
 %config(noreplace) %{_sysconfdir}/aurora-fido/aurora-fido.conf
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.2.0-2
+- Per-user passkey agent (aurora-passkeyd, a user unit, installed off) for
+  [authenticator] vault = user: keys and the vault key under the user's own
+  Secure Enclave key bag (sep-key interface 4), enclave-checked password on
+  the native front-end, per-site policy, D-Bus front-end org.aurora.Passkeys1.
+  The default stays vault = system.
+
+* Wed Nov 11 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.2.0-1
+- The Secure Enclave decides every approval: keys with an enclave-enforced
+  Touch ID access control, no fprintd or polkit check in the daemon, no
+  sealed software key store. Credentials made by 0.1 are refused and must
+  be registered again (aurora-fido status lists them). hmac-secret needs a
+  kernel with /dev/sep-key SEAL/UNSEAL.
+
 * Sun Nov 08 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1.0-1
 - Package aurora-sep-userspace's fido/: Touch ID as a FIDO2/U2F security key,
   installed off (preset disable); aurora-fido enable|disable|status;

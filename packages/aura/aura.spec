@@ -1,13 +1,11 @@
 %global debug_package %{nil}
-%global commit 21a70e6e210b7a562c2526c25d2ae334d5eb90e4
-# The release this pin is labelled as; the archive build carries it.
-%global release_tag 1.0.0b10
+%global commit eca16db081657b127f476511f7aa16a6128d5a15
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
 %global monitor_free 1
 Name: aura
-Version: 1.0.0~b10
+Version: 1.0.0~b11
 Release: 1%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
@@ -28,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-21a70e6e210b7a562c2526c25d2ae334d5eb90e4
+%autosetup -n aura-eca16db081657b127f476511f7aa16a6128d5a15
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -64,6 +62,55 @@ install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/a
 %{_datadir}/aura/
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b11-1
+- Update to aura 1.0.0b11 (v1.0.0b11, eca16db0). Since bd9f3e82: memory a device may
+  still reach stays allocated after a DART or NVMe failure (aura#175), DART
+  Gen3 invalidation timeouts and dart_free_l2() roots (#180), a watchdog
+  reset for faults before wdt_disable() (#138), the M1 Pro and M2 encoder
+  firmware handoff (#161), the T8140 encoder chosen from the ADT (#167),
+  the T8140 SIO tables for DisplayPort audio (#122), M4 Max laptop USB 3
+  (#147), and M5 Pro handoffs (#158, #159, #169, #171, #173, #179).
+  Secure boot (#133) stays off in this build.
+
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b10-5
+- Pin aura main bd9f3e82, labelled 1.0.0b10-gbd9f3e82 from the archive
+  directory as it is not a release tag.
+  Since 014a758b: an opt-in DT entry (apple,adt-dvfs) gets the PMP media
+  performance request levels from the ADT, so the M1 Pro and M2 encoder vote
+  with this Mac's own values (aura#150); the T8140 APCIe tables are published
+  for an OS that powers ANS's PCIe block back (#112).
+
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b10-4
+- Pin aura main 014a758b, labelled 1.0.0b10-g014a758b from the archive
+  directory as it is not a release tag.
+  Since 2296392f: Stage 1 keeps a 178 s watchdog over the boot until a host
+  attaches or Stage 2 starts, so a Stage 1 that stops before Stage 2 resets
+  instead of staying dark (aura#127); the high-speed USB proxy recovers from
+  a bus reset or disconnect (#130) and starts every no-data status stage on
+  XferNotReady (#139); T6000/T8112 get their PMP boot data on a node without
+  the pmp alias (#88); aura-try one-shot trials for the boot= kernel (#82);
+  the J604/J715 radio port and J604 MTP DAPF hand-off (#141, #137); the M5
+  Pro (T6050) Linux boot and the shared ANS hand-off (#144), which also moves
+  kboot and the remaining hypervisor code into the .init slot so Stage 1
+  links with clang 22.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b10-3
+- Pin aura main 2296392f, labelled 1.0.0b10-g2296392f from the archive
+  directory as it is not a release tag.
+  Since dab56f2f: Stage 1's payload scan ends at a Mach-O boot object's
+  __PRELINK_INFO, so an unpadded Mach-O Stage 1 no longer hands
+  m1n1.config-lost=1 to Stage 2, which made M3 boards drop all graphics
+  (aura#134); the J613 native external display path behind its own
+  opt-in (#86); T8142 secondaries keep their writable state out of CTRR_D
+  and the GPU firmware's data is reserved (#100, #143).
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b10-2
+- Pin aura main dab56f2f. It is not a release tag, so the build is labelled
+  1.0.0b10-gdab56f2f from the archive directory. Since 21a70e6e: the
+  T6040 boot core power-gates too (aura#119), the T8142 ISP accepts the
+  macOS 27.0 firmware (#99), and a Recovery script enrolls a hand-built
+  Stage 1 (#131). The source still has no monitor, so monitor_free stays 1.
+
 * Mon Nov 09 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b10-1
 - Pin aura main 21a70e6e (aura#135), labelled 1.0.0b10 as its VERSION
   file is. Since b8: the M4 GPU and DCP handoffs on 26.6.2 firmware for

@@ -17,10 +17,18 @@ depends() {
     return 0
 }
 
+# appledrm registers its DRM device only once every DCP has bound, the
+# external ones included, and an external DCP binds only after its Type-C
+# PHY, which needs the retimer or PD controller on an I2C bus. Without that
+# chain in the initramfs the internal panel's DCP starts in the initramfs,
+# stops showing the boot framebuffer, and nothing presents until the real
+# root loads the I2C controller: ~4.5 s of black on a J700.
 installkernel() {
-    hostonly='' instmods appledrm
+    hostonly='' instmods appledrm mux-apple-display-crossbar \
+        i2c-pasemi-platform phy-apple-atc phy-ti-cd2e22 tps6598x
 }
 
 install() {
     inst_hook pre-trigger 20 "$moddir/aurora-early-kms.sh"
+    inst_hook pre-pivot 90 "$moddir/aurora-early-kms-wait.sh"
 }

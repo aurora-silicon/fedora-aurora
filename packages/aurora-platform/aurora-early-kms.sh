@@ -2,8 +2,8 @@
 # dracut pre-trigger hook: runs after systemd-udevd starts and before
 # systemd-udev-trigger coldplugs every device.
 #
-# Queue the Apple display subsystem, its DCPs and their device-link
-# suppliers (for example the Type-C PHY that an external DCP drives) ahead
+# Queue the Apple display subsystem, its DCPs, their device-link suppliers,
+# the Type-C PHYs and the I2C controllers behind them ahead
 # of the rest of the coldplug, so udev loads appledrm and the supplier
 # drivers first, through the normal modalias rules (modprobe.d and
 # rd.driver.blacklist= still apply), then the DRM cards that exist already
@@ -22,6 +22,9 @@ aurora_early_kms() {
         read -r alias < "$dev/modalias" || continue
         case "$alias" in
             *Capple,display-subsystem*|*Capple,dcp*) ;;
+            # The external DCPs' Type-C PHYs and the I2C controllers of
+            # their retimers and PD controllers (see module-setup.sh).
+            *Capple,*atcphy*|*Capple,*-i2cC*|*Capple,i2c) ;;
             *) continue ;;
         esac
         set -- "$@" "$(readlink -f "$dev")"

@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 29%{?dist}
+Release: 37%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -35,12 +35,10 @@ Source113: aurora-ppd-config
 Source114: 90-aurora-ane.conf
 Source115: aurora-wake-for-network
 Source116: 63-aurora-wake-for-network.rules
-Source117: aurora-kdump-dracut.conf
-Source118: aurora-kdump.service.conf
-Source119: 80-aurora-kdump.preset
-Source120: aurora-kdump-setup
-Source121: aurora-kdump-clock-module-setup.sh
-Source122: aurora-kdump-clock.sh
+Source117: aurora-grub-uuid
+Source118: 90-aurora-reboot-watchdog.conf
+Source119: aurora-early-kms-wait.sh
+Source120: 64-aurora-trackpad-clicks.rules
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -70,15 +68,19 @@ Requires: aurora-camera-denoise
 # that update with dnf).
 Requires: libva-v4l2-request-avd
 Requires: aurora-kbd-light
+# One built-in panel brightness, shared with the boot loader and macOS
+# through NVRAM backlight-nits.
+Requires: aurora-panel-nits
+# NVRAM tools that parse the current NVRAM v3 stores, and the Bluetooth
+# pairings made in macOS (they replace asahi-nvram and asahi-btsync).
+Requires: aurora-nvram aurora-btsync
 # The Aurora repository with its key and dnf vendor policies, so a Fedora
 # Asahi Remix system with these services keeps following Aurora's builds.
 Requires: aurora-repos
 Requires: tuned
+Requires: aurora-power-budget
 # Wake for network access (magic packet) follows the power adapter.
 Requires: ethtool iw
-# Linux's own crash dumps (iBoot keeps no record of a Linux panic). kdump-utils
-# 1.0.61 calls dracut_no_switch_root, which dracut has from 111-5.
-Requires: kdump-utils makedumpfile dracut >= 111-5
 Requires: python3
 Requires: (aurora-platform-selinux = %{version}-%{release} if selinux-policy-%{selinuxtype})
 
@@ -130,25 +132,28 @@ install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwd
 install -Dm755 %{SOURCE105} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-usb4/module-setup.sh
 install -Dm755 %{SOURCE106} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/module-setup.sh
 install -Dm755 %{SOURCE107} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh
+install -Dm755 %{SOURCE119} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms-wait.sh
 install -Dpm0644 %{SOURCE114} %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-ane.conf
 install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-console
+install -Dm755 %{SOURCE117} %{buildroot}%{_libexecdir}/aurora/aurora-grub-uuid
 install -Dm644 %{SOURCE112} %{buildroot}%{_prefix}/lib/tuned/profiles/aurora-performance/tuned.conf
 install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 install -Dm755 %{SOURCE115} %{buildroot}%{_libexecdir}/aurora/aurora-wake-for-network
 install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-network.rules
-install -Dm644 %{SOURCE117} %{buildroot}%{_prefix}/lib/kdump/dracut.conf.d/99-zz-aurora.conf
-install -Dm644 %{SOURCE118} %{buildroot}%{_unitdir}/kdump.service.d/50-aurora-kdump.conf
-install -Dm644 %{SOURCE119} %{buildroot}%{_presetdir}/80-aurora-kdump.preset
-install -Dm755 %{SOURCE120} %{buildroot}%{_libexecdir}/aurora/aurora-kdump-setup
-install -Dm755 %{SOURCE121} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora-kdump-clock/module-setup.sh
-install -Dm755 %{SOURCE122} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora-kdump-clock/aurora-kdump-clock.sh
+install -Dm644 %{SOURCE120} %{buildroot}%{_udevrulesdir}/64-aurora-trackpad-clicks.rules
+install -Dm644 %{SOURCE118} %{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 
 %posttrans core
 # Fedora's flicker-free GRUB output, once per system; see the script.
 %{_libexecdir}/aurora/aurora-grub-console || :
+# A grub.cfg whose only stale lines are partition UUID searches; see the script.
+%{_libexecdir}/aurora/aurora-grub-uuid || :
 %{_libexecdir}/aurora/aurora-ppd-config || :
-# kdump on, once per system; see the script.
-%{_libexecdir}/aurora/aurora-kdump-setup || :
+# MTE stays off on chips whose tag storage no boot loader reserves yet.
+if tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -qxE 'apple,(t6050|t8142)' &&
+    ! grep -qE '(^|[[:space:]])arm64\.nomte([[:space:]]|$)' /etc/kernel/cmdline 2>/dev/null; then
+  grubby --update-kernel=ALL --args=arm64.nomte || :
+fi
 
 # Also cover tuned-ppd installed/upgraded without an aurora-platform update.
 # The file remains owned by tuned-ppd as %%config(noreplace).
@@ -179,19 +184,16 @@ install -Dm755 %{SOURCE122} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora
 %{_udevrulesdir}/61-aurora-dmi-id.rules
 %{_udevrulesdir}/62-aurora-gpu-render-only.rules
 %{_udevrulesdir}/63-aurora-wake-for-network.rules
+%{_udevrulesdir}/64-aurora-trackpad-clicks.rules
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
+%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
 %{_prefix}/lib/dracut/modules.d/91aurora-early-kms/
 %{_prefix}/lib/dracut/dracut.conf.d/90-aurora-ane.conf
 %{_libexecdir}/aurora/aurora-grub-console
+%{_libexecdir}/aurora/aurora-grub-uuid
 %{_libexecdir}/aurora/aurora-ppd-config
 %{_libexecdir}/aurora/aurora-wake-for-network
-%{_libexecdir}/aurora/aurora-kdump-setup
-%{_prefix}/lib/kdump/dracut.conf.d/99-zz-aurora.conf
-%{_prefix}/lib/dracut/modules.d/99aurora-kdump-clock/
-%dir %{_unitdir}/kdump.service.d
-%{_unitdir}/kdump.service.d/50-aurora-kdump.conf
-%{_presetdir}/80-aurora-kdump.preset
 %dir %{_prefix}/lib/tuned/profiles/aurora-performance
 %{_prefix}/lib/tuned/profiles/aurora-performance/tuned.conf
 
@@ -200,24 +202,66 @@ install -Dm755 %{SOURCE122} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Wed Nov 11 2026 DjDeveloperr <hey@djdev.me> - 44-37
+- Boot M5 (T8142) and M5 Pro/Max (T6050) Macs with arm64.nomte:
+  aurora-platform-core adds it with grubby to every boot entry and to
+  future kernels when the device tree names one of those chips. The MTE
+  tag store is unreserved until the aura change lands.
+
+* Wed Nov 11 2026 DjDeveloperr <hey@djdev.me> - 44-36
+- Play trackpad clicks from the host, as macOS does, on Macs whose MTP
+  trackpad has a haptic actuator: 64-aurora-trackpad-clicks.rules sets
+  hid_magicmouse haptic_press when the trackpad binds. macOS takes click
+  control from the actuator at boot. Tested on a MacBook Pro (M5 Pro),
+  where the owner reported "haptic works"; the force-click threshold is not
+  touch-tested yet. An empty /etc/udev/rules.d file of the same name keeps
+  the firmware's click.
+
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-35
+- 91aurora-early-kms waits up to 2 s before the pivot for appledrm's DRM
+  device, so Plymouth takes it over while the initramfs udevd runs instead
+  of after an fbdev modeset blanks the panel
+
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-34
+- Require aurora-nvram and aurora-btsync, which replace asahi-nvram and
+  asahi-btsync: stock asahi-nvram panics on current NVRAM v3 stores, and
+  aurora-btsync refreshes the keys of devices macOS paired again.
+
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-33
+- Require aurora-panel-nits: the built-in panel starts at the boot loader's
+  NVRAM backlight-nits level instead of systemd-backlight's saved level, and
+  the user's level is stored back to NVRAM, so the panel does not step when
+  Linux takes over and the boot loader and macOS start at the same level.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-32
+- Reset a stuck reboot after 2 minutes: set RebootWatchdogSec and
+  KExecWatchdogSec to 2min. The Apple SoC watchdog cannot time out later than
+  about 178 s, so with systemd's default of 10 min the kernel kept feeding it
+  and a reboot that stalled was not reset for over 10 minutes. Tested on a
+  MacBook Air (M2): a reboot wedged before the final reboot call is reset
+  2 min after the watchdog is armed, 1 min with 1min.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-31
+- SELinux: stop logging three denials on every login. pam_gdm scans
+  /proc/keys for the disk passphrase, and listing needs "view" on each key;
+  the session worker (xdm_t) may not view cfg80211's regulatory certificate
+  keys when a platform service loaded cfg80211 (unconfined_service_t). It
+  never needs them: dontaudit only, no new access.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-30
+- Bring the external displays' Type-C chain (I2C controller, retimer or PD
+  controller, Type-C PHY) up in the initramfs with the display: appledrm
+  waits for every DCP, so the internal panel showed black from its DCP's
+  start until the real root loaded the I2C controller.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-29
-- Save Linux's own crashes with kdump. iBoot never keeps a panic record
-  that Linux leaves behind, so a crash kernel writes the vmcore and the
-  crashed kernel's log to /var/crash instead; aurora-panic-log lists them.
-  Require kdump-utils and makedumpfile, enable kdump.service and set
-  kdump-utils' default crashkernel= once per system.
-- Add nvme_apple to the crash kernel's initramfs. kdump-utils replaces
-  dracut-asahi's module list, so the crash kernel had no disk.
-- Leave the drivers of live coprocessors and buses (GPU, display,
-  Thunderbolt, AOP, PMP, ANE, audio, USB, keyboard) out of the crash
-  kernel's initramfs. Probing them in the crash kernel stalled udev before
-  nvme_apple loaded on the M1 Pro and M2.
-- Set the crash kernel's clock (dracut module aurora-kdump-clock, kdump
-  initramfs only) from the panic time in the crashed kernel's vmcoreinfo,
-  or else from the PMU RTC. The crash kernel cannot restart the SMC, so
-  rtc0 is missing and dumps were misdated.
-- Skip kdump.service instead of failing it on a boot without crash kernel
-  memory.
+- Require aurora-power-budget: Power Saver gets a CPU power budget, as
+  macOS Low Power Mode does.
+
+* Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-28
+- Regenerate a grub.cfg whose only stale lines are partition UUID searches
+  (aurora-grub-uuid): a 'search --fs-uuid --set=boot' for an ESP UUID that no
+  longer exists made GRUB print an error on screen on every boot.
 
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-27
 - Wake for network access as macOS defaults it on laptops: magic-packet

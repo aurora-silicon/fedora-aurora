@@ -1,0 +1,39 @@
+name: Fedora 44 to 45 system-upgrade
+# Upgrades an Aurora Fedora 44 system from the published testing feed to the
+# published Fedora 45 feed with dnf system-upgrade (docs/upgrade-fedora45.md).
+on:
+  pull_request:
+    paths:
+      - scripts/test-system-upgrade
+      - .github/workflows/system-upgrade-fedora45.yml
+  workflow_dispatch:
+    inputs:
+      extra-packages:
+        description: More packages for the Fedora 44 system (for example @kde-desktop-environment)
+        default: ''
+  schedule:
+    - cron: '30 4 * * *'
+permissions:
+  contents: read
+jobs:
+  upgrade:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Install Aurora Fedora 44, upgrade it to 45 and check the result
+        env:
+          EXTRA: ${{ inputs.extra-packages || '' }}
+        run: |
+          set -euo pipefail
+          docker run --rm --platform linux/arm64 -v "$PWD:/src:ro" -v "$PWD/proof:/proof" \
+            -e AURORA_EXTRA_PACKAGES="$EXTRA" \
+            registry.fedoraproject.org/fedora:44 bash /src/scripts/test-system-upgrade /proof
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: system-upgrade-fedora45
+          path: proof/*.txt
+          retention-days: 30

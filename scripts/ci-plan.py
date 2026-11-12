@@ -7,6 +7,11 @@ import subprocess
 
 root = Path(__file__).resolve().parents[1]
 names = sorted(p.parent.name for p in (root / "packages").glob("*/*.spec"))
+# Recipes marked "# aurora-builder: heavy" (Firefox: about three hours) build
+# only when a manual run names them; the source tracker dispatches that run
+# on its proposal, and a merge commit keeps it publishable.
+heavy = {n for n in names
+         if "# aurora-builder: heavy" in (root / "packages" / n / (n + ".spec")).read_text().splitlines()}
 event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
 requested = event.get("inputs", {}).get("packages", "").split()
 event_name = os.environ["GITHUB_EVENT_NAME"]
@@ -43,7 +48,7 @@ else:
         if changed <= set(names):
             paths.remove("sources.json")
             paths.extend(f"packages/{name}/{name}.spec" for name in sorted(changed))
-    if {"sources.json", ".github/workflows/rpms.yml", "scripts/build-rpm", "scripts/build-receipt.py", "scripts/fetch-sources.py", "scripts/build-flatpak-gl-repo", "scripts/fedoralib.py"} & set(paths):
+    if {"sources.json", ".github/workflows/rpms.yml", "scripts/build-rpm", "scripts/build-receipt.py", "scripts/fetch-sources.py", "scripts/fetch-fedora-lookaside.py", "scripts/build-flatpak-gl-repo", "scripts/fedoralib.py"} & set(paths):
         result = names
     else:
         result = sorted({p.split("/")[1] for p in paths
@@ -77,10 +82,14 @@ if event_name == "pull_request" and set(result) != set(names):
                 selected.add(dependent)
                 pending.append(dependent)
     result = sorted(selected)
-full = (not requested and event_name != "pull_request") or set(result) == set(names)
+if not requested:
+    result = [n for n in result if n not in heavy]
+full = (not requested and event_name != "pull_request") or set(result) >= set(names) - heavy
+
 print("full=" + ("true" if full else "false"))
 # Recipes that ship x86 code (for FEX guests) declare an x86_64 builder.
 x86 = {n for n in names
        if "# aurora-builder: x86_64" in (root / "packages" / n / (n + ".spec")).read_text().splitlines()}
-print("packages=" + json.dumps([n for n in result if n not in x86]))
+print("packages=" + json.dumps([n for n in result if n not in x86 | heavy]))
 print("x86_packages=" + json.dumps([n for n in result if n in x86]))
+print("heavy_packages=" + json.dumps([n for n in result if n in heavy]))

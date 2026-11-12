@@ -21,6 +21,17 @@
 # ends the stack, a failure goes on to the next line. The module never changes
 # the result, and the leading "-" skips it when it is not installed.
 #
+# In system-auth, a password change that pam_unix made also changes the
+# user's disk password on Secure Enclave LUKS2 volumes (pam_aurora_sep_fde,
+# from aurora-sep-luks), the same way:
+#
+#   password [success=ok default=2] pam_unix.so ...
+#   -password optional pam_aurora_sep_fde.so
+#   password sufficient pam_permit.so
+#
+# replaces "password sufficient pam_unix.so ...". passwd and GNOME Settings
+# use system-auth's password stack.
+#
 # The copy is rebuilt whenever this package or authselect is installed or
 # updated, so it follows the installed authselect. When the default profile no
 # longer has the expected fingerprint line, the vendor copy is removed and
@@ -97,6 +108,21 @@ rearm() {
         END { exit n != 1 }
     ' "$1" >"$2"
 }
+# Copy $1 to $2 with the disk-password line after its one "password sufficient pam_unix.so".
+pwsync() {
+    awk '
+        /^password[ \t]+sufficient[ \t]+pam_unix\.so([ \t]|$)/ {
+            sub(/sufficient[ \t]+/, "[success=ok default=2]                      ")
+            print
+            print "-password   optional                                     pam_aurora_sep_fde.so"
+            print "password    sufficient                                   pam_permit.so"
+            n++
+            next
+        }
+        { print }
+        END { exit n != 1 }
+    ' "$1" >"$2"
+}
 guard="auth        [success=1 default=ignore]                   pam_succeed_if.so service notin $services quiet {include if \"with-fingerprint\"}"
 if ! awk -v guard="$guard" '
     /^auth[ \t]+sufficient[ \t]+pam_fprintd\.so([ \t].*)?\{include if "with-fingerprint"\}[ \t]*$/ {
@@ -117,6 +143,12 @@ if rearm "$new/system-auth" "$new/system-auth.rearm"; then
 else
     rm -f "$new/system-auth.rearm"
     log "$default/system-auth does not have the expected pam_unix line; a password will not re-arm Touch ID there"
+fi
+if pwsync "$new/system-auth" "$new/system-auth.pwsync"; then
+    mv "$new/system-auth.pwsync" "$new/system-auth"
+else
+    rm -f "$new/system-auth.pwsync"
+    log "$default/system-auth does not have the expected password pam_unix line; password changes will not change disk passwords"
 fi
 chmod 0644 "$new/system-auth"
 if [ -f "$default/password-auth" ] && rearm "$default/password-auth" "$new/password-auth"; then
