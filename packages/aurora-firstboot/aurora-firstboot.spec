@@ -1,8 +1,8 @@
-%global commit 71772a08305a512d2a93191e6a72c1d3e8f2d068
+%global commit ad0411c90f50b743bca3f1c8083279f86a34f2f8
 %global selinuxtype targeted
 Name: aurora-firstboot
 Version: 0.1.13
-Release: 4%{?dist}
+Release: 5%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-platform
@@ -158,6 +158,16 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/aurora_secboot.pp
 
 %changelog
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-5
+- aurora-secboot gains the "stage2 hook" command that update-m1n1
+  20261107-7 calls for every Stage 2 update. With 0.1.13-4 that call failed
+  ("invalid choice: stage2"), so update-m1n1 refused every kernel and aura
+  update on a system with aurora-secboot installed. The hook returns the
+  image unchanged unless the owner's Stage 2 key exists (STAGE2_SIGN=auto).
+  Also stage1 build for an owner-key Stage 1 on an existing install, and
+  aurora-power-budget stands aside when the kernel budgets power-saver
+  itself (aurora-platform ad0411c).
+
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-4
 - New subpackage aurora-secboot: kernel-install builds a unified kernel
   image for each kernel with ukify and signs it with sbsign when the owner's
