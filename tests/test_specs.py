@@ -234,6 +234,95 @@ class SpecTests(unittest.TestCase):
         self.assertIn('/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh', text)
         core_files = text.split('%files core', 1)[1].split('%changelog', 1)[0]
         self.assertIn('%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/', core_files)
+    def test_kdump_crash_kernel_initramfs_has_the_disk_and_a_clock(self):
+        # kdump-utils' 99-kdump.conf replaces add_dracutmodules, so the Aurora
+        # conf must sort after it and name nvme_apple itself.
+        d = ROOT / 'packages' / 'aurora-platform'
+        conf = (d / 'aurora-kdump-dracut.conf').read_text()
+        self.assertRegex(conf, r'(?m)^add_drivers\+=" nvme_apple "$')
+        self.assertRegex(conf, r'(?m)^add_dracutmodules\+=" aurora-kdump-clock "$')
+        self.assertGreater('99-zz-aurora.conf', '99-kdump.conf')
+        setup = (d / 'aurora-kdump-clock-module-setup.sh').read_text()
+        self.assertRegex(setup, r'(?m)^\s+return 255$')
+        self.assertRegex(setup, r'(?m)^\s+inst_hook pre-mount \d+ "\$moddir/aurora-kdump-clock\.sh"$')
+        hook = (d / 'aurora-kdump-clock.sh').read_text()
+        self.assertIn('[ ! -e /dev/rtc0 ]', hook)
+        self.assertIn('CRASHTIME', hook)
+        self.assertIn('hwclock --hctosys --utc -f "$_rtc"', hook)
+        self.assertNotRegex(hook, r'(?m)^\s*exit\b')  # sourced by dracut
+        self.assertRegex(setup, r'(?m)^\s+inst_multiple hwclock head tr sed date$')
+        # The crash kernel must not load drivers of live coprocessors.
+        omit = re.search(r'(?m)^omit_drivers\+="([^"]*)"$', conf)
+        self.assertIsNotNone(omit)
+        for drv in ('aurora', 'appledrm', 'thunderbolt', 'apple[-_]pmp', 'aop', 'i2c[-_]pasemi.*', 'xhci.*'):
+            self.assertIn(drv, omit.group(1).split())
+        self.assertNotIn('nvme', omit.group(1))
+        # The hook takes CRASHTIME from a vmcoreinfo-like stream.
+        vmcore = b'\x7fELF\x00\x01OSRELEASE=7.3.0\nCRASHTIME=1794139056\n\x00\x02'
+        out = subprocess.run(['sh', '-c', "tr -c '[:print:]' '\\n' | sed -n 's/^CRASHTIME=\\([0-9][0-9]*\\)$/\\1/p' | head -n 1"],
+                             input=vmcore, capture_output=True, check=True).stdout
+        self.assertEqual(out, b'1794139056\n')
+        for script in ('aurora-kdump-clock.sh', 'aurora-kdump-setup'):
+            subprocess.run(['sh', '-n', str(d / script)], check=True)
+        unit = (d / 'aurora-kdump.service.conf').read_text()
+        self.assertIn("ExecCondition=/bin/sh -c 'test \"$(cat /sys/kernel/kexec_crash_size)\" -gt 0'", unit)
+
+    def test_kdump_is_an_opt_in_subpackage(self):
+        text = (ROOT / 'packages' / 'aurora-platform' / 'aurora-platform.spec').read_text()
+        main_and_core = text.split('%package kdump', 1)[0]
+        self.assertNotRegex(main_and_core, r'(?m)^Requires:.*kdump')
+        self.assertNotIn('kdump', text.split('%posttrans core', 1)[1].split('%files', 1)[0].split('%post kdump', 1)[0])
+        self.assertFalse((ROOT / 'packages' / 'aurora-platform' / '80-aurora-kdump.preset').exists())
+        self.assertNotIn('kdump', text.split('%files core', 1)[1].split('%files', 1)[0])
+        self.assertRegex(text, r'(?m)^Requires: kdump-utils makedumpfile grubby$')
+        self.assertIn('if [ "$1" -eq 1 ]; then\n  %{_libexecdir}/aurora/aurora-kdump-setup enable || :',
+                      text.split('%post kdump', 1)[1].split('%preun kdump', 1)[0])
+        self.assertIn('if [ "$1" -eq 0 ]; then\n  %{_libexecdir}/aurora/aurora-kdump-setup disable || :',
+                      text.split('%preun kdump', 1)[1].split('%pre selinux', 1)[0])
+        kdump_files = text.split('%files kdump', 1)[1].split('%files selinux', 1)[0]
+        for path in ('%{_prefix}/lib/kdump/dracut.conf.d/99-zz-aurora.conf',
+                     '%{_prefix}/lib/dracut/modules.d/99aurora-kdump-clock/',
+                     '%{_unitdir}/kdump.service.d/50-aurora-kdump.conf',
+                     '%{_libexecdir}/aurora/aurora-kdump-setup'):
+            self.assertIn(path + '\n', kdump_files)
+
+    def test_kdump_setup_enables_and_undoes_only_what_it_added(self):
+        script = ROOT / 'packages' / 'aurora-platform' / 'aurora-kdump-setup'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            log = root / 'calls'
+            for tool in ('kdumpctl', 'systemctl', 'grubby'):
+                (bindir / tool).write_text(f'#!/bin/sh\necho {tool} "$@" >> "{log}"\n')
+                (bindir / tool).chmod(0o755)
+            cmdline, state = root / 'cmdline', root / 'state' / 'kdump-crashkernel-added'
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", AURORA_KDUMP_STATE=str(state),
+                       AURORA_KERNEL_CMDLINE=str(cmdline))
+            run = lambda *a: subprocess.run(['sh', str(script), *a], env=env, capture_output=True, text=True)
+            # An owner's crashkernel= is kept on enable and on disable.
+            cmdline.write_text('root=UUID=x ro crashkernel=512M\n')
+            self.assertEqual(run('enable').returncode, 0)
+            self.assertEqual(log.read_text(), 'systemctl enable kdump.service\n')
+            self.assertFalse(state.exists())
+            log.write_text('')
+            run('disable')
+            self.assertEqual(log.read_text(), 'systemctl disable kdump.service\n')
+            self.assertEqual(cmdline.read_text(), 'root=UUID=x ro crashkernel=512M\n')
+            # Without one, enable sets kdump-utils' default and disable removes it.
+            log.write_text('')
+            cmdline.write_text('root=UUID=x ro\n')
+            run('enable')
+            self.assertEqual(log.read_text(), 'systemctl enable kdump.service\nkdumpctl reset-crashkernel --kernel=ALL\n')
+            self.assertTrue(state.exists())
+            cmdline.write_text('root=UUID=x ro crashkernel=2G-4G:256M,4G-64G:320M,64G-:576M quiet\n')
+            log.write_text('')
+            run('disable')
+            self.assertEqual(log.read_text(), 'systemctl disable kdump.service\ngrubby --update-kernel=ALL --remove-args=crashkernel\n')
+            self.assertEqual(cmdline.read_text(), 'root=UUID=x ro quiet\n')
+            self.assertFalse(state.exists())
+            self.assertEqual(run().returncode, 2)
+
     def test_grub_uuid_refresh_replaces_only_stale_uuid_searches(self):
         script = ROOT / 'packages' / 'aurora-platform' / 'aurora-grub-uuid'
         spec = (ROOT / 'packages' / 'aurora-platform' / 'aurora-platform.spec').read_text()

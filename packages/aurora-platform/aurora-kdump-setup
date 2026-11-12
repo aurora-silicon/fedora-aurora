@@ -1,32 +1,50 @@
 #!/bin/sh
-# Turn kdump on, once per system: Linux's own crashes are then saved to
-# /var/crash (vmcore plus the crashed kernel's log) and shown by
-# aurora-panic-log. iBoot never keeps a panic record that Linux leaves behind,
-# so kdump is how a Linux panic survives the restart on these Macs.
+# aurora-kdump-setup enable|disable
 #
-# This runs from aurora-platform-core's %posttrans. It enables kdump.service
-# and, when the kernel command line has no crashkernel= yet, sets kdump-utils'
-# default size on every boot entry and in /etc/kernel/cmdline (kdumpctl
-# reset-crashkernel, through grubby). The reservation takes effect from the
-# next boot. It runs only once: an owner who later disables kdump or removes
-# crashkernel= keeps that choice.
+# kdump saves Linux's own crashes to /var/crash (vmcore plus the crashed
+# kernel's log); aurora-panic-log lists them. iBoot keeps no record of a
+# Linux panic, so this is how one survives the restart. It is opt-in:
+# installing aurora-platform-kdump runs "enable", removing it runs "disable".
+#
+# enable: enable kdump.service and, when the kernel command line has no
+# crashkernel= yet, add kdump-utils' default size to every boot entry and to
+# /etc/kernel/cmdline (kdumpctl reset-crashkernel, through grubby). The
+# memory is reserved from the next boot.
+# disable: disable kdump.service and remove crashkernel= again, but only if
+# "enable" added it; a size the owner set stays.
 set -u
-state=${AURORA_KDUMP_STATE:-/var/lib/aurora/kdump-enabled}
+state=${AURORA_KDUMP_STATE:-/var/lib/aurora/kdump-crashkernel-added}
 cmdline=${AURORA_KERNEL_CMDLINE:-/etc/kernel/cmdline}
 
-[ -e "$state" ] && exit 0
-command -v kdumpctl > /dev/null || exit 0
-[ -d /run/systemd/system ] || [ -n "${AURORA_KDUMP_FORCE:-}" ] || exit 0
-mkdir -p "${state%/*}"
+has_crashkernel() {
+    [ -f "$cmdline" ] && grep -Eq '(^|[[:space:]])crashkernel=' "$cmdline"
+}
 
-systemctl enable kdump.service > /dev/null 2>&1 || :
-if [ -f "$cmdline" ] && grep -Eq '(^|[[:space:]])crashkernel=' "$cmdline"; then
-    touch "$state"
-    exit 0
-fi
-if kdumpctl reset-crashkernel --kernel=ALL > /dev/null 2>&1; then
-    touch "$state"
-else
-    echo "aurora-kdump-setup: kdumpctl reset-crashkernel failed; the next update tries again" >&2
-fi
+case ${1:-} in
+enable)
+    systemctl enable kdump.service > /dev/null 2>&1 || :
+    has_crashkernel && exit 0
+    if kdumpctl reset-crashkernel --kernel=ALL > /dev/null 2>&1; then
+        mkdir -p "${state%/*}"
+        touch "$state"
+        echo "aurora-kdump-setup: crash kernel memory is reserved from the next boot"
+    else
+        echo "aurora-kdump-setup: kdumpctl reset-crashkernel failed; run 'kdumpctl reset-crashkernel --kernel=ALL'" >&2
+    fi
+    ;;
+disable)
+    systemctl disable kdump.service > /dev/null 2>&1 || :
+    [ -e "$state" ] || exit 0
+    grubby --update-kernel=ALL --remove-args=crashkernel > /dev/null 2>&1 || :
+    if has_crashkernel; then
+        new=$(sed -E 's/(^|[[:space:]])crashkernel=[^[:space:]]*//g' "$cmdline") &&
+            printf '%s\n' "$new" > "$cmdline"
+    fi
+    rm -f "$state"
+    ;;
+*)
+    echo "usage: aurora-kdump-setup enable|disable" >&2
+    exit 2
+    ;;
+esac
 exit 0
