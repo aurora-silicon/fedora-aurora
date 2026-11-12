@@ -13,7 +13,10 @@ class SpecTests(unittest.TestCase):
     def test_declared_local_sources_and_patches_are_present(self):
         pins = json.loads((ROOT / 'sources.json').read_text())
         for spec in (ROOT / 'packages').glob('*/*.spec'):
-            extras = pins.get(spec.parent.name, {}).get('extra_sources', {})
+            record = pins.get(spec.parent.name)
+            extras = dict(record.get('extra_sources', {})) if record else {}
+            if record:
+                extras[spec.parent.name] = record
             fetched = {record.get("archive_file", f"{name}-{record['commit']}.tar.gz") for name, record in extras.items()}
             with self.subTest(spec=spec.name):
                 for kind, value in re.findall(r'^(Source\d*|Patch\d*):\s+(\S+)', spec.read_text(), re.M):
@@ -782,9 +785,11 @@ class SpecTests(unittest.TestCase):
             lib, home = root / 'lib', root / 'home'
             (lib / 'bin').mkdir(parents=True)
             home.mkdir()
+            shutil.copyfile(d / 'proton-env', lib / 'proton-env')
             log = root / 'log'
             (lib / 'install-steam-arm64.py').write_text(
                 'import os, pathlib, sys\n'
+                'assert os.environ["AURORA_SYSTEM_LAUNCHERS"] == "1"\n'
                 'home = pathlib.Path(os.environ["HOME"])\n'
                 'client = home / "client/steamrtarm64"; client.mkdir(parents=True)\n'
                 '(client / "steam").write_text(""); (client / "steam").chmod(0o755)\n'
@@ -799,7 +804,7 @@ class SpecTests(unittest.TestCase):
             wrapper.write_text((d / 'steam').read_text().replace('@LIBDIR@', str(lib)).replace('@USERPAGES@', str(userpages))
                                .replace('@USER4K_HINT@', 'user4k=on hint'))
             wrapper.chmod(0o755)
-            env = {'HOME': str(home), 'PATH': os.environ['PATH'], 'USER': 'test'}
+            env = {'HOME': str(home), 'PATH': os.environ['PATH'], 'USER': 'test', 'AURORA_STEAM_PROTON': '0'}
             for _ in range(2):
                 subprocess.run([str(wrapper), '-silent'], env=env, check=True, capture_output=True)
             lines = log.read_text().splitlines()

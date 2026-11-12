@@ -41,6 +41,16 @@ Per-process 4K userspace pages are on by default. `userpages 4k COMMAND` runs a 
 
 `fex-emu` is FEX from Aurora's fork (aurora-silicon/fex, pinned with its submodules in `sources.json`), built from Fedora's recipe with the same subpackages, so it replaces Fedora's build: the Aurora repository's `priority=1` makes `dnf install fex-emu` choose Aurora's. `fex` stays Fedora's unrelated field-extraction tool. `steam` (from `aurora-steam-native`) installs Valve's native ARM64 client for the user on the first start and runs it in a 4 KiB page process tree through `userpages`. FEX needs 4 KiB pages as well: run it from such a tree, for example `userpages 4k FEXBash` (`/usr/share/doc/fex-emu/README.aurora`). On kernels with the memory-model prctl, FEX uses hardware TSO.
 
+Steam now includes [native Aurora Proton](packages/aurora-proton/README.md), the
+pinned ARM64 GE-Proton11-9 build with Aurora's SME signal-frame fix. Select
+`Aurora-Proton11-9` in a game's Steam Compatibility settings. Launchers prepare a
+writable per-user copy without replacing personal settings; a nonempty
+`STEAM_EXTRA_COMPAT_TOOLS_PATHS` takes precedence, and `AURORA_STEAM_PROTON=0`
+disables default preparation. Aurora Play discovers configured native tools;
+Stats is available only when a native MangoHud Vulkan layer is installed.
+If migrating a manual upstream install, use `/usr/bin/aurora-play` and review
+your own `~/.local/bin/aurora-play` or desktop overrides; packages leave them alone.
+
 Image builds run `scripts/check-basics.py` on the finished filesystems after `finalize-image`. The root is mounted read-only from `root.img`; the EFI files and `boot.img` are read as the installer writes them. The build fails unless the image has a generated UTF-8 default locale, its desktop's terminal (Ptyxis, Console or gnome-terminal; Konsole) with a launcher, GNOME's backgrounds with an existing default picture or Plasma's wallpapers, NetworkManager enabled with the desktop's network settings, logind's lid-close suspend left in place, no unit file or drop-in marked executable, and a GRUB stub that finds /boot by its UUID marker on the startup disk with hinted lookups only.
 
 ## Checks

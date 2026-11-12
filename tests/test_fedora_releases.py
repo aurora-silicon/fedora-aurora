@@ -140,8 +140,12 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(new['mutter']['version'], '51.1')
         for name in fedoralib.package_names(ROOT):
             spec = fedoralib.recipe_files(ROOT, name, 45)[name + '.spec']
+            record = new.get(name)
+            archives = dict(record.get('extra_sources', {})) if record else {}
+            if record:
+                archives[name] = record
             fetched = {record.get('archive_file', f"{key}-{record['commit']}.tar.gz")
-                       for key, record in new.get(name, {}).get('extra_sources', {}).items()}
+                       for key, record in archives.items()}
             for filename in re.findall(r'^(?:Patch\d*|Source\d*):\s+([^%\s]+)$', spec.read_text(), re.M):
                 if not filename.startswith(('http:', 'https:')) and filename not in fetched:
                     self.assertIn(filename, fedoralib.recipe_files(ROOT, name, 45), (name, filename))

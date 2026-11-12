@@ -1,0 +1,39 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# Copy the packaged revision once; never overwrite personal tool settings.
+set -euo pipefail
+source=$(readlink -e -- @PROTON@) || {
+  echo 'The packaged Aurora Proton tool is missing' >&2
+  exit 1
+}
+[[ -d $source && -x $source/proton ]] || {
+  echo "Invalid packaged Aurora Proton tool: $source" >&2
+  exit 1
+}
+root="${XDG_DATA_HOME:-$HOME/.local/share}/aurora-proton"
+target="$root/$(basename "$source")"
+marker="$target/.aurora-proton-source"
+if [[ -e "$target" || -L "$target" ]]; then
+  if [[ -f "$marker" && "$(cat "$marker")" == "$source" ]]; then
+    printf '%s\n' "$target"
+    exit 0
+  fi
+  echo "Refusing to overwrite existing compatibility tool: $target" >&2
+  exit 1
+fi
+mkdir -p "$root"
+temporary=$(mktemp -d "$root/.install.XXXXXXXX")
+trap 'rm -rf -- "$temporary"' EXIT
+cp -a --reflink=auto --no-preserve=ownership "$source/." "$temporary/"
+chmod -R u+rwX "$temporary"
+printf '%s\n' "$source" > "$temporary/.aurora-proton-source"
+# A concurrent launcher may have published the complete revision first.
+# coreutils versions differ in the exit status of a skipped --no-clobber move.
+mv -T --no-clobber "$temporary" "$target" || {
+  [[ -x "$target/proton" && -f "$marker" && "$(cat "$marker")" == "$source" ]] || exit 1
+}
+[[ -f "$marker" && "$(cat "$marker")" == "$source" ]] || {
+  echo "Compatibility tool target appeared during installation: $target" >&2
+  exit 1
+}
+printf '%s\n' "$target"
