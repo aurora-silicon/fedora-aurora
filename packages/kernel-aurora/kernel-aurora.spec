@@ -1,4 +1,4 @@
-%global commit 2b05915f81bc066670cd872be3cbdd916753bf26
+%global commit 9219565939723cd5bc381941bc3978d52610d753
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
@@ -8,7 +8,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 35%{?dist}.aurora
+Release: 36%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -157,6 +157,36 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-36
+- Pin integration/aurora 92195659 (linux#1663), 29 merges (111 commits)
+  after 2b05915f:
+  - MacBook Neo (T8140): the AVE complex is now the parent power domain of
+    the video encoders and the PMC VENC cluster vote (#1663). With encoder 0
+    enabled by aura 1.0.0~b11, the first wake from suspend-to-RAM no longer
+    resets the Mac. Also a faster DRAM-kept wake with the PHY set up again
+    after a deep sleep (#1658), the internal panel lit from the resume
+    (#1631), SoC fabric power states (#1298), the second encoder described
+    (#1626) and SIO AES revision 5 (#1622).
+  - Display: firmware-27 HDR brightness hints, PQ with DSC, default RGB for
+    SDR and VRR pairing on externals (#1614, #1641, #1640, #1613); A500 and
+    500 thunk build fixes (#1629, #1630).
+  - GPU and media: G17 25G83 channel-error and tiling fixes (#1662, #1644),
+    ProRes on T6050 and T6041 (#1586, #1260), JPEG and scaler engines on more
+    SoCs (#1617, #1616), J613 ISP preview (#974), T600x ANE hang recovery
+    (#1660).
+  - Boot chain: the lockdown LSM is built and started early, so secure-path
+    boots raise lockdown to integrity by themselves; other boots stay at none
+    (#1636).
+  - Other: J716c USB4 display routing and GPU handoff (#1273, #1276), J616s
+    panel bus and TMP103 read-only (#1642), J316s NFC (#1621), J614c/J616c
+    ANE and JPEG (#1467), quieter boot warnings (#1623, #1635).
+- config and fedora.config are unchanged. asahi.config now sets
+  CONFIG_I2C_DP855=m, CONFIG_SENSORS_TMP103=m and the lockdown LSM
+  (CONFIG_SECURITY_LOCKDOWN_LSM=y, _EARLY=y, LOCK_DOWN_KERNEL_FORCE_NONE=y,
+  CONFIG_APPLE_AURORA_BOOT_SECURITY_LOCKDOWN=y), which selects
+  CONFIG_MODULE_SIG=y: modules are signed with a per-build key.
+  vmlinuz stays the raw Image, and dtb-abi is unchanged (generation 1).
+
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-35
 - Require aura 1.0.0~b11 or later. On the MacBook Neo this kernel's DT
   leaves the video encoder for aura to enable from the ADT (aura#167), and
