@@ -11,6 +11,23 @@
 # %posttrans.
 set -u
 entries=${AURORA_BLS_ENTRIES:-/boot/loader/entries}
+
+# --after-transaction: started through systemd by update-m1n1's %posttrans.
+# That rpm transaction still holds the database lock, and every query fails
+# until it ends ("can't create transaction lock"), so wait for it first.
+if [ "${1:-}" = --after-transaction ]; then
+    limit=${AURORA_RPM_WAIT_SECONDS:-900}
+    step=${AURORA_RPM_WAIT_STEP:-2}
+    waited=0
+    until rpm -q --quiet rpm 2>/dev/null; do
+        if [ "$waited" -ge "$limit" ]; then
+            echo "update-m1n1: the rpm database stayed locked for $limit s; no kernel was repaired" >&2
+            exit 1
+        fi
+        sleep "$step"
+        waited=$((waited + step))
+    done
+fi
 modules=${AURORA_MODULES_DIR:-/usr/lib/modules}
 
 rpm -q kernel-aurora-core >/dev/null 2>&1 || exit 0

@@ -473,6 +473,34 @@ class Recipes(unittest.TestCase):
                                             cwd=root, capture_output=True, text=True)
                     self.assertEqual(result.returncode == 0, value == source, result.stderr)
 
+    def test_the_kernel_repair_runs_after_the_transaction_under_systemd(self):
+        # In %posttrans dnf still holds the rpm lock the repair's queries need.
+        spec = self.spec('update-m1n1')
+        self.assertRegex(spec, r'(?m)^Source13: aurora-kernel-install-repair\.service$')
+        self.assertIn('%{_unitdir}/aurora-kernel-install-repair.service\n', spec)
+        unit = (ROOT / 'packages/update-m1n1/aurora-kernel-install-repair.service').read_text()
+        self.assertIn('ExecStart=/usr/libexec/aurora/kernel-install-repair --after-transaction\n', unit)
+        self.assertIn('Type=oneshot\n', unit)
+        posttrans = self.step('update-m1n1', '%posttrans', 'fi')
+        for booted, call in ((True, 'systemctl --no-block start aurora-kernel-install-repair.service'),
+                             (False, 'kernel-install-repair')):
+            with self.subTest(booted=booted), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                (root / 'bin').mkdir()
+                (root / 'libexec/aurora').mkdir(parents=True)
+                if booted:
+                    (root / 'run/systemd/system').mkdir(parents=True)
+                log = root / 'calls'
+                for tool in (root / 'bin/systemctl', root / 'libexec/aurora/kernel-install-repair'):
+                    tool.write_text(f'#!/bin/sh\necho "$(basename "$0") $*" >> {log}\n')
+                    tool.chmod(0o755)
+                script = posttrans.split('\n', 1)[1].replace('/run/systemd/system', str(root / 'run/systemd/system'))
+                script = script.replace('%{_libexecdir}', str(root / 'libexec'))
+                result = subprocess.run(['sh', '-ec', script], capture_output=True, text=True,
+                                        env=dict(os.environ, PATH=f'{root / "bin"}:{os.environ["PATH"]}'))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual([line.strip() for line in log.read_text().splitlines()], [call])
+
     def test_the_package_keeps_the_upstream_license(self):
         spec = SPEC.read_text()
         self.assertRegex(spec, r'(?m)^Source5: LICENSE$')

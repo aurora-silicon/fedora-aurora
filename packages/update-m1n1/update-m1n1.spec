@@ -1,6 +1,6 @@
 Name: update-m1n1
 Version: 20261107
-Release: 7%{?dist}.aurora
+Release: 8%{?dist}.aurora
 Summary: Transactional Aurora Stage 2 updates with retained-kernel DTB checks
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -17,6 +17,7 @@ Source9: 90-aurora-stage2.preset
 Source10: aurora-stage2-guard.service
 Source11: aurora-stage2-guard.timer
 Source12: kernel-install-repair
+Source13: aurora-kernel-install-repair.service
 Provides: aurora-stage2-ctxr-slot = 1
 BuildArch: noarch
 BuildRequires: python3 dtc coreutils systemd-rpm-macros
@@ -52,6 +53,7 @@ install -Dm755 %{SOURCE12} %{buildroot}%{_libexecdir}/aurora/kernel-install-repa
 install -Dm644 %{SOURCE8} %{buildroot}%{_unitdir}/aurora-stage2-commit.service
 install -Dm644 %{SOURCE10} %{buildroot}%{_unitdir}/aurora-stage2-guard.service
 install -Dm644 %{SOURCE11} %{buildroot}%{_unitdir}/aurora-stage2-guard.timer
+install -Dm644 %{SOURCE13} %{buildroot}%{_unitdir}/aurora-kernel-install-repair.service
 install -Dm644 %{SOURCE9} %{buildroot}%{_presetdir}/90-aurora-stage2.preset
 # bootchain.py hands each Stage 2 to "aurora-secboot stage2 hook"; aurora-secboot stage1 build --enforce
 # looks for this marker before it builds a Stage 1 that refuses unsigned Stage 2s.
@@ -71,9 +73,16 @@ install -Dm644 /dev/null %{buildroot}%{_datadir}/aurora/stage2-sign-hook
 %triggerun -- update-m1n1 < 20261107
 /usr/bin/systemctl --no-reload preset aurora-stage2-commit.service aurora-stage2-guard.timer || :
 
-# A kernel added while an older updater refused it has no boot entry yet.
+# A kernel added while an older updater refused it has no boot entry yet. The
+# repair queries rpm, and this transaction holds the rpm lock until it ends, so
+# systemd runs it once dnf is done. Without a running systemd (an image build)
+# it runs here, as before.
 %posttrans
-%{_libexecdir}/aurora/kernel-install-repair || :
+if [ -d /run/systemd/system ]; then
+    systemctl --no-block start aurora-kernel-install-repair.service || :
+else
+    %{_libexecdir}/aurora/kernel-install-repair || :
+fi
 
 %transfiletriggerin -- /usr/lib/m1n1 /usr/lib64/m1n1 /usr/share/uboot/apple_m1 /etc/m1n1.conf
 %{_sbindir}/update-m1n1 || :
@@ -87,6 +96,7 @@ install -Dm644 /dev/null %{buildroot}%{_datadir}/aurora/stage2-sign-hook
 %{_unitdir}/aurora-stage2-commit.service
 %{_unitdir}/aurora-stage2-guard.service
 %{_unitdir}/aurora-stage2-guard.timer
+%{_unitdir}/aurora-kernel-install-repair.service
 %{_presetdir}/90-aurora-stage2.preset
 %{_datadir}/aurora/stage2-sign-hook
 %config(noreplace) %{_sysconfdir}/kernel/install.d/10-devicetree.install
@@ -94,6 +104,15 @@ install -Dm644 /dev/null %{buildroot}%{_datadir}/aurora/stage2-sign-hook
 %config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1
 
 %changelog
+* Fri Nov 13 2026 Diljit Singh <hey@djdev.me> - 20261107-8
+- Run kernel-install-repair after the transaction, not inside it. In
+  %%posttrans it queried rpm while dnf still held the database lock ("can't
+  create transaction lock on .rpm.lock"), so its first query failed and it
+  exited without repairing anything. %%posttrans now starts
+  aurora-kernel-install-repair.service without waiting, and the service waits
+  up to 15 minutes for the transaction to end. Without a running systemd the
+  repair still runs in %%posttrans.
+
 * Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261107-7
 - Hand each composed Stage 2 to aurora-secboot's stage2 hook when it is
   installed, so an owner-key Stage 1 gets a Stage 2 signed with the
