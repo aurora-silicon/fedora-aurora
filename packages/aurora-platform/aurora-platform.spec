@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 36%{?dist}
+Release: 37%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -149,6 +149,11 @@ install -Dm644 %{SOURCE118} %{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-
 # A grub.cfg whose only stale lines are partition UUID searches; see the script.
 %{_libexecdir}/aurora/aurora-grub-uuid || :
 %{_libexecdir}/aurora/aurora-ppd-config || :
+# MTE stays off on chips whose tag storage no boot loader reserves yet.
+if tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -qxE 'apple,(t6050|t8142)' &&
+    ! grep -qE '(^|[[:space:]])arm64\.nomte([[:space:]]|$)' /etc/kernel/cmdline 2>/dev/null; then
+  grubby --update-kernel=ALL --args=arm64.nomte || :
+fi
 
 # Also cover tuned-ppd installed/upgraded without an aurora-platform update.
 # The file remains owned by tuned-ppd as %%config(noreplace).
@@ -197,6 +202,12 @@ install -Dm644 %{SOURCE118} %{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Wed Nov 11 2026 DjDeveloperr <hey@djdev.me> - 44-37
+- Boot M5 (T8142) and M5 Pro/Max (T6050) Macs with arm64.nomte:
+  aurora-platform-core adds it with grubby to every boot entry and to
+  future kernels when the device tree names one of those chips. The MTE
+  tag store is unreserved until the aura change lands.
+
 * Wed Nov 11 2026 DjDeveloperr <hey@djdev.me> - 44-36
 - Play trackpad clicks from the host, as macOS does, on Macs whose MTP
   trackpad has a haptic actuator: 64-aurora-trackpad-clicks.rules sets
