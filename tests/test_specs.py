@@ -413,6 +413,19 @@ class SpecTests(unittest.TestCase):
         self.assertIn('cp build/aura-boot.macho ../aurora-stage1/aura-boot.macho\n', stage1)
         for name in ('aura-raw.bin', 'aura-boot.macho'):
             self.assertIn(f'install -Dm644 ../aurora-stage1/{name} %{{buildroot}}%{{_datadir}}/aura/stage1/{name}\n', spec)
+    def test_aura_ships_a_secure_stage1_with_a_throwaway_key(self):
+        spec = (ROOT / 'packages' / 'aura' / 'aura.spec').read_text()
+        build = spec.split('%build', 1)[1].split('%install', 1)[0]
+        # The second `make clean` starts the secure-flavour Stage 1, the third the Stage 2 build.
+        secure = build.split('make clean', 2)[1]
+        self.assertIn('secboot_sign.pubkey(os.urandom(32))', secure)
+        self.assertIn('SECBOOT=audit SECBOOT_FLAVOUR=secure SECBOOT_PUBKEY=../aurora-stage1/nobody.pub', secure)
+        self.assertIn('cp build/aura.bin ../aurora-stage1/aura-secure-raw.bin\n', secure)
+        self.assertIn('ESP_STAGE2=1', build.split('make clean', 2)[2])
+        install = spec.split('%install', 1)[1].split('%files', 1)[0]
+        self.assertIn('install -Dm644 ../aurora-stage1/aura-secure-raw.bin '
+                      '%{buildroot}%{_datadir}/aura/stage1/aura-secure-raw.bin\n', install)
+        self.assertNotIn('nobody.pub', install)
     def test_fex_guest_mesa_moves_in_lockstep_with_the_host_mesa(self):
         def fields(name):
             text = (ROOT / 'packages' / name / (name + '.spec')).read_text()
