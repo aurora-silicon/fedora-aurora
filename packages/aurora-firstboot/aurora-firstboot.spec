@@ -1,8 +1,8 @@
-%global commit 71772a08305a512d2a93191e6a72c1d3e8f2d068
+%global commit ad0411c90f50b743bca3f1c8083279f86a34f2f8
 %global selinuxtype targeted
 Name: aurora-firstboot
 Version: 0.1.13
-Release: 4%{?dist}
+Release: 5%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-platform
@@ -158,6 +158,15 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/aurora_secboot.pp
 
 %changelog
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-5
+- Pin aurora-platform ad0411c (aurora-platform#16, #17). aurora-secboot
+  stage1 build makes an owner-key Stage 1 for an existing install, and
+  stage2 sign/verify/hook sign Stage 2; update-m1n1 signs each Stage 2
+  through the hook once an owner Stage 2 key exists. New secboot.conf keys
+  STAGE2_SIGN and STAGE2_SECVER; doc stage1-existing-install.md.
+  aurora-power-budget stands aside when the kernel budgets power-saver
+  itself.
+
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-4
 - New subpackage aurora-secboot: kernel-install builds a unified kernel
   image for each kernel with ukify and signs it with sbsign when the owner's
