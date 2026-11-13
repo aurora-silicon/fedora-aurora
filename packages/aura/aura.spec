@@ -1,11 +1,11 @@
 %global debug_package %{nil}
-%global commit 54678354b70d64506408d9b157f85ac6065d194b
+%global commit f0f180afe5db5c976b6e997ed1308ce4d5213bcb
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
 %global monitor_free 1
 Name: aura
-Version: 1.0.0~b12.1
+Version: 1.0.0~b13
 Release: 1%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
@@ -26,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-54678354b70d64506408d9b157f85ac6065d194b
+%autosetup -n aura-f0f180afe5db5c976b6e997ed1308ce4d5213bcb
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -76,6 +76,14 @@ install -Dm644 tools/recovery/enroll-stage1.sh %{buildroot}%{_datadir}/aura/tool
 %{_datadir}/aura/
 
 %changelog
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b13-1
+- Update to aura 1.0.0b13 (v1.0.0b13, f0f180af): ADT DART tunables on
+  every enabled DART (aura#208), T8140 gpu-fw-data (#204), MTE tag storage
+  (#184), DWC3 shutdown retires transfers first (#196), Stage 1 .text right
+  after .init (#202), T8132 encoder firmware handoff (#152), T6041 dcpext2
+  (#166), T8142/T8152 macOS 27.2 GPU firmware (#192, #189) and the Mac mini
+  debug-port warning (#176).
+
 * Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b12.1-1
 - Update to aura 1.0.0b12.1 (v1.0.0b12.1, 54678354): 1.0.0b12 plus
   tools/macho_boot_object.py --execute-window (aura#195), secboot_sign.py
