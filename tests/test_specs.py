@@ -795,7 +795,9 @@ class SpecTests(unittest.TestCase):
             (bindir / 'grubby').write_text('#!/bin/sh\necho "$*" >> "$GRUBBY_LOG"\n')
             (bindir / 'grubby').chmod(0o755)
             cmdline, log = root / 'cmdline', root / 'grubby.log'
-            script = scriptlet.replace('/etc/kernel/cmdline', str(cmdline))
+            state = root / 'state'
+            script = (scriptlet.replace('/etc/kernel/cmdline', str(cmdline))
+                      .replace('/var/lib/aurora-userpages', str(state)))
             env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", GRUBBY_LOG=str(log))
             for content, called in ((None, False), ('root=UUID=r ro quiet\n', True),
                                     ('root=UUID=r ro user4k=off quiet\n', False),
@@ -808,6 +810,34 @@ class SpecTests(unittest.TestCase):
                         cmdline.write_text(content)
                     subprocess.run(['sh', '-ec', script], env=env, check=True)
                     self.assertEqual(log.read_text(), '--update-kernel=ALL --args=user4k=on\n' if called else '')
+                    # Only an argument this package added is recorded for %postun.
+                    self.assertEqual((state / 'user4k-added').exists(), called)
+                    (state / 'user4k-added').unlink(missing_ok=True)
+
+    def test_page_size_launcher_erase_takes_back_only_its_own_user4k(self):
+        spec = (ROOT / 'packages' / 'kernel-aurora' / 'kernel-aurora.spec').read_text()
+        scriptlet = spec.split('%postun -n aurora-userpages\n', 1)[1].split('\n%', 1)[0]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            (bindir / 'grubby').write_text('#!/bin/sh\necho "$*" >> "$GRUBBY_LOG"\n')
+            (bindir / 'grubby').chmod(0o755)
+            log, state = root / 'grubby.log', root / 'state'
+            script = scriptlet.replace('/var/lib/aurora-userpages', str(state))
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", GRUBBY_LOG=str(log))
+            for count, recorded, called in (('0', True, True), ('0', False, False), ('1', True, False)):
+                with self.subTest(count=count, recorded=recorded):
+                    log.write_text('')
+                    if recorded:
+                        state.mkdir(exist_ok=True)
+                        (state / 'user4k-added').write_text('')
+                    subprocess.run(['sh', '-ec', script, 'postun', count], env=env, check=True)
+                    self.assertEqual(log.read_text(),
+                                     '--update-kernel=ALL --remove-args=user4k=on\n' if called else '')
+                    # An upgrade keeps the record; an erase that used it removes it.
+                    self.assertEqual((state / 'user4k-added').exists(), recorded and not called)
+                    (state / 'user4k-added').unlink(missing_ok=True)
     def test_fex_replaces_fedoras_under_its_names(self):
         # dnf resolves `fex-emu` by name; the Aurora repository's priority then
         # picks these over Fedora's. `fex` stays Fedora's unrelated tool.
