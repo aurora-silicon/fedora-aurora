@@ -250,9 +250,13 @@ jobs:
 
   repository-fedora45:
     # Resolves the fleet upgrade from the complete fc45 set; a pull request
-    # that builds a subset leaves this to the push run on main.
-    needs: [plan, rpm, rpm-x86]
-    if: needs.plan.outputs.full == 'true'
+    # that builds a subset leaves this to the push run on main. Heavy recipes
+    # the run did not build come from the newest F45 snapshot, and only while
+    # that snapshot's build matches the current recipe.
+    needs: [plan, rpm, rpm-x86, rpm-heavy]
+    if: >-
+      !cancelled() && needs.plan.outputs.full == 'true' && needs.rpm.result == 'success' &&
+      needs.rpm-x86.result == 'success' && contains(fromJSON('["success", "skipped"]'), needs.rpm-heavy.result)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     steps:
@@ -263,12 +267,18 @@ jobs:
         with:
           pattern: rpm-f45-*
           path: candidates
+      - name: Carry unbuilt heavy recipes from the newest F45 snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/carry-heavy-f45.py --repository "$GITHUB_REPOSITORY" --candidates candidates --output carried
       - name: Sign the CI-built fc45 set and resolve the fleet upgrade
         run: |
           set -euo pipefail
+          carried=
+          [[ ! -d carried ]] || carried=/src/carried
           docker run --rm --platform linux/arm64 -v "$PWD:/src" -w /src \
             registry.fedoraproject.org/fedora:45 \
-            bash scripts/test-fedora-repository /src/candidates /src/proof 2>&1 | tee repository-fedora45.log
+            bash scripts/test-fedora-repository /src/candidates /src/proof $carried 2>&1 | tee repository-fedora45.log
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
@@ -276,6 +286,7 @@ jobs:
           path: |
             proof/*.txt
             proof/*.log
+            proof/carried.json
             proof/bootchain.conf
             proof/site/45/testing/aarch64/manifest.json
             proof/site/45/testing/aarch64/repodata
