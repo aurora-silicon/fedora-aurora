@@ -1,4 +1,4 @@
-%global commit 26b88eac71bfe15411fd1b3ac75efcd7239502e3
+%global commit 04169c4470650f8e2554db70d4072fb92e484138
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261113
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.47.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.48.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -252,6 +252,17 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Nov 13 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.48.20261113git04169c447065
+- speakerguardd#168: speaker startup robustness: the session selects the
+  Secondary speaker route before provisioning, the self-check requires every
+  configured graph node before its silent pilots, and the supervisor enables
+  and verifies V/I sense before granting protection.
+- speakerguardd#169, #175: the supervisor can offer the LSID sense source and
+  the LV2 plugin binds the unit's LSID companion to it. No Mac here has that
+  companion, so it stays muted and runtime is unchanged.
+- speakerguardd#173: parity.json re-attested to voicing law a8c2a491; renders
+  byte-identical, protection limits and tolerance unchanged.
+
 * Fri Nov 13 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.47.20261113git26b88eac71bf
 - speakerguardd#158: the T6050 AOP audio transport (same driver
   configuration as the T8142).
