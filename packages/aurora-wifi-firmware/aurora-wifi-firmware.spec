@@ -1,11 +1,11 @@
-%global commit 79a75495b160fcd92b76b0374f0acb4ca30f3a7b
+%global commit afdd3215189cb5badb85d22bdb255df4a7b3a9fa
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261113
 
 Name: aurora-wifi-firmware
-Version: 0.1
+Version: 0.2
 Release: 1.%{snapdate}git%{shortcommit}%{?dist}
-Summary: Keep the Wi-Fi firmware on the installed macOS's
+Summary: Keep the Wi-Fi and Bluetooth firmware on the installed macOS's
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-installer/tree/main/tools/wifi-firmware
 Source0: aurora-wifi-firmware-%{commit}.tar.gz
@@ -55,5 +55,8 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/80-aurora-wifi-firmware.pres
 %{_presetdir}/80-aurora-wifi-firmware.preset
 
 %changelog
+* Fri Nov 13 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.2-1.20261113gitafdd3215189c
+- Bluetooth (Broadcom) and the MacBook Neo's MT7932 Wi-Fi and Bluetooth firmware follow the installed macOS too (aurora-installer#134).
+
 * Fri Nov 13 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-1.20261113git79a75495b160
 - First package: aurora-installer tools/wifi-firmware (aurora-installer#131).
