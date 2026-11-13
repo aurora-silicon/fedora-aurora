@@ -1,9 +1,9 @@
-%global commit 8f013bf96bd7f0b71247b535d74a7145ae29165b
+%global commit 5ccdc3f81742dcff6239fc7a746cb221b39921b1
 %global debug_package %{nil}
 Name: mesa-aurora
 Epoch: 1
 Version: 26.3.0
-Release: 25%{?dist}.aurora
+Release: 26%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -202,6 +202,27 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Fri Nov 13 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-26
+- Track aurora-silicon/mesa aurora-wip at 5ccdc3f8: G17P tests a
+  per-sample fragment's coverage once, fixing GPU stalls beside a
+  second client (mesa#294), G17P admits queues before consuming
+  submission payloads (mesa#293), the M5 draws GL tessellation natively
+  (mesa#292), tiny positive LOD clamps stay above zero (mesa#289),
+  VK_NV_cooperative_matrix2 on the M5 (mesa#244, mesa#246, mesa#291),
+  VK_EXT_memory_priority and VK_EXT_pageable_device_local_memory
+  (mesa#243), the hk_compute_timeout_ms option (mesa#259), G17P ray
+  tracing with recursion depth 31, pipeline caching, more vertex
+  formats, subgroups and faster opaque ray queries (mesa#270-mesa#274,
+  mesa#278, mesa#286, mesa#288), batched and overlapped acceleration
+  structure builds (mesa#283), M5 fixes for bfloat16 rounding,
+  device-scope barriers, barrier memory scope, layered storage images,
+  occlusion queries, empty compute work and command-memory reaping
+  (mesa#264, mesa#266-mesa#269, mesa#277, mesa#284), a second compute
+  queue on the M5 Max (mesa#260), earlier G13/G14 tiling overlap
+  (mesa#265), fused fp32 ffma under DenormPreserve (mesa#280), shader
+  object binaries independent of depthClipControl (mesa#279), the 10-bit
+  X2 formats (mesa#282) and G17P staged renders (mesa#281).
+
 * Fri Nov 13 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:26.3.0-25
 - Track aurora-silicon/mesa aurora-wip at 8f013bf9: the M5 family caches
   its native graphics programs per linked shader (mesa#257), AGX3 keeps
