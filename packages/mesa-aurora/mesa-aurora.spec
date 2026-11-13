@@ -1,8 +1,8 @@
-%global commit 33cf8cfc66830cb093e3a35c024b92d1b01a9773
+%global commit 8f013bf96bd7f0b71247b535d74a7145ae29165b
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 24%{?dist}.aurora
+Release: 25%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -200,6 +200,20 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Fri Nov 13 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-25
+- Track aurora-silicon/mesa aurora-wip at 8f013bf9: the M5 family caches
+  its native graphics programs per linked shader (mesa#257), AGX3 keeps
+  the move after a projective multiply, fixing G17S mediump varyings
+  (mesa#258), G17P software tessellation stages batched per render
+  (mesa#228), G17P depth clip control, restart state and storage image
+  compression (mesa#225, mesa#227, mesa#253), single-level depth array
+  compression on the M4 Pro (mesa#229), M5 compute: matrix multiply
+  operands, instruction selection and dispatch overlap (mesa#238,
+  mesa#239, mesa#240, mesa#241), VK_EXT_external_memory_host with
+  GEM_USERPTR (mesa#242), cheaper signed-zero fmin/fmax (mesa#231), an
+  i386 struct layout fix (mesa#214) and the Honeykrisp driver ID for ggml-
+  vulkan (mesa#252).
+
 * Thu Nov 12 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-24
 - Track aurora-silicon/mesa aurora-wip at 33cf8cfc: GL stages writes to
   busy buffers and copies them on the GPU instead of waiting for the GPU
