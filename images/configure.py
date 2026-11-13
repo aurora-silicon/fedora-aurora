@@ -49,7 +49,9 @@ PACKAGES = {
         "aurora-sep-sk",
     ]),
     # Desktop images boot to the Aurora splash: aura's logo, kept still, with a spinner.
-    "components/desktop-environments.xml": ("DesktopCommon", ["plymouth-theme-aurora"]),
+    # credentialsd behind the portal's Credential interface: passkeys in the
+    # browser, including Touch ID through aurora-fido's per-user agent.
+    "components/desktop-environments.xml": ("DesktopCommon", ["plymouth-theme-aurora", "credentialsd"]),
 }
 # Fedora's imsettings turns itself off on GNOME and Plasma, but its autostart
 # entry still runs there and fails on every login. Both desktops configure

@@ -1,11 +1,14 @@
 %global commit 2ea454e0a222aea7b970f9bf061ee6ea3cd326ec
 Name: aurora-fido
 Version: 0.2.0
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Touch ID as a FIDO2/U2F security key (opt in)
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-sep-userspace
 Source0: https://github.com/aurora-silicon/aurora-sep-userspace/archive/%{commit}/%{name}-%{commit}.tar.gz
+# The per-user agent as a credentialsd platform provider (Touch ID passkeys
+# in browsers that use the credential portal).
+Source1: org.aurora.Passkeys.conf
 ExclusiveArch: aarch64
 BuildRequires: gcc make pkgconf-pkg-config json-c-devel
 BuildRequires: python3-devel python3-cryptography
@@ -19,6 +22,9 @@ Recommends: libnotify
 # The per-user agent's native front-end on the session bus (vault = user).
 Recommends: python3-jeepney
 Recommends: glib2
+# Browsers that use the credential portal reach the per-user agent through
+# credentialsd (Source1 registers it).
+Recommends: credentialsd
 # Clients: browsers need nothing; these are the command-line tools.
 Suggests: fido2-tools pam-u2f
 
@@ -51,6 +57,7 @@ make -C fido check PYTHON=%{python3}
 	USERUNITDIR=%{_userunitdir} USERPRESETDIR=%{_userpresetdir} \
 	DOCDIR=%{_docdir}/%{name}
 %py_byte_compile %{python3} %{buildroot}%{_prefix}/lib/aurora-fido
+install -Dpm644 %{SOURCE1} %{buildroot}%{_datadir}/credentialsd/providers/org.aurora.Passkeys.conf
 
 %post
 %systemd_post aurora-fido.service
@@ -77,8 +84,16 @@ make -C fido check PYTHON=%{python3}
 %{_udevrulesdir}/60-aurora-fido.rules
 %dir %{_sysconfdir}/aurora-fido
 %config(noreplace) %{_sysconfdir}/aurora-fido/aurora-fido.conf
+%dir %{_datadir}/credentialsd
+%dir %{_datadir}/credentialsd/providers
+%{_datadir}/credentialsd/providers/org.aurora.Passkeys.conf
 
 %changelog
+* Fri Nov 13 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.2.0-3
+- Register the per-user passkey agent with credentialsd as a platform
+  provider (org.aurora.Passkeys1, transport internal), so browsers using the
+  credential portal offer Touch ID passkeys; Recommends credentialsd.
+
 * Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.2.0-2
 - Per-user passkey agent (aurora-passkeyd, a user unit, installed off) for
   [authenticator] vault = user: keys and the vault key under the user's own

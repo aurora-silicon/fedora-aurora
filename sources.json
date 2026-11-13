@@ -526,5 +526,22 @@
     "source_url": "https://codeload.github.com/aurora-silicon/aurora-installer/tar.gz/79a75495b160fcd92b76b0374f0acb4ca30f3a7b",
     "archive_root": "aurora-installer-79a75495b160fcd92b76b0374f0acb4ca30f3a7b",
     "sha256": "1e4b55ed6f0ecb862a6ea3a05ea72d3bece898df0dece9882110ffd8f41fcf4a"
+  },
+  "credentialsd": {
+    "repository": "https://github.com/linux-credentials/credentialsd",
+    "commit": "3659aa69c6bfd4dfa24fc69daeba7ed42d35441c",
+    "version": "0.4.0",
+    "source_url": "https://codeload.github.com/linux-credentials/credentialsd/tar.gz/3659aa69c6bfd4dfa24fc69daeba7ed42d35441c",
+    "archive_root": "credentialsd-3659aa69c6bfd4dfa24fc69daeba7ed42d35441c",
+    "sha256": "668d56a7f6bd6ed063ca340306ab1d3ece4afa09bec6369eb6f07fb8e185ade6"
+  },
+  "xdg-desktop-portal": {
+    "repository": "https://github.com/flatpak/xdg-desktop-portal",
+    "commit": "1d20fadc304f6601452b5db65ed91197dba77041",
+    "version": "1.22.1",
+    "source_url": "https://github.com/flatpak/xdg-desktop-portal/releases/download/1.22.1/xdg-desktop-portal-1.22.1.tar.xz",
+    "archive_file": "xdg-desktop-portal-1.22.1.tar.xz",
+    "archive_root": "xdg-desktop-portal-1.22.1",
+    "sha256": "d4879ddb3d65ff1a8f19187497e6f13dc5d267bcac404a5d501218be355753d3"
   }
 }
