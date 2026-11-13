@@ -1,10 +1,10 @@
-%global commit 26b88eac71bfe15411fd1b3ac75efcd7239502e3
+%global commit 04169c4470650f8e2554db70d4072fb92e484138
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261113
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.14.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.15.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning (preview)
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -64,6 +64,9 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
+* Fri Nov 13 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.15.20261113git04169c447065
+- Rebuilt from speakerguardd 04169c44 (no change to this tool).
+
 * Fri Nov 13 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.14.20261113git26b88eac71bf
 - speakerguardd#159: when the boot chain gives no speaker ID for an AID
   that selects its tuning by speaker ID, go on to the macOS collection
