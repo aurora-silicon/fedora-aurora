@@ -11,9 +11,9 @@
 #            --define 'host_release 0.12.aurora.borealis.<12-hex>%%{?dist}' ...
 # Both lines provide mesa-dri-drivers and mesa-vulkan-drivers at their own
 # version-release, which is what this package requires.
-%{!?commit:%global commit 33cf8cfc66830cb093e3a35c024b92d1b01a9773}
+%{!?commit:%global commit 8f013bf96bd7f0b71247b535d74a7145ae29165b}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 24%{?dist}.aurora}
+%{!?host_release:%global host_release 25%{?dist}.aurora}
 %{!?host_epoch:%global host_epoch 1}
 %global debug_package %{nil}
 # Fedora's x86_64 build flags carry -m64 and would turn the i686 build into a
@@ -202,6 +202,20 @@ fi
 %{_presetdir}/80-aurora-fex-mesa.preset
 
 %changelog
+* Fri Nov 13 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:26.3.0-25
+- Track aurora-silicon/mesa aurora-wip at 8f013bf9: the M5 family caches
+  its native graphics programs per linked shader (mesa#257), AGX3 keeps
+  the move after a projective multiply, fixing G17S mediump varyings
+  (mesa#258), G17P software tessellation stages batched per render
+  (mesa#228), G17P depth clip control, restart state and storage image
+  compression (mesa#225, mesa#227, mesa#253), single-level depth array
+  compression on the M4 Pro (mesa#229), M5 compute: matrix multiply
+  operands, instruction selection and dispatch overlap (mesa#238,
+  mesa#239, mesa#240, mesa#241), VK_EXT_external_memory_host with
+  GEM_USERPTR (mesa#242), cheaper signed-zero fmin/fmax (mesa#231), an
+  i386 struct layout fix (mesa#214) and the Honeykrisp driver ID for ggml-
+  vulkan (mesa#252).
+
 * Thu Nov 12 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:26.3.0-24
 - Track aurora-silicon/mesa aurora-wip at 33cf8cfc: GL stages writes to
   busy buffers and copies them on the GPU instead of waiting for the GPU
