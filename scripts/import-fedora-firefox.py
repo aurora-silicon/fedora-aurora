@@ -29,9 +29,21 @@ PACKAGE = ROOT / 'packages' / 'firefox'
 REPOSITORY = 'https://src.fedoraproject.org/rpms/firefox.git'
 RELEASES = {44: 'f44', 45: 'f45'}
 FETCHED = ('google-api-key', 'google-loc-api-key', 'mozilla-api-key')
-OURS = ('rdd-v4l2-request.patch',)
+# WebAuthn through the credential portal (credentialsd): Martin
+# Sirringhaus's D341303 (bug 2088324) and D261536 (bug 1983767) and our five
+# commits on top, from work/upstream/20261113-firefox-webauthn-portal.
+WEBAUTHN_PORTAL = (
+    'webauthn-portal-0001-Bug-2088324-WebAuthn-plumb-getClientCapabilities-and.patch',
+    'webauthn-portal-0002-Bug-1983767-Implement-support-for-credentialsd-porta.patch',
+    'webauthn-portal-0003-Bug-XXXXXXX-Build-xdg_credentials_responses-against-.patch',
+    'webauthn-portal-0004-Bug-XXXXXXX-Report-credential-portal-capabilities-an.patch',
+    'webauthn-portal-0005-Bug-XXXXXXX-Let-WebAuthnService-hold-conditional-req.patch',
+    'webauthn-portal-0006-Bug-XXXXXXX-Add-a-pref-to-keep-security-key-requests.patch',
+    'webauthn-portal-0007-Bug-XXXXXXX-Offer-credential-portal-passkeys-in-WebA.patch',
+)
+OURS = ('rdd-v4l2-request.patch',) + WEBAUTHN_PORTAL
 SKIP = {'.git', '.gitignore', 'sources'} | set(FETCHED)
-AURORA_RELEASE = '.aurora2'
+AURORA_RELEASE = '.aurora3'
 CHANGELOG = """\
 * {date} Aurora Silicon <hey@djdev.me> - {evr}
 - Rebuild of Fedora's firefox-{version}-{release}.
@@ -40,6 +52,12 @@ CHANGELOG = """\
   GBM device behind VA-API DMABuf surfaces.
 - No debuginfo, no Rust debug info and no WASI SDK build, to fit the native
   builder.
+- WebAuthn through the credential portal (credentialsd), so platform
+  passkeys such as Touch ID work: Mozilla bugs 2088324 and 1983767 with
+  capabilities and isUVPAA from the portal, the conditional request fix,
+  security keys kept on authenticator-rs and portal passkeys in autofill.
+  On where the portal exports the Credential interface; elsewhere Firefox
+  keeps authenticator-rs.
 
 """
 
@@ -78,8 +96,21 @@ def edit_spec(text, commit, date):
     end = patches[-1].end()
     text = (text[:end] + '\n\n# Aurora: V4L2 stateless decoders in RDD (Mozilla bug 2080696)\n'
             'Patch900:       rdd-v4l2-request.patch\nBuildRequires:  kernel-headers >= 6.5' + text[end:])
-    text = once(text, r'^rm -f \.mozconfig$', '%patch -P900 -p1 -b .rdd-v4l2-request\n\nrm -f .mozconfig',
-                'patch application')
+    text = text.replace('Patch900:       rdd-v4l2-request.patch\n', 'Patch900:       rdd-v4l2-request.patch\n'
+                        '# Aurora: WebAuthn through the credential portal (bugs 2088324, 1983767)\n'
+                        + ''.join(f'Patch{700 + i}:       {name}\n' for i, name in enumerate(WEBAUTHN_PORTAL)), 1)
+    text = once(text, r'^rm -f \.mozconfig$', '%patch -P900 -p1 -b .rdd-v4l2-request\n'
+                + ''.join(f'%patch -P{700 + i} -p1 -b .webauthn-portal-{i + 1}\n' for i in range(len(WEBAUTHN_PORTAL)))
+                + '\nrm -f .mozconfig', 'patch application')
+    # The credential portal where it exists (credentialsd starts it), else
+    # authenticator-rs as before; security keys (USB, NFC, BLE and
+    # aurora-fido's uhid key) always stay on authenticator-rs.
+    prefs = '%{buildroot}%{mozappdir}/browser/defaults/preferences/firefox-redhat-default-prefs.js'
+    text = once(text, r'^cp %\{SOURCE12\} %\{buildroot\}%\{mozappdir\}/browser/defaults/preferences$',
+                'cp %{SOURCE12} %{buildroot}%{mozappdir}/browser/defaults/preferences\n'
+                f'echo \'pref("security.webauthn.use-xdg-desktop-portal", 1);\' >> {prefs}\n'
+                f'echo \'pref("security.webauthn.use-xdg-desktop-portal.security-keys", false);\' >> {prefs}',
+                'default preferences')
     head, marker, history = text.partition('\n%changelog\n')
     if not marker:
         raise SystemExit('firefox.spec: no %changelog')
