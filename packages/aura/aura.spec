@@ -1,11 +1,11 @@
 %global debug_package %{nil}
-%global commit f0f180afe5db5c976b6e997ed1308ce4d5213bcb
+%global commit 5dcf62d0bf28e42c0e3f4ece44908643ffd40837
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
 %global monitor_free 1
 Name: aura
-Version: 1.0.0~b13
+Version: 1.0.0~b13.1
 Release: 1%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
@@ -26,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-f0f180afe5db5c976b6e997ed1308ce4d5213bcb
+%autosetup -n aura-5dcf62d0bf28e42c0e3f4ece44908643ffd40837
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -76,6 +76,12 @@ install -Dm644 tools/recovery/enroll-stage1.sh %{buildroot}%{_datadir}/aura/tool
 %{_datadir}/aura/
 
 %changelog
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b13.1-1
+- Update to aura 1.0.0b13.1 (v1.0.0b13.1, 5dcf62d0): 1.0.0b13 plus
+  aura#213. The ESP Stage 2 starts a post-M4 ANS that the previous stage
+  powered off (nvme.sart=) and hands it on running, so the embedded U-Boot
+  finds NVMe after a 1.0.0b11 or later Stage 1.
+
 * Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b13-1
 - Update to aura 1.0.0b13 (v1.0.0b13, f0f180af): ADT DART tunables on
   every enabled DART (aura#208), T8140 gpu-fw-data (#204), MTE tag storage
