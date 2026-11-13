@@ -118,10 +118,12 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -z $RELEASE_TAG ]]; then
-            "$GITHUB_WORKSPACE/scripts/gh-retry" api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate --jq '.[].tag_name' > existing-tags
             prefix=testing-
             [[ $FEDORA_RELEASE == 44 ]] || prefix=testing-f45-
-            RELEASE_TAG=$(python3 scripts/next-tag.py "$prefix" < existing-tags)
+            # Snapshot tags, not the releases list: listing every release with its ~350
+            # assets (219 releases and growing) times out (HTTP 504). The release tags
+            # are created by the release step and fetched by the fetch-depth: 0 checkout.
+            RELEASE_TAG=$(git -C "$GITHUB_WORKSPACE" tag --list "$prefix*" | python3 scripts/next-tag.py "$prefix")
           fi
           python3 -c 'import os,sys; sys.path.insert(0,"scripts"); import fedoralib; fedoralib.snapshot(os.environ["RELEASE_TAG"], int(os.environ["FEDORA_RELEASE"]))'
           if "$GITHUB_WORKSPACE/scripts/gh-retry" release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then

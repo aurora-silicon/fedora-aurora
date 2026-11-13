@@ -4,8 +4,12 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 
 root = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(root / "scripts"))
+import fedoralib  # noqa: E402
+
 names = sorted(p.parent.name for p in (root / "packages").glob("*/*.spec"))
 # Recipes marked "# aurora-builder: heavy" (Firefox: about three hours) build
 # only when a manual run names them; the source tracker dispatches that run
@@ -48,7 +52,7 @@ else:
         if changed <= set(names):
             paths.remove("sources.json")
             paths.extend(f"packages/{name}/{name}.spec" for name in sorted(changed))
-    if {"sources.json", ".github/workflows/rpms.yml", "scripts/build-rpm", "scripts/build-receipt.py", "scripts/fetch-sources.py", "scripts/fetch-fedora-lookaside.py", "scripts/build-flatpak-gl-repo", "scripts/fedoralib.py"} & set(paths):
+    if (set(fedoralib.SHARED) | {"sources.json"}) & set(paths):
         result = names
     else:
         result = sorted({p.split("/")[1] for p in paths

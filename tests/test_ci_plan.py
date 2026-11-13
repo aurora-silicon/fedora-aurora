@@ -4,10 +4,13 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'scripts'))
+import fedoralib  # noqa: E402
 
 
 class PlanTests(unittest.TestCase):
@@ -17,6 +20,7 @@ class PlanTests(unittest.TestCase):
             root = Path(directory)
             (root / 'scripts').mkdir()
             shutil.copyfile(ROOT / 'scripts/ci-plan.py', root / 'scripts/ci-plan.py')
+            shutil.copyfile(ROOT / 'scripts/fedoralib.py', root / 'scripts/fedoralib.py')
             for name in ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora']:
                 recipe = root / 'packages' / name / (name + '.spec')
                 recipe.parent.mkdir(parents=True)
@@ -49,7 +53,10 @@ class PlanTests(unittest.TestCase):
                 name = shared_tooling if isinstance(shared_tooling, str) else 'build-rpm'
                 path = root / (name if '/' in name else 'scripts/' + name)
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text('changed shared builder\n')
+                # Append a comment, valid in Python/shell/YAML, so a change to a tool
+                # ci-plan.py itself imports (fedoralib.py) still parses and keeps SHARED.
+                with path.open('a') as handle:
+                    handle.write('# changed shared builder\n')
             git('add', '.')
             git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'update')
             event = root / 'event.json'
@@ -135,3 +142,14 @@ class PlanTests(unittest.TestCase):
     def test_shared_lookaside_fetcher_invalidates_every_build(self):
         self.assertEqual(self.plan({}, shared_tooling='fetch-fedora-lookaside.py'),
                          ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])
+
+    def test_every_shared_build_tool_forces_a_full_rebuild(self):
+        # Each file whose change invalidates prior build receipts (fedoralib.SHARED,
+        # used by import-rpm-build.py) must also force a full rebuild here; otherwise a
+        # tooling change strands packages with no eligible build. The two read the same
+        # list, so they cannot drift.
+        for path in fedoralib.SHARED:
+            with self.subTest(path=path):
+                self.assertEqual(
+                    self.plan({'avd-fw': {'commit': 'new'}}, shared_tooling=path),
+                    ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])
