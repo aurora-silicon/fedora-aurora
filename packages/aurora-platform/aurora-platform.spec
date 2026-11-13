@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 39%{?dist}
+Release: 40%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -44,6 +44,7 @@ Source122: aurora-kdump.service.conf
 Source123: aurora-kdump-setup
 Source124: aurora-kdump-clock-module-setup.sh
 Source125: aurora-kdump-clock.sh
+Source126: aurora-j713-display.sh
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -153,6 +154,7 @@ install -Dm755 %{SOURCE105} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora
 install -Dm755 %{SOURCE106} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/module-setup.sh
 install -Dm755 %{SOURCE107} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh
 install -Dm755 %{SOURCE119} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms-wait.sh
+install -Dm755 %{SOURCE126} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/aurora-j713-display.sh
 install -Dpm0644 %{SOURCE114} %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-ane.conf
 install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-console
 install -Dm755 %{SOURCE117} %{buildroot}%{_libexecdir}/aurora/aurora-grub-uuid
@@ -245,6 +247,17 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Nov 13 2026 Juan <31860825+AA-EION@users.noreply.github.com> - 44-40
+- 91aurora-early-kms: admit the internal display DARTs of M4 (T8132) Macs
+  in the initramfs. The kernel leaves them untouched until userspace, with
+  the watchdog armed, sets apple_dart.j713_dcp and apple_dart.j713_display;
+  without that the DCP fails ("inherited SID23 domain not qualified") and
+  the desktop has no display. A pre-trigger hook ahead of the display
+  coldplug arms the SoC watchdog (30 s), sets both, probes the DCP DART and
+  then the display DART, and stops the watchdog. Other Macs, DARTs already
+  bound from the command line, and aurora.j713_display=0 are left alone
+  (aurora-silicon/linux#1704).
+
 * Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-39
 - aurora-platform-core requires aurora-wifi-firmware: the ESP's Wi-Fi
   firmware follows the installed macOS's, read from the macOS system volume
