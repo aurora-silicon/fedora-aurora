@@ -1,0 +1,11 @@
+{
+  "gnome-control-center": {
+    "repository": "https://gitlab.gnome.org/GNOME/gnome-control-center",
+    "commit": "348dd99d9f3a51a39fe9c60c967a6aabaeb34813",
+    "version": "51.1",
+    "source_url": "https://download.gnome.org/sources/gnome-control-center/51/gnome-control-center-51.1.tar.xz",
+    "archive_root": "gnome-control-center-51.1",
+    "archive_file": "gnome-control-center-51.1.tar.xz",
+    "sha256": "1054976c2f1977f770ba134b872f547c89db7005e4422f09a96d521379c083cb"
+  }
+}
