@@ -17,9 +17,9 @@
 #
 # Source10 is mandatory. scripts/build-rpm builds it for both supported
 # runtimes (or consumes AURORA_FLATPAK_GL_REPO_TAR). Never publish settings alone.
-%{!?commit:%global commit f54acc022c8a97dd09fbf5f27aba715f795ee0b0}
+%{!?commit:%global commit bbad52187b6086375806e2430f605fbe70c1c78d}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 27%{?dist}.aurora}
+%{!?host_release:%global host_release 28%{?dist}.aurora}
 %global shortcommit %{sub %{commit} 1 12}
 %global debug_package %{nil}
 %global __requires_exclude_from ^%{_datadir}/aurora-flatpak-gl/
@@ -79,6 +79,37 @@ fi
 %{_datadir}/aurora-flatpak-gl/
 
 %changelog
+* Sat Nov 14 2026 Diljit Singh <hey@djdev.me> - 26.3.0-28
+- Pin aurora-silicon/mesa aurora-wip bbad52187b6 (20 first-parent commits since f54acc022c8):
+  - mesa#315 hk: mesh and task shaders by default on G17P
+  - mesa#325 hk: advertise VK_EXT_nested_command_buffer on G17P
+  - mesa#324 hk: VK_EXT_descriptor_buffer on G17P
+  - mesa#323 hk: test that the vertex texture-heap shift keeps ray-query
+    state in place
+  - mesa#321 hk: dispatch ray tracing continuations through balanced
+    searches
+  - mesa#314 agx: end G17P ray-query compute kernels with the SCS sweep
+  - mesa#310 hk: spread independent G17P compute submissions over sibling
+    kernel queues
+  - mesa#329 hk: restore the runtime's pipeline stage record after meta
+  - mesa#322 hk: keep G17P ray-query state out of the vertex texture-heap
+    shift
+  - mesa#317 asahi: keep M5 tessellation on the CPU path when it can
+    tessellate
+  - mesa#318 asahi,hk: M5: one coverage update for per-sample kills
+  - mesa#309 agx: flatten small uniform ifs that load, and issue M5 compute
+    loads ahead of their uses
+  - mesa#308 agx: retire pending loads at M5 workgroup barriers
+  - mesa#316 agx: admit the M5 cube-array comparison with a per-lane level
+  - mesa#301 hk: VK_EXT_primitives_generated_query on G17P
+  - mesa#251 hk: raise the G18G compute batch default from 8 to 64
+  - mesa#296 G17P: per-sample kills go into the one coverage update (killed
+    samples keep their contents)
+  - mesa#313 asahi: neutral wording for the AGX3 encoding-table comments
+  - mesa#312 hk, agx: remove the M5 captured-runtime ray query route
+  - mesa#297 agx: keep G18G per-lane levels and biases as 16-bit scalars
+    (mpv scalers render solid blue on the M6)
+
 * Fri Nov 13 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-27
 - Track aurora-silicon/mesa aurora-wip at f54acc02: G17P no longer
   compresses storage images, which read back wrong texels when bound to
