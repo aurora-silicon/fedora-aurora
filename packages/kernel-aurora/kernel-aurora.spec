@@ -52,6 +52,10 @@ Conflicts: aurora-fido < 0.2.0-2
 # https://github.com/aurora-silicon/aura/pull/75); under an older Stage 2
 # the speakers stay off.
 Requires: aura >= 1.0.0~b12
+# apple-avd loads apple/avd-fw-v*.bin from /usr/lib/firmware. Its queued
+# transport needs queue ABI 2 with per-image codec VP pools (avd-fw 6756ca99,
+# packaged as 0.1-3); without the images the decoder does not probe.
+Requires: avd-fw >= 0.1-3
 Provides: kernel-uname-r = %{krel}
 %if %{ctxr_execmem}
 Provides: aurora-ctxr-execmem
@@ -217,6 +221,10 @@ fi
 - Require aura 1.0.0~b12 or later: with #1298's fabric power states, 1.0.0~b11
   cannot enable the MacBook Neo's encoder 0 (aura#190).
   vmlinuz stays the raw Image, and dtb-abi is unchanged (generation 1).
+- Require avd-fw 0.1-3 or later, so a kernel installed or upgraded on its
+  own always has the video decoder firmware it loads (queue ABI 2 with
+  per-image codec VP pools). Without it the decoder fails to probe with
+  -ENOENT and its power domains never reach sync_state.
 
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-35
 - Require aura 1.0.0~b11 or later. On the MacBook Neo this kernel's DT
