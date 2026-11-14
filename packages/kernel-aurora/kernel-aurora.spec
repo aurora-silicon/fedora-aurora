@@ -1,4 +1,4 @@
-%global commit 9219565939723cd5bc381941bc3978d52610d753
+%global commit 2129f55102faf996f38d67d19ca28806107c66b7
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # modules_install signs every module (CONFIG_MODULE_SIG_ALL) after
@@ -14,7 +14,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 36%{?dist}.aurora
+Release: 37%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -172,6 +172,18 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Sat Nov 14 2026 Diljit Singh <hey@djdev.me> - 7.3.0-37
+- Pin integration/aurora 2129f551, the kernel the MacBook Neo (J700) rig's
+  default runs on since 2026-11-13 (qualified on hardware first); 125
+  first-parent commits after 92195659:
+  - MacBook Neo (T8140): resume trims (#1715, #1717), the G17 GPU refuses a
+    sleep its commit cannot stop instead of staying stopped (#1839), crash
+    logs from the firmware data segment when the boot loader describes it
+    (#1731), the TG0 local-TLB flush for 4K user pages (#1509).
+  - M4 Air (J713): suspend-to-RAM (#1314) with the CIO default (#1855).
+  - Other: K116s AOP endpoints (#1645), J575c Type-C re-init (#1671).
+- config and fedora.config are unchanged.
+
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-36
 - Pin integration/aurora 92195659 (linux#1663), 29 merges (111 commits)
   after 2b05915f:
