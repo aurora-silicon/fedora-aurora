@@ -194,7 +194,7 @@ ExcludeArch: i686
 Summary:        Mozilla Firefox Web browser
 Name:           firefox
 Version:        160.0
-Release:        1%{?dist}.aurora2
+Release:        1%{?dist}.aurora3
 URL:            https://www.mozilla.org/firefox/
 # Automatically converted from old format: MPLv1.1 or GPLv2+ or LGPLv2+ - review is highly recommended.
 License:        LicenseRef-Callaway-MPLv1.1 OR GPL-2.0-or-later OR LicenseRef-Callaway-LGPLv2+
@@ -270,6 +270,14 @@ Patch604:        0001-Bug-2085342-Hash-the-little-endian-ICU-data-in-icu_d.patch
 
 # Aurora: V4L2 stateless decoders in RDD (Mozilla bug 2080696)
 Patch900:       rdd-v4l2-request.patch
+# Aurora: WebAuthn through the credential portal (bugs 2088324, 1983767)
+Patch700:       webauthn-portal-0001-Bug-2088324-WebAuthn-plumb-getClientCapabilities-and.patch
+Patch701:       webauthn-portal-0002-Bug-1983767-Implement-support-for-credentialsd-porta.patch
+Patch702:       webauthn-portal-0003-Bug-XXXXXXX-Build-xdg_credentials_responses-against-.patch
+Patch703:       webauthn-portal-0004-Bug-XXXXXXX-Report-credential-portal-capabilities-an.patch
+Patch704:       webauthn-portal-0005-Bug-XXXXXXX-Let-WebAuthnService-hold-conditional-req.patch
+Patch705:       webauthn-portal-0006-Bug-XXXXXXX-Add-a-pref-to-keep-security-key-requests.patch
+Patch706:       webauthn-portal-0007-Bug-XXXXXXX-Offer-credential-portal-passkeys-in-WebA.patch
 BuildRequires:  kernel-headers >= 6.5
 
 %if %{?system_nss}
@@ -560,6 +568,13 @@ patch -p1 -b --suffix .wasi < wasi.patch
 %patch -P604 -p1 -b .0001-Bug-2085342-Hash-the-little-endian-ICU-data-in-icu-d
 
 %patch -P900 -p1 -b .rdd-v4l2-request
+%patch -P700 -p1 -b .webauthn-portal-1
+%patch -P701 -p1 -b .webauthn-portal-2
+%patch -P702 -p1 -b .webauthn-portal-3
+%patch -P703 -p1 -b .webauthn-portal-4
+%patch -P704 -p1 -b .webauthn-portal-5
+%patch -P705 -p1 -b .webauthn-portal-6
+%patch -P706 -p1 -b .webauthn-portal-7
 
 rm -f .mozconfig
 cp %{SOURCE10} .mozconfig
@@ -1062,6 +1077,8 @@ cp failures-* %{buildroot}/%{version}-%{release}/ || true
 
 # Default
 cp %{SOURCE12} %{buildroot}%{mozappdir}/browser/defaults/preferences
+echo 'pref("security.webauthn.use-xdg-desktop-portal", 1);' >> %{buildroot}%{mozappdir}/browser/defaults/preferences/firefox-redhat-default-prefs.js
+echo 'pref("security.webauthn.use-xdg-desktop-portal.security-keys", false);' >> %{buildroot}%{mozappdir}/browser/defaults/preferences/firefox-redhat-default-prefs.js
 
 # Disabled session restore due to mzbz#2059617.
 echo 'pref("widget.wayland.session-management.enabled", false);' >> %{buildroot}%{mozappdir}/browser/defaults/preferences/firefox-redhat-default-prefs.js
@@ -1198,13 +1215,19 @@ fi
 #---------------------------------------------------------------------
 
 %changelog
-* Wed Nov 11 2026 Aurora Silicon <hey@djdev.me> - 160.0-1.aurora2
+* Wed Nov 11 2026 Aurora Silicon <hey@djdev.me> - 160.0-1.aurora3
 - Rebuild of Fedora's firefox-160.0-1.
 - Allow V4L2 stateless (Request API) decoders in the RDD sandbox.
 - Allow sysinfo in the RDD sandbox, so Mesa's zink driver can create the
   GBM device behind VA-API DMABuf surfaces.
 - No debuginfo, no Rust debug info and no WASI SDK build, to fit the native
   builder.
+- WebAuthn through the credential portal (credentialsd), so platform
+  passkeys such as Touch ID work: Mozilla bugs 2088324 and 1983767 with
+  capabilities and isUVPAA from the portal, the conditional request fix,
+  security keys kept on authenticator-rs and portal passkeys in autofill.
+  On where the portal exports the Credential interface; elsewhere Firefox
+  keeps authenticator-rs.
 
 * Fri Nov 06 2026 Martin Stransky <stransky@redhat.com> - 160.0-1
 - Update to latest upstream (160.0)
