@@ -1,9 +1,9 @@
-%global commit 5ccdc3f81742dcff6239fc7a746cb221b39921b1
+%global commit f54acc022c8a97dd09fbf5f27aba715f795ee0b0
 %global debug_package %{nil}
 Name: mesa-aurora
 Epoch: 1
 Version: 26.3.0
-Release: 26%{?dist}.aurora
+Release: 27%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -202,6 +202,18 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Fri Nov 13 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-27
+- Track aurora-silicon/mesa aurora-wip at f54acc02: G17P no longer
+  compresses storage images, which read back wrong texels when bound to
+  reused memory (mesa#311), VK_NV_cooperative_matrix2 is advertised only
+  on the M5 (mesa#304), the M5 programs custom primitive restart indices
+  (mesa#307), stores through a linear window past its 3D store slice
+  limit (mesa#303), page-aligns the layers of mipmapped writeable arrays
+  (mesa#302) and keeps the VDM stream link context-relative, fixing a GPU
+  fault with many small draws (mesa#276), the 8x8 cooperative matrix on
+  AGX3B behind ASAHI_AGX3B_COOPERATIVE_MATRIX (mesa#275), and G18G CDM
+  barriers (mesa#295).
+
 * Fri Nov 13 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-26
 - Track aurora-silicon/mesa aurora-wip at 5ccdc3f8: G17P tests a
   per-sample fragment's coverage once, fixing GPU stalls beside a
