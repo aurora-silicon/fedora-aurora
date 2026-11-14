@@ -29,6 +29,8 @@ installkernel() {
 }
 
 install() {
+    # M4: admit the internal display's DARTs before appledrm is queued.
+    inst_hook pre-trigger 10 "$moddir/aurora-j713-display.sh"
     inst_hook pre-trigger 20 "$moddir/aurora-early-kms.sh"
     inst_hook pre-pivot 90 "$moddir/aurora-early-kms-wait.sh"
 }

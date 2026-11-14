@@ -234,6 +234,32 @@ class SpecTests(unittest.TestCase):
         self.assertIn('/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh', text)
         core_files = text.split('%files core', 1)[1].split('%changelog', 1)[0]
         self.assertIn('%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/', core_files)
+    def test_initramfs_admits_the_m4_display_darts(self):
+        # The kernel leaves the M4 internal display DARTs untouched until
+        # userspace, with the watchdog armed, opts in; appledrm needs them.
+        d = ROOT / 'packages' / 'aurora-platform'
+        setup = (d / 'early-kms-module-setup.sh').read_text()
+        hooks = re.findall(r'(?m)^\s+inst_hook pre-trigger (\d+) "\$moddir/([^"]+)"$', setup)
+        order = {name: int(prio) for prio, name in hooks}
+        self.assertLess(order['aurora-j713-display.sh'], order['aurora-early-kms.sh'])
+        hook = (d / 'aurora-j713-display.sh').read_text()
+        self.assertIn('strstr "$compat" "apple,t8132"', hook)
+        self.assertIn('getargbool 1 aurora.j713_display', hook)
+        # Watchdog armed before either parameter is set, stopped (magic close) after.
+        arm = hook.index('exec 9>/dev/watchdog0')
+        self.assertLess(arm, hook.index('> "$params/j713_dcp"'))
+        self.assertLess(arm, hook.index('> "$params/j713_display"'))
+        self.assertLess(hook.index('/sys/bus/platform/drivers_probe'), hook.index('printf V >&9'))
+        # The DCP (SID23) DART first, as the kernel probes them from the command line.
+        self.assertIn('for dev in "$dcp" "$disp"; do', hook)
+        self.assertIn('"$devs"/30a340000.*', hook)
+        self.assertIn('"$devs"/30a300000.*', hook)
+        self.assertNotRegex(hook, r'(?m)^\s*exit\b')  # sourced by dracut
+        self.assertNotRegex(hook, r'(?m)^\s*modprobe ')
+        subprocess.run(['sh', '-n', str(d / 'aurora-j713-display.sh')], check=True)
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: aurora-j713-display\.sh$')
+        self.assertIn('/lib/dracut/modules.d/91aurora-early-kms/aurora-j713-display.sh', text)
     def test_kdump_crash_kernel_initramfs_has_the_disk_and_a_clock(self):
         # kdump-utils' 99-kdump.conf replaces add_dracutmodules, so the Aurora
         # conf must sort after it and name nvme_apple itself.
