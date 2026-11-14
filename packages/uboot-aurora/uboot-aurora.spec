@@ -11,6 +11,9 @@ ExclusiveArch: aarch64
 Provides: uboot-images-armv8
 Conflicts: uboot-images-armv8
 Requires: update-m1n1 >= 20261107
+# This U-Boot starts ANS from off and no longer adopts a running session: the aura on the
+# ESP has to power ANS off after use and pass its SART entries on (aura#107).
+Requires: aura >= 1.0.0~b10
 BuildRequires: gcc make bc bison flex dtc python3 python3-pyelftools swig openssl-devel openssl-devel-engine gnutls-devel
 
 %description
