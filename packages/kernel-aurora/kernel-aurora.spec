@@ -1,4 +1,4 @@
-%global commit 2129f55102faf996f38d67d19ca28806107c66b7
+%global commit d89d8c0ce7549460cd94d49dfe3b599577edc849
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # modules_install signs every module (CONFIG_MODULE_SIG_ALL) after
@@ -14,7 +14,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 37%{?dist}.aurora
+Release: 38%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -172,6 +172,86 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Sat Nov 14 2026 Diljit Singh <hey@djdev.me> - 7.3.0-38
+- Pin integration/aurora d89d8c0c, the MacBook Neo (J700) rig's release
+  candidate kernel (qualified on hardware first); 43 first-parent commits
+  after 2129f551:
+  - linux#1842 drm/asahi: rate-limit the GPU fault, timeout and
+    channel-error reports
+  - linux#1828 drm/asahi: g13: defer freeing a completed command until its
+    stamps land
+  - linux#1817 drm/apple: fabric: no DP-alt PHY power-on for a Thunderbolt
+    tunnel
+  - linux#1841 [Joshua's agent] arm64: dts: apple: t6050-k114c: describe
+    the USB4/Thunderbolt router on the right USB-C port
+  - linux#1804 perf: apple_m1: T8142 (M5) core PMU, enabled on J815
+  - linux#1854 arm64: dts: apple: t6050: make die0's range cover the ISP
+    watchdog
+  - linux#1819 drm/apple: don't report a tunneled display without usable
+    modes
+  - linux#1838 drm/asahi: drain deferred BO cleanup after immediate GEM
+    close
+  - linux#1818 drm/apple: dptxep: record the tile hint of a tunneled sink
+    on 26.6
+  - linux#1857 arm64: dts: apple: t6041-j575c: cite the ADT instead of
+    guesses
+  - linux#1803 media: apple: ave: T8142 (M5) hardware encoder, enabled on
+    J815
+  - linux#1823 drm/asahi: g17: release pairs, queues and contexts held by
+    stamps that never arrive
+  - linux#1864 thermal: apple: Poll the J713 PMP sensors slowly while cool
+  - linux#1836 drm/asahi: g17: accept staged renders on the A18 Pro
+  - linux#1837 drm/asahi: mark an exiting client's G17 VMs closed before
+    its handles close
+  - linux#1858 arm64: dts: apple: t6041-j575c: add the Stockholm NFC
+    controller
+  - linux#1852 drm/asahi: g17: wait for render backing as long as for a
+    compute queue
+  - linux#1860 drm/asahi: mmu: translate an IOVA under the VM reservation
+    alone
+  - linux#1875 drm/apple: allocate DCP property-dictionary chunks with
+    kvzalloc
+  - linux#1853 drm/asahi: g17: A18 Pro: report the performance state, its
+    frequency and busy time
+  - linux#1869 drm/asahi: g17: count a queue's overlapping stages once in
+    fdinfo
+  - linux#1830 HID: K116s trackpad: clamp the oversized report size, parse
+    the Trackpad26 frames
+  - linux#1801 centauri: scan all 38 channels, free function 1's IRQs
+    before its devres does
+  - linux#1802 soc: apple: T8142: echo RTKit OSLOG counters, never stack an
+    unanswered AP idle notice
+  - linux#1868 drm/apple: offer only the 120 Hz mode on the firmware 27
+    internal panel
+  - linux#1856 arm64: dts: apple: t6050-k116s: Enable the video decoder
+  - linux#1867 drm/asahi: g18: cut the per-job submit overhead (batched
+    audits, cached command encoding)
+  - linux#1859 arm64: dts: apple: t6050-k116s: leave the DCP clocks and
+    scratch to the loader
+  - linux#1866 drm/asahi: g17: report compute admission timeouts; M5:
+    configure a queue's host port before installing it
+  - linux#1885 Revert "drm/asahi: drain deferred BO cleanup after immediate
+    GEM close"
+  - linux#1887 drm/apple: fix AFK compact-service slot leak and spurious
+    brightness-pending warning at suspend
+  - linux#1891 drm/apple: send update_notify_clients as client flags on
+    request
+  - linux#1890 arm64: dts: apple: t6041: describe the ISP DART's address
+    filter
+  - linux#1886 arm64: dts: apple: t8132-j604: describe the trackpad actuator
+  - linux#1872 power: apple: describe T8132 PMP report children
+  - linux#1865 thermal: apple-pmp: fix J773g thermal zone registration
+  - linux#1871 t6041-j575c: USB-C displays on all four back ports
+  - linux#1884 ASoC: apple: macaudio: add a fixed speaker ceiling for
+    machines without sense
+  - linux#1883 accel/ane: T8142 (M5) Neural Engine, enabled on J815
+  - linux#1882 accel/ane: accept H17 programs from Apple's zin_ane_compiler
+    10.205 (on #1790)
+  - linux#1874 T8142: power the ISP down while the camera is idle
+  - linux#1888 arm64: dts: apple: t8132-j604: enable the speakers
+  - linux#1893 drm/asahi: g17: admit A18 Pro ray-traversal commands one
+    client at a time
+
 * Sat Nov 14 2026 Diljit Singh <hey@djdev.me> - 7.3.0-37
 - Pin integration/aurora 2129f551, the kernel the MacBook Neo (J700) rig's
   default runs on since 2026-11-13 (qualified on hardware first); 125
