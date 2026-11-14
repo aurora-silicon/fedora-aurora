@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import urllib.parse
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
@@ -144,6 +145,54 @@ class CarryTests(unittest.TestCase):
         self.releases = []
         with self.assertRaises(module.StaleSnapshot):
             self.carry()
+
+
+class FetchReleasesTests(unittest.TestCase):
+    """main() must never list the whole releases set (every asset of ~219 releases)."""
+
+    def fake_lib(self, tag_pages, releases):
+        calls = []
+
+        class Lib:
+            @staticmethod
+            def gh_api(route, paginate=False):
+                calls.append(route)
+                if route.endswith('/tags?per_page=100'):
+                    assert paginate, 'the tags listing must paginate'
+                    return tag_pages
+                assert 'releases?per_page' not in route, 'must not list every release'
+                return releases.get(urllib.parse.unquote(route.rsplit('/', 1)[1]))
+
+        return Lib, calls
+
+    def release(self, tag, ident, created):
+        return {'tag_name': tag, 'id': ident, 'created_at': created, 'draft': False, 'assets': []}
+
+    def test_fetches_only_newest_f45_snapshots_one_tag_at_a_time(self):
+        tag_pages = [[{'name': 'testing-f45-20261112.1'}, {'name': 'testing-20261112.9'},
+                      {'name': 'testing-f45-20261112.10'}],
+                     [{'name': 'v1.2.3'}, {'name': 'testing-f45-20261112.2'},
+                      {'name': 'testing-f45-20261030.1'}]]
+        releases = {'testing-f45-20261112.10': self.release('testing-f45-20261112.10', 4, 'd'),
+                    'testing-f45-20261112.2': self.release('testing-f45-20261112.2', 3, 'c'),
+                    'testing-f45-20261112.1': self.release('testing-f45-20261112.1', 2, 'b'),
+                    'testing-f45-20261030.1': self.release('testing-f45-20261030.1', 1, 'a')}
+        lib, calls = self.fake_lib(tag_pages, releases)
+        result = module.fetch_releases('aurora-silicon/fedora-aurora', lib)
+        # Newest first, numeric suffix (.10 after .2), and the F44/other tags are skipped.
+        self.assertEqual([r['tag_name'] for r in result],
+                         ['testing-f45-20261112.10', 'testing-f45-20261112.2',
+                          'testing-f45-20261112.1', 'testing-f45-20261030.1'])
+        self.assertNotIn('repos/aurora-silicon/fedora-aurora/releases/tags/testing-20261112.9', calls)
+        self.assertTrue(all('releases?per_page' not in route for route in calls))
+
+    def test_only_the_newest_receipt_depth_snapshots_are_fetched(self):
+        tags = [{'name': f'testing-f45-20261101.{n}'} for n in range(module.RECEIPT_DEPTH + 5)]
+        releases = {t['name']: self.release(t['name'], i, f'{i:04d}') for i, t in enumerate(tags)}
+        lib, calls = self.fake_lib([tags], releases)
+        result = module.fetch_releases('aurora-silicon/fedora-aurora', lib)
+        self.assertEqual(len(result), module.RECEIPT_DEPTH)
+        self.assertEqual(result[0]['tag_name'], f'testing-f45-20261101.{module.RECEIPT_DEPTH + 4}')
 
 
 if __name__ == '__main__':

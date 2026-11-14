@@ -6,6 +6,13 @@ import re
 
 RELEASES = (44, 45)
 
+# Build tooling shared by every recipe. A change to any of these invalidates every
+# prior build receipt (import-rpm-build.py) and must therefore force a full rebuild
+# (ci-plan.py); keeping the set here means the two cannot drift apart.
+SHARED = ('.github/workflows/rpms.yml', 'scripts/build-rpm', 'scripts/fetch-sources.py',
+          'scripts/fetch-fedora-lookaside.py', 'scripts/build-receipt.py',
+          'scripts/build-flatpak-gl-repo', 'scripts/fedoralib.py')
+
 
 def release(value):
     value = int(value)

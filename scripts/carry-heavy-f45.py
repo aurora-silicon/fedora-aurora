@@ -22,6 +22,7 @@ import json
 from pathlib import Path
 import re
 import sys
+import urllib.parse
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.dont_write_bytecode = True
@@ -63,6 +64,32 @@ def snapshots(releases):
              if r['tag_name'].startswith(fedoralib.prefix(FEDORA)) and not r.get('draft')}
     newest = max(found.values(), key=lambda r: (r['created_at'], r['id']))['tag_name'] if found else None
     return found, newest
+
+
+def fetch_releases(repository, lib):
+    """The newest F45 snapshot releases, fetched one tag at a time.
+
+    Listing every release to find the F45 ones returns all ~350 assets of each
+    of the (growing) ~219 releases in one response and times out (HTTP 504). The
+    tags endpoint is light, and only the newest RECEIPT_DEPTH snapshots can
+    matter: find_receipt follows at most that many base-snapshot hops. Each
+    release is then fetched by its tag, so no single response is large.
+    """
+    pre = fedoralib.prefix(FEDORA)
+
+    def order(tag):
+        # testing-f45-YYYYMMDD.N sorts by date then the numeric suffix.
+        date, _, number = tag[len(pre):].partition('.')
+        return (date, int(number) if number.isdigit() else -1)
+
+    tags = sorted((tag['name'] for page in lib.gh_api(f'repos/{repository}/tags?per_page=100', paginate=True)
+                   for tag in page if tag['name'].startswith(pre)), key=order, reverse=True)
+    releases = []
+    for tag in tags[:RECEIPT_DEPTH]:
+        release = lib.gh_api(f'repos/{repository}/releases/tags/{urllib.parse.quote(tag, safe="")}')
+        if release:
+            releases.append(release)
+    return releases
 
 
 def find_receipt(name, tag, found, read_json):
@@ -144,8 +171,7 @@ def main():
     if args.output.exists():
         parser.error('output exists')
     import updatelib as lib
-    releases = [r for page in lib.gh_api(f'repos/{args.repository}/releases?per_page=100', paginate=True)
-                for r in page]
+    releases = fetch_releases(args.repository, lib)
     scratch = args.output.with_name(args.output.name + '-metadata')
 
     def fetch(tag, name, directory):
