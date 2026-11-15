@@ -40,7 +40,7 @@ Patch3:        0003-x11-assign-frame-counters-on-actor-views.patch
 Patch4:        0004-backends-take-the-pq-reference-white-from-pq-reference-luminance.patch
 Patch5:        0005-onscreen-native-use-variable-refresh-rate-on-the-whole-desktop-of-built-in-panels.patch
 Patch6:        0006-renderer-native-drop-power-save-page-flip-onscreens-on-dispose.patch
-Patch7:        0007-clutter-frame-clock-unthrottle-a-scheduled-update-on-a-real-update-request.patch
+Patch7:        0007-clutter-frame-clock-aim-a-missed-update-at-a-later-cycle-with-the-maximum-estimate.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -260,9 +260,10 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 
 %changelog
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-9.aurora
-- Unthrottle a scheduled frame clock update when a real update is
-  requested. In a fixed refresh rate mode a fullscreen client no longer
-  drops to 65-85 fps on a 120 Hz panel while a timeline plays on its view
+- When an update misses the next presentation even with the minimum
+  estimate, aim it at a later cycle with the maximum estimate. In a fixed
+  refresh rate mode a fullscreen client drawing every frame no longer
+  locks to every other refresh cycle (60-70 fps on a 120 Hz panel)
 
 * Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-8.aurora
 - Drop the onscreens queued for power save page flips when the renderer is
