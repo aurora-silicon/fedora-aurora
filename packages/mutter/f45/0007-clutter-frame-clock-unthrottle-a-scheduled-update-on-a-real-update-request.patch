@@ -1,0 +1,87 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 04:56:57 +1100
+Subject: [PATCH] clutter/frame-clock: Unthrottle a scheduled update on a real
+ update request
+
+Since commit 3f17e687 ("clutter/frame-clock: Restrict ASAP dispatch in
+maybe_reschedule_update"), a reschedule made only for running timelines
+is throttled after the first one following a presentation. In fixed
+refresh rate mode a throttled update whose ideal update time has already
+passed is moved to the next refresh cycle instead of being dispatched
+right away.
+
+The frame clock then stays scheduled for that later cycle, and an update
+requested afterwards, for example by a Wayland client committing its next
+frame, returns early because an update is already scheduled. The frame of
+that client misses the presentation it could still have made.
+
+This shows up with a fullscreen client drawing at the refresh rate while
+any timeline is playing on the same view: a dispatch that only advances
+timelines produces no frame, the reschedule after it is throttled, and the
+client's commit a few milliseconds later waits a whole extra refresh
+cycle. On a 120 Hz built-in panel in a fixed refresh rate mode the client
+drops to 65-85 fps, with presentation intervals of 8.3, 16.7 and 20.8 ms.
+Variable refresh rate mode does not use throttling and is not affected.
+
+Remember whether the scheduled update was throttled, and when an
+unthrottled update is requested while one is scheduled, work out the
+update time again without throttling.
+
+Assisted-by: LLM
+Signed-off-by: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+---
+ clutter/clutter/clutter-frame-clock.c | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/clutter/clutter/clutter-frame-clock.c b/clutter/clutter/clutter-frame-clock.c
+index 12f4c90..9dab186 100644
+--- a/clutter/clutter/clutter-frame-clock.c
++++ b/clutter/clutter/clutter-frame-clock.c
+@@ -161,6 +161,7 @@ struct _ClutterFrameClock
+   gboolean pending_reschedule;
+   gboolean pending_reschedule_now;
+   gboolean throttle_timelines;
++  gboolean is_update_throttled;
+ 
+   int inhibit_count;
+ 
+@@ -1505,6 +1506,7 @@ schedule_update (ClutterFrameClock *frame_clock,
+     case CLUTTER_FRAME_CLOCK_STATE_INIT:
+       next_update_time_us = g_get_monotonic_time ();
+       g_source_set_ready_time (frame_clock->source, next_update_time_us);
++      frame_clock->is_update_throttled = FALSE;
+       clutter_frame_clock_set_state (frame_clock,
+                                      CLUTTER_FRAME_CLOCK_STATE_SCHEDULED);
+       return;
+@@ -1514,8 +1516,21 @@ schedule_update (ClutterFrameClock *frame_clock,
+                                      CLUTTER_FRAME_CLOCK_STATE_SCHEDULED);
+       break;
+     case CLUTTER_FRAME_CLOCK_STATE_SCHEDULED:
+-    case CLUTTER_FRAME_CLOCK_STATE_SCHEDULED_NOW:
+     case CLUTTER_FRAME_CLOCK_STATE_DISPATCHED_ONE_AND_SCHEDULED:
++      /* An update scheduled for timelines may have been throttled to a later
++       * refresh cycle. A real update request must not wait for it: work out
++       * the update time again, unthrottled, so it can still make the
++       * earliest presentation it can reach.
++       */
++      if (!throttle && frame_clock->is_update_throttled)
++        {
++          CLUTTER_NOTE (FRAME_CLOCK,
++                        "Unthrottling scheduled update for %s",
++                        frame_clock->output_name);
++          break;
++        }
++      return;
++    case CLUTTER_FRAME_CLOCK_STATE_SCHEDULED_NOW:
+     case CLUTTER_FRAME_CLOCK_STATE_DISPATCHED_ONE_AND_SCHEDULED_NOW:
+       return;
+     case CLUTTER_FRAME_CLOCK_STATE_DISPATCHED_ONE:
+@@ -1564,6 +1579,7 @@ schedule_update (ClutterFrameClock *frame_clock,
+ 
+   g_warn_if_fail (next_update_time_us != -1);
+ 
++  frame_clock->is_update_throttled = throttle;
+   frame_clock->next_update_time_us = next_update_time_us;
+   g_source_set_ready_time (frame_clock->source, next_update_time_us);
+ }
