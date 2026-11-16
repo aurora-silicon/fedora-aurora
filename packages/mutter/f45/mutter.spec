@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       15%{?dist}.aurora
+Release:       16%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -60,6 +60,9 @@ Patch25:       0025-wayland-gamma-control-Program-the-ramp-as-a-CTM-with.patch
 Patch26:       0026-wayland-Add-the-xdg-decoration-unstable-v1-protocol.patch
 Patch27:       0027-wayland-Implement-xdg-decoration-unstable-v1.patch
 Patch28:       0028-compositor-Draw-server-side-decorations-for-Wayland-.patch
+Patch29:       0029-clutter-stage-view-Apply-a-per-channel-gamma-LUT-in-.patch
+Patch30:       0030-color-device-Apply-ramps-the-CRTC-cannot-take-in-the.patch
+Patch31:       0031-tests-Read-back-gamma-ramps-applied-in-the-composito.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -278,6 +281,16 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-16.aurora
+- Apply gamma ramps the display hardware cannot take in the compositor:
+  on outputs without a CRTC gamma LUT (all Apple DCP panels), curved or
+  offset wlr-gamma-control ramps and ICC profile VCGT calibration are
+  applied exactly in the final blit of the stage view (a per channel 1D
+  LUT), instead of being reduced to a CTM white point or dropped. Night
+  light now works on outputs with neither a gamma LUT nor a CTM (T8132).
+  Linear ramps still use the CTM, and outputs without a ramp paint as
+  before (no extra blit, direct scanout kept).
+
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-15.aurora
 - Support xdg-decoration-unstable-v1 (zxdg_decoration_manager_v1,
   version 2): Wayland apps that ask for server-side decorations (foot,

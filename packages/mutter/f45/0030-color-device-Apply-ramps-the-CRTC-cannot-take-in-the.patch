@@ -1,0 +1,642 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 23:05:50 +1100
+Subject: [PATCH] color-device: Apply ramps the CRTC cannot take in the
+ compositor
+
+Without a CRTC gamma LUT, a client ramp was approximated by a CTM of its
+white point, ICC VCGT curves were not applied at all, and outputs with
+neither a gamma LUT nor a CTM got no night light and no client ramp.
+
+Pick the path per update:
+- a CRTC gamma LUT: program it (unchanged);
+- else a ramp that is a straight line per channel (night light without
+  VCGT, gamma-control temperature and brightness ramps) and a CTM: the
+  diagonal CTM (unchanged, exact for those);
+- else (curved or offset client ramp, VCGT, or no CTM): hand the ramp
+  to the renderer views of the device, which apply it in their final
+  blit, and put the CTM back to identity.
+
+An identity ramp never enables the blit. Views with a ramp block direct
+scanout and inhibit the hardware cursor plane, which would skip it.
+Views whose CRTC is gone (monitors being rebuilt) ignore the change;
+their replacements take the ramp when they are created. The
+gamma-control ramp size is now offered on every active monitor without
+a gamma LUT, and night light is reported as supported on every CRTC.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/backends/meta-color-device.c             | 251 ++++++++++++++++---
+ src/backends/meta-color-device.h             |   9 +-
+ src/backends/meta-monitor-manager.c          |  16 +-
+ src/backends/meta-renderer-view.c            |  92 +++++++
+ src/compositor/meta-compositor-view-native.c |   7 +
+ 5 files changed, 334 insertions(+), 41 deletions(-)
+
+diff --git a/src/backends/meta-color-device.c b/src/backends/meta-color-device.c
+index 91fd87d..1664ef4 100644
+--- a/src/backends/meta-color-device.c
++++ b/src/backends/meta-color-device.c
+@@ -20,6 +20,8 @@
+ 
+ #include "config.h"
+ 
++#include <math.h>
++
+ #include "backends/meta-color-device.h"
+ 
+ #include <colord.h>
+@@ -41,6 +43,7 @@ enum
+   READY,
+   CALIBRATION_CHANGED,
+   COLOR_STATE_CHANGED,
++  SHADER_GAMMA_CHANGED,
+ 
+   N_SIGNALS
+ };
+@@ -51,6 +54,7 @@ typedef enum
+ {
+   UPDATE_RESULT_CALIBRATION = 1 << 0,
+   UPDATE_RESULT_COLOR_STATE = 1 << 1,
++  UPDATE_RESULT_SHADER_GAMMA = 1 << 2,
+ } UpdateResult;
+ 
+ typedef enum
+@@ -95,6 +99,14 @@ struct _MetaColorDevice
+   MetaGammaLut *gamma_override;
+   MetaGammaLut *saved_gamma_lut;
+   gboolean saved_has_white_point;
++
++  /* Ramp the compositor applies in its final blit (see
++   * clutter_stage_view_set_gamma_lut()) when the CRTC has no gamma LUT and
++   * the ramp is not something the CTM can represent: a nonlinear client
++   * ramp, an ICC VCGT, or night light on an output without a CTM. */
++  MetaGammaLut *shader_gamma_lut;
++  /* Whether the CTM was last programmed to something else than identity. */
++  gboolean ctm_programmed;
+ };
+ 
+ G_DEFINE_TYPE (MetaColorDevice, meta_color_device,
+@@ -335,6 +347,7 @@ meta_color_device_dispose (GObject *object)
+   g_clear_object (&color_device->color_state);
+   g_clear_pointer (&color_device->gamma_override, meta_gamma_lut_free);
+   g_clear_pointer (&color_device->saved_gamma_lut, meta_gamma_lut_free);
++  g_clear_pointer (&color_device->shader_gamma_lut, meta_gamma_lut_free);
+ 
+   G_OBJECT_CLASS (meta_color_device_parent_class)->dispose (object);
+ }
+@@ -378,6 +391,19 @@ meta_color_device_class_init (MetaColorDeviceClass *klass)
+                   G_SIGNAL_RUN_LAST, 0,
+                   NULL, NULL, NULL,
+                   G_TYPE_NONE, 0);
++  /**
++   * MetaColorDevice::shader-gamma-changed:
++   * @device: the #MetaColorDevice which emitted the signal
++   *
++   * The ramp the views of the device apply in their final blit changed,
++   * see meta_color_device_get_shader_gamma_lut().
++   */
++  signals[SHADER_GAMMA_CHANGED] =
++    g_signal_new ("shader-gamma-changed",
++                  G_TYPE_FROM_CLASS (klass),
++                  G_SIGNAL_RUN_LAST, 0,
++                  NULL, NULL, NULL,
++                  G_TYPE_NONE, 0);
+ }
+ 
+ static void
+@@ -1504,6 +1530,114 @@ meta_color_device_get_assigned_profile (MetaColorDevice *color_device)
+   return color_device->assigned_profile;
+ }
+ 
++static void
++program_ctm (MetaColorDevice *color_device,
++             float            red_scale,
++             float            green_scale,
++             float            blue_scale)
++{
++  g_autoptr (MetaCtm) ctm = NULL;
++
++  ctm = meta_ctm_new_from_rgb_scales (red_scale, green_scale, blue_scale);
++  meta_monitor_set_ctm (color_device->monitor, ctm);
++  color_device->ctm_programmed =
++    red_scale != 1.0f || green_scale != 1.0f || blue_scale != 1.0f;
++}
++
++/* The shader ramp replaces the CTM: put the CTM back to identity so the two
++ * don't stack. */
++static void
++reset_ctm (MetaColorDevice *color_device)
++{
++  MetaMonitor *monitor = color_device->monitor;
++
++  if (!color_device->ctm_programmed ||
++      !meta_monitor_is_active (monitor) ||
++      !meta_monitor_is_ctm_supported (monitor))
++    return;
++
++  program_ctm (color_device, 1.0f, 1.0f, 1.0f);
++}
++
++static UpdateResult
++set_shader_gamma_lut (MetaColorDevice *color_device,
++                      MetaGammaLut    *lut)
++{
++  g_autoptr (MetaGammaLut) owned_lut = lut;
++
++  if (!lut && !color_device->shader_gamma_lut)
++    return 0;
++
++  if (lut && color_device->shader_gamma_lut &&
++      meta_gamma_lut_equal (lut, color_device->shader_gamma_lut))
++    return 0;
++
++  meta_topic (META_DEBUG_COLOR,
++              "%s shader gamma ramp (%zu entries) of device '%s' (%s)",
++              lut ? "Setting" : "Clearing",
++              lut ? lut->size : 0,
++              meta_color_device_get_id (color_device),
++              meta_monitor_get_connector (color_device->monitor));
++
++  g_clear_pointer (&color_device->shader_gamma_lut, meta_gamma_lut_free);
++  color_device->shader_gamma_lut = g_steal_pointer (&owned_lut);
++
++  return UPDATE_RESULT_SHADER_GAMMA;
++}
++
++/* Whether every channel is a straight line through the origin, i.e. the
++ * ramp is a per channel scale a diagonal CTM reproduces. 8 units of 65535
++ * (1/32 of an 8 bit step) leave room for clients that round differently. */
++#define LINEAR_RAMP_TOLERANCE 8.0
++
++static gboolean
++is_channel_linear (const uint16_t *ramp,
++                   size_t          size)
++{
++  double end = ramp[size - 1];
++  size_t i;
++
++  for (i = 0; i < size; i++)
++    {
++      double expected = end * (double) i / (double) (size - 1);
++
++      if (fabs ((double) ramp[i] - expected) > LINEAR_RAMP_TOLERANCE)
++        return FALSE;
++    }
++
++  return TRUE;
++}
++
++static gboolean
++is_ramp_linear (const MetaGammaLut *lut)
++{
++  return (lut->size >= 2 &&
++          is_channel_linear (lut->red, lut->size) &&
++          is_channel_linear (lut->green, lut->size) &&
++          is_channel_linear (lut->blue, lut->size));
++}
++
++static gboolean
++is_ramp_identity (const MetaGammaLut *lut)
++{
++  return (is_ramp_linear (lut) &&
++          lut->red[lut->size - 1] >= UINT16_MAX - 1 &&
++          lut->green[lut->size - 1] >= UINT16_MAX - 1 &&
++          lut->blue[lut->size - 1] >= UINT16_MAX - 1);
++}
++
++static gboolean
++profile_has_vcgt (MetaColorProfile *color_profile)
++{
++  const MetaColorCalibration *calibration;
++
++  if (!color_profile)
++    return FALSE;
++
++  calibration = meta_color_profile_get_calibration (color_profile);
++  return calibration && calibration->has_vcgt;
++}
++
+ static UpdateResult
+ update_white_point (MetaColorDevice *color_device)
+ {
+@@ -1514,6 +1648,7 @@ update_white_point (MetaColorDevice *color_device)
+   unsigned int temperature;
+   gboolean is_identity;
+   gboolean applied = FALSE;
++  UpdateResult result = 0;
+ 
+   if (!meta_color_device_is_ready (color_device))
+     return 0;
+@@ -1535,7 +1670,7 @@ update_white_point (MetaColorDevice *color_device)
+   is_identity = !color_profile &&
+     temperature == meta_color_manager_get_default_temperature (color_manager);
+   if (is_identity && !color_device->has_white_point)
+-    return 0;
++    return set_shader_gamma_lut (color_device, NULL);
+ 
+   color_device->has_white_point = !is_identity;
+ 
+@@ -1576,12 +1711,13 @@ update_white_point (MetaColorDevice *color_device)
+                                                    lut_size);
+ 
+       meta_monitor_set_gamma_lut (monitor, lut);
++      result |= set_shader_gamma_lut (color_device, NULL);
+       applied = TRUE;
+     }
+-  else if (meta_monitor_is_ctm_supported (monitor))
++  else if (meta_monitor_is_ctm_supported (monitor) &&
++           !profile_has_vcgt (color_profile))
+     {
+       float red_scale, green_scale, blue_scale;
+-      g_autoptr (MetaCtm) ctm = NULL;
+ 
+       /* Only reached when GAMMA_LUT is unavailable: a diagonal matrix built
+        * from the same blackbody RGB scales the uncalibrated gamma path uses.
+@@ -1598,12 +1734,41 @@ update_white_point (MetaColorDevice *color_device)
+                   red_scale, green_scale, blue_scale,
+                   temperature);
+ 
+-      ctm = meta_ctm_new_from_rgb_scales (red_scale, green_scale, blue_scale);
+-      meta_monitor_set_ctm (monitor, ctm);
++      program_ctm (color_device, red_scale, green_scale, blue_scale);
++      result |= set_shader_gamma_lut (color_device, NULL);
++      applied = TRUE;
++    }
++  else
++    {
++      g_autoptr (MetaGammaLut) lut = NULL;
++
++      /* No GAMMA_LUT, and either a VCGT calibration curve the CTM cannot
++       * represent, or no CTM at all: apply the same ramp a gamma LUT would
++       * get in the compositor's final blit. An identity ramp (no
++       * calibration, default temperature) costs nothing: no blit. */
++      lut = meta_color_profile_generate_gamma_lut (color_profile,
++                                                   temperature,
++                                                   META_COLOR_DEVICE_SHADER_GAMMA_SIZE);
++      if (is_ramp_identity (lut))
++        g_clear_pointer (&lut, meta_gamma_lut_free);
++
++      meta_topic (META_DEBUG_COLOR,
++                  "Using the shader gamma ramp on '%s' (no GAMMA_LUT, %s) "
++                  "for %uK: %s",
++                  meta_color_device_get_id (color_device),
++                  profile_has_vcgt (color_profile) ? "VCGT" : "no CTM",
++                  temperature,
++                  lut ? "applied" : "identity");
++
++      reset_ctm (color_device);
++      result |= set_shader_gamma_lut (color_device, g_steal_pointer (&lut));
+       applied = TRUE;
+     }
+ 
+-  return applied ? UPDATE_RESULT_CALIBRATION : 0;
++  if (applied)
++    result |= UPDATE_RESULT_CALIBRATION;
++
++  return result;
+ }
+ 
+ static gboolean
+@@ -1646,7 +1811,6 @@ apply_gamma_override (MetaColorDevice *color_device)
+ {
+   MetaMonitor *monitor = color_device->monitor;
+   const MetaGammaLut *lut = color_device->gamma_override;
+-  g_autoptr (MetaCtm) ctm = NULL;
+   float red_scale, green_scale, blue_scale;
+ 
+   if (meta_monitor_get_gamma_lut_size (monitor) > 0)
+@@ -1661,32 +1825,49 @@ apply_gamma_override (MetaColorDevice *color_device)
+       if (!set_monitor_gamma_lut (monitor, lut))
+         return 0;
+ 
+-      return UPDATE_RESULT_CALIBRATION;
++      return UPDATE_RESULT_CALIBRATION |
++             set_shader_gamma_lut (color_device, NULL);
+     }
+ 
+-  if (!meta_monitor_is_active (monitor) ||
+-      !meta_monitor_is_ctm_supported (monitor))
++  if (!meta_monitor_is_active (monitor))
+     return 0;
+ 
+-  /* Without a gamma LUT, program the white point of the ramp (the scale
+-   * each channel reaches at full input) as a diagonal CTM, like night
+-   * light does. Color temperature and brightness ramps are linear per
+-   * channel and come out exact; any curvature of the ramp is dropped. */
++  if (!meta_monitor_is_ctm_supported (monitor) || !is_ramp_linear (lut))
++    {
++      /* A curve, an offset, or no CTM: only the compositor's final blit
++       * can apply this ramp exactly. */
++      meta_topic (META_DEBUG_COLOR,
++                  "Applying client gamma ramp (%zu entries) to device "
++                  "'%s' (%s) in the compositor (no GAMMA_LUT, %s)",
++                  lut->size,
++                  meta_color_device_get_id (color_device),
++                  meta_monitor_get_connector (monitor),
++                  meta_monitor_is_ctm_supported (monitor) ? "nonlinear ramp"
++                                                          : "no CTM");
++
++      reset_ctm (color_device);
++      return UPDATE_RESULT_CALIBRATION |
++             set_shader_gamma_lut (color_device, meta_gamma_lut_copy (lut));
++    }
++
++  /* Without a gamma LUT, a ramp that is a straight line per channel (color
++   * temperature, brightness) is exactly a diagonal CTM, like night light
++   * uses; program the scale each channel reaches at full input. */
+   red_scale = get_ramp_scale (lut->red, lut->size);
+   green_scale = get_ramp_scale (lut->green, lut->size);
+   blue_scale = get_ramp_scale (lut->blue, lut->size);
+ 
+   meta_topic (META_DEBUG_COLOR,
+               "Applying client gamma ramp to device '%s' (%s) as CTM "
+-              "(no GAMMA_LUT); scales (%.4f, %.4f, %.4f)",
++              "(no GAMMA_LUT, linear ramp); scales (%.4f, %.4f, %.4f)",
+               meta_color_device_get_id (color_device),
+               meta_monitor_get_connector (monitor),
+               red_scale, green_scale, blue_scale);
+ 
+-  ctm = meta_ctm_new_from_rgb_scales (red_scale, green_scale, blue_scale);
+-  meta_monitor_set_ctm (monitor, ctm);
++  program_ctm (color_device, red_scale, green_scale, blue_scale);
+ 
+-  return UPDATE_RESULT_CALIBRATION;
++  return UPDATE_RESULT_CALIBRATION |
++         set_shader_gamma_lut (color_device, NULL);
+ }
+ 
+ static void
+@@ -1709,6 +1890,9 @@ do_update (MetaColorDevice *color_device)
+ 
+   if (result & UPDATE_RESULT_COLOR_STATE)
+     g_signal_emit (color_device, signals[COLOR_STATE_CHANGED], 0);
++
++  if (result & UPDATE_RESULT_SHADER_GAMMA)
++    g_signal_emit (color_device, signals[SHADER_GAMMA_CHANGED], 0);
+ }
+ 
+ void
+@@ -1852,6 +2036,8 @@ meta_color_device_set_gamma_override (MetaColorDevice    *color_device,
+         {
+           g_clear_pointer (&color_device->saved_gamma_lut,
+                            meta_gamma_lut_free);
++          if (set_shader_gamma_lut (color_device, NULL))
++            g_signal_emit (color_device, signals[SHADER_GAMMA_CHANGED], 0);
+           return;
+         }
+ 
+@@ -1871,13 +2057,8 @@ meta_color_device_set_gamma_override (MetaColorDevice    *color_device,
+         {
+           /* The CTM cannot be read back. Reset it, and have the device
+            * program its own white point over it if it has one. */
+-          g_autoptr (MetaCtm) ctm = NULL;
+-
+           if (!color_device->is_calibrating)
+-            {
+-              ctm = meta_ctm_new_from_rgb_scales (1.0f, 1.0f, 1.0f);
+-              meta_monitor_set_ctm (monitor, ctm);
+-            }
++            program_ctm (color_device, 1.0f, 1.0f, 1.0f);
+           color_device->has_white_point = TRUE;
+         }
+ 
+@@ -1904,8 +2085,9 @@ meta_color_device_has_gamma_override (MetaColorDevice *color_device)
+  * @color_device: A #MetaColorDevice
+  *
+  * Returns: The number of entries a gamma override ramp should have: the
+- *   CRTC gamma LUT size, %META_COLOR_DEVICE_CTM_GAMMA_SIZE if the ramp can
+- *   only be approximated with a CTM, or 0 if the monitor can do neither.
++ *   CRTC gamma LUT size, or %META_COLOR_DEVICE_SHADER_GAMMA_SIZE if the
++ *   CRTC has none (the ramp then goes to the CTM when it is linear, and to
++ *   the compositor's final blit otherwise), or 0 if the monitor is off.
+  */
+ size_t
+ meta_color_device_get_gamma_override_size (MetaColorDevice *color_device)
+@@ -1920,8 +2102,19 @@ meta_color_device_get_gamma_override_size (MetaColorDevice *color_device)
+   if (lut_size > 0)
+     return lut_size;
+ 
+-  if (meta_monitor_is_ctm_supported (monitor))
+-    return META_COLOR_DEVICE_CTM_GAMMA_SIZE;
++  return META_COLOR_DEVICE_SHADER_GAMMA_SIZE;
++}
+ 
+-  return 0;
++/**
++ * meta_color_device_get_shader_gamma_lut:
++ * @color_device: A #MetaColorDevice
++ *
++ * Returns: (nullable) (transfer none): The ramp the views of the device
++ *   must apply in their final blit, or %NULL if the CRTC gamma LUT or CTM
++ *   handles everything (or there is nothing to apply).
++ */
++const MetaGammaLut *
++meta_color_device_get_shader_gamma_lut (MetaColorDevice *color_device)
++{
++  return color_device->shader_gamma_lut;
+ }
+diff --git a/src/backends/meta-color-device.h b/src/backends/meta-color-device.h
+index 51df11f..63d9960 100644
+--- a/src/backends/meta-color-device.h
++++ b/src/backends/meta-color-device.h
+@@ -81,8 +81,10 @@ size_t meta_color_device_get_calibration_lut_size (MetaColorDevice *color_device
+ void meta_color_device_set_calibration_lut (MetaColorDevice    *color_device,
+                                             const MetaGammaLut *lut);
+ 
+-/* Ramp size offered for gamma overrides on monitors with only a CTM */
+-#define META_COLOR_DEVICE_CTM_GAMMA_SIZE 256
++/* Ramp size offered for gamma overrides on monitors without a gamma LUT;
++ * the ramp goes to the CTM or to the compositor's final blit. */
++#define META_COLOR_DEVICE_SHADER_GAMMA_SIZE 256
++#define META_COLOR_DEVICE_CTM_GAMMA_SIZE META_COLOR_DEVICE_SHADER_GAMMA_SIZE
+ 
+ size_t meta_color_device_get_gamma_override_size (MetaColorDevice *color_device);
+ 
+@@ -91,3 +93,6 @@ void meta_color_device_set_gamma_override (MetaColorDevice    *color_device,
+ 
+ META_EXPORT_TEST
+ gboolean meta_color_device_has_gamma_override (MetaColorDevice *color_device);
++
++META_EXPORT_TEST
++const MetaGammaLut * meta_color_device_get_shader_gamma_lut (MetaColorDevice *color_device);
+diff --git a/src/backends/meta-monitor-manager.c b/src/backends/meta-monitor-manager.c
+index 7495810..a5f4b90 100644
+--- a/src/backends/meta-monitor-manager.c
++++ b/src/backends/meta-monitor-manager.c
+@@ -1246,18 +1246,14 @@ update_night_light_supported (MetaMonitorManager *manager)
+   for (l = meta_backend_get_gpus (manager->backend); l; l = l->next)
+     {
+       MetaGpu *gpu = l->data;
+-      GList *l_crtc;
+ 
+-      for (l_crtc = meta_gpu_get_crtcs (gpu); l_crtc; l_crtc = l_crtc->next)
++      /* Every CRTC can do night light: through its gamma LUT, its CTM, or
++       * the compositor's final blit when it has neither (see
++       * MetaColorDevice). */
++      if (meta_gpu_get_crtcs (gpu))
+         {
+-          MetaCrtc *crtc = l_crtc->data;
+-
+-          if (meta_crtc_get_gamma_lut_size (crtc) > 0 ||
+-              meta_crtc_is_ctm_supported (crtc))
+-            {
+-              night_light_supported = TRUE;
+-              break;
+-            }
++          night_light_supported = TRUE;
++          break;
+         }
+     }
+ 
+diff --git a/src/backends/meta-renderer-view.c b/src/backends/meta-renderer-view.c
+index 113d8fb..5046d1f 100644
+--- a/src/backends/meta-renderer-view.c
++++ b/src/backends/meta-renderer-view.c
+@@ -32,8 +32,10 @@
+ 
+ #include "backends/meta-renderer-view.h"
+ 
++#include "backends/meta-backend-private.h"
+ #include "backends/meta-color-device.h"
+ #include "backends/meta-crtc.h"
++#include "backends/meta-gpu.h"
+ #include "backends/meta-renderer.h"
+ #include "clutter/clutter-mutter.h"
+ #include "core/boxes-private.h"
+@@ -57,6 +59,7 @@ typedef struct _MetaRendererViewPrivate
+   MetaBackend *backend;
+   MetaCrtc *crtc;
+   MetaColorDevice *color_device;
++  gboolean inhibits_hw_cursor;
+ } MetaRendererViewPrivate;
+ 
+ G_DEFINE_TYPE_WITH_PRIVATE (MetaRendererView, meta_renderer_view,
+@@ -119,6 +122,84 @@ on_color_state_changed (MetaColorDevice  *color_device,
+   set_color_states (view);
+ }
+ 
++static void
++set_hw_cursor_inhibited (MetaRendererView *view,
++                         gboolean          inhibit)
++{
++  MetaRendererViewPrivate *priv =
++    meta_renderer_view_get_instance_private (view);
++
++  if (priv->inhibits_hw_cursor == inhibit)
++    return;
++
++  priv->inhibits_hw_cursor = inhibit;
++  if (inhibit)
++    meta_backend_inhibit_hw_cursor (priv->backend);
++  else
++    meta_backend_uninhibit_hw_cursor (priv->backend);
++}
++
++static void
++set_shader_gamma (MetaRendererView *view)
++{
++  ClutterStageView *clutter_stage_view = CLUTTER_STAGE_VIEW (view);
++  MetaRendererViewPrivate *priv =
++    meta_renderer_view_get_instance_private (view);
++  const MetaGammaLut *lut;
++
++  lut = meta_color_device_get_shader_gamma_lut (priv->color_device);
++
++  meta_topic (META_DEBUG_RENDER, "Shader gamma ramp for view %s: %s",
++              clutter_stage_view_get_name (clutter_stage_view),
++              lut ? "set" : "none");
++
++  if (lut)
++    {
++      clutter_stage_view_set_gamma_lut (clutter_stage_view, lut->size,
++                                        lut->red, lut->green, lut->blue);
++    }
++  else
++    {
++      clutter_stage_view_set_gamma_lut (clutter_stage_view, 0,
++                                        NULL, NULL, NULL);
++    }
++
++  /* A cursor on a hardware plane would skip the ramp; a CRTC gamma LUT
++   * covers every plane, the final blit only covers what the stage paints. */
++  set_hw_cursor_inhibited (view, lut != NULL);
++}
++
++/* While monitors are rebuilt, the color devices update before the views
++ * are replaced, and the old views' CRTCs may already be gone. Only compare
++ * pointers, never dereference. */
++static gboolean
++is_crtc_current (MetaRendererView *view)
++{
++  MetaRendererViewPrivate *priv =
++    meta_renderer_view_get_instance_private (view);
++  GList *l;
++
++  for (l = meta_backend_get_gpus (priv->backend); l; l = l->next)
++    {
++      if (g_list_find (meta_gpu_get_crtcs (l->data), priv->crtc))
++        return TRUE;
++    }
++
++  return FALSE;
++}
++
++static void
++on_shader_gamma_changed (MetaColorDevice  *color_device,
++                         MetaRendererView *view)
++{
++  /* A stale view is about to be replaced; the new one picks the ramp up
++   * when it is constructed. */
++  if (!is_crtc_current (view))
++    return;
++
++  set_shader_gamma (view);
++}
++
+ static void
+ meta_renderer_view_get_property (GObject    *object,
+                                  guint       prop_id,
+@@ -193,6 +274,16 @@ meta_renderer_view_constructed (GObject *object)
+     }
+ 
+   G_OBJECT_CLASS (meta_renderer_view_parent_class)->constructed (object);
++
++  if (priv->color_device != NULL)
++    {
++      set_shader_gamma (view);
++
++      g_signal_connect_object (priv->color_device, "shader-gamma-changed",
++                               G_CALLBACK (on_shader_gamma_changed),
++                               view,
++                               G_CONNECT_DEFAULT);
++    }
+ }
+ 
+ static void
+@@ -202,6 +293,7 @@ meta_renderer_view_dispose (GObject *object)
+   MetaRendererViewPrivate *priv =
+     meta_renderer_view_get_instance_private (view);
+ 
++  set_hw_cursor_inhibited (view, FALSE);
+   g_clear_object (&priv->color_device);
+ 
+   G_OBJECT_CLASS (meta_renderer_view_parent_class)->dispose (object);
+diff --git a/src/compositor/meta-compositor-view-native.c b/src/compositor/meta-compositor-view-native.c
+index 340fcdd..2505159 100644
+--- a/src/compositor/meta-compositor-view-native.c
++++ b/src/compositor/meta-compositor-view-native.c
+@@ -331,6 +331,13 @@ find_scanout_candidate (MetaCompositorView  *compositor_view,
+       return FALSE;
+     }
+ 
++  if (clutter_stage_view_has_gamma_lut (stage_view))
++    {
++      meta_topic (META_DEBUG_RENDER,
++                  "No direct scanout candidate: stage-view applies a gamma ramp");
++      return FALSE;
++    }
++
+   if (!(meta_get_debug_paint_flags () &
+         META_DEBUG_PAINT_IGNORE_COLOR_STATE_FOR_DIRECT_SCANOUT))
+     {
