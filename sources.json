@@ -192,12 +192,12 @@
   },
   "mil-hwx-compiler": {
     "repository": "https://github.com/joshuaswarren/mil-hwx-compiler",
-    "commit": "927013f5480768b07c8e62a866e1514c41aba778",
-    "source_url": "https://codeload.github.com/joshuaswarren/mil-hwx-compiler/tar.gz/927013f5480768b07c8e62a866e1514c41aba778",
-    "archive_root": "mil-hwx-compiler-927013f5480768b07c8e62a866e1514c41aba778",
-    "sha256": "45eddcad03d68aaccb78d622711b91f144a88f9df952784e8c64c9bd1eb03790",
-    "version": "0.3.1",
-    "tag": "v0.3.1",
+    "commit": "b7008384be29e61404be510dbe8128bf3cd50903",
+    "source_url": "https://codeload.github.com/joshuaswarren/mil-hwx-compiler/tar.gz/b7008384be29e61404be510dbe8128bf3cd50903",
+    "archive_root": "mil-hwx-compiler-b7008384be29e61404be510dbe8128bf3cd50903",
+    "sha256": "50af5b67c68799e4b1d7d75dce354a5ecac7a96f22188cd3f0ad152fccb250fc",
+    "version": "0.3.3",
+    "tag": "v0.3.3",
     "extra_sources": {
       "libobjc2": {
         "repository": "https://github.com/gnustep/libobjc2",
