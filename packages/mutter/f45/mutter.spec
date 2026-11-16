@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       11%{?dist}.aurora
+Release:       12%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -47,6 +47,9 @@ Patch12:       0012-wayland-layer-shell-Wait-for-the-configure-ack-acros.patch
 Patch13:       0013-wayland-Support-xdg_popups-parented-to-layer-surface.patch
 Patch14:       0014-wayland-layer-shell-Destroy-the-layer-surface-resour.patch
 Patch15:       0015-wayland-layer-shell-Stack-layer-surfaces-with-the-sh.patch
+Patch21:       0021-wayland-Add-the-wlr-gamma-control-unstable-v1-protoc.patch
+Patch22:       0022-color-device-Allow-a-client-gamma-ramp-to-override-t.patch
+Patch23:       0023-wayland-Implement-wlr-gamma-control-unstable-v1.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -265,6 +268,14 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-12.aurora
+- Support wlr-gamma-control-unstable-v1 (zwlr_gamma_control_manager_v1,
+  version 1), so color temperature and night light tools that set the
+  output gamma ramp (gammastep, wlsunset, wl-gammarelay-rs, redshift's
+  Wayland backend) work. The client ramp replaces the night light ramp
+  while it is set and the output's own ramp comes back when the client
+  lets go
+
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-11.aurora
 - Update right away when a frame clock update misses the next
   presentation even with the minimum estimate. In a fixed refresh rate

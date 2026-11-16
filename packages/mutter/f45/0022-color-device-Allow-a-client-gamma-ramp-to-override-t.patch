@@ -1,0 +1,223 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 20:55:34 +1100
+Subject: [PATCH] color-device: Allow a client gamma ramp to override the white
+ point
+
+Add meta_color_device_set_gamma_override(). While an override is set,
+the device programs that ramp instead of the one generated from the
+assigned profile and the night light temperature, re-applies it on every
+update (night light changes, monitor reconfiguration, the end of a
+calibration session) and resamples it if the CRTC gamma size changes.
+Calibration still takes precedence while it runs.
+
+Clearing the override puts back the ramp the CRTC had before the first
+override, then lets the device apply its own white point again, so
+night light and profile changes made in the meantime take effect.
+
+This is what wlr-gamma-control needs to hand an output's gamma ramp to
+a client without fighting night light.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/backends/meta-color-device.c | 147 ++++++++++++++++++++++++++++++-
+ src/backends/meta-color-device.h |   6 ++
+ 2 files changed, 152 insertions(+), 1 deletion(-)
+
+diff --git a/src/backends/meta-color-device.c b/src/backends/meta-color-device.c
+index 4ded4bf..af9199a 100644
+--- a/src/backends/meta-color-device.c
++++ b/src/backends/meta-color-device.c
+@@ -88,6 +88,13 @@ struct _MetaColorDevice
+   float reference_luminance_factor;
+ 
+   gboolean is_calibrating;
++
++  /* Ramp set by a gamma control client (wlr-gamma-control). It replaces the
++   * white point ramp while set; saved_gamma_lut is what the CRTC had before
++   * it was first set. */
++  MetaGammaLut *gamma_override;
++  MetaGammaLut *saved_gamma_lut;
++  gboolean saved_has_white_point;
+ };
+ 
+ G_DEFINE_TYPE (MetaColorDevice, meta_color_device,
+@@ -326,6 +333,8 @@ meta_color_device_dispose (GObject *object)
+   g_clear_object (&color_device->cd_device);
+   g_clear_object (&color_device->monitor);
+   g_clear_object (&color_device->color_state);
++  g_clear_pointer (&color_device->gamma_override, meta_gamma_lut_free);
++  g_clear_pointer (&color_device->saved_gamma_lut, meta_gamma_lut_free);
+ 
+   G_OBJECT_CLASS (meta_color_device_parent_class)->dispose (object);
+ }
+@@ -1597,6 +1606,50 @@ update_white_point (MetaColorDevice *color_device)
+   return applied ? UPDATE_RESULT_CALIBRATION : 0;
+ }
+ 
++static gboolean
++set_monitor_gamma_lut (MetaMonitor        *monitor,
++                       const MetaGammaLut *lut)
++{
++  size_t lut_size;
++
++  if (!meta_monitor_is_active (monitor))
++    return FALSE;
++
++  lut_size = meta_monitor_get_gamma_lut_size (monitor);
++  if (lut_size == 0)
++    return FALSE;
++
++  if (lut->size == lut_size)
++    {
++      meta_monitor_set_gamma_lut (monitor, lut);
++    }
++  else
++    {
++      g_autoptr (MetaGammaLut) resized_lut = NULL;
++
++      resized_lut = meta_gamma_lut_copy_to_size (lut, lut_size);
++      meta_monitor_set_gamma_lut (monitor, resized_lut);
++    }
++
++  return TRUE;
++}
++
++static UpdateResult
++apply_gamma_override (MetaColorDevice *color_device)
++{
++  meta_topic (META_DEBUG_COLOR,
++              "Applying client gamma ramp (%zu entries) to device '%s' (%s)",
++              color_device->gamma_override->size,
++              meta_color_device_get_id (color_device),
++              meta_monitor_get_connector (color_device->monitor));
++
++  if (!set_monitor_gamma_lut (color_device->monitor,
++                              color_device->gamma_override))
++    return 0;
++
++  return UPDATE_RESULT_CALIBRATION;
++}
++
+ static void
+ do_update (MetaColorDevice *color_device)
+ {
+@@ -1606,7 +1659,10 @@ do_update (MetaColorDevice *color_device)
+   if (!meta_monitor_is_active (monitor))
+     return;
+ 
+-  result |= update_white_point (color_device);
++  if (color_device->gamma_override && !color_device->is_calibrating)
++    result |= apply_gamma_override (color_device);
++  else
++    result |= update_white_point (color_device);
+   result |= update_color_state (color_device);
+ 
+   if (result & UPDATE_RESULT_CALIBRATION)
+@@ -1676,3 +1732,92 @@ meta_color_device_set_calibration_lut (MetaColorDevice    *color_device,
+ {
+   meta_monitor_set_gamma_lut (color_device->monitor, lut);
+ }
++
++static MetaGammaLut *
++get_current_gamma_lut (MetaMonitor *monitor)
++{
++  MetaOutput *output;
++  MetaCrtc *crtc;
++
++  if (!meta_monitor_is_active (monitor))
++    return NULL;
++
++  output = meta_monitor_get_main_output (monitor);
++  crtc = meta_output_get_assigned_crtc (output);
++  if (!crtc || meta_crtc_get_gamma_lut_size (crtc) == 0)
++    return NULL;
++
++  return meta_crtc_get_gamma_lut (crtc);
++}
++
++/**
++ * meta_color_device_set_gamma_override:
++ * @color_device: A #MetaColorDevice
++ * @lut: (nullable): The gamma ramp to program, or %NULL to stop overriding
++ *
++ * Program a gamma ramp chosen by a client in place of the ramp derived from
++ * the assigned profile and the night light temperature. While set, the ramp
++ * is re-applied whenever the device would otherwise update its white point,
++ * and resampled if the CRTC gamma size changes.
++ *
++ * Passing %NULL restores the gamma ramp the CRTC had before the first
++ * override, then lets the device apply its own white point again, so
++ * night light and calibration changes made in the meantime take effect.
++ */
++void
++meta_color_device_set_gamma_override (MetaColorDevice    *color_device,
++                                      const MetaGammaLut *lut)
++{
++  MetaMonitor *monitor = color_device->monitor;
++
++  if (lut)
++    {
++      if (!color_device->gamma_override)
++        {
++          g_clear_pointer (&color_device->saved_gamma_lut,
++                           meta_gamma_lut_free);
++          color_device->saved_gamma_lut = get_current_gamma_lut (monitor);
++          color_device->saved_has_white_point = color_device->has_white_point;
++        }
++
++      g_clear_pointer (&color_device->gamma_override, meta_gamma_lut_free);
++      color_device->gamma_override = meta_gamma_lut_copy (lut);
++
++      /* The white point must be reprogrammed once the override goes away. */
++      color_device->has_white_point = TRUE;
++    }
++  else
++    {
++      if (!color_device->gamma_override)
++        return;
++
++      g_clear_pointer (&color_device->gamma_override, meta_gamma_lut_free);
++      color_device->has_white_point = color_device->saved_has_white_point;
++
++      meta_topic (META_DEBUG_COLOR,
++                  "Restoring gamma of device '%s' (%s)",
++                  meta_color_device_get_id (color_device),
++                  meta_monitor_get_connector (monitor));
++
++      if (!color_device->is_calibrating &&
++          !color_device->has_white_point &&
++          color_device->saved_gamma_lut)
++        set_monitor_gamma_lut (monitor, color_device->saved_gamma_lut);
++
++      g_clear_pointer (&color_device->saved_gamma_lut, meta_gamma_lut_free);
++    }
++
++  if (color_device->is_calibrating)
++    return;
++
++  do_update (color_device);
++
++  if (!lut && !color_device->has_white_point)
++    g_signal_emit (color_device, signals[CALIBRATION_CHANGED], 0);
++}
++
++gboolean
++meta_color_device_has_gamma_override (MetaColorDevice *color_device)
++{
++  return color_device->gamma_override != NULL;
++}
+diff --git a/src/backends/meta-color-device.h b/src/backends/meta-color-device.h
+index 4288508..13c69de 100644
+--- a/src/backends/meta-color-device.h
++++ b/src/backends/meta-color-device.h
+@@ -80,3 +80,9 @@ size_t meta_color_device_get_calibration_lut_size (MetaColorDevice *color_device
+ 
+ void meta_color_device_set_calibration_lut (MetaColorDevice    *color_device,
+                                             const MetaGammaLut *lut);
++
++void meta_color_device_set_gamma_override (MetaColorDevice    *color_device,
++                                           const MetaGammaLut *lut);
++
++META_EXPORT_TEST
++gboolean meta_color_device_has_gamma_override (MetaColorDevice *color_device);
