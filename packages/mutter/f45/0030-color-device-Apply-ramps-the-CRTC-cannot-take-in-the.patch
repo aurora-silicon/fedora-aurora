@@ -26,15 +26,15 @@ a gamma LUT, and night light is reported as supported on every CRTC.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- src/backends/meta-color-device.c             | 251 ++++++++++++++++---
+ src/backends/meta-color-device.c             | 260 ++++++++++++++++---
  src/backends/meta-color-device.h             |   9 +-
  src/backends/meta-monitor-manager.c          |  16 +-
  src/backends/meta-renderer-view.c            |  92 +++++++
  src/compositor/meta-compositor-view-native.c |   7 +
- 5 files changed, 334 insertions(+), 41 deletions(-)
+ 5 files changed, 343 insertions(+), 41 deletions(-)
 
 diff --git a/src/backends/meta-color-device.c b/src/backends/meta-color-device.c
-index 91fd87d..1664ef4 100644
+index 91fd87d..2c4f39f 100644
 --- a/src/backends/meta-color-device.c
 +++ b/src/backends/meta-color-device.c
 @@ -20,6 +20,8 @@
@@ -261,8 +261,8 @@ index 91fd87d..1664ef4 100644
 -      meta_monitor_set_ctm (monitor, ctm);
 +      program_ctm (color_device, red_scale, green_scale, blue_scale);
 +      result |= set_shader_gamma_lut (color_device, NULL);
-+      applied = TRUE;
-+    }
+       applied = TRUE;
+     }
 +  else
 +    {
 +      g_autoptr (MetaGammaLut) lut = NULL;
@@ -287,13 +287,13 @@ index 91fd87d..1664ef4 100644
 +
 +      reset_ctm (color_device);
 +      result |= set_shader_gamma_lut (color_device, g_steal_pointer (&lut));
-       applied = TRUE;
-     }
- 
--  return applied ? UPDATE_RESULT_CALIBRATION : 0;
++      applied = TRUE;
++    }
++
 +  if (applied)
 +    result |= UPDATE_RESULT_CALIBRATION;
-+
+ 
+-  return applied ? UPDATE_RESULT_CALIBRATION : 0;
 +  return result;
  }
  
@@ -306,7 +306,7 @@ index 91fd87d..1664ef4 100644
    float red_scale, green_scale, blue_scale;
  
    if (meta_monitor_get_gamma_lut_size (monitor) > 0)
-@@ -1661,32 +1825,49 @@ apply_gamma_override (MetaColorDevice *color_device)
+@@ -1661,32 +1825,58 @@ apply_gamma_override (MetaColorDevice *color_device)
        if (!set_monitor_gamma_lut (monitor, lut))
          return 0;
  
@@ -324,6 +324,15 @@ index 91fd87d..1664ef4 100644
 -   * each channel reaches at full input) as a diagonal CTM, like night
 -   * light does. Color temperature and brightness ramps are linear per
 -   * channel and come out exact; any curvature of the ramp is dropped. */
++  if (is_ramp_identity (lut))
++    {
++      /* Nothing to apply (a client idling at its neutral setting): keep
++       * the default paint path, without a blit. */
++      reset_ctm (color_device);
++      return UPDATE_RESULT_CALIBRATION |
++             set_shader_gamma_lut (color_device, NULL);
++    }
++
 +  if (!meta_monitor_is_ctm_supported (monitor) || !is_ramp_linear (lut))
 +    {
 +      /* A curve, an offset, or no CTM: only the compositor's final blit
@@ -367,7 +376,7 @@ index 91fd87d..1664ef4 100644
  }
  
  static void
-@@ -1709,6 +1890,9 @@ do_update (MetaColorDevice *color_device)
+@@ -1709,6 +1899,9 @@ do_update (MetaColorDevice *color_device)
  
    if (result & UPDATE_RESULT_COLOR_STATE)
      g_signal_emit (color_device, signals[COLOR_STATE_CHANGED], 0);
@@ -377,7 +386,7 @@ index 91fd87d..1664ef4 100644
  }
  
  void
-@@ -1852,6 +2036,8 @@ meta_color_device_set_gamma_override (MetaColorDevice    *color_device,
+@@ -1852,6 +2045,8 @@ meta_color_device_set_gamma_override (MetaColorDevice    *color_device,
          {
            g_clear_pointer (&color_device->saved_gamma_lut,
                             meta_gamma_lut_free);
@@ -386,7 +395,7 @@ index 91fd87d..1664ef4 100644
            return;
          }
  
-@@ -1871,13 +2057,8 @@ meta_color_device_set_gamma_override (MetaColorDevice    *color_device,
+@@ -1871,13 +2066,8 @@ meta_color_device_set_gamma_override (MetaColorDevice    *color_device,
          {
            /* The CTM cannot be read back. Reset it, and have the device
             * program its own white point over it if it has one. */
@@ -401,7 +410,7 @@ index 91fd87d..1664ef4 100644
            color_device->has_white_point = TRUE;
          }
  
-@@ -1904,8 +2085,9 @@ meta_color_device_has_gamma_override (MetaColorDevice *color_device)
+@@ -1904,8 +2094,9 @@ meta_color_device_has_gamma_override (MetaColorDevice *color_device)
   * @color_device: A #MetaColorDevice
   *
   * Returns: The number of entries a gamma override ramp should have: the
@@ -413,7 +422,7 @@ index 91fd87d..1664ef4 100644
   */
  size_t
  meta_color_device_get_gamma_override_size (MetaColorDevice *color_device)
-@@ -1920,8 +2102,19 @@ meta_color_device_get_gamma_override_size (MetaColorDevice *color_device)
+@@ -1920,8 +2111,19 @@ meta_color_device_get_gamma_override_size (MetaColorDevice *color_device)
    if (lut_size > 0)
      return lut_size;
  
