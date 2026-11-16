@@ -20,12 +20,12 @@ a client without fighting night light.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- src/backends/meta-color-device.c | 147 ++++++++++++++++++++++++++++++-
+ src/backends/meta-color-device.c | 169 ++++++++++++++++++++++++++++++-
  src/backends/meta-color-device.h |   6 ++
- 2 files changed, 152 insertions(+), 1 deletion(-)
+ 2 files changed, 174 insertions(+), 1 deletion(-)
 
 diff --git a/src/backends/meta-color-device.c b/src/backends/meta-color-device.c
-index 4ded4bf..af9199a 100644
+index 4ded4bf..861a26e 100644
 --- a/src/backends/meta-color-device.c
 +++ b/src/backends/meta-color-device.c
 @@ -88,6 +88,13 @@ struct _MetaColorDevice
@@ -114,10 +114,22 @@ index 4ded4bf..af9199a 100644
    result |= update_color_state (color_device);
  
    if (result & UPDATE_RESULT_CALIBRATION)
-@@ -1676,3 +1732,92 @@ meta_color_device_set_calibration_lut (MetaColorDevice    *color_device,
+@@ -1676,3 +1732,114 @@ meta_color_device_set_calibration_lut (MetaColorDevice    *color_device,
  {
    meta_monitor_set_gamma_lut (color_device->monitor, lut);
  }
++
++static gboolean
++is_monitor_current (MetaColorDevice *color_device)
++{
++  MetaBackend *backend =
++    meta_color_manager_get_backend (color_device->color_manager);
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++
++  return !!g_list_find (meta_monitor_manager_get_monitors (monitor_manager),
++                        color_device->monitor);
++}
 +
 +static MetaGammaLut *
 +get_current_gamma_lut (MetaMonitor *monitor)
@@ -179,6 +191,16 @@ index 4ded4bf..af9199a 100644
 +
 +      g_clear_pointer (&color_device->gamma_override, meta_gamma_lut_free);
 +      color_device->has_white_point = color_device->saved_has_white_point;
++
++      /* An unplugged monitor no longer owns its CRTC, which may drive
++       * another monitor by now, and its outputs may be gone; leave it
++       * alone. */
++      if (!is_monitor_current (color_device))
++        {
++          g_clear_pointer (&color_device->saved_gamma_lut,
++                           meta_gamma_lut_free);
++          return;
++        }
 +
 +      meta_topic (META_DEBUG_COLOR,
 +                  "Restoring gamma of device '%s' (%s)",

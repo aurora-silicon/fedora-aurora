@@ -50,6 +50,7 @@ Patch15:       0015-wayland-layer-shell-Stack-layer-surfaces-with-the-sh.patch
 Patch21:       0021-wayland-Add-the-wlr-gamma-control-unstable-v1-protoc.patch
 Patch22:       0022-color-device-Allow-a-client-gamma-ramp-to-override-t.patch
 Patch23:       0023-wayland-Implement-wlr-gamma-control-unstable-v1.patch
+Patch24:       0024-tests-Add-wlr-gamma-control-tests.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
