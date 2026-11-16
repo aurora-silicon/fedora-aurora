@@ -67,6 +67,8 @@ Patch32:       0032-wayland-Add-the-tearing-control-v1-protocol.patch
 Patch33:       0033-wayland-Implement-tearing-control-v1.patch
 Patch34:       0034-clutter-frame-clock-Add-a-tearing-mode.patch
 Patch35:       0035-compositor-native-Decide-per-view-whether-to-tear.patch
+Patch36:       0036-kms-Support-asynchronous-page-flips.patch
+Patch37:       0037-onscreen-native-Flip-asynchronously-when-the-view-te.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils

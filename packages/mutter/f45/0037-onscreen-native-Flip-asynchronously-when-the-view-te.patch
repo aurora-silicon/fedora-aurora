@@ -1,0 +1,242 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 00:53:24 +1100
+Subject: [PATCH] onscreen/native: Flip asynchronously when the view tears
+
+The compositor view now passes its tearing decision to the onscreen
+(meta_onscreen_native_request_tearing()). Before each redraw the
+onscreen enables tearing when it was requested and the KMS device can
+flip asynchronously; it then puts the frame clock in tearing mode and
+asks for an asynchronous flip of the primary plane update, for directly
+scanned out frames only unless the policy is "always". Drivers without
+async page flip support keep vsync, and the frame clock stays paced.
+
+Frames that were flipped asynchronously are presented without the
+VSYNC flag, so presentation-time feedback tells clients they were not
+synchronized to the vertical blank.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/backends/native/meta-frame-native.c      | 15 ++++
+ src/backends/native/meta-frame-native.h      |  7 ++
+ src/backends/native/meta-onscreen-native.c   | 80 +++++++++++++++++++-
+ src/backends/native/meta-onscreen-native.h   |  4 +
+ src/compositor/meta-compositor-view-native.c | 10 ++-
+ 5 files changed, 114 insertions(+), 2 deletions(-)
+
+diff --git a/src/backends/native/meta-frame-native.c b/src/backends/native/meta-frame-native.c
+index 16f3947..5e44880 100644
+--- a/src/backends/native/meta-frame-native.c
++++ b/src/backends/native/meta-frame-native.c
+@@ -37,6 +37,8 @@ struct _MetaFrameNative
+   MtkRegion *damage;
+ 
+   GPollFD sync;
++
++  gboolean async_flip;
+ };
+ 
+ static void
+@@ -190,3 +192,16 @@ meta_frame_native_is_ready (MetaFrameNative *frame_native)
+ 
+   return !!(frame_native->sync.revents & G_IO_IN);
+ }
++
++void
++meta_frame_native_set_async_flip (MetaFrameNative *frame_native,
++                                  gboolean         async_flip)
++{
++  frame_native->async_flip = async_flip;
++}
++
++gboolean
++meta_frame_native_is_async_flip (MetaFrameNative *frame_native)
++{
++  return frame_native->async_flip;
++}
+diff --git a/src/backends/native/meta-frame-native.h b/src/backends/native/meta-frame-native.h
+index 6e18516..838f114 100644
+--- a/src/backends/native/meta-frame-native.h
++++ b/src/backends/native/meta-frame-native.h
+@@ -75,3 +75,10 @@ meta_frame_native_remove_source (MetaFrameNative *frame_native,
+ 
+ gboolean
+ meta_frame_native_is_ready (MetaFrameNative *frame_native);
++
++void
++meta_frame_native_set_async_flip (MetaFrameNative *frame_native,
++                                  gboolean         async_flip);
++
++gboolean
++meta_frame_native_is_async_flip (MetaFrameNative *frame_native);
+diff --git a/src/backends/native/meta-onscreen-native.c b/src/backends/native/meta-onscreen-native.c
+index b90a939..41d9ff2 100644
+--- a/src/backends/native/meta-onscreen-native.c
++++ b/src/backends/native/meta-onscreen-native.c
+@@ -159,6 +159,12 @@ struct _MetaOnscreenNative
+   gboolean vrr_allowed;
+   gboolean vrr_enabled;
+ 
++  struct {
++    gboolean requested;
++    gboolean allow_composited;
++    gboolean enabled;
++  } tearing;
++
+   MetaRendererView *view;
+ 
+   GSource *render_source;
+@@ -504,10 +510,15 @@ page_flip_feedback_flipped (MetaKmsCrtc  *kms_crtc,
+                             gpointer      user_data)
+ {
+   ClutterFrame *frame = user_data;
++  MetaFrameNative *frame_native = meta_frame_native_from_frame (frame);
+   struct timeval page_flip_time;
+   MetaKmsDevice *kms_device;
+   int64_t presentation_time_us;
+-  CoglFrameInfoFlag flags = COGL_FRAME_INFO_FLAG_VSYNC;
++  CoglFrameInfoFlag flags = COGL_FRAME_INFO_FLAG_NONE;
++
++  /* An asynchronous flip is not synchronized to the vertical blank. */
++  if (!meta_frame_native_is_async_flip (frame_native))
++    flags |= COGL_FRAME_INFO_FLAG_VSYNC;
+ 
+   page_flip_time = (struct timeval) {
+     .tv_sec = tv_sec,
+@@ -1598,6 +1609,9 @@ swap_buffer_result_feedback (const MetaKmsFeedback *kms_feedback,
+   error = meta_kms_feedback_get_error (kms_feedback);
+   if (!error)
+     {
++      meta_frame_native_set_async_flip (meta_frame_native_from_frame (frame),
++                                        meta_kms_feedback_is_async_flip (kms_feedback));
++
+       if (frame_info->kms_ready_time_us == 0)
+         {
+           frame_info->kms_ready_time_us =
+@@ -2134,6 +2148,17 @@ maybe_post_next_frame (CoglOnscreen *onscreen)
+                                                     frame->expected_presentation_time_us);
+     }
+ 
++  if (onscreen_native->tearing.enabled &&
++      (is_direct_scanout || onscreen_native->tearing.allow_composited))
++    {
++      meta_topic (META_DEBUG_KMS,
++                  "Requesting async page flip of %s frame for CRTC %u (%s)",
++                  is_direct_scanout ? "direct scanout" : "composited",
++                  meta_kms_crtc_get_id (kms_crtc),
++                  meta_kms_device_get_path (kms_device));
++      meta_kms_update_set_async_flip (kms_update, TRUE);
++    }
++
+   meta_kms_device_post_update (kms_device, kms_update,
+                                META_KMS_UPDATE_FLAG_NONE);
+ 
+@@ -2212,6 +2237,9 @@ scanout_result_feedback (const MetaKmsFeedback *kms_feedback,
+   error = meta_kms_feedback_get_error (kms_feedback);
+   if (!error)
+     {
++      meta_frame_native_set_async_flip (meta_frame_native_from_frame (frame),
++                                        meta_kms_feedback_is_async_flip (kms_feedback));
++
+       if (frame_info->kms_ready_time_us == 0)
+         {
+           frame_info->kms_ready_time_us =
+@@ -2429,6 +2457,55 @@ maybe_update_vrr (MetaOnscreenNative *onscreen_native,
+     }
+ }
+ 
++void
++meta_onscreen_native_request_tearing (MetaOnscreenNative *onscreen_native,
++                                      gboolean            requested,
++                                      gboolean            allow_composited)
++{
++  onscreen_native->tearing.requested = requested;
++  onscreen_native->tearing.allow_composited = allow_composited;
++}
++
++static void
++maybe_update_tearing (MetaOnscreenNative *onscreen_native)
++{
++  MetaCrtcKms *crtc_kms = META_CRTC_KMS (onscreen_native->crtc);
++  MetaKmsCrtc *kms_crtc = meta_crtc_kms_get_kms_crtc (crtc_kms);
++  MetaKmsDevice *kms_device = meta_kms_crtc_get_device (kms_crtc);
++  ClutterStageView *stage_view = CLUTTER_STAGE_VIEW (onscreen_native->view);
++  ClutterFrameClock *frame_clock =
++    clutter_stage_view_get_frame_clock (stage_view);
++  gboolean enabled = FALSE;
++
++  if (onscreen_native->tearing.requested)
++    {
++      if (meta_kms_device_supports_async_page_flip (kms_device))
++        {
++          enabled = TRUE;
++        }
++      else if (!onscreen_native->tearing.enabled)
++        {
++          meta_topic (META_DEBUG_KMS,
++                      "Not tearing on CRTC %u (%s): the driver (%s) does not "
++                      "support async page flips, keeping vsync",
++                      meta_kms_crtc_get_id (kms_crtc),
++                      meta_kms_device_get_path (kms_device),
++                      meta_kms_device_get_driver_name (kms_device));
++        }
++    }
++
++  if (enabled == onscreen_native->tearing.enabled)
++    return;
++
++  meta_topic (META_DEBUG_KMS, "Tearing %s on CRTC %u (%s)",
++              enabled ? "enabled" : "disabled",
++              meta_kms_crtc_get_id (kms_crtc),
++              meta_kms_device_get_path (kms_device));
++
++  onscreen_native->tearing.enabled = enabled;
++  clutter_frame_clock_set_tearing (frame_clock, enabled);
++}
++
+ void
+ meta_onscreen_native_before_redraw (CoglOnscreen *onscreen,
+                                     ClutterFrame *frame)
+@@ -2444,6 +2521,7 @@ meta_onscreen_native_before_redraw (CoglOnscreen *onscreen,
+     }
+ 
+   maybe_update_vrr (onscreen_native, frame);
++  maybe_update_tearing (onscreen_native);
+ }
+ 
+ void
+diff --git a/src/backends/native/meta-onscreen-native.h b/src/backends/native/meta-onscreen-native.h
+index 5a191d3..45b9aa5 100644
+--- a/src/backends/native/meta-onscreen-native.h
++++ b/src/backends/native/meta-onscreen-native.h
+@@ -68,5 +68,9 @@ void meta_onscreen_native_invalidate (MetaOnscreenNative *onscreen_native);
+ 
+ void meta_onscreen_native_detach (MetaOnscreenNative *onscreen_native);
+ 
++void meta_onscreen_native_request_tearing (MetaOnscreenNative *onscreen_native,
++                                           gboolean            requested,
++                                           gboolean            allow_composited);
++
+ void meta_onscreen_native_allow_vrr (MetaOnscreenNative *onscreen_native,
+                                      gboolean            allowed);
+diff --git a/src/compositor/meta-compositor-view-native.c b/src/compositor/meta-compositor-view-native.c
+index 7907b64..90ec1ca 100644
+--- a/src/compositor/meta-compositor-view-native.c
++++ b/src/compositor/meta-compositor-view-native.c
+@@ -600,7 +600,15 @@ meta_compositor_view_native_maybe_update_tearing (MetaCompositorViewNative *view
+ 
+   framebuffer = clutter_stage_view_get_onscreen (stage_view);
+   if (META_IS_ONSCREEN_NATIVE (framebuffer))
+-    return;
++    {
++      /* With fullscreen-only, only directly scanned out frames are flipped
++       * asynchronously; composited frames keep vsync.
++       */
++      meta_onscreen_native_request_tearing (META_ONSCREEN_NATIVE (framebuffer),
++                                            tearing,
++                                            policy == META_TEARING_POLICY_ALWAYS);
++      return;
++    }
+ 
+   /* Views without a KMS CRTC (virtual monitors) have no page flip to tear,
+    * so tearing only stops their frame clock from pacing to the refresh
