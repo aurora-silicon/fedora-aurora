@@ -24,15 +24,19 @@ Requests map onto window operations: activate -> meta_window_activate(),
 close -> meta_window_delete(), set/unset_maximized,
 set/unset_minimized, set/unset_fullscreen (moving the window to the
 requested output first) and set_rectangle -> the window's icon geometry.
+What a request changes is sent right away, in the same dispatch, and
+pending changes are flushed before the finished event of a stopped
+manager, so a client that sends a request and stops the manager (as
+wlrctl does) gets the result before finished.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  src/meson.build                             |    2 +
- src/wayland/meta-wayland-foreign-toplevel.c | 1186 +++++++++++++++++++
+ src/wayland/meta-wayland-foreign-toplevel.c | 1222 +++++++++++++++++++
  src/wayland/meta-wayland-foreign-toplevel.h |   22 +
  src/wayland/meta-wayland-surface.c          |    2 +
  src/wayland/meta-wayland-versions.h         |    1 +
- 5 files changed, 1213 insertions(+)
+ 5 files changed, 1249 insertions(+)
  create mode 100644 src/wayland/meta-wayland-foreign-toplevel.c
  create mode 100644 src/wayland/meta-wayland-foreign-toplevel.h
 
@@ -51,10 +55,10 @@ index 7c4e125..3ea4f79 100644
    'wayland/meta-wayland.h',
 diff --git a/src/wayland/meta-wayland-foreign-toplevel.c b/src/wayland/meta-wayland-foreign-toplevel.c
 new file mode 100644
-index 0000000..3faca5f
+index 0000000..ce9bc67
 --- /dev/null
 +++ b/src/wayland/meta-wayland-foreign-toplevel.c
-@@ -0,0 +1,1186 @@
+@@ -0,0 +1,1222 @@
 +/*
 + * Copyright (C) 2026 Aurora Silicon
 + *
@@ -178,6 +182,8 @@ index 0000000..3faca5f
 +
 +static void schedule_flush (MetaWaylandForeignToplevelManager *manager);
 +
++static void flush_dirty (MetaWaylandForeignToplevelManager *manager);
++
 +static MetaWindow *
 +window_from_handle_resource (struct wl_resource *resource)
 +{
@@ -187,6 +193,18 @@ index 0000000..3faca5f
 +    return NULL;
 +
 +  return handle->toplevel->window;
++}
++
++/* Send what a request changed right away, in the same dispatch, as
++ * wlroots does; clients like wlrctl stop the manager right after their
++ * request and don't expect handle events after the finished event. */
++static void
++flush_after_request (struct wl_resource *resource)
++{
++  MetaForeignToplevelHandle *handle = wl_resource_get_user_data (resource);
++
++  if (handle && handle->toplevel)
++    flush_dirty (handle->toplevel->manager);
 +}
 +
 +static uint32_t
@@ -205,6 +223,7 @@ index 0000000..3faca5f
 +    return;
 +
 +  meta_window_maximize (window);
++  flush_after_request (resource);
 +}
 +
 +static void
@@ -217,6 +236,7 @@ index 0000000..3faca5f
 +    return;
 +
 +  meta_window_unmaximize (window);
++  flush_after_request (resource);
 +}
 +
 +static void
@@ -229,6 +249,7 @@ index 0000000..3faca5f
 +    return;
 +
 +  meta_window_minimize (window);
++  flush_after_request (resource);
 +}
 +
 +static void
@@ -241,6 +262,7 @@ index 0000000..3faca5f
 +    return;
 +
 +  meta_window_unminimize (window);
++  flush_after_request (resource);
 +}
 +
 +static void
@@ -254,6 +276,7 @@ index 0000000..3faca5f
 +    return;
 +
 +  meta_window_activate (window, get_timestamp (window));
++  flush_after_request (resource);
 +}
 +
 +static void
@@ -266,6 +289,7 @@ index 0000000..3faca5f
 +    return;
 +
 +  meta_window_delete (window, get_timestamp (window));
++  flush_after_request (resource);
 +}
 +
 +static void
@@ -352,6 +376,7 @@ index 0000000..3faca5f
 +    }
 +
 +  meta_window_make_fullscreen (window);
++  flush_after_request (resource);
 +}
 +
 +static void
@@ -364,6 +389,7 @@ index 0000000..3faca5f
 +    return;
 +
 +  meta_window_unmake_fullscreen (window);
++  flush_after_request (resource);
 +}
 +
 +static const struct zwlr_foreign_toplevel_handle_v1_interface handle_interface = {
@@ -893,13 +919,12 @@ index 0000000..3faca5f
 +    }
 +}
 +
-+static gboolean
-+flush_idle (gpointer user_data)
++static void
++flush_dirty (MetaWaylandForeignToplevelManager *manager)
 +{
-+  MetaWaylandForeignToplevelManager *manager = user_data;
 +  GList *l;
 +
-+  manager->flush_idle_id = 0;
++  g_clear_handle_id (&manager->flush_idle_id, g_source_remove);
 +
 +  for (l = manager->toplevel_list; l; l = l->next)
 +    {
@@ -908,6 +933,15 @@ index 0000000..3faca5f
 +      if (toplevel->advertised && toplevel->dirty)
 +        flush_toplevel (toplevel);
 +    }
++}
++
++static gboolean
++flush_idle (gpointer user_data)
++{
++  MetaWaylandForeignToplevelManager *manager = user_data;
++
++  manager->flush_idle_id = 0;
++  flush_dirty (manager);
 +
 +  return G_SOURCE_REMOVE;
 +}
@@ -1105,6 +1139,12 @@ index 0000000..3faca5f
 +manager_handle_stop (struct wl_client   *client,
 +                     struct wl_resource *resource)
 +{
++  MetaWaylandForeignToplevelManager *manager =
++    wl_resource_get_user_data (resource);
++
++  /* Changes made by the client's earlier requests go out before finished. */
++  flush_dirty (manager);
++
 +  zwlr_foreign_toplevel_manager_v1_send_finished (resource);
 +  wl_resource_destroy (resource);
 +}
