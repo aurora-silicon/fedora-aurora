@@ -1,0 +1,2059 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 00:38:44 +1100
+Subject: [PATCH] wayland: Implement wlr-output-management-unstable-v1
+
+Add zwlr_output_manager_v1 (version 4), so output configuration tools
+such as wlr-randr, kanshi, way-displays and wdisplays can list the
+monitors and change their mode, position, transform, scale, adaptive
+sync state and whether they are enabled.
+
+Every monitor that is not reserved for leasing is advertised as a head
+with its connector name, display name, make, model, serial, physical
+size and modes. The fixed and variable refresh rate variants of a mode
+are one zwlr_output_mode_v1; the variable one is selected through the
+head's adaptive sync state. When the monitor configuration changes, only
+the properties that changed are sent, followed by done with a new
+serial; unplugged monitors and vanished modes get 'finished'.
+
+A configuration is turned into one complete MetaMonitorsConfig covering
+every monitor, checked like a configuration coming in over
+org.gnome.Mutter.DisplayConfig (meta_verify_monitors_config() and
+meta_monitor_manager_is_config_applicable(), now exported) and applied
+in one meta_monitor_manager_apply_monitors_config() call, so changes to
+several heads are atomic. 'test' uses the VERIFY method, which assigns
+CRTCs without applying anything; 'apply' uses TEMPORARY, so the change is
+not stored in monitors.xml, as on wlroots compositors. Properties a
+client does not set keep their current values; a newly enabled head gets
+its preferred mode and default scale and goes to the right of the other
+heads. Heads covering the same area become one mirrored logical monitor.
+The layout is moved to start at 0,0, as Mutter requires. Configurations
+with gaps or overlaps, modes the monitor does not have (custom modes are
+accepted when they match one of its modes), scales the backend does not
+support (a scale within 1/8 of a supported one is rounded to it) or no
+enabled head get 'failed'; configurations made against an outdated
+serial get 'cancelled'. The monitors.xml policy that disables D-Bus
+configuration disables this protocol too.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/backends/meta-monitor-manager-private.h  |    4 +
+ src/backends/meta-monitor-manager.c          |    2 +-
+ src/meson.build                              |    2 +
+ src/wayland/meta-wayland-output-management.c | 1904 ++++++++++++++++++
+ src/wayland/meta-wayland-output-management.h |   22 +
+ src/wayland/meta-wayland-versions.h          |    1 +
+ src/wayland/meta-wayland.c                   |    2 +
+ 7 files changed, 1936 insertions(+), 1 deletion(-)
+ create mode 100644 src/wayland/meta-wayland-output-management.c
+ create mode 100644 src/wayland/meta-wayland-output-management.h
+
+diff --git a/src/backends/meta-monitor-manager-private.h b/src/backends/meta-monitor-manager-private.h
+index cfce38d..d160a87 100644
+--- a/src/backends/meta-monitor-manager-private.h
++++ b/src/backends/meta-monitor-manager-private.h
+@@ -337,6 +337,10 @@ void               meta_monitor_manager_lid_is_closed_changed (MetaMonitorManage
+ META_EXPORT_TEST
+ gboolean           meta_monitor_manager_is_headless (MetaMonitorManager *manager);
+ 
++gboolean           meta_monitor_manager_is_config_applicable (MetaMonitorManager  *manager,
++                                                              MetaMonitorsConfig  *config,
++                                                              GError             **error);
++
+ float              meta_monitor_manager_calculate_monitor_mode_scale (MetaMonitorManager           *manager,
+                                                                       MetaLogicalMonitorLayoutMode  layout_mode,
+                                                                       MetaMonitor                  *monitor,
+diff --git a/src/backends/meta-monitor-manager.c b/src/backends/meta-monitor-manager.c
+index a5f4b90..6bc0426 100644
+--- a/src/backends/meta-monitor-manager.c
++++ b/src/backends/meta-monitor-manager.c
+@@ -2484,7 +2484,7 @@ meta_monitor_manager_is_scale_supported_for_config (MetaMonitorManager *manager,
+   return FALSE;
+ }
+ 
+-static gboolean
++gboolean
+ meta_monitor_manager_is_config_applicable (MetaMonitorManager *manager,
+                                            MetaMonitorsConfig *config,
+                                            GError            **error)
+diff --git a/src/meson.build b/src/meson.build
+index d6a03ce..78a6758 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -562,6 +562,8 @@ mutter_sources += [
+   'wayland/meta-wayland-legacy-xdg-foreign.h',
+   'wayland/meta-wayland-linux-drm-syncobj.c',
+   'wayland/meta-wayland-linux-drm-syncobj.h',
++  'wayland/meta-wayland-output-management.c',
++  'wayland/meta-wayland-output-management.h',
+   'wayland/meta-wayland-outputs.c',
+   'wayland/meta-wayland-outputs.h',
+   'wayland/meta-wayland-pointer.c',
+diff --git a/src/wayland/meta-wayland-output-management.c b/src/wayland/meta-wayland-output-management.c
+new file mode 100644
+index 0000000..69f3299
+--- /dev/null
++++ b/src/wayland/meta-wayland-output-management.c
+@@ -0,0 +1,1904 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++/*
++ * wlr-output-management-unstable-v1: lets output configuration tools
++ * (wlr-randr, kanshi, way-displays, wdisplays, ...) list the monitors and
++ * change their mode, position, transform, scale, adaptive sync state and
++ * whether they are enabled.
++ *
++ * Every MetaMonitor that is not reserved for leasing is a head. The modes of
++ * a head are the monitor's modes, with the fixed and variable refresh rate
++ * variants of a mode folded into one zwlr_output_mode_v1; the variable one
++ * is selected through the head's adaptive sync state.
++ *
++ * A configuration is turned into one complete MetaMonitorsConfig covering
++ * every monitor, verified the same way as a configuration coming in over
++ * org.gnome.Mutter.DisplayConfig, and applied in one go through
++ * meta_monitor_manager_apply_monitors_config(), so changes to several heads
++ * are atomic. 'test' uses META_MONITORS_CONFIG_METHOD_VERIFY, which runs the
++ * CRTC assignment without applying it; 'apply' uses
++ * META_MONITORS_CONFIG_METHOD_TEMPORARY, so like a wlroots compositor the
++ * change is not stored in monitors.xml (kanshi reapplies its profiles
++ * itself). Enabled heads with the same position, size, transform and scale
++ * become one mirrored logical monitor. The layout is moved so it starts at
++ * 0,0, as Mutter requires; gaps and overlaps are refused, as are modes the
++ * monitor does not have and scales the backend does not support (a scale
++ * within 1/8 of a supported one is rounded to it).
++ */
++
++#include "config.h"
++
++#include "wayland/meta-wayland-output-management.h"
++
++#include <float.h>
++#include <limits.h>
++#include <math.h>
++
++#include "backends/meta-backend-private.h"
++#include "backends/meta-logical-monitor-private.h"
++#include "backends/meta-monitor-config-manager.h"
++#include "backends/meta-monitor-config-store.h"
++#include "backends/meta-monitor-manager-private.h"
++#include "backends/meta-monitor-private.h"
++#include "wayland/meta-wayland-private.h"
++#include "wayland/meta-wayland-versions.h"
++
++#include "wlr-output-management-unstable-v1-server-protocol.h"
++
++/* Requested scales this close to a supported scale are rounded to it. */
++#define SCALE_SNAP_DISTANCE 0.125f
++#define REFRESH_RATE_EPSILON 0.001f
++
++typedef struct _MetaWaylandOutputManagement MetaWaylandOutputManagement;
++typedef struct _OutputHead OutputHead;
++
++typedef struct _OutputMode
++{
++  OutputHead *head;
++
++  /* The fixed refresh rate variant if there is one. */
++  MetaMonitorModeSpec spec;
++  gboolean has_fixed;
++  gboolean has_variable;
++  gboolean preferred;
++
++  GList *mode_bindings;
++} OutputMode;
++
++struct _OutputHead
++{
++  MetaWaylandOutputManagement *output_management;
++
++  MetaMonitorSpec *monitor_spec;
++  MetaMonitor *monitor;
++
++  GList *modes;
++  GList *head_bindings;
++
++  /* Last advertised state */
++  gboolean enabled;
++  OutputMode *current_mode;
++  int x, y;
++  MtkMonitorTransform transform;
++  wl_fixed_t scale;
++  gboolean adaptive_sync;
++};
++
++typedef struct _HeadBinding
++{
++  struct wl_resource *resource;
++  OutputHead *head;
++  GList *mode_bindings;
++} HeadBinding;
++
++typedef struct _ModeBinding
++{
++  struct wl_resource *resource;
++  OutputMode *mode;
++  HeadBinding *head_binding;
++} ModeBinding;
++
++typedef struct _OutputConfiguration
++{
++  MetaWaylandOutputManagement *output_management;
++  struct wl_resource *resource;
++  uint32_t serial;
++  gboolean used;
++  gboolean stale;
++  GList *config_heads;
++} OutputConfiguration;
++
++typedef struct _ConfigHead
++{
++  OutputConfiguration *config;
++  struct wl_resource *resource;
++  OutputHead *head;
++  gboolean enabled;
++
++  OutputMode *mode;
++  gboolean has_custom_mode;
++  int custom_width;
++  int custom_height;
++  int custom_refresh;
++
++  gboolean has_position;
++  int x, y;
++
++  gboolean has_transform;
++  MtkMonitorTransform transform;
++
++  gboolean has_scale;
++  float scale;
++
++  gboolean has_adaptive_sync;
++  gboolean adaptive_sync;
++} ConfigHead;
++
++struct _MetaWaylandOutputManagement
++{
++  MetaWaylandCompositor *compositor;
++  MetaMonitorManager *monitor_manager;
++
++  GList *manager_resources;
++  GList *heads;
++  GList *configurations;
++  uint32_t serial;
++
++  gboolean applying;
++  gboolean update_pending;
++
++  gulong monitors_changed_handler_id;
++};
++
++static void update_heads (MetaWaylandOutputManagement *output_management);
++
++static gboolean
++mode_specs_match (const MetaMonitorModeSpec *spec,
++                  const MetaMonitorModeSpec *other_spec)
++{
++  return (spec->width == other_spec->width &&
++          spec->height == other_spec->height &&
++          spec->flags == other_spec->flags &&
++          fabsf (spec->refresh_rate - other_spec->refresh_rate) <
++          REFRESH_RATE_EPSILON);
++}
++
++static OutputMode *
++find_mode (GList                     *modes,
++           const MetaMonitorModeSpec *spec)
++{
++  GList *l;
++
++  for (l = modes; l; l = l->next)
++    {
++      OutputMode *mode = l->data;
++
++      if (mode_specs_match (&mode->spec, spec))
++        return mode;
++    }
++
++  return NULL;
++}
++
++static GList *
++collect_modes (OutputHead  *head,
++               MetaMonitor *monitor)
++{
++  MetaMonitorMode *preferred_mode = meta_monitor_get_preferred_mode (monitor);
++  GList *modes = NULL;
++  GList *l;
++
++  for (l = meta_monitor_get_modes (monitor); l; l = l->next)
++    {
++      MetaMonitorMode *monitor_mode = l->data;
++      const MetaMonitorModeSpec *spec = meta_monitor_mode_get_spec (monitor_mode);
++      gboolean is_variable =
++        spec->refresh_rate_mode == META_CRTC_REFRESH_RATE_MODE_VARIABLE;
++      OutputMode *mode;
++
++      mode = find_mode (modes, spec);
++      if (!mode)
++        {
++          mode = g_new0 (OutputMode, 1);
++          mode->head = head;
++          mode->spec = *spec;
++          modes = g_list_append (modes, mode);
++        }
++
++      if (is_variable)
++        {
++          mode->has_variable = TRUE;
++        }
++      else
++        {
++          mode->has_fixed = TRUE;
++          mode->spec = *spec;
++        }
++
++      if (monitor_mode == preferred_mode)
++        mode->preferred = TRUE;
++    }
++
++  return modes;
++}
++
++static MetaMonitor *
++find_monitor (MetaWaylandOutputManagement *output_management,
++              MetaMonitorSpec             *monitor_spec)
++{
++  GList *l;
++
++  for (l = meta_monitor_manager_get_monitors (output_management->monitor_manager);
++       l; l = l->next)
++    {
++      MetaMonitor *monitor = l->data;
++
++      if (meta_monitor_is_for_lease (monitor))
++        continue;
++
++      if (meta_monitor_spec_equals (meta_monitor_get_spec (monitor),
++                                    monitor_spec))
++        return monitor;
++    }
++
++  return NULL;
++}
++
++static OutputHead *
++find_head (MetaWaylandOutputManagement *output_management,
++           MetaMonitor                 *monitor)
++{
++  GList *l;
++
++  for (l = output_management->heads; l; l = l->next)
++    {
++      OutputHead *head = l->data;
++
++      if (meta_monitor_spec_equals (head->monitor_spec,
++                                    meta_monitor_get_spec (monitor)))
++        return head;
++    }
++
++  return NULL;
++}
++
++/* Mode objects */
++
++static void
++mode_release (struct wl_client   *client,
++              struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static const struct zwlr_output_mode_v1_interface mode_interface = {
++  mode_release,
++};
++
++static void
++mode_binding_resource_destroyed (struct wl_resource *resource)
++{
++  ModeBinding *mode_binding = wl_resource_get_user_data (resource);
++
++  if (mode_binding->mode)
++    {
++      mode_binding->mode->mode_bindings =
++        g_list_remove (mode_binding->mode->mode_bindings, mode_binding);
++    }
++  if (mode_binding->head_binding)
++    {
++      mode_binding->head_binding->mode_bindings =
++        g_list_remove (mode_binding->head_binding->mode_bindings, mode_binding);
++    }
++
++  g_free (mode_binding);
++}
++
++static void
++send_mode (HeadBinding *head_binding,
++           OutputMode  *mode)
++{
++  struct wl_client *client = wl_resource_get_client (head_binding->resource);
++  ModeBinding *mode_binding;
++  struct wl_resource *resource;
++
++  resource = wl_resource_create (client, &zwlr_output_mode_v1_interface,
++                                 wl_resource_get_version (head_binding->resource),
++                                 0);
++  if (!resource)
++    {
++      wl_client_post_no_memory (client);
++      return;
++    }
++
++  mode_binding = g_new0 (ModeBinding, 1);
++  mode_binding->resource = resource;
++  mode_binding->mode = mode;
++  mode_binding->head_binding = head_binding;
++  wl_resource_set_implementation (resource, &mode_interface, mode_binding,
++                                  mode_binding_resource_destroyed);
++
++  mode->mode_bindings = g_list_prepend (mode->mode_bindings, mode_binding);
++  head_binding->mode_bindings = g_list_prepend (head_binding->mode_bindings,
++                                                mode_binding);
++
++  zwlr_output_head_v1_send_mode (head_binding->resource, resource);
++  zwlr_output_mode_v1_send_size (resource, mode->spec.width, mode->spec.height);
++  if (mode->spec.refresh_rate > 0)
++    {
++      zwlr_output_mode_v1_send_refresh (resource,
++                                        (int32_t) roundf (mode->spec.refresh_rate *
++                                                          1000.0f));
++    }
++  if (mode->preferred)
++    zwlr_output_mode_v1_send_preferred (resource);
++}
++
++static void
++mode_finish (OutputMode *mode)
++{
++  GList *l;
++
++  for (l = mode->mode_bindings; l; l = l->next)
++    {
++      ModeBinding *mode_binding = l->data;
++
++      zwlr_output_mode_v1_send_finished (mode_binding->resource);
++      mode_binding->mode = NULL;
++      if (mode_binding->head_binding)
++        {
++          mode_binding->head_binding->mode_bindings =
++            g_list_remove (mode_binding->head_binding->mode_bindings,
++                           mode_binding);
++          mode_binding->head_binding = NULL;
++        }
++    }
++  g_clear_pointer (&mode->mode_bindings, g_list_free);
++}
++
++static struct wl_resource *
++find_mode_resource (HeadBinding *head_binding,
++                    OutputMode  *mode)
++{
++  GList *l;
++
++  for (l = head_binding->mode_bindings; l; l = l->next)
++    {
++      ModeBinding *mode_binding = l->data;
++
++      if (mode_binding->mode == mode)
++        return mode_binding->resource;
++    }
++
++  return NULL;
++}
++
++/* Head objects */
++
++static void
++head_release (struct wl_client   *client,
++              struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static const struct zwlr_output_head_v1_interface head_interface = {
++  head_release,
++};
++
++static void
++head_binding_resource_destroyed (struct wl_resource *resource)
++{
++  HeadBinding *head_binding = wl_resource_get_user_data (resource);
++  GList *l;
++
++  for (l = head_binding->mode_bindings; l; l = l->next)
++    {
++      ModeBinding *mode_binding = l->data;
++
++      mode_binding->head_binding = NULL;
++    }
++  g_list_free (head_binding->mode_bindings);
++
++  if (head_binding->head)
++    {
++      head_binding->head->head_bindings =
++        g_list_remove (head_binding->head->head_bindings, head_binding);
++    }
++
++  g_free (head_binding);
++}
++
++static void
++compute_head_state (OutputHead *head)
++{
++  MetaMonitor *monitor = head->monitor;
++  MetaLogicalMonitor *logical_monitor =
++    meta_monitor_get_logical_monitor (monitor);
++  MetaMonitorMode *current_mode = meta_monitor_get_current_mode (monitor);
++
++  head->enabled = logical_monitor && current_mode;
++  head->current_mode = NULL;
++  head->adaptive_sync = FALSE;
++
++  if (!head->enabled)
++    return;
++
++  head->current_mode = find_mode (head->modes,
++                                  meta_monitor_mode_get_spec (current_mode));
++  head->adaptive_sync =
++    meta_monitor_mode_get_refresh_rate_mode (current_mode) ==
++    META_CRTC_REFRESH_RATE_MODE_VARIABLE;
++
++  {
++    MtkRectangle layout = meta_logical_monitor_get_layout (logical_monitor);
++
++    head->x = layout.x;
++    head->y = layout.y;
++  }
++  head->transform = meta_logical_monitor_get_transform (logical_monitor);
++  head->scale =
++    wl_fixed_from_double (meta_logical_monitor_get_scale (logical_monitor));
++}
++
++typedef enum _HeadStateChange
++{
++  HEAD_STATE_ENABLED = 1 << 0,
++  HEAD_STATE_CURRENT_MODE = 1 << 1,
++  HEAD_STATE_POSITION = 1 << 2,
++  HEAD_STATE_TRANSFORM = 1 << 3,
++  HEAD_STATE_SCALE = 1 << 4,
++  HEAD_STATE_ADAPTIVE_SYNC = 1 << 5,
++  HEAD_STATE_ALL = (1 << 6) - 1,
++} HeadStateChange;
++
++static void
++send_head_state (HeadBinding     *head_binding,
++                 HeadStateChange  changes)
++{
++  OutputHead *head = head_binding->head;
++  struct wl_resource *resource = head_binding->resource;
++  int version = wl_resource_get_version (resource);
++
++  if (changes & HEAD_STATE_ENABLED)
++    zwlr_output_head_v1_send_enabled (resource, head->enabled);
++
++  if (version >= ZWLR_OUTPUT_HEAD_V1_ADAPTIVE_SYNC_SINCE_VERSION &&
++      changes & HEAD_STATE_ADAPTIVE_SYNC)
++    {
++      zwlr_output_head_v1_send_adaptive_sync (resource,
++                                              head->adaptive_sync ?
++                                              ZWLR_OUTPUT_HEAD_V1_ADAPTIVE_SYNC_STATE_ENABLED :
++                                              ZWLR_OUTPUT_HEAD_V1_ADAPTIVE_SYNC_STATE_DISABLED);
++    }
++
++  /* The rest is only sent while the head is enabled. */
++  if (!head->enabled)
++    return;
++
++  if (changes & HEAD_STATE_CURRENT_MODE && head->current_mode)
++    {
++      struct wl_resource *mode_resource;
++
++      mode_resource = find_mode_resource (head_binding, head->current_mode);
++      if (mode_resource)
++        zwlr_output_head_v1_send_current_mode (resource, mode_resource);
++    }
++  if (changes & HEAD_STATE_POSITION)
++    zwlr_output_head_v1_send_position (resource, head->x, head->y);
++  if (changes & HEAD_STATE_TRANSFORM)
++    zwlr_output_head_v1_send_transform (resource, head->transform);
++  if (changes & HEAD_STATE_SCALE)
++    zwlr_output_head_v1_send_scale (resource, head->scale);
++}
++
++static void
++announce_head (struct wl_resource *manager_resource,
++               OutputHead         *head)
++{
++  struct wl_client *client = wl_resource_get_client (manager_resource);
++  int version = wl_resource_get_version (manager_resource);
++  MetaMonitor *monitor = head->monitor;
++  HeadBinding *head_binding;
++  struct wl_resource *resource;
++  int width_mm, height_mm;
++  const char *string;
++  GList *l;
++
++  resource = wl_resource_create (client, &zwlr_output_head_v1_interface,
++                                 version, 0);
++  if (!resource)
++    {
++      wl_client_post_no_memory (client);
++      return;
++    }
++
++  head_binding = g_new0 (HeadBinding, 1);
++  head_binding->resource = resource;
++  head_binding->head = head;
++  wl_resource_set_implementation (resource, &head_interface, head_binding,
++                                  head_binding_resource_destroyed);
++  head->head_bindings = g_list_prepend (head->head_bindings, head_binding);
++
++  zwlr_output_manager_v1_send_head (manager_resource, resource);
++
++  zwlr_output_head_v1_send_name (resource, meta_monitor_get_connector (monitor));
++  zwlr_output_head_v1_send_description (resource,
++                                        meta_monitor_get_display_name (monitor));
++
++  meta_monitor_get_physical_dimensions (monitor, &width_mm, &height_mm);
++  if (width_mm > 0 && height_mm > 0)
++    zwlr_output_head_v1_send_physical_size (resource, width_mm, height_mm);
++
++  if (version >= ZWLR_OUTPUT_HEAD_V1_MAKE_SINCE_VERSION)
++    {
++      string = meta_monitor_get_vendor (monitor);
++      if (string)
++        zwlr_output_head_v1_send_make (resource, string);
++      string = meta_monitor_get_product (monitor);
++      if (string)
++        zwlr_output_head_v1_send_model (resource, string);
++      string = meta_monitor_get_serial (monitor);
++      if (string)
++        zwlr_output_head_v1_send_serial_number (resource, string);
++    }
++
++  for (l = head->modes; l; l = l->next)
++    send_mode (head_binding, l->data);
++
++  send_head_state (head_binding, HEAD_STATE_ALL);
++}
++
++static void
++config_forget_head (OutputHead *head)
++{
++  MetaWaylandOutputManagement *output_management = head->output_management;
++  GList *l;
++
++  for (l = output_management->configurations; l; l = l->next)
++    {
++      OutputConfiguration *config = l->data;
++      GList *k;
++
++      for (k = config->config_heads; k; k = k->next)
++        {
++          ConfigHead *config_head = k->data;
++
++          if (config_head->head != head)
++            continue;
++
++          config_head->head = NULL;
++          config_head->mode = NULL;
++          config->stale = TRUE;
++        }
++    }
++}
++
++static void
++config_forget_mode (OutputMode *mode)
++{
++  MetaWaylandOutputManagement *output_management =
++    mode->head->output_management;
++  GList *l;
++
++  for (l = output_management->configurations; l; l = l->next)
++    {
++      OutputConfiguration *config = l->data;
++      GList *k;
++
++      for (k = config->config_heads; k; k = k->next)
++        {
++          ConfigHead *config_head = k->data;
++
++          if (config_head->mode != mode)
++            continue;
++
++          config_head->mode = NULL;
++          config->stale = TRUE;
++        }
++    }
++}
++
++static void
++output_mode_free (OutputMode *mode)
++{
++  mode_finish (mode);
++  config_forget_mode (mode);
++  g_free (mode);
++}
++
++static void
++head_free (OutputHead *head)
++{
++  GList *l;
++
++  for (l = head->head_bindings; l; l = l->next)
++    {
++      HeadBinding *head_binding = l->data;
++
++      head_binding->head = NULL;
++    }
++  g_clear_pointer (&head->head_bindings, g_list_free);
++
++  g_list_free_full (head->modes, (GDestroyNotify) output_mode_free);
++  config_forget_head (head);
++  meta_monitor_spec_free (head->monitor_spec);
++  g_free (head);
++}
++
++static void
++head_finish (OutputHead *head)
++{
++  GList *l;
++
++  /* Modes first: their bindings are unlinked from the head bindings. */
++  g_list_foreach (head->modes, (GFunc) mode_finish, NULL);
++
++  for (l = head->head_bindings; l; l = l->next)
++    {
++      HeadBinding *head_binding = l->data;
++
++      zwlr_output_head_v1_send_finished (head_binding->resource);
++    }
++
++  head_free (head);
++}
++
++static void
++refresh_head (OutputHead  *head,
++              MetaMonitor *monitor)
++{
++  OutputMode *old_current_mode = head->current_mode;
++  gboolean old_enabled = head->enabled;
++  int old_x = head->x, old_y = head->y;
++  MtkMonitorTransform old_transform = head->transform;
++  wl_fixed_t old_scale = head->scale;
++  gboolean old_adaptive_sync = head->adaptive_sync;
++  HeadStateChange changes = 0;
++  GList *new_modes;
++  GList *l;
++
++  head->monitor = monitor;
++
++  /* Retire modes that are gone, announce new ones. */
++  new_modes = collect_modes (head, monitor);
++  for (l = head->modes; l;)
++    {
++      OutputMode *mode = l->data;
++      GList *next = l->next;
++      OutputMode *new_mode = find_mode (new_modes, &mode->spec);
++
++      if (!new_mode)
++        {
++          if (old_current_mode == mode)
++            old_current_mode = NULL;
++          head->modes = g_list_delete_link (head->modes, l);
++          output_mode_free (mode);
++        }
++      else
++        {
++          mode->has_fixed = new_mode->has_fixed;
++          mode->has_variable = new_mode->has_variable;
++        }
++
++      l = next;
++    }
++
++  for (l = new_modes; l; l = l->next)
++    {
++      OutputMode *new_mode = l->data;
++      GList *k;
++
++      if (find_mode (head->modes, &new_mode->spec))
++        continue;
++
++      head->modes = g_list_append (head->modes,
++                                   g_memdup2 (new_mode, sizeof (OutputMode)));
++      for (k = head->head_bindings; k; k = k->next)
++        send_mode (k->data, g_list_last (head->modes)->data);
++    }
++  g_list_free_full (new_modes, g_free);
++
++  compute_head_state (head);
++
++  if (head->enabled != old_enabled)
++    changes |= HEAD_STATE_ENABLED;
++  if (head->adaptive_sync != old_adaptive_sync)
++    changes |= HEAD_STATE_ADAPTIVE_SYNC;
++
++  if (head->enabled && !old_enabled)
++    {
++      changes |= HEAD_STATE_ALL;
++    }
++  else if (head->enabled)
++    {
++      if (head->current_mode != old_current_mode)
++        changes |= HEAD_STATE_CURRENT_MODE;
++      if (head->x != old_x || head->y != old_y)
++        changes |= HEAD_STATE_POSITION;
++      if (head->transform != old_transform)
++        changes |= HEAD_STATE_TRANSFORM;
++      if (head->scale != old_scale)
++        changes |= HEAD_STATE_SCALE;
++    }
++
++  if (!changes)
++    return;
++
++  for (l = head->head_bindings; l; l = l->next)
++    send_head_state (l->data, changes);
++}
++
++static OutputHead *
++head_new (MetaWaylandOutputManagement *output_management,
++          MetaMonitor                 *monitor)
++{
++  OutputHead *head;
++
++  head = g_new0 (OutputHead, 1);
++  head->output_management = output_management;
++  head->monitor_spec = meta_monitor_spec_clone (meta_monitor_get_spec (monitor));
++  head->monitor = monitor;
++  head->modes = collect_modes (head, monitor);
++  compute_head_state (head);
++
++  return head;
++}
++
++static void
++update_heads (MetaWaylandOutputManagement *output_management)
++{
++  GList *l;
++
++  output_management->update_pending = FALSE;
++
++  for (l = output_management->heads; l;)
++    {
++      OutputHead *head = l->data;
++      GList *next = l->next;
++
++      if (!find_monitor (output_management, head->monitor_spec))
++        {
++          output_management->heads =
++            g_list_delete_link (output_management->heads, l);
++          head_finish (head);
++        }
++
++      l = next;
++    }
++
++  for (l = meta_monitor_manager_get_monitors (output_management->monitor_manager);
++       l; l = l->next)
++    {
++      MetaMonitor *monitor = l->data;
++      OutputHead *head;
++
++      if (meta_monitor_is_for_lease (monitor))
++        continue;
++
++      head = find_head (output_management, monitor);
++      if (head)
++        {
++          refresh_head (head, monitor);
++        }
++      else
++        {
++          GList *k;
++
++          head = head_new (output_management, monitor);
++          output_management->heads = g_list_append (output_management->heads,
++                                                    head);
++          for (k = output_management->manager_resources; k; k = k->next)
++            announce_head (k->data, head);
++        }
++    }
++
++  /* Any configuration created before this point is outdated. */
++  output_management->serial++;
++  for (l = output_management->manager_resources; l; l = l->next)
++    zwlr_output_manager_v1_send_done (l->data, output_management->serial);
++}
++
++static void
++on_monitors_changed (MetaMonitorManager          *monitor_manager,
++                     MetaWaylandOutputManagement *output_management)
++{
++  /* Changes caused by an apply are announced after its 'succeeded'. */
++  if (output_management->applying)
++    {
++      output_management->update_pending = TRUE;
++      return;
++    }
++
++  update_heads (output_management);
++}
++
++/* Configuration head objects */
++
++static ConfigHead *
++get_config_head (struct wl_resource *resource)
++{
++  ConfigHead *config_head = wl_resource_get_user_data (resource);
++
++  if (!config_head)
++    return NULL;
++
++  if (config_head->config->used)
++    {
++      wl_resource_post_error (config_head->config->resource,
++                              ZWLR_OUTPUT_CONFIGURATION_V1_ERROR_ALREADY_USED,
++                              "configuration has already been applied or tested");
++      return NULL;
++    }
++
++  return config_head;
++}
++
++static void
++config_head_set_mode (struct wl_client   *client,
++                      struct wl_resource *resource,
++                      struct wl_resource *mode_resource)
++{
++  ConfigHead *config_head = get_config_head (resource);
++  ModeBinding *mode_binding = wl_resource_get_user_data (mode_resource);
++
++  if (!config_head)
++    return;
++
++  if (config_head->mode || config_head->has_custom_mode)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_OUTPUT_CONFIGURATION_HEAD_V1_ERROR_ALREADY_SET,
++                              "mode has already been set");
++      return;
++    }
++
++  if (!mode_binding->mode || !config_head->head)
++    {
++      /* The mode or the head went away: the configuration is cancelled. */
++      config_head->config->stale = TRUE;
++      return;
++    }
++
++  if (mode_binding->mode->head != config_head->head)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_OUTPUT_CONFIGURATION_HEAD_V1_ERROR_INVALID_MODE,
++                              "mode doesn't belong to head");
++      return;
++    }
++
++  config_head->mode = mode_binding->mode;
++}
++
++static void
++config_head_set_custom_mode (struct wl_client   *client,
++                             struct wl_resource *resource,
++                             int32_t             width,
++                             int32_t             height,
++                             int32_t             refresh)
++{
++  ConfigHead *config_head = get_config_head (resource);
++
++  if (!config_head)
++    return;
++
++  if (config_head->mode || config_head->has_custom_mode)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_OUTPUT_CONFIGURATION_HEAD_V1_ERROR_ALREADY_SET,
++                              "mode has already been set");
++      return;
++    }
++
++  if (width <= 0 || height <= 0 || refresh < 0)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_OUTPUT_CONFIGURATION_HEAD_V1_ERROR_INVALID_CUSTOM_MODE,
++                              "invalid custom mode %dx%d@%d",
++                              width, height, refresh);
++      return;
++    }
++
++  config_head->has_custom_mode = TRUE;
++  config_head->custom_width = width;
++  config_head->custom_height = height;
++  config_head->custom_refresh = refresh;
++}
++
++static void
++config_head_set_position (struct wl_client   *client,
++                          struct wl_resource *resource,
++                          int32_t             x,
++                          int32_t             y)
++{
++  ConfigHead *config_head = get_config_head (resource);
++
++  if (!config_head)
++    return;
++
++  if (config_head->has_position)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_OUTPUT_CONFIGURATION_HEAD_V1_ERROR_ALREADY_SET,
++                              "position has already been set");
++      return;
++    }
++
++  config_head->has_position = TRUE;
++  config_head->x = x;
++  config_head->y = y;
++}
++
++static void
++config_head_set_transform (struct wl_client   *client,
++                           struct wl_resource *resource,
++                           int32_t             transform)
++{
++  ConfigHead *config_head = get_config_head (resource);
++
++  if (!config_head)
++    return;
++
++  if (config_head->has_transform)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_OUTPUT_CONFIGURATION_HEAD_V1_ERROR_ALREADY_SET,
++                              "transform has already been set");
++      return;
++    }
++
++  /* wl_output.transform and MtkMonitorTransform use the same values. */
++  if (transform < WL_OUTPUT_TRANSFORM_NORMAL ||
++      transform > WL_OUTPUT_TRANSFORM_FLIPPED_270)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_OUTPUT_CONFIGURATION_HEAD_V1_ERROR_INVALID_TRANSFORM,
++                              "invalid transform %d", transform);
++      return;
++    }
++
++  config_head->has_transform = TRUE;
++  config_head->transform = (MtkMonitorTransform) transform;
++}
++
++static void
++config_head_set_scale (struct wl_client   *client,
++                       struct wl_resource *resource,
++                       wl_fixed_t          scale)
++{
++  ConfigHead *config_head = get_config_head (resource);
++
++  if (!config_head)
++    return;
++
++  if (config_head->has_scale)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_OUTPUT_CONFIGURATION_HEAD_V1_ERROR_ALREADY_SET,
++                              "scale has already been set");
++      return;
++    }
++
++  if (scale <= 0)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_OUTPUT_CONFIGURATION_HEAD_V1_ERROR_INVALID_SCALE,
++                              "invalid scale %f", wl_fixed_to_double (scale));
++      return;
++    }
++
++  config_head->has_scale = TRUE;
++  config_head->scale = (float) wl_fixed_to_double (scale);
++}
++
++static void
++config_head_set_adaptive_sync (struct wl_client   *client,
++                               struct wl_resource *resource,
++                               uint32_t            state)
++{
++  ConfigHead *config_head = get_config_head (resource);
++
++  if (!config_head)
++    return;
++
++  if (config_head->has_adaptive_sync)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_OUTPUT_CONFIGURATION_HEAD_V1_ERROR_ALREADY_SET,
++                              "adaptive sync has already been set");
++      return;
++    }
++
++  switch (state)
++    {
++    case ZWLR_OUTPUT_HEAD_V1_ADAPTIVE_SYNC_STATE_DISABLED:
++    case ZWLR_OUTPUT_HEAD_V1_ADAPTIVE_SYNC_STATE_ENABLED:
++      break;
++    default:
++      wl_resource_post_error (resource,
++                              ZWLR_OUTPUT_CONFIGURATION_HEAD_V1_ERROR_INVALID_ADAPTIVE_SYNC_STATE,
++                              "invalid adaptive sync state %u", state);
++      return;
++    }
++
++  config_head->has_adaptive_sync = TRUE;
++  config_head->adaptive_sync =
++    state == ZWLR_OUTPUT_HEAD_V1_ADAPTIVE_SYNC_STATE_ENABLED;
++}
++
++static const struct zwlr_output_configuration_head_v1_interface config_head_interface = {
++  config_head_set_mode,
++  config_head_set_custom_mode,
++  config_head_set_position,
++  config_head_set_transform,
++  config_head_set_scale,
++  config_head_set_adaptive_sync,
++};
++
++static void
++config_head_resource_destroyed (struct wl_resource *resource)
++{
++  ConfigHead *config_head = wl_resource_get_user_data (resource);
++
++  if (config_head)
++    config_head->resource = NULL;
++}
++
++/* Building the monitors config */
++
++typedef struct _HeadPlacement
++{
++  ConfigHead *config_head;
++  MetaMonitor *monitor;
++  MetaMonitorMode *monitor_mode;
++  MtkMonitorTransform transform;
++  float scale;
++  gboolean has_position;
++  MtkRectangle layout;
++} HeadPlacement;
++
++static OutputMode *
++resolve_mode (ConfigHead  *config_head,
++              GError     **error)
++{
++  OutputHead *head = config_head->head;
++  MetaMonitorMode *preferred_mode;
++  OutputMode *best_mode = NULL;
++  GList *l;
++
++  if (config_head->mode)
++    return config_head->mode;
++
++  if (!config_head->has_custom_mode)
++    {
++      if (head->enabled && head->current_mode)
++        return head->current_mode;
++
++      preferred_mode = meta_monitor_get_preferred_mode (head->monitor);
++      if (preferred_mode)
++        {
++          best_mode = find_mode (head->modes,
++                                 meta_monitor_mode_get_spec (preferred_mode));
++        }
++      if (!best_mode && head->modes)
++        best_mode = head->modes->data;
++      if (!best_mode)
++        {
++          g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
++                       "Monitor %s has no modes",
++                       meta_monitor_get_connector (head->monitor));
++        }
++      return best_mode;
++    }
++
++  /* A custom mode is accepted when the monitor has that mode: the same
++   * size and, if given, a refresh rate within 0.5 Hz; without a refresh
++   * rate the fastest mode of that size is taken. */
++  for (l = head->modes; l; l = l->next)
++    {
++      OutputMode *mode = l->data;
++      float refresh = (float) config_head->custom_refresh / 1000.0f;
++
++      if (mode->spec.width != config_head->custom_width ||
++          mode->spec.height != config_head->custom_height)
++        continue;
++
++      if (config_head->custom_refresh != 0)
++        {
++          if (fabsf (mode->spec.refresh_rate - refresh) >= 0.5f)
++            continue;
++          if (!best_mode ||
++              fabsf (mode->spec.refresh_rate - refresh) <
++              fabsf (best_mode->spec.refresh_rate - refresh))
++            best_mode = mode;
++        }
++      else if (!best_mode ||
++               mode->spec.refresh_rate > best_mode->spec.refresh_rate)
++        {
++          best_mode = mode;
++        }
++    }
++
++  if (!best_mode)
++    {
++      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
++                   "Monitor %s has no mode %dx%d@%.3f",
++                   meta_monitor_get_connector (head->monitor),
++                   config_head->custom_width, config_head->custom_height,
++                   config_head->custom_refresh / 1000.0);
++    }
++
++  return best_mode;
++}
++
++static gboolean
++resolve_scale (MetaMonitorManager            *monitor_manager,
++               MetaLogicalMonitorLayoutMode   layout_mode,
++               ConfigHead                    *config_head,
++               MetaMonitorMode               *monitor_mode,
++               float                         *out_scale,
++               GError                       **error)
++{
++  OutputHead *head = config_head->head;
++  MetaMonitor *monitor = head->monitor;
++  g_autofree float *supported_scales = NULL;
++  int n_supported_scales;
++  float requested_scale;
++  float best_scale = 0.0f;
++  int i;
++
++  if (config_head->has_scale)
++    requested_scale = config_head->scale;
++  else if (head->enabled)
++    requested_scale = (float) wl_fixed_to_double (head->scale);
++  else
++    requested_scale =
++      meta_monitor_manager_calculate_monitor_mode_scale (monitor_manager,
++                                                         layout_mode,
++                                                         monitor,
++                                                         monitor_mode);
++
++  supported_scales =
++    meta_monitor_manager_calculate_supported_scales (monitor_manager,
++                                                     layout_mode,
++                                                     monitor,
++                                                     monitor_mode,
++                                                     &n_supported_scales);
++  for (i = 0; i < n_supported_scales; i++)
++    {
++      if (best_scale == 0.0f ||
++          fabsf (supported_scales[i] - requested_scale) <
++          fabsf (best_scale - requested_scale))
++        best_scale = supported_scales[i];
++    }
++
++  if (best_scale == 0.0f ||
++      (config_head->has_scale &&
++       fabsf (best_scale - requested_scale) > SCALE_SNAP_DISTANCE))
++    {
++      const MetaMonitorModeSpec *spec = meta_monitor_mode_get_spec (monitor_mode);
++
++      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
++                   "Scale %g is not supported for %dx%d on %s",
++                   requested_scale, spec->width, spec->height,
++                   meta_monitor_get_connector (monitor));
++      return FALSE;
++    }
++
++  *out_scale = best_scale;
++  return TRUE;
++}
++
++static gboolean
++place_head (MetaMonitorManager            *monitor_manager,
++            MetaLogicalMonitorLayoutMode   layout_mode,
++            ConfigHead                    *config_head,
++            HeadPlacement                 *placement,
++            GError                       **error)
++{
++  OutputHead *head = config_head->head;
++  MetaMonitor *monitor = head->monitor;
++  MetaMonitorModeSpec spec;
++  OutputMode *mode;
++  gboolean adaptive_sync;
++  int width, height;
++
++  mode = resolve_mode (config_head, error);
++  if (!mode)
++    return FALSE;
++
++  if (config_head->has_adaptive_sync)
++    adaptive_sync = config_head->adaptive_sync;
++  else
++    adaptive_sync = head->enabled && head->adaptive_sync && mode->has_variable;
++
++  if (adaptive_sync && !mode->has_variable)
++    {
++      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
++                   "Monitor %s has no variable refresh rate at %dx%d",
++                   meta_monitor_get_connector (monitor),
++                   mode->spec.width, mode->spec.height);
++      return FALSE;
++    }
++  if (!adaptive_sync && !mode->has_fixed)
++    {
++      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
++                   "Monitor %s has only a variable refresh rate at %dx%d",
++                   meta_monitor_get_connector (monitor),
++                   mode->spec.width, mode->spec.height);
++      return FALSE;
++    }
++
++  spec = mode->spec;
++  spec.refresh_rate_mode = adaptive_sync ?
++                           META_CRTC_REFRESH_RATE_MODE_VARIABLE :
++                           META_CRTC_REFRESH_RATE_MODE_FIXED;
++
++  placement->config_head = config_head;
++  placement->monitor = monitor;
++  placement->monitor_mode = meta_monitor_get_mode_from_spec (monitor, &spec);
++  if (!placement->monitor_mode)
++    {
++      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
++                   "Monitor %s no longer has mode %dx%d",
++                   meta_monitor_get_connector (monitor),
++                   spec.width, spec.height);
++      return FALSE;
++    }
++
++  if (config_head->has_transform)
++    placement->transform = config_head->transform;
++  else if (head->enabled)
++    placement->transform = head->transform;
++  else
++    placement->transform = MTK_MONITOR_TRANSFORM_NORMAL;
++
++  if (!resolve_scale (monitor_manager, layout_mode, config_head,
++                      placement->monitor_mode, &placement->scale, error))
++    return FALSE;
++
++  if (mtk_monitor_transform_is_rotated (placement->transform))
++    {
++      width = spec.height;
++      height = spec.width;
++    }
++  else
++    {
++      width = spec.width;
++      height = spec.height;
++    }
++
++  switch (layout_mode)
++    {
++    case META_LOGICAL_MONITOR_LAYOUT_MODE_LOGICAL:
++      width = (int) roundf (width / placement->scale);
++      height = (int) roundf (height / placement->scale);
++      break;
++    case META_LOGICAL_MONITOR_LAYOUT_MODE_PHYSICAL:
++      break;
++    }
++
++  placement->layout.width = width;
++  placement->layout.height = height;
++
++  if (config_head->has_position)
++    {
++      placement->has_position = TRUE;
++      placement->layout.x = config_head->x;
++      placement->layout.y = config_head->y;
++    }
++  else if (head->enabled)
++    {
++      placement->has_position = TRUE;
++      placement->layout.x = head->x;
++      placement->layout.y = head->y;
++    }
++
++  return TRUE;
++}
++
++static MetaMonitorConfig *
++create_monitor_config (MetaMonitor     *monitor,
++                       MetaMonitorMode *monitor_mode)
++{
++  MetaMonitorConfig *monitor_config;
++
++  monitor_config = g_new0 (MetaMonitorConfig, 1);
++  monitor_config->monitor_spec =
++    meta_monitor_spec_clone (meta_monitor_get_spec (monitor));
++  monitor_config->mode_spec =
++    g_memdup2 (meta_monitor_mode_get_spec (monitor_mode),
++               sizeof (MetaMonitorModeSpec));
++  monitor_config->enable_underscanning = meta_monitor_is_underscanning (monitor);
++  monitor_config->has_max_bpc =
++    meta_monitor_get_max_bpc (monitor, &monitor_config->max_bpc);
++  monitor_config->rgb_range = meta_monitor_get_rgb_range (monitor);
++  monitor_config->color_mode = meta_monitor_get_color_mode (monitor);
++
++  return monitor_config;
++}
++
++static gboolean
++spec_in_list (GList           *monitor_specs,
++              MetaMonitorSpec *monitor_spec)
++{
++  return !!g_list_find_custom (monitor_specs, monitor_spec,
++                               (GCompareFunc) meta_monitor_spec_compare);
++}
++
++static MetaMonitorsConfig *
++create_monitors_config (OutputConfiguration  *config,
++                        GError              **error)
++{
++  MetaWaylandOutputManagement *output_management = config->output_management;
++  MetaMonitorManager *monitor_manager = output_management->monitor_manager;
++  MetaMonitorsConfig *current_config;
++  MetaLogicalMonitorLayoutMode layout_mode;
++  g_autofree HeadPlacement *placements = NULL;
++  GList *logical_monitor_configs = NULL;
++  GList *disabled_monitor_specs = NULL;
++  GList *for_lease_monitor_specs = NULL;
++  MetaLogicalMonitorConfig *primary_logical_monitor_config = NULL;
++  int n_placements = 0;
++  int right_edge = 0;
++  int min_x = INT_MAX, min_y = INT_MAX;
++  GList *l;
++  int i;
++
++  layout_mode = meta_monitor_manager_get_layout_mode (monitor_manager);
++  placements = g_new0 (HeadPlacement, g_list_length (config->config_heads) + 1);
++
++  for (l = config->config_heads; l; l = l->next)
++    {
++      ConfigHead *config_head = l->data;
++
++      if (!config_head->enabled)
++        {
++          disabled_monitor_specs =
++            g_list_prepend (disabled_monitor_specs,
++                            meta_monitor_spec_clone (config_head->head->monitor_spec));
++          continue;
++        }
++
++      if (!place_head (monitor_manager, layout_mode, config_head,
++                       &placements[n_placements], error))
++        goto err;
++
++      n_placements++;
++    }
++
++  if (n_placements == 0)
++    {
++      g_set_error (error, G_IO_ERROR, G_IO_ERROR_FAILED,
++                   "At least one head must be enabled");
++      goto err;
++    }
++
++  /* Heads without a position go to the right of the others. */
++  for (i = 0; i < n_placements; i++)
++    {
++      if (placements[i].has_position)
++        right_edge = MAX (right_edge,
++                          placements[i].layout.x + placements[i].layout.width);
++    }
++  for (i = 0; i < n_placements; i++)
++    {
++      if (placements[i].has_position)
++        continue;
++
++      placements[i].layout.x = right_edge;
++      placements[i].layout.y = 0;
++      right_edge += placements[i].layout.width;
++    }
++
++  for (i = 0; i < n_placements; i++)
++    {
++      HeadPlacement *placement = &placements[i];
++      MetaLogicalMonitorConfig *logical_monitor_config = NULL;
++      MetaMonitorConfig *monitor_config;
++      GList *k;
++
++      monitor_config = create_monitor_config (placement->monitor,
++                                              placement->monitor_mode);
++      if (!meta_verify_monitor_config (monitor_config, error))
++        {
++          meta_monitor_config_free (monitor_config);
++          goto err;
++        }
++
++      /* Heads that cover exactly the same area mirror each other. */
++      for (k = logical_monitor_configs; k; k = k->next)
++        {
++          MetaLogicalMonitorConfig *other = k->data;
++
++          if (mtk_rectangle_equal (&other->layout, &placement->layout) &&
++              other->transform == placement->transform &&
++              G_APPROX_VALUE (other->scale, placement->scale, FLT_EPSILON))
++            {
++              logical_monitor_config = other;
++              break;
++            }
++        }
++
++      if (!logical_monitor_config)
++        {
++          logical_monitor_config = g_new0 (MetaLogicalMonitorConfig, 1);
++          logical_monitor_config->layout = placement->layout;
++          logical_monitor_config->transform = placement->transform;
++          logical_monitor_config->scale = placement->scale;
++          logical_monitor_configs = g_list_append (logical_monitor_configs,
++                                                   logical_monitor_config);
++        }
++
++      logical_monitor_config->monitor_configs =
++        g_list_append (logical_monitor_config->monitor_configs, monitor_config);
++
++      if (meta_monitor_is_primary (placement->monitor) &&
++          !primary_logical_monitor_config)
++        primary_logical_monitor_config = logical_monitor_config;
++    }
++
++  if (!primary_logical_monitor_config)
++    primary_logical_monitor_config = logical_monitor_configs->data;
++  primary_logical_monitor_config->is_primary = TRUE;
++
++  /* Mutter's layout starts at 0,0. */
++  for (l = logical_monitor_configs; l; l = l->next)
++    {
++      MetaLogicalMonitorConfig *logical_monitor_config = l->data;
++
++      min_x = MIN (min_x, logical_monitor_config->layout.x);
++      min_y = MIN (min_y, logical_monitor_config->layout.y);
++    }
++  for (l = logical_monitor_configs; l; l = l->next)
++    {
++      MetaLogicalMonitorConfig *logical_monitor_config = l->data;
++
++      logical_monitor_config->layout.x -= min_x;
++      logical_monitor_config->layout.y -= min_y;
++
++      if (!meta_verify_logical_monitor_config (logical_monitor_config,
++                                               layout_mode,
++                                               monitor_manager,
++                                               error))
++        goto err;
++    }
++
++  /* Monitors reserved for leasing are not heads; keep them as they are. */
++  current_config =
++    meta_monitor_config_manager_get_current (monitor_manager->config_manager);
++  if (current_config)
++    {
++      for_lease_monitor_specs =
++        g_list_copy_deep (current_config->for_lease_monitor_specs,
++                          (GCopyFunc) meta_monitor_spec_clone, NULL);
++    }
++  for (l = meta_monitor_manager_get_monitors (monitor_manager); l; l = l->next)
++    {
++      MetaMonitor *monitor = l->data;
++      MetaMonitorSpec *monitor_spec = meta_monitor_get_spec (monitor);
++
++      if (meta_monitor_is_for_lease (monitor) &&
++          !spec_in_list (disabled_monitor_specs, monitor_spec))
++        {
++          disabled_monitor_specs =
++            g_list_prepend (disabled_monitor_specs,
++                            meta_monitor_spec_clone (monitor_spec));
++        }
++    }
++  for (l = for_lease_monitor_specs; l; l = l->next)
++    {
++      if (!spec_in_list (disabled_monitor_specs, l->data))
++        {
++          disabled_monitor_specs =
++            g_list_prepend (disabled_monitor_specs,
++                            meta_monitor_spec_clone (l->data));
++        }
++    }
++
++  return meta_monitors_config_new_full (logical_monitor_configs,
++                                        disabled_monitor_specs,
++                                        for_lease_monitor_specs,
++                                        layout_mode,
++                                        META_MONITORS_CONFIG_FLAG_NONE);
++
++err:
++  g_list_free_full (logical_monitor_configs,
++                    (GDestroyNotify) meta_logical_monitor_config_free);
++  g_list_free_full (disabled_monitor_specs,
++                    (GDestroyNotify) meta_monitor_spec_free);
++  g_list_free_full (for_lease_monitor_specs,
++                    (GDestroyNotify) meta_monitor_spec_free);
++  return NULL;
++}
++
++/* Configuration objects */
++
++static gboolean
++is_head_configured (OutputConfiguration *config,
++                    OutputHead          *head)
++{
++  GList *l;
++
++  for (l = config->config_heads; l; l = l->next)
++    {
++      ConfigHead *config_head = l->data;
++
++      if (config_head->head == head)
++        return TRUE;
++    }
++
++  return FALSE;
++}
++
++static ConfigHead *
++add_config_head (OutputConfiguration *config,
++                 struct wl_resource  *head_resource,
++                 gboolean             enabled)
++{
++  HeadBinding *head_binding = wl_resource_get_user_data (head_resource);
++  ConfigHead *config_head;
++
++  if (config->used)
++    {
++      wl_resource_post_error (config->resource,
++                              ZWLR_OUTPUT_CONFIGURATION_V1_ERROR_ALREADY_USED,
++                              "configuration has already been applied or tested");
++      return NULL;
++    }
++
++  if (head_binding->head && is_head_configured (config, head_binding->head))
++    {
++      wl_resource_post_error (config->resource,
++                              ZWLR_OUTPUT_CONFIGURATION_V1_ERROR_ALREADY_CONFIGURED_HEAD,
++                              "head has already been configured");
++      return NULL;
++    }
++
++  config_head = g_new0 (ConfigHead, 1);
++  config_head->config = config;
++  config_head->head = head_binding->head;
++  config_head->enabled = enabled;
++  if (!config_head->head)
++    config->stale = TRUE;
++
++  config->config_heads = g_list_append (config->config_heads, config_head);
++
++  return config_head;
++}
++
++static void
++config_enable_head (struct wl_client   *client,
++                    struct wl_resource *resource,
++                    uint32_t            id,
++                    struct wl_resource *head_resource)
++{
++  OutputConfiguration *config = wl_resource_get_user_data (resource);
++  struct wl_resource *config_head_resource;
++  ConfigHead *config_head;
++
++  config_head_resource =
++    wl_resource_create (client, &zwlr_output_configuration_head_v1_interface,
++                        wl_resource_get_version (resource), id);
++  if (!config_head_resource)
++    {
++      wl_client_post_no_memory (client);
++      return;
++    }
++
++  config_head = add_config_head (config, head_resource, TRUE);
++  if (config_head)
++    config_head->resource = config_head_resource;
++
++  wl_resource_set_implementation (config_head_resource, &config_head_interface,
++                                  config_head, config_head_resource_destroyed);
++}
++
++static void
++config_disable_head (struct wl_client   *client,
++                     struct wl_resource *resource,
++                     struct wl_resource *head_resource)
++{
++  OutputConfiguration *config = wl_resource_get_user_data (resource);
++
++  add_config_head (config, head_resource, FALSE);
++}
++
++static void
++config_apply_or_test (struct wl_resource *resource,
++                      gboolean            test_only)
++{
++  OutputConfiguration *config = wl_resource_get_user_data (resource);
++  MetaWaylandOutputManagement *output_management = config->output_management;
++  MetaMonitorManager *monitor_manager = output_management->monitor_manager;
++  MetaMonitorConfigStore *config_store;
++  const MetaMonitorConfigPolicy *policy;
++  g_autoptr (MetaMonitorsConfig) monitors_config = NULL;
++  g_autoptr (GError) error = NULL;
++  MetaMonitorsConfigMethod method;
++  gboolean succeeded;
++  GList *l;
++
++  if (config->used)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_OUTPUT_CONFIGURATION_V1_ERROR_ALREADY_USED,
++                              "configuration has already been applied or tested");
++      return;
++    }
++  config->used = TRUE;
++
++  if (config->stale || config->serial != output_management->serial)
++    {
++      zwlr_output_configuration_v1_send_cancelled (resource);
++      return;
++    }
++
++  for (l = output_management->heads; l; l = l->next)
++    {
++      if (!is_head_configured (config, l->data))
++        {
++          wl_resource_post_error (resource,
++                                  ZWLR_OUTPUT_CONFIGURATION_V1_ERROR_UNCONFIGURED_HEAD,
++                                  "head has not been configured");
++          return;
++        }
++    }
++
++  config_store =
++    meta_monitor_config_manager_get_store (monitor_manager->config_manager);
++  policy = meta_monitor_config_store_get_policy (config_store);
++  if (!policy->enable_dbus)
++    {
++      meta_topic (META_DEBUG_WAYLAND,
++                  "wlr-output-management: monitor configuration is disabled "
++                  "by policy");
++      zwlr_output_configuration_v1_send_failed (resource);
++      return;
++    }
++
++  monitors_config = create_monitors_config (config, &error);
++  if (!monitors_config ||
++      !meta_verify_monitors_config (monitors_config, monitor_manager, &error) ||
++      !meta_monitor_manager_is_config_applicable (monitor_manager,
++                                                  monitors_config, &error))
++    {
++      g_message ("wlr-output-management: refusing configuration: %s",
++                 error->message);
++      zwlr_output_configuration_v1_send_failed (resource);
++      return;
++    }
++
++  if (test_only)
++    {
++      method = META_MONITORS_CONFIG_METHOD_VERIFY;
++    }
++  else
++    {
++      method = META_MONITORS_CONFIG_METHOD_TEMPORARY;
++      g_clear_handle_id (&monitor_manager->restore_config_id, mtk_source_remove);
++      g_clear_handle_id (&monitor_manager->persistent_timeout_id,
++                         mtk_source_remove);
++    }
++
++  output_management->applying = TRUE;
++  succeeded = meta_monitor_manager_apply_monitors_config (monitor_manager,
++                                                          monitors_config,
++                                                          method,
++                                                          &error);
++  output_management->applying = FALSE;
++
++  if (succeeded)
++    {
++      zwlr_output_configuration_v1_send_succeeded (resource);
++    }
++  else
++    {
++      g_message ("wlr-output-management: failed to %s configuration: %s",
++                 test_only ? "test" : "apply", error->message);
++      zwlr_output_configuration_v1_send_failed (resource);
++    }
++
++  if (output_management->update_pending)
++    update_heads (output_management);
++}
++
++static void
++config_apply (struct wl_client   *client,
++              struct wl_resource *resource)
++{
++  config_apply_or_test (resource, FALSE);
++}
++
++static void
++config_test (struct wl_client   *client,
++             struct wl_resource *resource)
++{
++  config_apply_or_test (resource, TRUE);
++}
++
++static void
++config_destroy (struct wl_client   *client,
++                struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static const struct zwlr_output_configuration_v1_interface config_interface = {
++  config_enable_head,
++  config_disable_head,
++  config_apply,
++  config_test,
++  config_destroy,
++};
++
++static void
++config_resource_destroyed (struct wl_resource *resource)
++{
++  OutputConfiguration *config = wl_resource_get_user_data (resource);
++  MetaWaylandOutputManagement *output_management = config->output_management;
++  GList *l;
++
++  output_management->configurations =
++    g_list_remove (output_management->configurations, config);
++
++  /* Destroying the configuration destroys its head configurations. */
++  for (l = config->config_heads; l; l = l->next)
++    {
++      ConfigHead *config_head = l->data;
++
++      if (config_head->resource)
++        {
++          wl_resource_set_user_data (config_head->resource, NULL);
++          wl_resource_destroy (config_head->resource);
++        }
++    }
++  g_list_free_full (config->config_heads, g_free);
++  g_free (config);
++}
++
++/* Manager */
++
++static void
++manager_create_configuration (struct wl_client   *client,
++                              struct wl_resource *resource,
++                              uint32_t            id,
++                              uint32_t            serial)
++{
++  MetaWaylandOutputManagement *output_management =
++    wl_resource_get_user_data (resource);
++  OutputConfiguration *config;
++  struct wl_resource *config_resource;
++
++  config_resource =
++    wl_resource_create (client, &zwlr_output_configuration_v1_interface,
++                        wl_resource_get_version (resource), id);
++  if (!config_resource)
++    {
++      wl_client_post_no_memory (client);
++      return;
++    }
++
++  config = g_new0 (OutputConfiguration, 1);
++  config->output_management = output_management;
++  config->resource = config_resource;
++  config->serial = serial;
++  output_management->configurations =
++    g_list_prepend (output_management->configurations, config);
++
++  wl_resource_set_implementation (config_resource, &config_interface, config,
++                                  config_resource_destroyed);
++}
++
++static void
++manager_stop (struct wl_client   *client,
++              struct wl_resource *resource)
++{
++  zwlr_output_manager_v1_send_finished (resource);
++  wl_resource_destroy (resource);
++}
++
++static const struct zwlr_output_manager_v1_interface manager_interface = {
++  manager_create_configuration,
++  manager_stop,
++};
++
++static void
++manager_resource_destroyed (struct wl_resource *resource)
++{
++  MetaWaylandOutputManagement *output_management =
++    wl_resource_get_user_data (resource);
++
++  output_management->manager_resources =
++    g_list_remove (output_management->manager_resources, resource);
++}
++
++static void
++bind_output_manager (struct wl_client *client,
++                     void             *data,
++                     uint32_t          version,
++                     uint32_t          id)
++{
++  MetaWaylandOutputManagement *output_management = data;
++  struct wl_resource *resource;
++  GList *l;
++
++  resource = wl_resource_create (client, &zwlr_output_manager_v1_interface,
++                                 version, id);
++  if (!resource)
++    {
++      wl_client_post_no_memory (client);
++      return;
++    }
++
++  wl_resource_set_implementation (resource, &manager_interface,
++                                  output_management,
++                                  manager_resource_destroyed);
++  output_management->manager_resources =
++    g_list_prepend (output_management->manager_resources, resource);
++
++  for (l = output_management->heads; l; l = l->next)
++    announce_head (resource, l->data);
++
++  zwlr_output_manager_v1_send_done (resource, output_management->serial);
++}
++
++static void
++output_management_free (MetaWaylandOutputManagement *output_management)
++{
++  g_clear_signal_handler (&output_management->monitors_changed_handler_id,
++                          output_management->monitor_manager);
++  g_list_free_full (output_management->heads, (GDestroyNotify) head_free);
++  g_list_free (output_management->manager_resources);
++  g_free (output_management);
++}
++
++void
++meta_wayland_output_management_init (MetaWaylandCompositor *compositor)
++{
++  MetaContext *context = meta_wayland_compositor_get_context (compositor);
++  MetaBackend *backend = meta_context_get_backend (context);
++  MetaWaylandOutputManagement *output_management;
++
++  output_management = g_new0 (MetaWaylandOutputManagement, 1);
++  output_management->compositor = compositor;
++  output_management->monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++  output_management->serial = 1;
++
++  if (wl_global_create (compositor->wayland_display,
++                        &zwlr_output_manager_v1_interface,
++                        META_ZWLR_OUTPUT_MANAGER_V1_VERSION,
++                        output_management,
++                        bind_output_manager) == NULL)
++    g_error ("Failed to register a global wlr-output-management object");
++
++  output_management->monitors_changed_handler_id =
++    g_signal_connect (output_management->monitor_manager,
++                      "monitors-changed-internal",
++                      G_CALLBACK (on_monitors_changed),
++                      output_management);
++
++  update_heads (output_management);
++
++  g_object_set_data_full (G_OBJECT (compositor),
++                          "-meta-wayland-output-management",
++                          output_management,
++                          (GDestroyNotify) output_management_free);
++}
+diff --git a/src/wayland/meta-wayland-output-management.h b/src/wayland/meta-wayland-output-management.h
+new file mode 100644
+index 0000000..a561df0
+--- /dev/null
++++ b/src/wayland/meta-wayland-output-management.h
+@@ -0,0 +1,22 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#pragma once
++
++#include "wayland/meta-wayland-types.h"
++
++void meta_wayland_output_management_init (MetaWaylandCompositor *compositor);
+diff --git a/src/wayland/meta-wayland-versions.h b/src/wayland/meta-wayland-versions.h
+index 1d4485c..d123b05 100644
+--- a/src/wayland/meta-wayland-versions.h
++++ b/src/wayland/meta-wayland-versions.h
+@@ -75,4 +75,5 @@
+ #define META_ZWLR_FOREIGN_TOPLEVEL_MANAGER_V1_VERSION 3
+ #define META_ZWLR_DATA_CONTROL_V1_VERSION 2
+ #define META_ZWLR_GAMMA_CONTROL_MANAGER_V1_VERSION 1
++#define META_ZWLR_OUTPUT_MANAGER_V1_VERSION 4
+ #define META_ZXDG_DECORATION_MANAGER_V1_VERSION 2
+diff --git a/src/wayland/meta-wayland.c b/src/wayland/meta-wayland.c
+index d348ce2..f7e1b2b 100644
+--- a/src/wayland/meta-wayland.c
++++ b/src/wayland/meta-wayland.c
+@@ -58,6 +58,7 @@
+ #include "wayland/meta-wayland-inhibit-shortcuts.h"
+ #include "wayland/meta-wayland-legacy-xdg-foreign.h"
+ #include "wayland/meta-wayland-linux-drm-syncobj.h"
++#include "wayland/meta-wayland-output-management.h"
+ #include "wayland/meta-wayland-outputs.h"
+ #include "wayland/meta-wayland-presentation-time-private.h"
+ #include "wayland/meta-wayland-private.h"
+@@ -1023,6 +1024,7 @@ meta_wayland_compositor_new (MetaContext *context)
+   meta_wayland_xdg_toplevel_tag_init (compositor);
+   meta_wayland_drm_lease_manager_init (compositor);
+   meta_wayland_gamma_control_init (compositor);
++  meta_wayland_output_management_init (compositor);
+   meta_wayland_commit_timing_init (compositor);
+   meta_wayland_fifo_init (compositor);
+   meta_wayland_init_cursor_shape (compositor);

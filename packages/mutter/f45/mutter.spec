@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       16%{?dist}.aurora
+Release:       17%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -63,6 +63,9 @@ Patch28:       0028-compositor-Draw-server-side-decorations-for-Wayland-.patch
 Patch29:       0029-clutter-stage-view-Apply-a-per-channel-gamma-LUT-in-.patch
 Patch30:       0030-color-device-Apply-ramps-the-CRTC-cannot-take-in-the.patch
 Patch31:       0031-tests-Read-back-gamma-ramps-applied-in-the-composito.patch
+Patch32:       0032-wayland-Add-the-wlr-output-management-unstable-v1-pr.patch
+Patch33:       0033-context-main-Allow-several-modes-per-virtual-monitor.patch
+Patch34:       0034-wayland-Implement-wlr-output-management-unstable-v1.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -281,6 +284,15 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-17.aurora
+- Support wlr-output-management-unstable-v1 (zwlr_output_manager_v1 v4),
+  so wlr-randr, kanshi, way-displays and wdisplays can list the monitors
+  and set their mode, position, transform, scale, adaptive sync and
+  enabled state. A configuration is applied atomically across all heads
+  through the monitor manager (verified like a DisplayConfig request,
+  not stored in monitors.xml); test runs the CRTC assignment only.
+- --virtual-monitor accepts several comma separated modes.
+
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-16.aurora
 - Apply gamma ramps the display hardware cannot take in the compositor:
   on outputs without a CRTC gamma LUT (all Apple DCP panels), curved or

@@ -1,0 +1,103 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 00:32:23 +1100
+Subject: [PATCH] context/main: Allow several modes per --virtual-monitor
+
+--virtual-monitor now takes a comma separated list of modes, for example
+--virtual-monitor 1920x1080@60,1280x720@60,2560x1440@30. The first mode
+is the preferred one and is used initially; the others can be picked
+through the monitor configuration, like the modes of a physical monitor.
+A single WxH or WxH@R works as before.
+
+This makes mode switching testable on a headless compositor.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/core/meta-context-main.c | 64 ++++++++++++++++++++----------------
+ 1 file changed, 36 insertions(+), 28 deletions(-)
+
+diff --git a/src/core/meta-context-main.c b/src/core/meta-context-main.c
+index e40394b..0a6f0dd 100644
+--- a/src/core/meta-context-main.c
++++ b/src/core/meta-context-main.c
+@@ -301,36 +301,44 @@ add_virtual_monitor_cb (const char  *option_name,
+                         GError     **error)
+ {
+   MetaContextMain *context_main = user_data;
+-  int width, height;
+-  float refresh_rate;
+-
+-  if (meta_parse_monitor_mode (value, &width, &height, &refresh_rate, 60.0))
++  g_autolist (MetaVirtualModeInfo) mode_infos = NULL;
++  g_auto (GStrv) mode_strings = NULL;
++  g_autofree char *serial = NULL;
++  MetaVirtualMonitorInfo *virtual_monitor;
++  int n_existing_virtual_monitor_infos;
++  int i;
++
++  /* One or more modes, separated by commas; the first one is used. */
++  mode_strings = g_strsplit (value, ",", -1);
++  for (i = 0; mode_strings[i]; i++)
+     {
+-      g_autofree char *serial = NULL;
+-      MetaVirtualMonitorInfo *virtual_monitor;
+-      int n_existing_virtual_monitor_infos;
++      int width, height;
++      float refresh_rate;
+ 
+-      n_existing_virtual_monitor_infos =
+-        g_list_length (context_main->options.virtual_monitor_infos);
+-      serial = g_strdup_printf ("0x%.2x", n_existing_virtual_monitor_infos);
+-      virtual_monitor =
+-        meta_virtual_monitor_info_new_simple (width,
+-                                              height,
+-                                              refresh_rate,
+-                                              "MetaVendor",
+-                                              "MetaVirtualMonitor",
+-                                              serial);
+-      context_main->options.virtual_monitor_infos =
+-        g_list_append (context_main->options.virtual_monitor_infos,
+-                       virtual_monitor);
+-      return TRUE;
+-    }
+-  else
+-    {
+-      g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+-                   "Unrecognizable virtual monitor spec '%s'", value);
+-      return FALSE;
++      if (!meta_parse_monitor_mode (mode_strings[i],
++                                    &width, &height, &refresh_rate, 60.0))
++        {
++          g_set_error (error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
++                       "Unrecognizable virtual monitor spec '%s'", value);
++          return FALSE;
++        }
++
++      mode_infos = g_list_append (mode_infos,
++                                  meta_virtual_mode_info_new (width, height,
++                                                              refresh_rate));
+     }
++
++  n_existing_virtual_monitor_infos =
++    g_list_length (context_main->options.virtual_monitor_infos);
++  serial = g_strdup_printf ("0x%.2x", n_existing_virtual_monitor_infos);
++  virtual_monitor = meta_virtual_monitor_info_new ("MetaVendor",
++                                                   "MetaVirtualMonitor",
++                                                   serial,
++                                                   mode_infos);
++  context_main->options.virtual_monitor_infos =
++    g_list_append (context_main->options.virtual_monitor_infos,
++                   virtual_monitor);
++  return TRUE;
+ }
+ 
+ static void
+@@ -371,7 +379,7 @@ meta_context_main_add_option_entries (MetaContextMain *context_main)
+     {
+       "virtual-monitor", 0, 0, G_OPTION_ARG_CALLBACK,
+       add_virtual_monitor_cb,
+-      N_("Add persistent virtual monitor (WxH or WxH@R)")
++      N_("Add persistent virtual monitor (WxH or WxH@R, several modes separated by commas)")
+     },
+ #ifdef HAVE_DEVKIT
+     {
