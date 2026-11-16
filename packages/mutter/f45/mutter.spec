@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       11%{?dist}.aurora
+Release:       12%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -40,6 +40,7 @@ Patch3:        0003-x11-assign-frame-counters-on-actor-views.patch
 Patch4:        0004-backends-take-the-pq-reference-white-from-pq-reference-luminance.patch
 Patch5:        0005-onscreen-native-use-variable-refresh-rate-on-the-whole-desktop-of-built-in-panels.patch
 Patch6:        0006-renderer-native-drop-power-save-page-flip-onscreens-on-dispose.patch
+Patch7:        0007-clutter-frame-clock-update-now-when-even-the-minimum-estimate-is-too-late.patch
 Patch10:       0010-wayland-Add-the-wlr-layer-shell-unstable-v1-protocol.patch
 Patch11:       0011-wayland-Implement-wlr-layer-shell-unstable-v1.patch
 Patch12:       0012-wayland-layer-shell-Wait-for-the-configure-ack-acros.patch
@@ -266,12 +267,18 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
-* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-11.aurora
+* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-12.aurora
 - Support wlr-foreign-toplevel-management-unstable-v1
   (zwlr_foreign_toplevel_manager_v1, version 3), so task bars, docks and
   window switchers written for it (waybar's wlr/taskbar, wlrctl) can list
   the open windows and activate, close, maximize, minimize and fullscreen
   them
+
+* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-11.aurora
+- Update right away when a frame clock update misses the next
+  presentation even with the minimum estimate. In a fixed refresh rate
+  mode a fullscreen client drawing every frame no longer locks to every
+  other refresh cycle (60-85 fps on a 120 Hz panel)
 
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-10.aurora
 - Stack layer surfaces with the shell's chrome: top anchored bars go below

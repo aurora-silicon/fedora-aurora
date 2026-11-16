@@ -7,12 +7,13 @@
 Name: docker-ce
 Epoch: 3
 Version: 29.9.2
-Release: 1%{?dist}.aurora1
+Release: 1%{?dist}.aurora2
 Summary: Docker engine with idempotent permanent firewalld policy setup
 License: Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT AND MPL-2.0 AND (Apache-2.0 OR GPL-2.0-or-later)
 URL: https://github.com/moby/moby
 Source0: https://github.com/moby/moby/archive/refs/tags/docker-v29.9.2.tar.gz
 Patch100: docker-query-forwarding-policy.patch
+Patch101: docker-skip-absent-chains.patch
 BuildRequires: gcc gcc-c++ make golang >= 1.26.8 git-core pkgconfig(systemd) nftables-devel go-md2man
 BuildRequires: pkgconfig(libsystemd)
 BuildRequires: systemd-rpm-macros
@@ -24,8 +25,9 @@ Conflicts: moby-engine docker-io docker-ee
 
 %description
 The Docker engine and proxy with a permanent-policy existence check before
-creating docker-forwarding. Existing policies retain their settings. Docker
-and firewalld keep their normal diagnostics and firewall integration.
+creating docker-forwarding. Existing policies retain their settings. Under
+firewalld, startup cleanup skips chains and jump rules that do not exist.
+Docker and firewalld keep their normal diagnostics and firewall integration.
 
 %prep
 %autosetup -n moby-docker-v%{version} -p1
@@ -91,5 +93,8 @@ fi
 %dir %{_sysconfdir}/docker
 
 %changelog
+* Thu Nov 12 2026 Aurora Silicon <ryan@aurorasilicon.org> - 3:29.9.2-1.aurora2
+- Skip absent chains and jump rules in the startup cleanup under firewalld.
+
 * Sat Oct 31 2026 Aurora Silicon <ryan@aurorasilicon.org> - 3:29.9.2-1.aurora1
 - Query permanent firewalld policies before creating docker-forwarding.
