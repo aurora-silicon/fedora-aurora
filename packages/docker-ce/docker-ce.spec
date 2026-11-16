@@ -6,12 +6,12 @@
 
 Name: docker-ce
 Epoch: 3
-Version: 29.9.2
-Release: 1%{?dist}.aurora2
+Version: 29.10.0
+Release: 1%{?dist}.aurora1
 Summary: Docker engine with idempotent permanent firewalld policy setup
 License: Apache-2.0 AND BSD-2-Clause AND BSD-3-Clause AND ISC AND MIT AND MPL-2.0 AND (Apache-2.0 OR GPL-2.0-or-later)
 URL: https://github.com/moby/moby
-Source0: https://github.com/moby/moby/archive/refs/tags/docker-v29.9.2.tar.gz
+Source0: https://github.com/moby/moby/archive/refs/tags/docker-v29.10.0.tar.gz
 Patch100: docker-query-forwarding-policy.patch
 Patch101: docker-skip-absent-chains.patch
 BuildRequires: gcc gcc-c++ make golang >= 1.26.8 git-core pkgconfig(systemd) nftables-devel go-md2man
@@ -93,6 +93,9 @@ fi
 %dir %{_sysconfdir}/docker
 
 %changelog
+* Tue Nov 17 2026 Aurora Silicon <ryan@aurorasilicon.org> - 3:29.10.0-1.aurora1
+- Update to 29.10.0; both libnetwork firewalld patches apply unchanged
+
 * Thu Nov 12 2026 Aurora Silicon <ryan@aurorasilicon.org> - 3:29.9.2-1.aurora2
 - Skip absent chains and jump rules in the startup cleanup under firewalld.
 

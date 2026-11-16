@@ -66,10 +66,10 @@ index 40f6c2e..4fd66f4 100644
  
    </schema>
 diff --git a/src/meson.build b/src/meson.build
-index 8e88950..6cbde8b 100644
+index b302b10..82c7250 100644
 --- a/src/meson.build
 +++ b/src/meson.build
-@@ -619,6 +619,8 @@ mutter_sources += [
+@@ -621,6 +621,8 @@ mutter_sources += [
    'wayland/meta-wayland-tablet-seat.h',
    'wayland/meta-wayland-tablet-tool.c',
    'wayland/meta-wayland-tablet-tool.h',
@@ -541,16 +541,16 @@ index 0000000..724a6ab
 +
 +const char * meta_tearing_policy_to_string (MetaTearingPolicy policy);
 diff --git a/src/wayland/meta-wayland-versions.h b/src/wayland/meta-wayland-versions.h
-index d123b05..fc744a1 100644
+index eec8bec..facf87e 100644
 --- a/src/wayland/meta-wayland-versions.h
 +++ b/src/wayland/meta-wayland-versions.h
-@@ -77,3 +77,4 @@
- #define META_ZWLR_GAMMA_CONTROL_MANAGER_V1_VERSION 1
+@@ -78,3 +78,4 @@
  #define META_ZWLR_OUTPUT_MANAGER_V1_VERSION 4
+ #define META_ZWLR_SCREENCOPY_MANAGER_V1_VERSION 3
  #define META_ZXDG_DECORATION_MANAGER_V1_VERSION 2
 +#define META_WP_TEARING_CONTROL_V1_VERSION 1
 diff --git a/src/wayland/meta-wayland.c b/src/wayland/meta-wayland.c
-index f7e1b2b..fee1f5f 100644
+index 616ee07..59933dc 100644
 --- a/src/wayland/meta-wayland.c
 +++ b/src/wayland/meta-wayland.c
 @@ -47,6 +47,7 @@
@@ -559,10 +559,10 @@ index f7e1b2b..fee1f5f 100644
  #include "wayland/meta-wayland-fifo.h"
 +#include "wayland/meta-wayland-tearing-control.h"
  #include "wayland/meta-wayland-gamma-control.h"
+ #include "wayland/meta-wayland-screencopy.h"
  #include "wayland/meta-wayland-data-control.h"
- #include "wayland/meta-wayland-data-device.h"
-@@ -1027,6 +1028,7 @@ meta_wayland_compositor_new (MetaContext *context)
-   meta_wayland_output_management_init (compositor);
+@@ -1029,6 +1030,7 @@ meta_wayland_compositor_new (MetaContext *context)
+   meta_wayland_screencopy_init (compositor);
    meta_wayland_commit_timing_init (compositor);
    meta_wayland_fifo_init (compositor);
 +  meta_wayland_tearing_control_init (compositor);

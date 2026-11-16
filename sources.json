@@ -113,11 +113,11 @@
   },
   "fastfetch": {
     "repository": "https://github.com/fastfetch-cli/fastfetch",
-    "commit": "1c1136ebd1e943d6d2ba7c204a11deee3e948dd8",
-    "version": "2.68.1",
-    "source_url": "https://codeload.github.com/fastfetch-cli/fastfetch/tar.gz/1c1136ebd1e943d6d2ba7c204a11deee3e948dd8",
-    "archive_root": "fastfetch-1c1136ebd1e943d6d2ba7c204a11deee3e948dd8",
-    "sha256": "aaf759881615c9df0aae1c2872562001b58c9c81489579f787ceef65c2743c6c"
+    "commit": "8c9d9c0449dd515e0088c4a60a38d2dc40c5ccd0",
+    "version": "2.71.0",
+    "source_url": "https://codeload.github.com/fastfetch-cli/fastfetch/tar.gz/8c9d9c0449dd515e0088c4a60a38d2dc40c5ccd0",
+    "archive_root": "fastfetch-8c9d9c0449dd515e0088c4a60a38d2dc40c5ccd0",
+    "sha256": "472f4fd4093c482d34e294621de854e0d4a26beb83233606876494fc439b6fed"
   },
   "kinfocenter": {
     "repository": "https://invent.kde.org/plasma/kinfocenter",
@@ -174,12 +174,12 @@
   },
   "docker-ce": {
     "repository": "https://github.com/moby/moby",
-    "commit": "0367cbeb49b9d98cb0b4f51e95f7b54b4803e76c",
-    "version": "29.9.2",
-    "source_url": "https://github.com/moby/moby/archive/refs/tags/docker-v29.9.2.tar.gz",
-    "archive_root": "moby-docker-v29.9.2",
-    "archive_file": "docker-v29.9.2.tar.gz",
-    "sha256": "d7ce182528eb4c182f3884a7a83b7652ffcbc59b21d3d302050564ff949a9689"
+    "commit": "06db1734267bf7770914b417bff6556d835bf8cc",
+    "version": "29.10.0",
+    "source_url": "https://github.com/moby/moby/archive/refs/tags/docker-v29.10.0.tar.gz",
+    "archive_root": "moby-docker-v29.10.0",
+    "archive_file": "docker-v29.10.0.tar.gz",
+    "sha256": "52ee9d504b0ff278fb591956d761f6f5a8f0008b6bc6d19bc2916856b3f725b9"
   },
   "omarchy-ane-tools": {
     "repository": "https://github.com/joshuaswarren/omarchy-ane",
@@ -192,12 +192,12 @@
   },
   "mil-hwx-compiler": {
     "repository": "https://github.com/joshuaswarren/mil-hwx-compiler",
-    "commit": "927013f5480768b07c8e62a866e1514c41aba778",
-    "source_url": "https://codeload.github.com/joshuaswarren/mil-hwx-compiler/tar.gz/927013f5480768b07c8e62a866e1514c41aba778",
-    "archive_root": "mil-hwx-compiler-927013f5480768b07c8e62a866e1514c41aba778",
-    "sha256": "45eddcad03d68aaccb78d622711b91f144a88f9df952784e8c64c9bd1eb03790",
-    "version": "0.3.1",
-    "tag": "v0.3.1",
+    "commit": "b7008384be29e61404be510dbe8128bf3cd50903",
+    "source_url": "https://codeload.github.com/joshuaswarren/mil-hwx-compiler/tar.gz/b7008384be29e61404be510dbe8128bf3cd50903",
+    "archive_root": "mil-hwx-compiler-b7008384be29e61404be510dbe8128bf3cd50903",
+    "sha256": "50af5b67c68799e4b1d7d75dce354a5ecac7a96f22188cd3f0ad152fccb250fc",
+    "version": "0.3.3",
+    "tag": "v0.3.3",
     "extra_sources": {
       "libobjc2": {
         "repository": "https://github.com/gnustep/libobjc2",
@@ -427,11 +427,11 @@
   },
   "omdrop-awdl": {
     "repository": "https://github.com/netmojo-systems/omdrop-awdl",
-    "commit": "ffc201f33773541063f2f3d57c8a279cad5ede11",
-    "version": "0.10.5",
-    "source_url": "https://codeload.github.com/netmojo-systems/omdrop-awdl/tar.gz/ffc201f33773541063f2f3d57c8a279cad5ede11",
-    "archive_root": "omdrop-awdl-ffc201f33773541063f2f3d57c8a279cad5ede11",
-    "sha256": "bc52318293615f773ef0f9a9523772a83bf73edaaf87b528e2a32856ff02d385",
+    "commit": "9b59420299203805b213f7f65fbcba1d7690177f",
+    "version": "0.10.7",
+    "source_url": "https://codeload.github.com/netmojo-systems/omdrop-awdl/tar.gz/9b59420299203805b213f7f65fbcba1d7690177f",
+    "archive_root": "omdrop-awdl-9b59420299203805b213f7f65fbcba1d7690177f",
+    "sha256": "a332002304b6c76986dfcfb2ba82c27d0b23c298200bb4e325bab2bf53de275c",
     "extra_sources": {
       "omdrop-plugin": {
         "repository": "https://github.com/netmojo-systems/omdrop-plugin",
@@ -486,12 +486,12 @@
   },
   "iio-sensor-proxy": {
     "repository": "https://gitlab.freedesktop.org/hadess/iio-sensor-proxy",
-    "commit": "7fec9326aa785127d0ebaea53ba2e89d37d7bca0",
-    "version": "3.8",
-    "source_url": "https://gitlab.freedesktop.org/hadess/iio-sensor-proxy/-/archive/3.8/iio-sensor-proxy-3.8.tar.bz2",
-    "archive_root": "iio-sensor-proxy-3.8",
-    "archive_file": "iio-sensor-proxy-3.8.tar.bz2",
-    "sha256": "cdf9bdb6ef125d6189069d3f6dc9afb301ce5a17213971e65c5e20a57494593d"
+    "commit": "0085ddf8ecb173a1c5fcf2344aa40e561125354f",
+    "version": "3.9",
+    "source_url": "https://gitlab.freedesktop.org/hadess/iio-sensor-proxy/-/archive/3.9/iio-sensor-proxy-3.9.tar.bz2",
+    "archive_root": "iio-sensor-proxy-3.9",
+    "archive_file": "iio-sensor-proxy-3.9.tar.bz2",
+    "sha256": "19a4ae99b1b8af603fc789841025f9747bf445418d69ec7389e75adb6c8186bf"
   },
   "gnome-settings-daemon": {
     "repository": "https://gitlab.gnome.org/GNOME/gnome-settings-daemon",

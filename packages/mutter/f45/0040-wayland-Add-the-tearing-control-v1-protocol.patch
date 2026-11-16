@@ -18,10 +18,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 src/wayland/protocol/tearing-control-v1.xml
 
 diff --git a/src/meson.build b/src/meson.build
-index 78a6758..8e88950 100644
+index d717ab6..b302b10 100644
 --- a/src/meson.build
 +++ b/src/meson.build
-@@ -1041,6 +1041,7 @@ wayland_protocols = [
+@@ -1043,6 +1043,7 @@ wayland_protocols = [
    ['relative-pointer', 'unstable', 1, ],
    ['single-pixel-buffer', 'staging', 1, ],
    ['tablet', 'stable', 2, ],
