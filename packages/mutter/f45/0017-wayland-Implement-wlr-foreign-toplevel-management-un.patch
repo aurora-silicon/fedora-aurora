@@ -1,0 +1,1303 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 18:47:55 +1100
+Subject: [PATCH] wayland: Implement
+ wlr-foreign-toplevel-management-unstable-v1
+
+Add a zwlr_foreign_toplevel_manager_v1 global (version 3) so that task
+bars, docks and window switchers can list the open windows and control
+them.
+
+Every window gets a foreign toplevel when it is created. It is announced
+to each bound manager as a zwlr_foreign_toplevel_handle_v1 once the
+window is mapped, if it is a normal, dialog or utility window that is
+neither override redirect nor a layer surface, and closed when the
+window is unmanaged or stops qualifying.
+
+Each handle gets the title, the app_id (the window's WM class, which is
+the xdg_toplevel app_id for Wayland clients), the outputs the window
+overlaps, the maximized/minimized/activated/fullscreen state and, for
+transient windows, the parent handle. Window changes mark the toplevel
+dirty and an idle flush sends what changed, followed by one done event.
+
+Requests map onto window operations: activate -> meta_window_activate(),
+close -> meta_window_delete(), set/unset_maximized,
+set/unset_minimized, set/unset_fullscreen (moving the window to the
+requested output first) and set_rectangle -> the window's icon geometry.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/meson.build                             |    2 +
+ src/wayland/meta-wayland-foreign-toplevel.c | 1186 +++++++++++++++++++
+ src/wayland/meta-wayland-foreign-toplevel.h |   22 +
+ src/wayland/meta-wayland-surface.c          |    2 +
+ src/wayland/meta-wayland-versions.h         |    1 +
+ 5 files changed, 1213 insertions(+)
+ create mode 100644 src/wayland/meta-wayland-foreign-toplevel.c
+ create mode 100644 src/wayland/meta-wayland-foreign-toplevel.h
+
+diff --git a/src/meson.build b/src/meson.build
+index 7c4e125..3ea4f79 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -533,6 +533,8 @@ mutter_sources += [
+   'wayland/meta-wayland-fixes.h',
+   'wayland/meta-wayland-fractional-scale.c',
+   'wayland/meta-wayland-fractional-scale.h',
++  'wayland/meta-wayland-foreign-toplevel.c',
++  'wayland/meta-wayland-foreign-toplevel.h',
+   'wayland/meta-wayland-gtk-shell.c',
+   'wayland/meta-wayland-gtk-shell.h',
+   'wayland/meta-wayland.h',
+diff --git a/src/wayland/meta-wayland-foreign-toplevel.c b/src/wayland/meta-wayland-foreign-toplevel.c
+new file mode 100644
+index 0000000..3faca5f
+--- /dev/null
++++ b/src/wayland/meta-wayland-foreign-toplevel.c
+@@ -0,0 +1,1186 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++/*
++ * zwlr_foreign_toplevel_manager_v1 (wlr-foreign-toplevel-management-unstable-v1).
++ *
++ * Lets task bars, docks and window switchers list the open windows and
++ * control them.
++ *
++ * Every MetaWindow gets a MetaForeignToplevel when it is created. It is
++ * advertised (a zwlr_foreign_toplevel_handle_v1 per bound manager) once the
++ * window is mapped, if it is a normal, dialog or utility window that is not
++ * override redirect and not a layer surface, and it is withdrawn (closed)
++ * when the window is unmanaged or stops qualifying.
++ *
++ * The title, app_id, state, parent and outputs that were last sent are
++ * kept on the toplevel. Window changes only mark it dirty; an idle flush
++ * sends what changed to every handle, followed by a single done event, so
++ * that several property changes of one window operation end up in one
++ * batch.
++ *
++ * Requests map onto the usual MetaWindow operations (activate, delete,
++ * (un)maximize, (un)minimize, (un)make_fullscreen); set_rectangle sets the
++ * window's icon geometry, which is what minimize animations use.
++ */
++
++#include "config.h"
++
++#include "wayland/meta-wayland-foreign-toplevel.h"
++
++#include "backends/meta-logical-monitor-private.h"
++#include "backends/meta-monitor-private.h"
++#include "compositor/meta-window-actor-private.h"
++#include "core/display-private.h"
++#include "core/window-private.h"
++#include "wayland/meta-wayland-layer-shell.h"
++#include "wayland/meta-wayland-outputs.h"
++#include "wayland/meta-wayland-private.h"
++#include "wayland/meta-wayland-surface-private.h"
++#include "wayland/meta-wayland-versions.h"
++
++#include "wlr-foreign-toplevel-management-unstable-v1-server-protocol.h"
++
++typedef struct _MetaForeignToplevel MetaForeignToplevel;
++
++typedef struct _MetaWaylandForeignToplevelManager
++{
++  MetaWaylandCompositor *compositor;
++  GList *manager_resources;
++
++  /* MetaWindow -> MetaForeignToplevel */
++  GHashTable *toplevels;
++  /* MetaForeignToplevel, in creation order */
++  GList *toplevel_list;
++
++  guint flush_idle_id;
++
++  MetaDisplay *display;
++  gulong started_handler_id;
++  gulong window_created_handler_id;
++  gulong display_closing_handler_id;
++  gulong monitors_changed_handler_id;
++} MetaWaylandForeignToplevelManager;
++
++struct _MetaForeignToplevel
++{
++  MetaWaylandForeignToplevelManager *manager;
++  MetaWindow *window;
++
++  /* MetaForeignToplevelHandle */
++  GList *handles;
++
++  gboolean shown;
++  gboolean advertised;
++  gboolean dirty;
++
++  /* What was last sent to the handles. */
++  char *title;
++  char *app_id;
++  uint32_t state;
++  MetaForeignToplevel *parent;
++  /* MetaWaylandOutput set */
++  GHashTable *outputs;
++};
++
++typedef struct _MetaForeignToplevelHandle
++{
++  struct wl_resource *resource;
++  /* The manager resource the handle was announced on, NULL once that is
++   * destroyed. Used to find the matching parent handle. */
++  struct wl_resource *manager_resource;
++  /* NULL once the toplevel is closed; the handle is inert then. */
++  MetaForeignToplevel *toplevel;
++} MetaForeignToplevelHandle;
++
++#define STATE_MAXIMIZED (1 << ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_MAXIMIZED)
++#define STATE_MINIMIZED (1 << ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_MINIMIZED)
++#define STATE_ACTIVATED (1 << ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_ACTIVATED)
++#define STATE_FULLSCREEN (1 << ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_FULLSCREEN)
++
++static void foreign_toplevel_output_destroyed (MetaWaylandOutput   *wayland_output,
++                                               MetaForeignToplevel *toplevel);
++
++static void foreign_toplevel_output_bound (MetaWaylandOutput   *wayland_output,
++                                           struct wl_resource  *output_resource,
++                                           MetaForeignToplevel *toplevel);
++
++static void schedule_flush (MetaWaylandForeignToplevelManager *manager);
++
++static MetaWindow *
++window_from_handle_resource (struct wl_resource *resource)
++{
++  MetaForeignToplevelHandle *handle = wl_resource_get_user_data (resource);
++
++  if (!handle || !handle->toplevel)
++    return NULL;
++
++  return handle->toplevel->window;
++}
++
++static uint32_t
++get_timestamp (MetaWindow *window)
++{
++  return meta_display_get_current_time_roundtrip (window->display);
++}
++
++static void
++handle_set_maximized (struct wl_client   *client,
++                      struct wl_resource *resource)
++{
++  MetaWindow *window = window_from_handle_resource (resource);
++
++  if (!window || !meta_window_can_maximize (window))
++    return;
++
++  meta_window_maximize (window);
++}
++
++static void
++handle_unset_maximized (struct wl_client   *client,
++                        struct wl_resource *resource)
++{
++  MetaWindow *window = window_from_handle_resource (resource);
++
++  if (!window || !meta_window_get_maximize_flags (window))
++    return;
++
++  meta_window_unmaximize (window);
++}
++
++static void
++handle_set_minimized (struct wl_client   *client,
++                      struct wl_resource *resource)
++{
++  MetaWindow *window = window_from_handle_resource (resource);
++
++  if (!window || !meta_window_can_minimize (window))
++    return;
++
++  meta_window_minimize (window);
++}
++
++static void
++handle_unset_minimized (struct wl_client   *client,
++                        struct wl_resource *resource)
++{
++  MetaWindow *window = window_from_handle_resource (resource);
++
++  if (!window || !window->minimized)
++    return;
++
++  meta_window_unminimize (window);
++}
++
++static void
++handle_activate (struct wl_client   *client,
++                 struct wl_resource *resource,
++                 struct wl_resource *seat_resource)
++{
++  MetaWindow *window = window_from_handle_resource (resource);
++
++  if (!window)
++    return;
++
++  meta_window_activate (window, get_timestamp (window));
++}
++
++static void
++handle_close (struct wl_client   *client,
++              struct wl_resource *resource)
++{
++  MetaWindow *window = window_from_handle_resource (resource);
++
++  if (!window || !meta_window_can_close (window))
++    return;
++
++  meta_window_delete (window, get_timestamp (window));
++}
++
++static void
++handle_set_rectangle (struct wl_client   *client,
++                      struct wl_resource *resource,
++                      struct wl_resource *surface_resource,
++                      int32_t             x,
++                      int32_t             y,
++                      int32_t             width,
++                      int32_t             height)
++{
++  MetaWindow *window;
++  MetaWaylandSurface *surface;
++  MetaWindow *surface_window;
++  MtkRectangle rect;
++  float abs_x, abs_y;
++
++  if (width < 0 || height < 0)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_ERROR_INVALID_RECTANGLE,
++                              "invalid rectangle size %dx%d", width, height);
++      return;
++    }
++
++  window = window_from_handle_resource (resource);
++  if (!window)
++    return;
++
++  if (width == 0 && height == 0)
++    {
++      meta_window_set_icon_geometry (window, NULL);
++      return;
++    }
++
++  /* The rectangle is relative to a surface of the task bar; it only has a
++   * place on the screen if that surface is shown in a window. */
++  surface = wl_resource_get_user_data (surface_resource);
++  surface_window = surface ? meta_wayland_surface_get_window (surface) : NULL;
++  if (!surface_window ||
++      !meta_wayland_surface_get_actor (surface) ||
++      !meta_window_actor_from_window (surface_window))
++    return;
++
++  meta_wayland_surface_get_absolute_coordinates (surface, x, y,
++                                                 &abs_x, &abs_y);
++  rect = (MtkRectangle) {
++    .x = (int) abs_x,
++    .y = (int) abs_y,
++    .width = width,
++    .height = height,
++  };
++  meta_window_set_icon_geometry (window, &rect);
++}
++
++static void
++handle_destroy (struct wl_client   *client,
++                struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static void
++handle_set_fullscreen (struct wl_client   *client,
++                       struct wl_resource *resource,
++                       struct wl_resource *output_resource)
++{
++  MetaWindow *window = window_from_handle_resource (resource);
++
++  if (!window)
++    return;
++
++  if (output_resource)
++    {
++      MetaWaylandOutput *wayland_output =
++        wl_resource_get_user_data (output_resource);
++      MetaMonitor *monitor =
++        wayland_output ? meta_wayland_output_get_monitor (wayland_output) : NULL;
++      MetaLogicalMonitor *logical_monitor =
++        monitor ? meta_monitor_get_logical_monitor (monitor) : NULL;
++
++      if (logical_monitor && logical_monitor != window->monitor)
++        meta_window_move_to_monitor (window, logical_monitor->number);
++    }
++
++  meta_window_make_fullscreen (window);
++}
++
++static void
++handle_unset_fullscreen (struct wl_client   *client,
++                         struct wl_resource *resource)
++{
++  MetaWindow *window = window_from_handle_resource (resource);
++
++  if (!window || !meta_window_is_fullscreen (window))
++    return;
++
++  meta_window_unmake_fullscreen (window);
++}
++
++static const struct zwlr_foreign_toplevel_handle_v1_interface handle_interface = {
++  handle_set_maximized,
++  handle_unset_maximized,
++  handle_set_minimized,
++  handle_unset_minimized,
++  handle_activate,
++  handle_close,
++  handle_set_rectangle,
++  handle_destroy,
++  handle_set_fullscreen,
++  handle_unset_fullscreen,
++};
++
++static void
++handle_resource_destroyed (struct wl_resource *resource)
++{
++  MetaForeignToplevelHandle *handle = wl_resource_get_user_data (resource);
++
++  if (handle->toplevel)
++    handle->toplevel->handles = g_list_remove (handle->toplevel->handles,
++                                               handle);
++  g_free (handle);
++}
++
++static void
++send_state (MetaForeignToplevelHandle *handle,
++            uint32_t                   state)
++{
++  struct wl_array states;
++  uint32_t i;
++
++  wl_array_init (&states);
++
++  for (i = 0; i < 32; i++)
++    {
++      uint32_t *s;
++
++      if (!(state & (1 << i)))
++        continue;
++
++      if (i == ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_FULLSCREEN &&
++          wl_resource_get_version (handle->resource) <
++          ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_FULLSCREEN_SINCE_VERSION)
++        continue;
++
++      s = wl_array_add (&states, sizeof (uint32_t));
++      *s = i;
++    }
++
++  zwlr_foreign_toplevel_handle_v1_send_state (handle->resource, &states);
++  wl_array_release (&states);
++}
++
++static void
++send_parent (MetaForeignToplevelHandle *handle,
++             MetaForeignToplevel       *parent)
++{
++  struct wl_resource *parent_resource = NULL;
++  GList *l;
++
++  if (wl_resource_get_version (handle->resource) <
++      ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_PARENT_SINCE_VERSION)
++    return;
++
++  if (parent && handle->manager_resource)
++    {
++      for (l = parent->handles; l; l = l->next)
++        {
++          MetaForeignToplevelHandle *parent_handle = l->data;
++
++          if (parent_handle->manager_resource == handle->manager_resource)
++            {
++              parent_resource = parent_handle->resource;
++              break;
++            }
++        }
++    }
++
++  zwlr_foreign_toplevel_handle_v1_send_parent (handle->resource,
++                                               parent_resource);
++}
++
++static void
++send_output (MetaForeignToplevelHandle *handle,
++             MetaWaylandOutput         *wayland_output,
++             gboolean                   enter)
++{
++  struct wl_client *client = wl_resource_get_client (handle->resource);
++  const GList *l;
++
++  for (l = meta_wayland_output_get_resources (wayland_output); l; l = l->next)
++    {
++      struct wl_resource *output_resource = l->data;
++
++      if (wl_resource_get_client (output_resource) != client)
++        continue;
++
++      if (enter)
++        zwlr_foreign_toplevel_handle_v1_send_output_enter (handle->resource,
++                                                           output_resource);
++      else
++        zwlr_foreign_toplevel_handle_v1_send_output_leave (handle->resource,
++                                                           output_resource);
++    }
++}
++
++static void
++send_all (MetaForeignToplevel       *toplevel,
++          MetaForeignToplevelHandle *handle)
++{
++  GHashTableIter iter;
++  gpointer key;
++
++  if (toplevel->title)
++    zwlr_foreign_toplevel_handle_v1_send_title (handle->resource,
++                                                toplevel->title);
++  if (toplevel->app_id)
++    zwlr_foreign_toplevel_handle_v1_send_app_id (handle->resource,
++                                                 toplevel->app_id);
++
++  g_hash_table_iter_init (&iter, toplevel->outputs);
++  while (g_hash_table_iter_next (&iter, &key, NULL))
++    send_output (handle, key, TRUE);
++
++  send_state (handle, toplevel->state);
++}
++
++static gboolean
++is_foreign_toplevel (MetaForeignToplevel *toplevel)
++{
++  MetaWindow *window = toplevel->window;
++  MetaWaylandSurface *surface;
++
++  if (window->unmanaging || meta_window_is_override_redirect (window))
++    return FALSE;
++
++  /* Layer surfaces are shell chrome, not toplevels. */
++  surface = meta_window_get_wayland_surface (window);
++  if (surface && surface->role && META_IS_WAYLAND_LAYER_SURFACE (surface->role))
++    return FALSE;
++
++  switch (window->type)
++    {
++    case META_WINDOW_NORMAL:
++    case META_WINDOW_DIALOG:
++    case META_WINDOW_MODAL_DIALOG:
++    case META_WINDOW_UTILITY:
++      break;
++    default:
++      return FALSE;
++    }
++
++  return window->mapped || toplevel->shown;
++}
++
++static uint32_t
++get_window_state (MetaWindow *window)
++{
++  uint32_t state = 0;
++
++  if (meta_window_get_maximize_flags (window) == META_MAXIMIZE_BOTH)
++    state |= STATE_MAXIMIZED;
++  if (window->minimized)
++    state |= STATE_MINIMIZED;
++  if (meta_window_appears_focused (window))
++    state |= STATE_ACTIVATED;
++  if (meta_window_is_fullscreen (window))
++    state |= STATE_FULLSCREEN;
++
++  return state;
++}
++
++static MetaForeignToplevel *
++get_window_parent (MetaForeignToplevel *toplevel)
++{
++  MetaWaylandForeignToplevelManager *manager = toplevel->manager;
++  MetaWindow *transient_for = meta_window_get_transient_for (toplevel->window);
++  MetaForeignToplevel *parent;
++
++  if (!transient_for)
++    return NULL;
++
++  parent = g_hash_table_lookup (manager->toplevels, transient_for);
++  if (!parent || !parent->advertised)
++    return NULL;
++
++  return parent;
++}
++
++static GHashTable *
++get_window_outputs (MetaForeignToplevel *toplevel)
++{
++  MetaWindow *window = toplevel->window;
++  GHashTable *outputs = g_hash_table_new (NULL, NULL);
++  GHashTableIter iter;
++  gpointer value;
++  MtkRectangle frame_rect;
++
++  meta_window_get_frame_rect (window, &frame_rect);
++
++  g_hash_table_iter_init (&iter, toplevel->manager->compositor->outputs);
++  while (g_hash_table_iter_next (&iter, NULL, &value))
++    {
++      MetaWaylandOutput *wayland_output = value;
++      MetaMonitor *monitor = meta_wayland_output_get_monitor (wayland_output);
++      MetaLogicalMonitor *logical_monitor;
++
++      if (!monitor)
++        continue;
++
++      logical_monitor = meta_monitor_get_logical_monitor (monitor);
++      if (!logical_monitor)
++        continue;
++
++      if (mtk_rectangle_overlap (&frame_rect,
++                                 &logical_monitor->rect) ||
++          (frame_rect.width == 0 && logical_monitor == window->monitor))
++        g_hash_table_add (outputs, wayland_output);
++    }
++
++  return outputs;
++}
++
++static void
++connect_output (MetaForeignToplevel *toplevel,
++                MetaWaylandOutput   *wayland_output)
++{
++  g_signal_connect (wayland_output, "output-destroyed",
++                    G_CALLBACK (foreign_toplevel_output_destroyed),
++                    toplevel);
++  g_signal_connect (wayland_output, "output-bound",
++                    G_CALLBACK (foreign_toplevel_output_bound),
++                    toplevel);
++}
++
++static void
++disconnect_output (MetaForeignToplevel *toplevel,
++                   MetaWaylandOutput   *wayland_output)
++{
++  g_signal_handlers_disconnect_by_func (wayland_output,
++                                        foreign_toplevel_output_destroyed,
++                                        toplevel);
++  g_signal_handlers_disconnect_by_func (wayland_output,
++                                        foreign_toplevel_output_bound,
++                                        toplevel);
++}
++
++static void
++foreign_toplevel_output_destroyed (MetaWaylandOutput   *wayland_output,
++                                   MetaForeignToplevel *toplevel)
++{
++  /* The wl_output globals and resources go away with it; the new outputs
++   * are picked up by the flush that follows the monitor change. */
++  disconnect_output (toplevel, wayland_output);
++  g_hash_table_remove (toplevel->outputs, wayland_output);
++}
++
++static void
++foreign_toplevel_output_bound (MetaWaylandOutput   *wayland_output,
++                               struct wl_resource  *output_resource,
++                               MetaForeignToplevel *toplevel)
++{
++  struct wl_client *client = wl_resource_get_client (output_resource);
++  GList *l;
++
++  for (l = toplevel->handles; l; l = l->next)
++    {
++      MetaForeignToplevelHandle *handle = l->data;
++
++      if (wl_resource_get_client (handle->resource) != client)
++        continue;
++
++      zwlr_foreign_toplevel_handle_v1_send_output_enter (handle->resource,
++                                                         output_resource);
++      zwlr_foreign_toplevel_handle_v1_send_done (handle->resource);
++    }
++}
++
++static void
++clear_outputs (MetaForeignToplevel *toplevel)
++{
++  GHashTableIter iter;
++  gpointer key;
++
++  g_hash_table_iter_init (&iter, toplevel->outputs);
++  while (g_hash_table_iter_next (&iter, &key, NULL))
++    {
++      disconnect_output (toplevel, key);
++      g_hash_table_iter_remove (&iter);
++    }
++}
++
++/* Takes the current window properties as the sent ones; for a toplevel
++ * that is about to be advertised. */
++static void
++sync_toplevel (MetaForeignToplevel *toplevel)
++{
++  MetaWindow *window = toplevel->window;
++  g_autoptr (GHashTable) outputs = NULL;
++  GHashTableIter iter;
++  gpointer key;
++
++  g_set_str (&toplevel->title, meta_window_get_title (window));
++  g_set_str (&toplevel->app_id, meta_window_get_wm_class (window));
++  toplevel->state = get_window_state (window);
++  toplevel->parent = get_window_parent (toplevel);
++
++  clear_outputs (toplevel);
++  outputs = get_window_outputs (toplevel);
++  g_hash_table_iter_init (&iter, outputs);
++  while (g_hash_table_iter_next (&iter, &key, NULL))
++    {
++      g_hash_table_add (toplevel->outputs, key);
++      connect_output (toplevel, key);
++    }
++}
++
++static MetaForeignToplevelHandle *
++create_handle (MetaForeignToplevel *toplevel,
++               struct wl_resource  *manager_resource)
++{
++  struct wl_client *client = wl_resource_get_client (manager_resource);
++  MetaForeignToplevelHandle *handle;
++  struct wl_resource *resource;
++
++  resource = wl_resource_create (client,
++                                 &zwlr_foreign_toplevel_handle_v1_interface,
++                                 wl_resource_get_version (manager_resource),
++                                 0);
++  if (!resource)
++    {
++      wl_client_post_no_memory (client);
++      return NULL;
++    }
++
++  handle = g_new0 (MetaForeignToplevelHandle, 1);
++  handle->resource = resource;
++  handle->manager_resource = manager_resource;
++  handle->toplevel = toplevel;
++  wl_resource_set_implementation (resource, &handle_interface, handle,
++                                  handle_resource_destroyed);
++
++  toplevel->handles = g_list_append (toplevel->handles, handle);
++
++  zwlr_foreign_toplevel_manager_v1_send_toplevel (manager_resource, resource);
++  send_all (toplevel, handle);
++
++  return handle;
++}
++
++static void
++advertise_toplevel (MetaForeignToplevel *toplevel)
++{
++  MetaWaylandForeignToplevelManager *manager = toplevel->manager;
++  GList *l;
++
++  sync_toplevel (toplevel);
++  toplevel->advertised = TRUE;
++  toplevel->dirty = FALSE;
++
++  for (l = manager->manager_resources; l; l = l->next)
++    {
++      MetaForeignToplevelHandle *handle;
++
++      handle = create_handle (toplevel, l->data);
++      if (!handle)
++        continue;
++
++      if (toplevel->parent)
++        send_parent (handle, toplevel->parent);
++      zwlr_foreign_toplevel_handle_v1_send_done (handle->resource);
++    }
++
++  /* Transients that were mapped first get their parent now. */
++  for (l = manager->toplevel_list; l; l = l->next)
++    {
++      MetaForeignToplevel *other = l->data;
++
++      if (other->advertised &&
++          meta_window_get_transient_for (other->window) == toplevel->window)
++        {
++          other->dirty = TRUE;
++          schedule_flush (manager);
++        }
++    }
++}
++
++static void
++withdraw_toplevel (MetaForeignToplevel *toplevel)
++{
++  MetaWaylandForeignToplevelManager *manager = toplevel->manager;
++  GList *l;
++
++  if (!toplevel->advertised)
++    return;
++
++  toplevel->advertised = FALSE;
++  toplevel->dirty = FALSE;
++
++  /* Children lose their parent before it is closed. */
++  for (l = manager->toplevel_list; l; l = l->next)
++    {
++      MetaForeignToplevel *other = l->data;
++      GList *h;
++
++      if (other->parent != toplevel)
++        continue;
++
++      other->parent = NULL;
++      for (h = other->handles; h; h = h->next)
++        {
++          MetaForeignToplevelHandle *handle = h->data;
++
++          send_parent (handle, NULL);
++          zwlr_foreign_toplevel_handle_v1_send_done (handle->resource);
++        }
++    }
++
++  for (l = toplevel->handles; l; l = l->next)
++    {
++      MetaForeignToplevelHandle *handle = l->data;
++
++      zwlr_foreign_toplevel_handle_v1_send_closed (handle->resource);
++      handle->toplevel = NULL;
++    }
++  g_clear_pointer (&toplevel->handles, g_list_free);
++
++  clear_outputs (toplevel);
++}
++
++static void
++flush_toplevel (MetaForeignToplevel *toplevel)
++{
++  MetaWindow *window = toplevel->window;
++  const char *title = meta_window_get_title (window);
++  const char *app_id = meta_window_get_wm_class (window);
++  uint32_t state = get_window_state (window);
++  MetaForeignToplevel *parent = get_window_parent (toplevel);
++  g_autoptr (GHashTable) outputs = NULL;
++  gboolean changed = FALSE;
++  GHashTableIter iter;
++  gpointer key;
++  GList *l;
++
++  toplevel->dirty = FALSE;
++
++  if (g_strcmp0 (title, toplevel->title) != 0)
++    {
++      g_set_str (&toplevel->title, title);
++      for (l = toplevel->handles; l; l = l->next)
++        {
++          MetaForeignToplevelHandle *handle = l->data;
++
++          zwlr_foreign_toplevel_handle_v1_send_title (handle->resource,
++                                                      title ? title : "");
++        }
++      changed = TRUE;
++    }
++
++  if (g_strcmp0 (app_id, toplevel->app_id) != 0)
++    {
++      g_set_str (&toplevel->app_id, app_id);
++      for (l = toplevel->handles; l; l = l->next)
++        {
++          MetaForeignToplevelHandle *handle = l->data;
++
++          zwlr_foreign_toplevel_handle_v1_send_app_id (handle->resource,
++                                                       app_id ? app_id : "");
++        }
++      changed = TRUE;
++    }
++
++  outputs = get_window_outputs (toplevel);
++
++  g_hash_table_iter_init (&iter, toplevel->outputs);
++  while (g_hash_table_iter_next (&iter, &key, NULL))
++    {
++      if (g_hash_table_contains (outputs, key))
++        continue;
++
++      for (l = toplevel->handles; l; l = l->next)
++        send_output (l->data, key, FALSE);
++      disconnect_output (toplevel, key);
++      g_hash_table_iter_remove (&iter);
++      changed = TRUE;
++    }
++
++  g_hash_table_iter_init (&iter, outputs);
++  while (g_hash_table_iter_next (&iter, &key, NULL))
++    {
++      if (g_hash_table_contains (toplevel->outputs, key))
++        continue;
++
++      g_hash_table_add (toplevel->outputs, key);
++      connect_output (toplevel, key);
++      for (l = toplevel->handles; l; l = l->next)
++        send_output (l->data, key, TRUE);
++      changed = TRUE;
++    }
++
++  if (state != toplevel->state)
++    {
++      toplevel->state = state;
++      for (l = toplevel->handles; l; l = l->next)
++        send_state (l->data, state);
++      changed = TRUE;
++    }
++
++  if (parent != toplevel->parent)
++    {
++      toplevel->parent = parent;
++      for (l = toplevel->handles; l; l = l->next)
++        send_parent (l->data, parent);
++      changed = TRUE;
++    }
++
++  if (!changed)
++    return;
++
++  for (l = toplevel->handles; l; l = l->next)
++    {
++      MetaForeignToplevelHandle *handle = l->data;
++
++      zwlr_foreign_toplevel_handle_v1_send_done (handle->resource);
++    }
++}
++
++static gboolean
++flush_idle (gpointer user_data)
++{
++  MetaWaylandForeignToplevelManager *manager = user_data;
++  GList *l;
++
++  manager->flush_idle_id = 0;
++
++  for (l = manager->toplevel_list; l; l = l->next)
++    {
++      MetaForeignToplevel *toplevel = l->data;
++
++      if (toplevel->advertised && toplevel->dirty)
++        flush_toplevel (toplevel);
++    }
++
++  return G_SOURCE_REMOVE;
++}
++
++static void
++schedule_flush (MetaWaylandForeignToplevelManager *manager)
++{
++  if (manager->flush_idle_id)
++    return;
++
++  manager->flush_idle_id = g_idle_add (flush_idle, manager);
++}
++
++static void
++update_toplevel (MetaForeignToplevel *toplevel)
++{
++  gboolean is_toplevel = is_foreign_toplevel (toplevel);
++
++  if (is_toplevel && !toplevel->advertised)
++    {
++      advertise_toplevel (toplevel);
++    }
++  else if (!is_toplevel && toplevel->advertised)
++    {
++      withdraw_toplevel (toplevel);
++    }
++  else if (toplevel->advertised)
++    {
++      toplevel->dirty = TRUE;
++      schedule_flush (toplevel->manager);
++    }
++}
++
++static void
++on_window_shown (MetaForeignToplevel *toplevel)
++{
++  toplevel->shown = TRUE;
++  update_toplevel (toplevel);
++}
++
++static void
++free_toplevel (MetaForeignToplevel *toplevel)
++{
++  g_signal_handlers_disconnect_by_data (toplevel->window, toplevel);
++  clear_outputs (toplevel);
++  g_hash_table_destroy (toplevel->outputs);
++  g_free (toplevel->title);
++  g_free (toplevel->app_id);
++  g_free (toplevel);
++}
++
++static void
++remove_toplevel (MetaForeignToplevel *toplevel)
++{
++  MetaWaylandForeignToplevelManager *manager = toplevel->manager;
++
++  withdraw_toplevel (toplevel);
++
++  g_hash_table_remove (manager->toplevels, toplevel->window);
++  manager->toplevel_list = g_list_remove (manager->toplevel_list, toplevel);
++  free_toplevel (toplevel);
++}
++
++static void
++on_window_unmanaging (MetaWindow          *window,
++                      MetaForeignToplevel *toplevel)
++{
++  remove_toplevel (toplevel);
++}
++
++static void
++add_window (MetaWaylandForeignToplevelManager *manager,
++            MetaWindow                        *window)
++{
++  MetaForeignToplevel *toplevel;
++  static const char * const notifies[] = {
++    "notify::title",
++    "notify::wm-class",
++    "notify::minimized",
++    "notify::maximized-horizontally",
++    "notify::maximized-vertically",
++    "notify::fullscreen",
++    "notify::appears-focused",
++    "notify::mapped",
++    "notify::window-type",
++    "position-changed",
++    "size-changed",
++  };
++  size_t i;
++
++  if (g_hash_table_contains (manager->toplevels, window))
++    return;
++
++  toplevel = g_new0 (MetaForeignToplevel, 1);
++  toplevel->manager = manager;
++  toplevel->window = window;
++  toplevel->outputs = g_hash_table_new (NULL, NULL);
++
++  g_hash_table_insert (manager->toplevels, window, toplevel);
++  manager->toplevel_list = g_list_append (manager->toplevel_list, toplevel);
++
++  for (i = 0; i < G_N_ELEMENTS (notifies); i++)
++    {
++      g_signal_connect_swapped (window, notifies[i],
++                                G_CALLBACK (update_toplevel),
++                                toplevel);
++    }
++  g_signal_connect_swapped (window, "shown",
++                            G_CALLBACK (on_window_shown),
++                            toplevel);
++  g_signal_connect (window, "unmanaging",
++                    G_CALLBACK (on_window_unmanaging),
++                    toplevel);
++
++  update_toplevel (toplevel);
++}
++
++static void
++on_window_created (MetaDisplay                       *display,
++                   MetaWindow                        *window,
++                   MetaWaylandForeignToplevelManager *manager)
++{
++  add_window (manager, window);
++}
++
++static void
++on_monitors_changed (MetaMonitorManager                *monitor_manager,
++                     MetaWaylandForeignToplevelManager *manager)
++{
++  GList *l;
++
++  for (l = manager->toplevel_list; l; l = l->next)
++    {
++      MetaForeignToplevel *toplevel = l->data;
++
++      if (toplevel->advertised)
++        toplevel->dirty = TRUE;
++    }
++
++  schedule_flush (manager);
++}
++
++static void
++remove_all_toplevels (MetaWaylandForeignToplevelManager *manager)
++{
++  while (manager->toplevel_list)
++    remove_toplevel (manager->toplevel_list->data);
++}
++
++static void
++disconnect_display (MetaWaylandForeignToplevelManager *manager)
++{
++  if (!manager->display)
++    return;
++
++  g_clear_signal_handler (&manager->window_created_handler_id,
++                          manager->display);
++  g_clear_signal_handler (&manager->display_closing_handler_id,
++                          manager->display);
++  manager->display = NULL;
++}
++
++static void
++on_display_closing (MetaDisplay                       *display,
++                    MetaWaylandForeignToplevelManager *manager)
++{
++  remove_all_toplevels (manager);
++  disconnect_display (manager);
++}
++
++static void
++on_started (MetaContext                       *context,
++            MetaWaylandForeignToplevelManager *manager)
++{
++  MetaDisplay *display = meta_context_get_display (context);
++  g_autoptr (GList) windows = NULL;
++  GList *l;
++
++  manager->display = display;
++  manager->window_created_handler_id =
++    g_signal_connect (display, "window-created",
++                      G_CALLBACK (on_window_created),
++                      manager);
++  manager->display_closing_handler_id =
++    g_signal_connect (display, "closing",
++                      G_CALLBACK (on_display_closing),
++                      manager);
++
++  windows = meta_display_list_all_windows (display);
++  for (l = windows; l; l = l->next)
++    add_window (manager, l->data);
++}
++
++static void
++manager_handle_stop (struct wl_client   *client,
++                     struct wl_resource *resource)
++{
++  zwlr_foreign_toplevel_manager_v1_send_finished (resource);
++  wl_resource_destroy (resource);
++}
++
++static const struct zwlr_foreign_toplevel_manager_v1_interface manager_interface = {
++  manager_handle_stop,
++};
++
++static void
++manager_resource_destroyed (struct wl_resource *resource)
++{
++  MetaWaylandForeignToplevelManager *manager =
++    wl_resource_get_user_data (resource);
++  GList *l;
++
++  manager->manager_resources = g_list_remove (manager->manager_resources,
++                                              resource);
++
++  for (l = manager->toplevel_list; l; l = l->next)
++    {
++      MetaForeignToplevel *toplevel = l->data;
++      GList *h;
++
++      for (h = toplevel->handles; h; h = h->next)
++        {
++          MetaForeignToplevelHandle *handle = h->data;
++
++          if (handle->manager_resource == resource)
++            handle->manager_resource = NULL;
++        }
++    }
++}
++
++static void
++bind_foreign_toplevel_manager (struct wl_client *client,
++                               void             *data,
++                               uint32_t          version,
++                               uint32_t          id)
++{
++  MetaWaylandForeignToplevelManager *manager = data;
++  g_autoptr (GPtrArray) handles = NULL;
++  struct wl_resource *resource;
++  GList *l;
++  unsigned int i;
++
++  resource = wl_resource_create (client,
++                                 &zwlr_foreign_toplevel_manager_v1_interface,
++                                 version, id);
++  wl_resource_set_implementation (resource, &manager_interface, manager,
++                                  manager_resource_destroyed);
++  manager->manager_resources = g_list_prepend (manager->manager_resources,
++                                               resource);
++
++  /* Announce every toplevel first, so that parent events can refer to any
++   * of them, then finish each with its parent and done. */
++  handles = g_ptr_array_new ();
++  for (l = manager->toplevel_list; l; l = l->next)
++    {
++      MetaForeignToplevel *toplevel = l->data;
++      MetaForeignToplevelHandle *handle;
++
++      if (!toplevel->advertised)
++        continue;
++
++      if (toplevel->dirty)
++        flush_toplevel (toplevel);
++
++      handle = create_handle (toplevel, resource);
++      if (handle)
++        g_ptr_array_add (handles, handle);
++    }
++
++  for (i = 0; i < handles->len; i++)
++    {
++      MetaForeignToplevelHandle *handle = g_ptr_array_index (handles, i);
++
++      if (handle->toplevel->parent)
++        send_parent (handle, handle->toplevel->parent);
++      zwlr_foreign_toplevel_handle_v1_send_done (handle->resource);
++    }
++}
++
++static void
++manager_free (MetaWaylandForeignToplevelManager *manager)
++{
++  MetaContext *context =
++    meta_wayland_compositor_get_context (manager->compositor);
++  MetaBackend *backend = meta_context_get_backend (context);
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++
++  remove_all_toplevels (manager);
++  disconnect_display (manager);
++  g_clear_signal_handler (&manager->started_handler_id, context);
++  g_clear_signal_handler (&manager->monitors_changed_handler_id,
++                          monitor_manager);
++  g_clear_handle_id (&manager->flush_idle_id, g_source_remove);
++  g_hash_table_destroy (manager->toplevels);
++  g_free (manager);
++}
++
++void
++meta_wayland_foreign_toplevel_init (MetaWaylandCompositor *compositor)
++{
++  MetaContext *context = meta_wayland_compositor_get_context (compositor);
++  MetaBackend *backend = meta_context_get_backend (context);
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++  MetaWaylandForeignToplevelManager *manager;
++
++  manager = g_new0 (MetaWaylandForeignToplevelManager, 1);
++  manager->compositor = compositor;
++  manager->toplevels = g_hash_table_new (NULL, NULL);
++
++  if (wl_global_create (compositor->wayland_display,
++                        &zwlr_foreign_toplevel_manager_v1_interface,
++                        META_ZWLR_FOREIGN_TOPLEVEL_MANAGER_V1_VERSION,
++                        manager, bind_foreign_toplevel_manager) == NULL)
++    g_error ("Failed to register a global wlr-foreign-toplevel-management object");
++
++  /* Connected after the wl_output code, so the outputs are up to date when
++   * the flush runs. */
++  manager->monitors_changed_handler_id =
++    g_signal_connect (monitor_manager, "monitors-changed-internal",
++                      G_CALLBACK (on_monitors_changed),
++                      manager);
++  manager->started_handler_id =
++    g_signal_connect (context, "started",
++                      G_CALLBACK (on_started),
++                      manager);
++
++  g_object_set_data_full (G_OBJECT (compositor),
++                          "-meta-wayland-foreign-toplevel-manager",
++                          manager,
++                          (GDestroyNotify) manager_free);
++}
+diff --git a/src/wayland/meta-wayland-foreign-toplevel.h b/src/wayland/meta-wayland-foreign-toplevel.h
+new file mode 100644
+index 0000000..bc444dc
+--- /dev/null
++++ b/src/wayland/meta-wayland-foreign-toplevel.h
+@@ -0,0 +1,22 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#pragma once
++
++#include "wayland/meta-wayland-types.h"
++
++void meta_wayland_foreign_toplevel_init (MetaWaylandCompositor *compositor);
+diff --git a/src/wayland/meta-wayland-surface.c b/src/wayland/meta-wayland-surface.c
+index 056ec4f..be79c77 100644
+--- a/src/wayland/meta-wayland-surface.c
++++ b/src/wayland/meta-wayland-surface.c
+@@ -39,6 +39,7 @@
+ #include "wayland/meta-wayland-buffer.h"
+ #include "wayland/meta-wayland-client-private.h"
+ #include "wayland/meta-wayland-color-representation.h"
++#include "wayland/meta-wayland-foreign-toplevel.h"
+ #include "wayland/meta-wayland-fractional-scale.h"
+ #include "wayland/meta-wayland-gtk-shell.h"
+ #include "wayland/meta-wayland-layer-shell.h"
+@@ -1914,6 +1915,7 @@ meta_wayland_shell_init (MetaWaylandCompositor *compositor)
+ {
+   meta_wayland_xdg_shell_init (compositor);
+   meta_wayland_layer_shell_init (compositor);
++  meta_wayland_foreign_toplevel_init (compositor);
+   meta_wayland_init_gtk_shell (compositor);
+   meta_wayland_init_viewporter (compositor);
+   meta_wayland_init_fractional_scale (compositor);
+diff --git a/src/wayland/meta-wayland-versions.h b/src/wayland/meta-wayland-versions.h
+index 06b2db1..9f2c8cc 100644
+--- a/src/wayland/meta-wayland-versions.h
++++ b/src/wayland/meta-wayland-versions.h
+@@ -72,3 +72,4 @@
+ #define META_WP_POINTER_WARP_VERSION 1
+ #define META_EXT_BACKGROUND_EFFECT_V1_VERSION 1
+ #define META_ZWLR_LAYER_SHELL_V1_VERSION 5
++#define META_ZWLR_FOREIGN_TOPLEVEL_MANAGER_V1_VERSION 3
+-- 
+2.54.0
+

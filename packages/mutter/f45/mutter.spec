@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       10%{?dist}.aurora
+Release:       11%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -46,6 +46,8 @@ Patch12:       0012-wayland-layer-shell-Wait-for-the-configure-ack-acros.patch
 Patch13:       0013-wayland-Support-xdg_popups-parented-to-layer-surface.patch
 Patch14:       0014-wayland-layer-shell-Destroy-the-layer-surface-resour.patch
 Patch15:       0015-wayland-layer-shell-Stack-layer-surfaces-with-the-sh.patch
+Patch16:       0016-wayland-Add-the-wlr-foreign-toplevel-management-unst.patch
+Patch17:       0017-wayland-Implement-wlr-foreign-toplevel-management-un.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -264,6 +266,13 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-11.aurora
+- Support wlr-foreign-toplevel-management-unstable-v1
+  (zwlr_foreign_toplevel_manager_v1, version 3), so task bars, docks and
+  window switchers written for it (waybar's wlr/taskbar, wlrctl) can list
+  the open windows and activate, close, maximize, minimize and fullscreen
+  them
+
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-10.aurora
 - Stack layer surfaces with the shell's chrome: top anchored bars go below
   the gnome-shell top panel and their exclusive zone adds to the panel's,
