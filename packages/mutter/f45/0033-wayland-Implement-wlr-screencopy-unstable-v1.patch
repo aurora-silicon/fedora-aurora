@@ -1,0 +1,1302 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 00:38:29 +1100
+Subject: [PATCH] wayland: Implement wlr-screencopy-unstable-v1
+
+Let clients such as grim, slurp + grim, wf-recorder, hyprpicker and
+wayvnc copy the contents of an output, or of a region of it, into a
+wl_shm buffer.
+
+Frames are painted from the stage with clutter_stage_paint_to_buffer(),
+like the screen cast area streams, into an XRGB8888 buffer that has the
+orientation of the output's buffer (clients apply the wl_output
+transform, as on wlroots); they are never y-inverted. The cursor is
+included only with overlay_cursor. 'copy' completes on the next idle;
+'copy_with_damage' completes once the captured area has been damaged
+since the previous copy_with_damage of the same manager object on that
+output (the first one at once, with full damage), and reports that
+damage in buffer coordinates. The stage is only watched while a client
+waits for damage or keeps a damage history. Frames fail when their
+output goes away or the monitor configuration changes.
+
+The protocol gives every client the screen contents without asking, so
+it is gated by the new org.gnome.mutter.wayland allow-screen-capture
+setting (on by default). When it is off the global is hidden from new
+clients and all pending and new captures fail. Clients in a Flatpak
+sandbox are never offered the global; they keep using the screen cast
+portal. Each manager object logs once which process is capturing.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ data/org.gnome.mutter.wayland.gschema.xml.in |   20 +
+ src/meson.build                              |    2 +
+ src/wayland/meta-wayland-screencopy.c        | 1151 ++++++++++++++++++
+ src/wayland/meta-wayland-screencopy.h        |   22 +
+ src/wayland/meta-wayland-versions.h          |    1 +
+ src/wayland/meta-wayland.c                   |    2 +
+ 6 files changed, 1198 insertions(+)
+ create mode 100644 src/wayland/meta-wayland-screencopy.c
+ create mode 100644 src/wayland/meta-wayland-screencopy.h
+
+diff --git a/data/org.gnome.mutter.wayland.gschema.xml.in b/data/org.gnome.mutter.wayland.gschema.xml.in
+index 0d08115..63b7f13 100644
+--- a/data/org.gnome.mutter.wayland.gschema.xml.in
++++ b/data/org.gnome.mutter.wayland.gschema.xml.in
+@@ -184,6 +184,26 @@
+       </description>
+     </key>
+ 
++    <key name="allow-screen-capture" type="b">
++      <default>true</default>
++      <summary>Allow Wayland clients to capture the screen</summary>
++      <description>
++        Allow Wayland clients to copy the contents of the screen with the
++        wlr-screencopy protocol, which screenshot, screen recording, color
++        picker and remote desktop tools such as grim, wf-recorder,
++        hyprpicker and wayvnc use.
++
++        Any client that can connect to the Wayland display can then read
++        everything shown on screen without asking. Clients running in a
++        Flatpak sandbox are never allowed to; they use the screen cast
++        portal, which asks the user.
++
++        When this is off, clients are not offered the protocol and captures
++        that are in progress fail. Screen casts and screenshots through the
++        portal or GNOME Shell are not affected.
++      </description>
++    </key>
++
+     <child name="keybindings" schema="org.gnome.mutter.wayland.keybindings"/>
+   </schema>
+ 
+diff --git a/src/meson.build b/src/meson.build
+index 3f5d13e..f781b40 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -585,6 +585,8 @@ mutter_sources += [
+   'wayland/meta-wayland-private.h',
+   'wayland/meta-wayland-region.c',
+   'wayland/meta-wayland-region.h',
++  'wayland/meta-wayland-screencopy.c',
++  'wayland/meta-wayland-screencopy.h',
+   'wayland/meta-wayland-seat.c',
+   'wayland/meta-wayland-seat.h',
+   'wayland/meta-wayland-shell-surface.c',
+diff --git a/src/wayland/meta-wayland-screencopy.c b/src/wayland/meta-wayland-screencopy.c
+new file mode 100644
+index 0000000..b371313
+--- /dev/null
++++ b/src/wayland/meta-wayland-screencopy.c
+@@ -0,0 +1,1151 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++/*
++ * wlr-screencopy-unstable-v1: lets a client (grim, wf-recorder, wayvnc,
++ * hyprpicker, ...) copy the composited contents of an output, or of a region
++ * of it, into a buffer it provides.
++ *
++ * The contents are painted from the stage with clutter_stage_paint_to_buffer(),
++ * the same path the screen cast area streams use, so a frame looks like what
++ * the output shows minus the final color pipeline (gamma ramps and CTM), like
++ * a capture of a wlroots output buffer before its KMS gamma LUT. The cursor
++ * is included only when the client asks for it (overlay_cursor).
++ *
++ * Buffers are wl_shm XRGB8888, in the orientation of the output's buffer, as
++ * on wlroots: clients (grim) apply the wl_output transform themselves. Frames
++ * are never y-inverted.
++ *
++ * 'copy' captures on the next idle. 'copy_with_damage' waits until the
++ * captured area has been damaged since the last copy_with_damage of the
++ * same manager object for that output; the first one completes at once with
++ * full damage.
++ *
++ * The protocol hands every client the screen contents without asking the
++ * user, so it is gated by the org.gnome.mutter.wayland allow-screen-capture
++ * setting: when it is off the global is hidden from new clients and every
++ * capture fails. Clients running in a Flatpak sandbox never see the global;
++ * they have to go through the screen cast portal.
++ */
++
++#include "config.h"
++
++#include "wayland/meta-wayland-screencopy.h"
++
++#include <glib/gstdio.h>
++#include <string.h>
++
++#include "backends/meta-backend-private.h"
++#include "backends/meta-logical-monitor-private.h"
++#include "backends/meta-monitor-manager-private.h"
++#include "backends/meta-monitor-private.h"
++#include "backends/meta-stage-private.h"
++#include "clutter/clutter.h"
++#include "wayland/meta-wayland-filter-manager.h"
++#include "wayland/meta-wayland-outputs.h"
++#include "wayland/meta-wayland-private.h"
++#include "wayland/meta-wayland-versions.h"
++
++#include "wlr-screencopy-unstable-v1-server-protocol.h"
++
++#define SCREENCOPY_SCHEMA "org.gnome.mutter.wayland"
++#define ALLOW_SCREEN_CAPTURE_KEY "allow-screen-capture"
++
++/* XRGB8888 is B, G, R, X in memory, which is what Cogl calls BGRA. */
++#define SCREENCOPY_SHM_FORMAT WL_SHM_FORMAT_XRGB8888
++#define SCREENCOPY_COGL_FORMAT COGL_PIXEL_FORMAT_BGRA_8888_PRE
++#define SCREENCOPY_BPP 4
++
++typedef struct _MetaWaylandScreencopy MetaWaylandScreencopy;
++
++typedef struct _MetaWaylandScreencopyClient
++{
++  MetaWaylandScreencopy *screencopy;
++
++  /* NULL once the manager object is destroyed; frames it created stay
++   * valid. */
++  struct wl_resource *resource;
++
++  /* MetaWaylandOutput -> MtkRegion of damage (stage coordinates) since the
++   * last copy_with_damage on that output. No entry: next one is full. */
++  GHashTable *damage;
++
++  gboolean notice_logged;
++} MetaWaylandScreencopyClient;
++
++typedef enum _MetaWaylandScreencopyFrameState
++{
++  FRAME_STATE_NEW,
++  FRAME_STATE_PENDING,
++  FRAME_STATE_DONE,
++} MetaWaylandScreencopyFrameState;
++
++typedef struct _MetaWaylandScreencopyFrame
++{
++  MetaWaylandScreencopy *screencopy;
++  MetaWaylandScreencopyClient *client;
++  struct wl_resource *resource;
++
++  MetaWaylandScreencopyFrameState state;
++  gboolean used;
++
++  MetaWaylandOutput *output;
++  gulong output_destroyed_handler_id;
++
++  gboolean overlay_cursor;
++  gboolean with_damage;
++
++  /* Captured area in stage coordinates. */
++  MtkRectangle rect;
++  float scale;
++  MtkMonitorTransform transform;
++
++  /* Size of the painted (upright) image, and of the client buffer, which
++   * has the output's buffer orientation. */
++  int width;
++  int height;
++  int buffer_width;
++  int buffer_height;
++
++  struct wl_resource *buffer_resource;
++  struct wl_listener buffer_destroy_listener;
++} MetaWaylandScreencopyFrame;
++
++struct _MetaWaylandScreencopy
++{
++  MetaWaylandCompositor *compositor;
++  struct wl_global *global;
++
++  GSettings *settings;
++  gboolean allowed;
++
++  GList *clients;
++  GList *frames;
++
++  /* Damage is only tracked while a client waits for it or keeps a damage
++   * history. */
++  MetaStageWatch *before_paint_watch;
++  MetaStageWatch *after_paint_watch;
++
++  guint process_idle_id;
++  gulong monitors_changed_handler_id;
++};
++
++static void frame_fail (MetaWaylandScreencopyFrame *frame);
++static void update_watches (MetaWaylandScreencopy *screencopy);
++
++static MetaBackend *
++get_backend (MetaWaylandScreencopy *screencopy)
++{
++  MetaContext *context =
++    meta_wayland_compositor_get_context (screencopy->compositor);
++
++  return meta_context_get_backend (context);
++}
++
++static ClutterStage *
++get_stage (MetaWaylandScreencopy *screencopy)
++{
++  return CLUTTER_STAGE (meta_backend_get_stage (get_backend (screencopy)));
++}
++
++static MetaLogicalMonitor *
++get_logical_monitor (MetaWaylandOutput *wayland_output)
++{
++  MetaMonitor *monitor;
++
++  if (!wayland_output)
++    return NULL;
++
++  monitor = meta_wayland_output_get_monitor (wayland_output);
++  if (!monitor || !meta_monitor_is_active (monitor))
++    return NULL;
++
++  return meta_monitor_get_logical_monitor (monitor);
++}
++
++static gboolean
++is_sandboxed_client (const struct wl_client *wl_client)
++{
++  g_autofree char *flatpak_info = NULL;
++  pid_t pid;
++
++  wl_client_get_credentials ((struct wl_client *) wl_client, &pid, NULL, NULL);
++  if (pid <= 0)
++    return FALSE;
++
++  flatpak_info = g_strdup_printf ("/proc/%d/root/.flatpak-info", pid);
++  return g_file_test (flatpak_info, G_FILE_TEST_EXISTS);
++}
++
++static void
++log_capture_notice (MetaWaylandScreencopyClient *client)
++{
++  g_autofree char *comm_path = NULL;
++  g_autofree char *comm = NULL;
++  pid_t pid;
++
++  if (client->notice_logged || !client->resource)
++    return;
++
++  client->notice_logged = TRUE;
++
++  wl_client_get_credentials (wl_resource_get_client (client->resource),
++                             &pid, NULL, NULL);
++  comm_path = g_strdup_printf ("/proc/%d/comm", pid);
++  if (g_file_get_contents (comm_path, &comm, NULL, NULL))
++    g_strchomp (comm);
++
++  g_message ("wlr-screencopy: %s (pid %d) is capturing the screen; turn "
++             "this off with 'gsettings set " SCREENCOPY_SCHEMA " "
++             ALLOW_SCREEN_CAPTURE_KEY " false'",
++             comm ? comm : "unknown client", pid);
++}
++
++/* Map a point in the upright image to the client buffer. Pixel centers are
++ * mapped, using doubled coordinates to stay in integers. */
++static void
++transform_pixel (MtkMonitorTransform  transform,
++                 int                  width,
++                 int                  height,
++                 int                 *x,
++                 int                 *y)
++{
++  int area_width = width * 2;
++  int area_height = height * 2;
++  int x2 = *x * 2 + 1;
++  int y2 = *y * 2 + 1;
++
++  mtk_monitor_transform_transform_point (transform,
++                                         &area_width, &area_height,
++                                         &x2, &y2);
++  *x = (x2 - 1) / 2;
++  *y = (y2 - 1) / 2;
++}
++
++static void
++transform_rect (MtkMonitorTransform  transform,
++                int                  width,
++                int                  height,
++                MtkRectangle        *rect)
++{
++  int x1 = rect->x;
++  int y1 = rect->y;
++  int x2 = rect->x + rect->width;
++  int y2 = rect->y + rect->height;
++  int area_width = width;
++  int area_height = height;
++
++  mtk_monitor_transform_transform_point (transform,
++                                         &area_width, &area_height,
++                                         &x1, &y1);
++  area_width = width;
++  area_height = height;
++  mtk_monitor_transform_transform_point (transform,
++                                         &area_width, &area_height,
++                                         &x2, &y2);
++
++  rect->x = MIN (x1, x2);
++  rect->y = MIN (y1, y2);
++  rect->width = ABS (x2 - x1);
++  rect->height = ABS (y2 - y1);
++}
++
++static void
++copy_transformed (MtkMonitorTransform  transform,
++                  const uint8_t       *src,
++                  int                  width,
++                  int                  height,
++                  int                  src_stride,
++                  uint8_t             *dst,
++                  int                  dst_stride)
++{
++  int x, y;
++
++  for (y = 0; y < height; y++)
++    {
++      const uint32_t *src_row = (const uint32_t *) (src + y * src_stride);
++
++      for (x = 0; x < width; x++)
++        {
++          int dst_x = x;
++          int dst_y = y;
++
++          transform_pixel (transform, width, height, &dst_x, &dst_y);
++          *(uint32_t *) (dst + dst_y * dst_stride + dst_x * SCREENCOPY_BPP) =
++            src_row[x];
++        }
++    }
++}
++
++static gboolean
++paint_frame_to_shm (MetaWaylandScreencopyFrame  *frame,
++                    struct wl_shm_buffer        *shm_buffer,
++                    GError                     **error)
++{
++  ClutterStage *stage = get_stage (frame->screencopy);
++  ClutterPaintFlag paint_flags = CLUTTER_PAINT_FLAG_CLEAR;
++  int stride = wl_shm_buffer_get_stride (shm_buffer);
++  uint8_t *data;
++  gboolean ret;
++
++  if (frame->overlay_cursor)
++    paint_flags |= CLUTTER_PAINT_FLAG_FORCE_CURSORS;
++  else
++    paint_flags |= CLUTTER_PAINT_FLAG_NO_CURSORS;
++
++  wl_shm_buffer_begin_access (shm_buffer);
++  data = wl_shm_buffer_get_data (shm_buffer);
++
++  if (frame->transform == MTK_MONITOR_TRANSFORM_NORMAL)
++    {
++      ret = clutter_stage_paint_to_buffer (stage, &frame->rect, frame->scale,
++                                           data, stride,
++                                           SCREENCOPY_COGL_FORMAT,
++                                           NULL, paint_flags, error);
++    }
++  else
++    {
++      int upright_stride = frame->width * SCREENCOPY_BPP;
++      g_autofree uint8_t *upright = NULL;
++
++      upright = g_malloc (upright_stride * frame->height);
++      ret = clutter_stage_paint_to_buffer (stage, &frame->rect, frame->scale,
++                                           upright, upright_stride,
++                                           SCREENCOPY_COGL_FORMAT,
++                                           NULL, paint_flags, error);
++      if (ret)
++        copy_transformed (frame->transform,
++                          upright, frame->width, frame->height,
++                          upright_stride, data, stride);
++    }
++
++  wl_shm_buffer_end_access (shm_buffer);
++
++  return ret;
++}
++
++static void
++send_damage (MetaWaylandScreencopyFrame *frame,
++             MtkRegion                  *damage)
++{
++  int n_rects, i;
++
++  n_rects = mtk_region_num_rectangles (damage);
++  for (i = 0; i < n_rects; i++)
++    {
++      MtkRectangle rect = mtk_region_get_rectangle (damage, i);
++      MtkRectangle buffer_rect;
++      graphene_rect_t scaled;
++
++      /* To image pixels, rounded out. */
++      scaled = GRAPHENE_RECT_INIT ((rect.x - frame->rect.x) * frame->scale,
++                                   (rect.y - frame->rect.y) * frame->scale,
++                                   rect.width * frame->scale,
++                                   rect.height * frame->scale);
++      buffer_rect.x = (int) floorf (scaled.origin.x);
++      buffer_rect.y = (int) floorf (scaled.origin.y);
++      buffer_rect.width = (int) ceilf (scaled.origin.x + scaled.size.width) -
++                          buffer_rect.x;
++      buffer_rect.height = (int) ceilf (scaled.origin.y + scaled.size.height) -
++                           buffer_rect.y;
++      mtk_rectangle_intersect (&buffer_rect,
++                               &MTK_RECTANGLE_INIT (0, 0,
++                                                    frame->width,
++                                                    frame->height),
++                               &buffer_rect);
++      if (mtk_rectangle_is_empty (&buffer_rect))
++        continue;
++
++      transform_rect (frame->transform, frame->width, frame->height,
++                      &buffer_rect);
++      zwlr_screencopy_frame_v1_send_damage (frame->resource,
++                                            buffer_rect.x, buffer_rect.y,
++                                            buffer_rect.width,
++                                            buffer_rect.height);
++    }
++}
++
++static void
++frame_clear_buffer (MetaWaylandScreencopyFrame *frame)
++{
++  if (!frame->buffer_resource)
++    return;
++
++  wl_list_remove (&frame->buffer_destroy_listener.link);
++  frame->buffer_resource = NULL;
++}
++
++static void
++frame_detach (MetaWaylandScreencopyFrame *frame)
++{
++  MetaWaylandScreencopy *screencopy = frame->screencopy;
++
++  frame_clear_buffer (frame);
++
++  if (frame->output)
++    {
++      g_clear_signal_handler (&frame->output_destroyed_handler_id,
++                              frame->output);
++      frame->output = NULL;
++    }
++
++  frame->state = FRAME_STATE_DONE;
++  update_watches (screencopy);
++}
++
++static void
++frame_fail (MetaWaylandScreencopyFrame *frame)
++{
++  if (frame->state == FRAME_STATE_DONE)
++    return;
++
++  frame_detach (frame);
++  zwlr_screencopy_frame_v1_send_failed (frame->resource);
++}
++
++/* Returns the damage to report, or NULL if the frame has to keep waiting. */
++static MtkRegion *
++take_frame_damage (MetaWaylandScreencopyFrame *frame)
++{
++  MetaWaylandScreencopyClient *client = frame->client;
++  MtkRegion *history;
++  MtkRegion *damage;
++
++  if (!frame->with_damage)
++    return mtk_region_create_rectangle (&frame->rect);
++
++  history = client->resource ?
++    g_hash_table_lookup (client->damage, frame->output) : NULL;
++  if (!history)
++    {
++      if (client->resource)
++        g_hash_table_insert (client->damage, frame->output,
++                             mtk_region_create ());
++      return mtk_region_create_rectangle (&frame->rect);
++    }
++
++  damage = mtk_region_copy (history);
++  mtk_region_intersect_rectangle (damage, &frame->rect);
++  if (mtk_region_is_empty (damage))
++    {
++      g_clear_pointer (&damage, mtk_region_unref);
++      return NULL;
++    }
++
++  mtk_region_subtract_rectangle (history, &frame->rect);
++  return damage;
++}
++
++static void
++process_frame (MetaWaylandScreencopyFrame *frame)
++{
++  g_autoptr (MtkRegion) damage = NULL;
++  g_autoptr (GError) error = NULL;
++  struct wl_shm_buffer *shm_buffer;
++  int64_t now_us;
++  uint64_t tv_sec;
++  uint32_t tv_nsec;
++
++  if (!frame->screencopy->allowed)
++    {
++      frame_fail (frame);
++      return;
++    }
++
++  damage = take_frame_damage (frame);
++  if (!damage)
++    return;
++
++  shm_buffer = wl_shm_buffer_get (frame->buffer_resource);
++  if (!paint_frame_to_shm (frame, shm_buffer, &error))
++    {
++      g_warning ("wlr-screencopy: failed to capture the screen: %s",
++                 error->message);
++      frame_fail (frame);
++      return;
++    }
++
++  log_capture_notice (frame->client);
++
++  now_us = g_get_monotonic_time ();
++  tv_sec = now_us / G_USEC_PER_SEC;
++  tv_nsec = (now_us % G_USEC_PER_SEC) * 1000;
++
++  zwlr_screencopy_frame_v1_send_flags (frame->resource, 0);
++  if (frame->with_damage)
++    send_damage (frame, damage);
++  zwlr_screencopy_frame_v1_send_ready (frame->resource,
++                                       (uint32_t) (tv_sec >> 32),
++                                       (uint32_t) (tv_sec & 0xffffffff),
++                                       tv_nsec);
++  frame_detach (frame);
++}
++
++static void
++process_frames (gpointer user_data)
++{
++  MetaWaylandScreencopy *screencopy = user_data;
++  g_autoptr (GList) frames = NULL;
++  GList *l;
++
++  screencopy->process_idle_id = 0;
++
++  frames = g_list_copy (screencopy->frames);
++  for (l = frames; l; l = l->next)
++    {
++      MetaWaylandScreencopyFrame *frame = l->data;
++
++      if (frame->state == FRAME_STATE_PENDING)
++        process_frame (frame);
++    }
++}
++
++static void
++queue_process_frames (MetaWaylandScreencopy *screencopy)
++{
++  if (screencopy->process_idle_id)
++    return;
++
++  screencopy->process_idle_id = mtk_idle_add_once (process_frames,
++                                                   screencopy);
++  mtk_source_set_name_by_id (screencopy->process_idle_id,
++                             "[mutter] wlr-screencopy process frames");
++}
++
++static void
++accumulate_damage (MetaWaylandScreencopy *screencopy,
++                   ClutterStageView      *view,
++                   const MtkRegion       *redraw_clip)
++{
++  g_autoptr (MtkRegion) view_damage = NULL;
++  gboolean have_pending = FALSE;
++  GList *l;
++
++  if (redraw_clip)
++    {
++      view_damage = mtk_region_copy ((MtkRegion *) redraw_clip);
++    }
++  else
++    {
++      MtkRectangle view_layout;
++
++      clutter_stage_view_get_layout (view, &view_layout);
++      view_damage = mtk_region_create_rectangle (&view_layout);
++    }
++
++  if (mtk_region_is_empty (view_damage))
++    return;
++
++  for (l = screencopy->clients; l; l = l->next)
++    {
++      MetaWaylandScreencopyClient *client = l->data;
++      GHashTableIter iter;
++      MtkRegion *history;
++
++      g_hash_table_iter_init (&iter, client->damage);
++      while (g_hash_table_iter_next (&iter, NULL, (gpointer *) &history))
++        mtk_region_union (history, view_damage);
++    }
++
++  for (l = screencopy->frames; l; l = l->next)
++    {
++      MetaWaylandScreencopyFrame *frame = l->data;
++
++      if (frame->state == FRAME_STATE_PENDING)
++        have_pending = TRUE;
++    }
++
++  if (have_pending)
++    queue_process_frames (screencopy);
++}
++
++static void
++on_before_paint (MetaStage        *stage,
++                 ClutterStageView *view,
++                 const MtkRegion  *redraw_clip,
++                 ClutterFrame     *frame,
++                 gpointer          user_data)
++{
++  /* A directly scanned out buffer replaces the whole view without a stage
++   * paint. */
++  if (clutter_stage_view_peek_scanout (view))
++    accumulate_damage (user_data, view, NULL);
++}
++
++static void
++on_after_paint (MetaStage        *stage,
++                ClutterStageView *view,
++                const MtkRegion  *redraw_clip,
++                ClutterFrame     *frame,
++                gpointer          user_data)
++{
++  accumulate_damage (user_data, view, redraw_clip);
++}
++
++static void
++update_watches (MetaWaylandScreencopy *screencopy)
++{
++  MetaStage *stage = META_STAGE (get_stage (screencopy));
++  gboolean needed = FALSE;
++  GList *l;
++
++  for (l = screencopy->frames; l && !needed; l = l->next)
++    {
++      MetaWaylandScreencopyFrame *frame = l->data;
++
++      if (frame->state == FRAME_STATE_PENDING && frame->with_damage)
++        needed = TRUE;
++    }
++
++  for (l = screencopy->clients; l && !needed; l = l->next)
++    {
++      MetaWaylandScreencopyClient *client = l->data;
++
++      if (g_hash_table_size (client->damage) > 0)
++        needed = TRUE;
++    }
++
++  if (needed && !screencopy->after_paint_watch)
++    {
++      screencopy->before_paint_watch =
++        meta_stage_watch_view (stage, NULL,
++                               META_STAGE_WATCH_BEFORE_PAINT,
++                               on_before_paint, screencopy);
++      screencopy->after_paint_watch =
++        meta_stage_watch_view (stage, NULL,
++                               META_STAGE_WATCH_AFTER_PAINT,
++                               on_after_paint, screencopy);
++    }
++  else if (!needed && screencopy->after_paint_watch)
++    {
++      meta_stage_remove_watch (stage, screencopy->before_paint_watch);
++      meta_stage_remove_watch (stage, screencopy->after_paint_watch);
++      screencopy->before_paint_watch = NULL;
++      screencopy->after_paint_watch = NULL;
++    }
++}
++
++static void
++on_buffer_destroyed (struct wl_listener *listener,
++                     void               *data)
++{
++  MetaWaylandScreencopyFrame *frame =
++    wl_container_of (listener, frame, buffer_destroy_listener);
++
++  frame_fail (frame);
++}
++
++static void
++on_output_destroyed (MetaWaylandOutput          *wayland_output,
++                     MetaWaylandScreencopyFrame *frame)
++{
++  frame_fail (frame);
++}
++
++static void
++client_clear (MetaWaylandScreencopyClient *client)
++{
++  g_hash_table_unref (client->damage);
++}
++
++static void
++client_unref (MetaWaylandScreencopyClient *client)
++{
++  g_rc_box_release_full (client, (GDestroyNotify) client_clear);
++}
++
++static void
++frame_destructor (struct wl_resource *resource)
++{
++  MetaWaylandScreencopyFrame *frame = wl_resource_get_user_data (resource);
++  MetaWaylandScreencopy *screencopy = frame->screencopy;
++
++  frame_clear_buffer (frame);
++  if (frame->output)
++    g_clear_signal_handler (&frame->output_destroyed_handler_id,
++                            frame->output);
++
++  screencopy->frames = g_list_remove (screencopy->frames, frame);
++  update_watches (screencopy);
++
++  client_unref (frame->client);
++  g_free (frame);
++}
++
++static void
++frame_copy_common (struct wl_resource *resource,
++                   struct wl_resource *buffer_resource,
++                   gboolean            with_damage)
++{
++  MetaWaylandScreencopyFrame *frame = wl_resource_get_user_data (resource);
++  MetaWaylandScreencopy *screencopy = frame->screencopy;
++  struct wl_shm_buffer *shm_buffer;
++  uint32_t format;
++
++  if (frame->used)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_SCREENCOPY_FRAME_V1_ERROR_ALREADY_USED,
++                              "The frame has already been used to copy "
++                              "a buffer");
++      return;
++    }
++  frame->used = TRUE;
++
++  /* Already failed (output gone, capture turned off): 'failed' was sent. */
++  if (frame->state == FRAME_STATE_DONE)
++    return;
++
++  shm_buffer = wl_shm_buffer_get (buffer_resource);
++  if (!shm_buffer)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_SCREENCOPY_FRAME_V1_ERROR_INVALID_BUFFER,
++                              "Only wl_shm buffers are supported");
++      return;
++    }
++
++  format = wl_shm_buffer_get_format (shm_buffer);
++  if ((format != WL_SHM_FORMAT_XRGB8888 &&
++       format != WL_SHM_FORMAT_ARGB8888) ||
++      wl_shm_buffer_get_width (shm_buffer) != frame->buffer_width ||
++      wl_shm_buffer_get_height (shm_buffer) != frame->buffer_height ||
++      wl_shm_buffer_get_stride (shm_buffer) <
++      frame->buffer_width * SCREENCOPY_BPP)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_SCREENCOPY_FRAME_V1_ERROR_INVALID_BUFFER,
++                              "Expected a %dx%d XRGB8888 buffer with a "
++                              "stride of at least %d, got %dx%d format "
++                              "0x%x stride %d",
++                              frame->buffer_width, frame->buffer_height,
++                              frame->buffer_width * SCREENCOPY_BPP,
++                              wl_shm_buffer_get_width (shm_buffer),
++                              wl_shm_buffer_get_height (shm_buffer),
++                              format,
++                              wl_shm_buffer_get_stride (shm_buffer));
++      return;
++    }
++
++  frame->buffer_resource = buffer_resource;
++  frame->buffer_destroy_listener.notify = on_buffer_destroyed;
++  wl_resource_add_destroy_listener (buffer_resource,
++                                    &frame->buffer_destroy_listener);
++
++  frame->with_damage = with_damage;
++  frame->state = FRAME_STATE_PENDING;
++  update_watches (screencopy);
++
++  /* A plain copy, or the first copy_with_damage of an output (full
++   * damage), completes without waiting for a paint. */
++  if (!with_damage ||
++      !frame->client->resource ||
++      !g_hash_table_contains (frame->client->damage, frame->output))
++    {
++      queue_process_frames (screencopy);
++    }
++  else
++    {
++      MtkRegion *history = g_hash_table_lookup (frame->client->damage,
++                                                frame->output);
++      g_autoptr (MtkRegion) damage = mtk_region_copy (history);
++
++      mtk_region_intersect_rectangle (damage, &frame->rect);
++      if (!mtk_region_is_empty (damage))
++        queue_process_frames (screencopy);
++    }
++}
++
++static void
++frame_copy (struct wl_client   *client,
++            struct wl_resource *resource,
++            struct wl_resource *buffer_resource)
++{
++  frame_copy_common (resource, buffer_resource, FALSE);
++}
++
++static void
++frame_copy_with_damage (struct wl_client   *client,
++                        struct wl_resource *resource,
++                        struct wl_resource *buffer_resource)
++{
++  frame_copy_common (resource, buffer_resource, TRUE);
++}
++
++static void
++frame_destroy (struct wl_client   *client,
++               struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static const struct zwlr_screencopy_frame_v1_interface
++  meta_wayland_screencopy_frame_interface =
++{
++  frame_copy,
++  frame_destroy,
++  frame_copy_with_damage,
++};
++
++static gboolean
++compute_frame_geometry (MetaWaylandScreencopy      *screencopy,
++                        MetaWaylandScreencopyFrame *frame,
++                        MetaLogicalMonitor         *logical_monitor,
++                        const MtkRectangle         *region)
++{
++  MetaBackend *backend = get_backend (screencopy);
++  MtkRectangle layout = meta_logical_monitor_get_layout (logical_monitor);
++  MtkRectangle rect;
++
++  /* xdg_output logical coordinates are stage coordinates. */
++  if (region)
++    {
++      rect = *region;
++      rect.x += layout.x;
++      rect.y += layout.y;
++      if (!mtk_rectangle_intersect (&rect, &layout, &rect))
++        return FALSE;
++    }
++  else
++    {
++      rect = layout;
++    }
++
++  frame->rect = rect;
++  if (meta_backend_is_stage_views_scaled (backend))
++    frame->scale = meta_logical_monitor_get_scale (logical_monitor);
++  else
++    frame->scale = 1.0f;
++  frame->transform = meta_logical_monitor_get_transform (logical_monitor);
++
++  /* As clutter_stage_paint_to_buffer() sizes its texture. */
++  frame->width = (int) roundf (rect.width * frame->scale);
++  frame->height = (int) roundf (rect.height * frame->scale);
++  if (frame->width <= 0 || frame->height <= 0)
++    return FALSE;
++
++  if (mtk_monitor_transform_is_rotated (frame->transform))
++    {
++      frame->buffer_width = frame->height;
++      frame->buffer_height = frame->width;
++    }
++  else
++    {
++      frame->buffer_width = frame->width;
++      frame->buffer_height = frame->height;
++    }
++
++  return TRUE;
++}
++
++static void
++capture_output_common (struct wl_resource *manager_resource,
++                       uint32_t            frame_id,
++                       int32_t             overlay_cursor,
++                       struct wl_resource *output_resource,
++                       const MtkRectangle *region)
++{
++  MetaWaylandScreencopyClient *client =
++    wl_resource_get_user_data (manager_resource);
++  MetaWaylandScreencopy *screencopy = client->screencopy;
++  MetaWaylandScreencopyFrame *frame;
++  MetaWaylandOutput *wayland_output = NULL;
++  MetaLogicalMonitor *logical_monitor;
++
++  frame = g_new0 (MetaWaylandScreencopyFrame, 1);
++  frame->screencopy = screencopy;
++  frame->client = g_rc_box_acquire (client);
++  frame->overlay_cursor = !!overlay_cursor;
++  frame->resource =
++    wl_resource_create (wl_resource_get_client (manager_resource),
++                        &zwlr_screencopy_frame_v1_interface,
++                        wl_resource_get_version (manager_resource),
++                        frame_id);
++  wl_resource_set_implementation (frame->resource,
++                                  &meta_wayland_screencopy_frame_interface,
++                                  frame,
++                                  frame_destructor);
++  screencopy->frames = g_list_prepend (screencopy->frames, frame);
++
++  if (output_resource)
++    wayland_output = wl_resource_get_user_data (output_resource);
++  logical_monitor = get_logical_monitor (wayland_output);
++
++  if (!screencopy->allowed ||
++      !logical_monitor ||
++      !compute_frame_geometry (screencopy, frame, logical_monitor, region))
++    {
++      frame->state = FRAME_STATE_DONE;
++      zwlr_screencopy_frame_v1_send_failed (frame->resource);
++      return;
++    }
++
++  frame->output = wayland_output;
++  frame->output_destroyed_handler_id =
++    g_signal_connect (wayland_output, "output-destroyed",
++                      G_CALLBACK (on_output_destroyed),
++                      frame);
++
++  zwlr_screencopy_frame_v1_send_buffer (frame->resource,
++                                        SCREENCOPY_SHM_FORMAT,
++                                        frame->buffer_width,
++                                        frame->buffer_height,
++                                        frame->buffer_width * SCREENCOPY_BPP);
++
++  if (wl_resource_get_version (frame->resource) >=
++      ZWLR_SCREENCOPY_FRAME_V1_BUFFER_DONE_SINCE_VERSION)
++    zwlr_screencopy_frame_v1_send_buffer_done (frame->resource);
++}
++
++static void
++manager_capture_output (struct wl_client   *wl_client,
++                        struct wl_resource *resource,
++                        uint32_t            frame_id,
++                        int32_t             overlay_cursor,
++                        struct wl_resource *output_resource)
++{
++  capture_output_common (resource, frame_id, overlay_cursor,
++                         output_resource, NULL);
++}
++
++static void
++manager_capture_output_region (struct wl_client   *wl_client,
++                               struct wl_resource *resource,
++                               uint32_t            frame_id,
++                               int32_t             overlay_cursor,
++                               struct wl_resource *output_resource,
++                               int32_t             x,
++                               int32_t             y,
++                               int32_t             width,
++                               int32_t             height)
++{
++  MtkRectangle region = MTK_RECTANGLE_INIT (x, y, width, height);
++
++  capture_output_common (resource, frame_id, overlay_cursor,
++                         output_resource, &region);
++}
++
++static void
++manager_destroy (struct wl_client   *wl_client,
++                 struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static const struct zwlr_screencopy_manager_v1_interface
++  meta_wayland_screencopy_manager_interface =
++{
++  manager_capture_output,
++  manager_capture_output_region,
++  manager_destroy,
++};
++
++static void
++manager_destructor (struct wl_resource *resource)
++{
++  MetaWaylandScreencopyClient *client = wl_resource_get_user_data (resource);
++  MetaWaylandScreencopy *screencopy = client->screencopy;
++
++  client->resource = NULL;
++  g_hash_table_remove_all (client->damage);
++  screencopy->clients = g_list_remove (screencopy->clients, client);
++  update_watches (screencopy);
++
++  client_unref (client);
++}
++
++static void
++bind_screencopy_manager (struct wl_client *wl_client,
++                         void             *data,
++                         uint32_t          version,
++                         uint32_t          id)
++{
++  MetaWaylandScreencopy *screencopy = data;
++  MetaWaylandScreencopyClient *client;
++
++  client = g_rc_box_new0 (MetaWaylandScreencopyClient);
++  client->screencopy = screencopy;
++  client->damage = g_hash_table_new_full (NULL, NULL, NULL,
++                                          (GDestroyNotify) mtk_region_unref);
++  client->resource = wl_resource_create (wl_client,
++                                         &zwlr_screencopy_manager_v1_interface,
++                                         version, id);
++  wl_resource_set_implementation (client->resource,
++                                  &meta_wayland_screencopy_manager_interface,
++                                  client, manager_destructor);
++
++  screencopy->clients = g_list_prepend (screencopy->clients, client);
++}
++
++static MetaWaylandAccess
++screencopy_filter (const struct wl_client *wl_client,
++                   const struct wl_global *global,
++                   gpointer                user_data)
++{
++  MetaWaylandScreencopy *screencopy = user_data;
++
++  if (!screencopy->allowed)
++    return META_WAYLAND_ACCESS_DENIED;
++
++  if (is_sandboxed_client (wl_client))
++    return META_WAYLAND_ACCESS_DENIED;
++
++  return META_WAYLAND_ACCESS_ALLOWED;
++}
++
++static void
++fail_all_frames (MetaWaylandScreencopy *screencopy)
++{
++  g_autoptr (GList) frames = NULL;
++  GList *l;
++
++  frames = g_list_copy (screencopy->frames);
++  for (l = frames; l; l = l->next)
++    frame_fail (l->data);
++}
++
++static void
++clear_damage_history (MetaWaylandScreencopy *screencopy)
++{
++  GList *l;
++
++  for (l = screencopy->clients; l; l = l->next)
++    {
++      MetaWaylandScreencopyClient *client = l->data;
++
++      g_hash_table_remove_all (client->damage);
++    }
++
++  update_watches (screencopy);
++}
++
++static void
++on_monitors_changed (MetaMonitorManager    *monitor_manager,
++                     MetaWaylandScreencopy *screencopy)
++{
++  /* Sizes, positions and transforms may have changed: frames were told a
++   * buffer size that may no longer be right, and damage history is in stage
++   * coordinates. */
++  fail_all_frames (screencopy);
++  clear_damage_history (screencopy);
++}
++
++static void
++update_allowed (MetaWaylandScreencopy *screencopy)
++{
++  gboolean allowed = TRUE;
++
++  if (screencopy->settings)
++    allowed = g_settings_get_boolean (screencopy->settings,
++                                      ALLOW_SCREEN_CAPTURE_KEY);
++
++  if (allowed == screencopy->allowed)
++    return;
++
++  screencopy->allowed = allowed;
++  g_message ("wlr-screencopy: screen capture by Wayland clients %s",
++             allowed ? "allowed" : "denied");
++
++  if (!allowed)
++    {
++      fail_all_frames (screencopy);
++      clear_damage_history (screencopy);
++    }
++}
++
++static void
++on_allow_screen_capture_changed (GSettings             *settings,
++                                 const char            *key,
++                                 MetaWaylandScreencopy *screencopy)
++{
++  update_allowed (screencopy);
++}
++
++static void
++screencopy_free (MetaWaylandScreencopy *screencopy)
++{
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (get_backend (screencopy));
++
++  g_clear_signal_handler (&screencopy->monitors_changed_handler_id,
++                          monitor_manager);
++  g_clear_handle_id (&screencopy->process_idle_id, mtk_source_remove);
++  g_clear_object (&screencopy->settings);
++  g_free (screencopy);
++}
++
++void
++meta_wayland_screencopy_init (MetaWaylandCompositor *compositor)
++{
++  MetaContext *context = meta_wayland_compositor_get_context (compositor);
++  MetaBackend *backend = meta_context_get_backend (context);
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++  MetaWaylandFilterManager *filter_manager =
++    meta_wayland_compositor_get_filter_manager (compositor);
++  GSettingsSchemaSource *schema_source;
++  g_autoptr (GSettingsSchema) schema = NULL;
++  MetaWaylandScreencopy *screencopy;
++
++  screencopy = g_new0 (MetaWaylandScreencopy, 1);
++  screencopy->compositor = compositor;
++
++  schema_source = g_settings_schema_source_get_default ();
++  if (schema_source)
++    schema = g_settings_schema_source_lookup (schema_source,
++                                              SCREENCOPY_SCHEMA, TRUE);
++  if (schema && g_settings_schema_has_key (schema, ALLOW_SCREEN_CAPTURE_KEY))
++    {
++      screencopy->settings = g_settings_new (SCREENCOPY_SCHEMA);
++      g_signal_connect (screencopy->settings,
++                        "changed::" ALLOW_SCREEN_CAPTURE_KEY,
++                        G_CALLBACK (on_allow_screen_capture_changed),
++                        screencopy);
++    }
++
++  screencopy->allowed = TRUE;
++  if (screencopy->settings)
++    screencopy->allowed = g_settings_get_boolean (screencopy->settings,
++                                                  ALLOW_SCREEN_CAPTURE_KEY);
++  g_message ("wlr-screencopy: screen capture by Wayland clients %s",
++             screencopy->allowed ? "allowed" : "denied");
++
++  screencopy->global =
++    wl_global_create (compositor->wayland_display,
++                      &zwlr_screencopy_manager_v1_interface,
++                      META_ZWLR_SCREENCOPY_MANAGER_V1_VERSION,
++                      screencopy,
++                      bind_screencopy_manager);
++  if (!screencopy->global)
++    g_error ("Failed to register a global wlr-screencopy object");
++
++  meta_wayland_filter_manager_add_global (filter_manager,
++                                          screencopy->global,
++                                          screencopy_filter,
++                                          screencopy);
++
++  screencopy->monitors_changed_handler_id =
++    g_signal_connect_after (monitor_manager, "monitors-changed-internal",
++                            G_CALLBACK (on_monitors_changed),
++                            screencopy);
++
++  g_object_set_data_full (G_OBJECT (compositor),
++                          "-meta-wayland-screencopy",
++                          screencopy,
++                          (GDestroyNotify) screencopy_free);
++}
+diff --git a/src/wayland/meta-wayland-screencopy.h b/src/wayland/meta-wayland-screencopy.h
+new file mode 100644
+index 0000000..e637f96
+--- /dev/null
++++ b/src/wayland/meta-wayland-screencopy.h
+@@ -0,0 +1,22 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#pragma once
++
++#include "wayland/meta-wayland-types.h"
++
++void meta_wayland_screencopy_init (MetaWaylandCompositor *compositor);
+diff --git a/src/wayland/meta-wayland-versions.h b/src/wayland/meta-wayland-versions.h
+index 1d4485c..f218c69 100644
+--- a/src/wayland/meta-wayland-versions.h
++++ b/src/wayland/meta-wayland-versions.h
+@@ -75,4 +75,5 @@
+ #define META_ZWLR_FOREIGN_TOPLEVEL_MANAGER_V1_VERSION 3
+ #define META_ZWLR_DATA_CONTROL_V1_VERSION 2
+ #define META_ZWLR_GAMMA_CONTROL_MANAGER_V1_VERSION 1
++#define META_ZWLR_SCREENCOPY_MANAGER_V1_VERSION 3
+ #define META_ZXDG_DECORATION_MANAGER_V1_VERSION 2
+diff --git a/src/wayland/meta-wayland.c b/src/wayland/meta-wayland.c
+index d348ce2..c435fc2 100644
+--- a/src/wayland/meta-wayland.c
++++ b/src/wayland/meta-wayland.c
+@@ -48,6 +48,7 @@
+ #include "wayland/meta-wayland-cursor-shape.h"
+ #include "wayland/meta-wayland-fifo.h"
+ #include "wayland/meta-wayland-gamma-control.h"
++#include "wayland/meta-wayland-screencopy.h"
+ #include "wayland/meta-wayland-data-control.h"
+ #include "wayland/meta-wayland-data-device.h"
+ #include "wayland/meta-wayland-dma-buf.h"
+@@ -1023,6 +1024,7 @@ meta_wayland_compositor_new (MetaContext *context)
+   meta_wayland_xdg_toplevel_tag_init (compositor);
+   meta_wayland_drm_lease_manager_init (compositor);
+   meta_wayland_gamma_control_init (compositor);
++  meta_wayland_screencopy_init (compositor);
+   meta_wayland_commit_timing_init (compositor);
+   meta_wayland_fifo_init (compositor);
+   meta_wayland_init_cursor_shape (compositor);
+-- 
+2.54.0
+
