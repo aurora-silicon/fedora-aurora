@@ -293,7 +293,8 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
   games and other clients that ask for tearing (Vulkan immediate present
   mode) are presented with asynchronous page flips, without waiting for
   vertical blank. New org.gnome.mutter async-tearing setting
-  (fullscreen-only by default, always, off).
+  (fullscreen-only by default, always, off). Surfaces that do not ask for
+  tearing are unchanged, and drivers without async page flips keep vsync.
 
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-16.aurora
 - Apply gamma ramps the display hardware cannot take in the compositor:
