@@ -18,22 +18,24 @@ for unfocused windows and a translucent 1 px border. libmutter has no
 cairo without Xwayland, so the button images are rasterized with 4x4
 supersampling into Cogl textures, at the actor's resource scale.
 
-meta_display_handle_event() hands pointer events on a decoration to
-meta_window_decoration_handle_event() after the usual click-to-focus
-and raise. Buttons highlight on hover and press, and act on release
-over the same button. A titlebar press starts a move grab; the double,
-middle and right click titlebar actions are honoured. The edges and
-corners start resize grabs and set resize cursors. Motion is still
-passed on, so the client gets its leave event.
+get_window_for_event() resolves a decoration to its window (only
+surface actors were looked up), so a click on it focuses and raises the
+window as usual, and meta_display_handle_event() then hands the pointer
+event to meta_window_decoration_handle_event(). Buttons highlight on
+hover and press, and act on release over the same button. A titlebar
+press starts a move grab; the double, middle and right click titlebar
+actions are honoured. The edges and corners start resize grabs and set
+resize cursors. Motion is still passed on, so the client gets its leave
+event.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  src/compositor/meta-window-actor-wayland.c |  60 +-
- src/compositor/meta-window-decoration.c    | 971 +++++++++++++++++++++
- src/compositor/meta-window-decoration.h    |  41 +
- src/core/events.c                          |   8 +
+ src/compositor/meta-window-decoration.c    | 985 +++++++++++++++++++++
+ src/compositor/meta-window-decoration.h    |  43 +
+ src/core/events.c                          |  18 +-
  src/meson.build                            |   2 +
- 5 files changed, 1081 insertions(+), 1 deletion(-)
+ 5 files changed, 1105 insertions(+), 3 deletions(-)
  create mode 100644 src/compositor/meta-window-decoration.c
  create mode 100644 src/compositor/meta-window-decoration.h
 
@@ -138,10 +140,10 @@ index 540975a..56af113 100644
                                          &background_width, &background_height))
 diff --git a/src/compositor/meta-window-decoration.c b/src/compositor/meta-window-decoration.c
 new file mode 100644
-index 0000000..a884aac
+index 0000000..d9b4843
 --- /dev/null
 +++ b/src/compositor/meta-window-decoration.c
-@@ -0,0 +1,971 @@
+@@ -0,0 +1,985 @@
 +/*
 + * Copyright (C) 2026 Aurora Silicon
 + *
@@ -194,6 +196,7 @@ index 0000000..a884aac
 +#include "core/window-private.h"
 +#include "meta/meta-backend.h"
 +#include "meta/meta-context.h"
++#include "meta/meta-debug.h"
 +#include "meta/prefs.h"
 +
 +#define BUTTON_SIZE 24
@@ -754,6 +757,12 @@ index 0000000..a884aac
 +  return NULL;
 +}
 +
++MetaWindow *
++meta_window_decoration_get_window (MetaWindowDecoration *self)
++{
++  return self->window;
++}
++
 +static void
 +run_titlebar_action (MetaWindowDecoration   *self,
 +                     GDesktopTitlebarAction  action,
@@ -947,6 +956,13 @@ index 0000000..a884aac
 +  button_number = clutter_event_get_button (event);
 +  time_ms = clutter_event_get_time (event);
 +
++  meta_topic (META_DEBUG_WINDOW_OPS,
++              "Decoration of %s: button %u press on %s",
++              self->window->desc, button_number,
++              part == PART_BUTTON ? "button" :
++              part == PART_TITLEBAR ? "titlebar" :
++              part == PART_EDGE ? "edge" : "nothing");
++
 +  switch (part)
 +    {
 +    case PART_BUTTON:
@@ -1115,10 +1131,10 @@ index 0000000..a884aac
 +}
 diff --git a/src/compositor/meta-window-decoration.h b/src/compositor/meta-window-decoration.h
 new file mode 100644
-index 0000000..e2417a8
+index 0000000..b46541c
 --- /dev/null
 +++ b/src/compositor/meta-window-decoration.h
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,43 @@
 +/*
 + * Copyright (C) 2026 Aurora Silicon
 + *
@@ -1157,11 +1173,13 @@ index 0000000..e2417a8
 +
 +MetaWindowDecoration * meta_window_decoration_from_actor (ClutterActor *actor);
 +
++MetaWindow * meta_window_decoration_get_window (MetaWindowDecoration *decoration);
++
 +gboolean meta_window_decoration_handle_event (MetaWindowDecoration *decoration,
 +                                              ClutterActor         *event_actor,
 +                                              const ClutterEvent   *event);
 diff --git a/src/core/events.c b/src/core/events.c
-index b2e89dd..3ccdb10 100644
+index b2e89dd..d043193 100644
 --- a/src/core/events.c
 +++ b/src/core/events.c
 @@ -30,6 +30,7 @@
@@ -1172,7 +1190,31 @@ index b2e89dd..3ccdb10 100644
  #include "core/display-private.h"
  #include "core/window-private.h"
  #include "meta/meta-backend.h"
-@@ -299,9 +300,16 @@ meta_display_handle_event (MetaDisplay        *display,
+@@ -71,6 +72,7 @@ get_window_for_event (MetaDisplay        *display,
+                       ClutterActor       *event_actor)
+ {
+   MetaWindowActor *window_actor;
++  MetaWindowDecoration *decoration;
+ 
+   if (stage_has_grab (display))
+     return NULL;
+@@ -85,8 +87,13 @@ get_window_for_event (MetaDisplay        *display,
+   window_actor = meta_window_actor_from_actor (event_actor);
+   if (window_actor)
+     return meta_window_actor_get_meta_window (window_actor);
+-  else
+-    return NULL;
++
++  /* Server-side decorations of Wayland windows are not surface actors. */
++  decoration = meta_window_decoration_from_actor (event_actor);
++  if (decoration)
++    return meta_window_decoration_get_window (decoration);
++
++  return NULL;
+ }
+ 
+ static void
+@@ -299,9 +306,16 @@ meta_display_handle_event (MetaDisplay        *display,
  
    if (window)
      {
