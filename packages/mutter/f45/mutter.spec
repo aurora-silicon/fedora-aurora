@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       9%{?dist}.aurora
+Release:       10%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -45,6 +45,7 @@ Patch11:       0011-wayland-Implement-wlr-layer-shell-unstable-v1.patch
 Patch12:       0012-wayland-layer-shell-Wait-for-the-configure-ack-acros.patch
 Patch13:       0013-wayland-Support-xdg_popups-parented-to-layer-surface.patch
 Patch14:       0014-wayland-layer-shell-Destroy-the-layer-surface-resour.patch
+Patch15:       0015-wayland-layer-shell-Stack-layer-surfaces-with-the-sh.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -263,6 +264,11 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-10.aurora
+- Stack layer surfaces with the shell's chrome: top anchored bars go below
+  the gnome-shell top panel and their exclusive zone adds to the panel's,
+  and the overlay layer is drawn above the panel and notification banners
+
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-9.aurora
 - Support wlr-layer-shell-unstable-v1 (zwlr_layer_shell_v1, version 5), so
   panels, docks, launchers, notification daemons, wallpaper tools, lock
