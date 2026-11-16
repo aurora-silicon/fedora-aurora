@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       13%{?dist}.aurora
+Release:       14%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -52,6 +52,9 @@ Patch17:       0017-wayland-Implement-wlr-foreign-toplevel-management-un.patch
 Patch18:       0018-wayland-Add-the-wlr-data-control-unstable-v1-protoco.patch
 Patch19:       0019-wayland-Implement-wlr-data-control-unstable-v1.patch
 Patch20:       0020-wayland-data-control-Pass-the-receive-fd-straight-to.patch
+Patch26:       0026-wayland-Add-the-xdg-decoration-unstable-v1-protocol.patch
+Patch27:       0027-wayland-Implement-xdg-decoration-unstable-v1.patch
+Patch28:       0028-compositor-Draw-server-side-decorations-for-Wayland-.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -270,6 +273,16 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-14.aurora
+- Support xdg-decoration-unstable-v1 (zxdg_decoration_manager_v1,
+  version 2): Wayland apps that ask for server-side decorations (foot,
+  Qt, SDL, Electron, kitty, alacritty and other apps written for
+  wlroots or KDE) get a Mutter-drawn titlebar with the window title,
+  the button-layout buttons and resizable borders, instead of none.
+  org.gnome.mutter.wayland decoration-mode can force server-side or
+  client-side decorations for these apps. Apps that do not use the
+  protocol, such as GTK and libadwaita apps, keep their own titlebars.
+
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-13.aurora
 - Support wlr-data-control-unstable-v1 (version 2): clipboard managers
   such as cliphist, clipman and wl-clip-persist can read and set the

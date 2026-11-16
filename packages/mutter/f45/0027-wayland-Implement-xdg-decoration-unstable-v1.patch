@@ -1,0 +1,1187 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 22:06:42 +1100
+Subject: [PATCH] wayland: Implement xdg-decoration-unstable-v1
+
+Add the zxdg_decoration_manager_v1 global (version 2), so a client can
+ask for server-side decorations for its xdg_toplevel instead of drawing
+its own titlebar.
+
+The effective mode is decided by the new org.gnome.mutter.wayland
+"decoration-mode" key: "client-preference" (the default) honours
+set_mode, and picks server-side decorations after unset_mode or when the
+client never set one; "server-side" and "client-side" force the mode for
+every client that binds the protocol. Clients that do not create a
+decoration object keep client-side decorations, so GTK and libadwaita
+apps are unaffected.
+
+The mode is part of MetaWaylandWindowConfiguration. It goes out as
+zxdg_toplevel_decoration_v1.configure right before the xdg_toplevel
+configure that carries it, and applies when that configure is acked.
+set_mode and unset_mode are always answered with a configure, as are
+decoration objects created for an already configured toplevel
+(version 2), and a policy change reconfigures the windows whose mode
+changes. A destroyed decoration object switches back to client-side
+decorations at the next commit.
+
+A server-side decorated window's frame rect includes the decoration (a
+titlebar, and a border while floating): finish_move_resize grows the
+client's window geometry by the decoration borders, making the frame
+extents negative, and the xdg_toplevel configure and bounds are shrunk
+by the same borders. Placement, constraints, maximization, tiling and
+min/max size hints therefore work on the decorated frame, like an X11
+frame. Popup anchor rects and xdg_popup.configure positions are offset
+so they stay relative to the parent's window geometry.
+
+Errors: already_constructed, unconfigured_buffer for version 1 objects,
+invalid_mode, and orphaned for requests on a decoration whose
+xdg_toplevel is gone.
+
+The decoration is not drawn yet.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ data/org.gnome.mutter.wayland.gschema.xml.in  |  23 +
+ src/meson.build                               |   2 +
+ src/wayland/meta-wayland-versions.h           |   1 +
+ .../meta-wayland-window-configuration.c       |   7 +
+ .../meta-wayland-window-configuration.h       |   2 +
+ src/wayland/meta-wayland-xdg-decoration.c     | 448 ++++++++++++++++++
+ src/wayland/meta-wayland-xdg-decoration.h     |  32 ++
+ src/wayland/meta-wayland-xdg-shell.c          |  82 +++-
+ src/wayland/meta-wayland.c                    |   2 +
+ src/wayland/meta-window-wayland.c             | 219 ++++++++-
+ src/wayland/meta-window-wayland.h             |  17 +
+ 11 files changed, 802 insertions(+), 33 deletions(-)
+ create mode 100644 src/wayland/meta-wayland-xdg-decoration.c
+ create mode 100644 src/wayland/meta-wayland-xdg-decoration.h
+
+diff --git a/data/org.gnome.mutter.wayland.gschema.xml.in b/data/org.gnome.mutter.wayland.gschema.xml.in
+index c4dde1d..0d08115 100644
+--- a/data/org.gnome.mutter.wayland.gschema.xml.in
++++ b/data/org.gnome.mutter.wayland.gschema.xml.in
+@@ -161,6 +161,29 @@
+       </description>
+     </key>
+ 
++    <key name="decoration-mode" type="s">
++      <choices>
++        <choice value="client-preference"/>
++        <choice value="server-side"/>
++        <choice value="client-side"/>
++      </choices>
++      <default>"client-preference"</default>
++      <summary>Decorations of clients that use xdg-decoration</summary>
++      <description>
++        How Wayland clients that support the xdg-decoration protocol are
++        decorated.
++
++        “client-preference” honours the mode the client asks for, and uses
++        server-side decorations when the client has no preference.
++        “server-side” makes every such client use a titlebar and borders
++        drawn by the compositor, and “client-side” makes every such client
++        draw its own decorations.
++
++        Clients that do not support the protocol always draw their own
++        decorations.
++      </description>
++    </key>
++
+     <child name="keybindings" schema="org.gnome.mutter.wayland.keybindings"/>
+   </schema>
+ 
+diff --git a/src/meson.build b/src/meson.build
+index 97cfb8a..5a86977 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -638,6 +638,8 @@ mutter_sources += [
+   'wayland/meta-wayland-xdg-session.h',
+   'wayland/meta-wayland-xdg-shell.c',
+   'wayland/meta-wayland-xdg-shell.h',
++  'wayland/meta-wayland-xdg-decoration.c',
++  'wayland/meta-wayland-xdg-decoration.h',
+   'wayland/meta-wayland-xdg-dialog.c',
+   'wayland/meta-wayland-xdg-dialog.h',
+   'wayland/meta-wayland-xdg-toplevel-tag.c',
+diff --git a/src/wayland/meta-wayland-versions.h b/src/wayland/meta-wayland-versions.h
+index 7b4c8c0..3ab11a1 100644
+--- a/src/wayland/meta-wayland-versions.h
++++ b/src/wayland/meta-wayland-versions.h
+@@ -74,3 +74,4 @@
+ #define META_ZWLR_LAYER_SHELL_V1_VERSION 5
+ #define META_ZWLR_FOREIGN_TOPLEVEL_MANAGER_V1_VERSION 3
+ #define META_ZWLR_DATA_CONTROL_V1_VERSION 2
++#define META_ZXDG_DECORATION_MANAGER_V1_VERSION 2
+diff --git a/src/wayland/meta-wayland-window-configuration.c b/src/wayland/meta-wayland-window-configuration.c
+index df309b9..0ee7fc8 100644
+--- a/src/wayland/meta-wayland-window-configuration.c
++++ b/src/wayland/meta-wayland-window-configuration.c
+@@ -22,6 +22,7 @@
+ #include "core/meta-window-config-private.h"
+ #include "core/window-private.h"
+ #include "wayland/meta-wayland-window-configuration.h"
++#include "wayland/meta-wayland-xdg-decoration.h"
+ #include "wayland/meta-window-wayland.h"
+ 
+ static uint32_t global_serial_counter = 0;
+@@ -54,6 +55,9 @@ meta_wayland_window_configuration_new (MetaWindow          *window,
+ 
+     .config = meta_window_config_new_from (window->config),
+     .is_suspended = meta_window_is_suspended (window),
++    .is_server_side_decorated =
++      meta_wayland_xdg_decoration_wants_server_side (
++        meta_window_get_wayland_surface (window)),
+   };
+ 
+   meta_window_config_get_position (window->config, &x, &y);
+@@ -135,6 +139,7 @@ meta_wayland_window_configuration_new_from_other (MetaWaylandWindowConfiguration
+     .bounds_height = other->bounds_height,
+     .config = meta_window_config_new_from (other->config),
+     .is_suspended = other->is_suspended,
++    .is_server_side_decorated = other->is_server_side_decorated,
+   };
+ 
+   return configuration;
+@@ -183,6 +188,8 @@ meta_wayland_window_configuration_is_equivalent (MetaWaylandWindowConfiguration
+           configuration->bounds_width == other->bounds_width &&
+           configuration->bounds_height == other->bounds_height &&
+           configuration->is_suspended == other->is_suspended &&
++          configuration->is_server_side_decorated ==
++          other->is_server_side_decorated &&
+           meta_window_config_is_equivalent (configuration->config,
+                                             other->config));
+ }
+diff --git a/src/wayland/meta-wayland-window-configuration.h b/src/wayland/meta-wayland-window-configuration.h
+index 249f3ef..7f9e14a 100644
+--- a/src/wayland/meta-wayland-window-configuration.h
++++ b/src/wayland/meta-wayland-window-configuration.h
+@@ -56,6 +56,8 @@ struct _MetaWaylandWindowConfiguration
+ 
+   MetaWindowConfig *config;
+   gboolean is_suspended;
++
++  gboolean is_server_side_decorated;
+ };
+ 
+ MetaWaylandWindowConfiguration * meta_wayland_window_configuration_new (MetaWindow          *window,
+diff --git a/src/wayland/meta-wayland-xdg-decoration.c b/src/wayland/meta-wayland-xdg-decoration.c
+new file mode 100644
+index 0000000..3c4a208
+--- /dev/null
++++ b/src/wayland/meta-wayland-xdg-decoration.c
+@@ -0,0 +1,448 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++/*
++ * xdg-decoration-unstable-v1: lets a client negotiate server-side
++ * decorations for its xdg_toplevel.
++ *
++ * The effective mode follows the "decoration-mode" key of
++ * org.gnome.mutter.wayland: "client-preference" (the default) honours the
++ * mode the client asks for, and picks server-side decorations when the
++ * client has no preference; "server-side" and "client-side" force the
++ * mode for every client that binds the protocol. Clients that never create
++ * a decoration object keep drawing their own decorations.
++ *
++ * The mode is part of the toplevel's MetaWaylandWindowConfiguration, so it
++ * goes out with, and takes effect on the ack of, a regular configure. The
++ * titlebar and borders themselves are drawn by MetaWindowDecoration.
++ */
++
++#include "config.h"
++
++#include "wayland/meta-wayland-xdg-decoration.h"
++
++#include "wayland/meta-wayland-private.h"
++#include "wayland/meta-wayland-surface-private.h"
++#include "wayland/meta-wayland-versions.h"
++#include "wayland/meta-window-wayland.h"
++
++#include "xdg-decoration-unstable-v1-server-protocol.h"
++
++#define DECORATION_SCHEMA "org.gnome.mutter.wayland"
++#define DECORATION_MODE_KEY "decoration-mode"
++
++typedef enum _MetaDecorationPolicy
++{
++  META_DECORATION_POLICY_CLIENT_PREFERENCE,
++  META_DECORATION_POLICY_SERVER_SIDE,
++  META_DECORATION_POLICY_CLIENT_SIDE,
++} MetaDecorationPolicy;
++
++typedef struct _MetaWaylandXdgDecorationManager
++{
++  MetaWaylandCompositor *compositor;
++  GSettings *settings;
++  MetaDecorationPolicy policy;
++  GList *decorations;
++} MetaWaylandXdgDecorationManager;
++
++typedef struct _MetaWaylandXdgToplevelDecoration
++{
++  MetaWaylandXdgDecorationManager *manager;
++  struct wl_resource *resource;
++  MetaWaylandXdgToplevel *xdg_toplevel;
++
++  /* 0 when the client has no preference. */
++  uint32_t requested_mode;
++
++  gboolean configure_sent;
++  uint32_t sent_mode;
++} MetaWaylandXdgToplevelDecoration;
++
++static GQuark quark_decoration;
++
++static MetaWaylandXdgToplevelDecoration *
++decoration_from_xdg_toplevel (MetaWaylandXdgToplevel *xdg_toplevel)
++{
++  return g_object_get_qdata (G_OBJECT (xdg_toplevel), quark_decoration);
++}
++
++static MetaWaylandXdgToplevelDecoration *
++decoration_from_surface (MetaWaylandSurface *surface)
++{
++  if (!surface || !META_IS_WAYLAND_XDG_TOPLEVEL (surface->role))
++    return NULL;
++
++  return decoration_from_xdg_toplevel (META_WAYLAND_XDG_TOPLEVEL (surface->role));
++}
++
++static uint32_t
++get_effective_mode (MetaWaylandXdgToplevelDecoration *decoration)
++{
++  switch (decoration->manager->policy)
++    {
++    case META_DECORATION_POLICY_SERVER_SIDE:
++      return ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE;
++    case META_DECORATION_POLICY_CLIENT_SIDE:
++      return ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE;
++    case META_DECORATION_POLICY_CLIENT_PREFERENCE:
++      break;
++    }
++
++  if (decoration->requested_mode == ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE)
++    return ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE;
++
++  return ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE;
++}
++
++gboolean
++meta_wayland_xdg_decoration_has_decoration (MetaWaylandSurface *surface)
++{
++  return decoration_from_surface (surface) != NULL;
++}
++
++gboolean
++meta_wayland_xdg_decoration_wants_server_side (MetaWaylandSurface *surface)
++{
++  MetaWaylandXdgToplevelDecoration *decoration =
++    decoration_from_surface (surface);
++
++  if (!decoration)
++    return FALSE;
++
++  return get_effective_mode (decoration) ==
++         ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE;
++}
++
++void
++meta_wayland_xdg_decoration_send_configure (MetaWaylandXdgToplevel *xdg_toplevel,
++                                            gboolean                server_side)
++{
++  MetaWaylandXdgToplevelDecoration *decoration =
++    decoration_from_xdg_toplevel (xdg_toplevel);
++  uint32_t mode;
++
++  if (!decoration)
++    return;
++
++  mode = server_side ? ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE
++                     : ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE;
++
++  if (decoration->configure_sent && decoration->sent_mode == mode)
++    return;
++
++  zxdg_toplevel_decoration_v1_send_configure (decoration->resource, mode);
++  decoration->configure_sent = TRUE;
++  decoration->sent_mode = mode;
++}
++
++static void
++on_xdg_toplevel_finalized (MetaWaylandXdgToplevelDecoration *decoration)
++{
++  decoration->xdg_toplevel = NULL;
++}
++
++static void
++decoration_detach (MetaWaylandXdgToplevelDecoration *decoration)
++{
++  if (!decoration->xdg_toplevel)
++    return;
++
++  g_object_steal_qdata (G_OBJECT (decoration->xdg_toplevel),
++                        quark_decoration);
++  decoration->xdg_toplevel = NULL;
++}
++
++void
++meta_wayland_xdg_decoration_toplevel_destroyed (MetaWaylandXdgToplevel *xdg_toplevel)
++{
++  MetaWaylandXdgToplevelDecoration *decoration =
++    decoration_from_xdg_toplevel (xdg_toplevel);
++
++  if (decoration)
++    decoration_detach (decoration);
++}
++
++static MetaWindowWayland *
++decoration_get_window (MetaWaylandXdgToplevelDecoration *decoration)
++{
++  MetaWaylandSurface *surface;
++  MetaWindow *window;
++
++  if (!decoration->xdg_toplevel)
++    return NULL;
++
++  surface =
++    meta_wayland_surface_role_get_surface (META_WAYLAND_SURFACE_ROLE (decoration->xdg_toplevel));
++  window = meta_wayland_surface_get_window (surface);
++  if (!window || !META_IS_WINDOW_WAYLAND (window))
++    return NULL;
++
++  return META_WINDOW_WAYLAND (window);
++}
++
++static void
++decoration_update (MetaWaylandXdgToplevelDecoration *decoration,
++                   gboolean                          respond)
++{
++  MetaWindowWayland *wl_window;
++
++  wl_window = decoration_get_window (decoration);
++  if (!wl_window)
++    return;
++
++  /* set_mode and unset_mode are always answered with a configure, even if
++   * the effective mode did not change. */
++  if (respond)
++    decoration->configure_sent = FALSE;
++
++  meta_window_wayland_update_decoration_mode (wl_window, respond);
++}
++
++static gboolean
++decoration_check_orphaned (MetaWaylandXdgToplevelDecoration *decoration)
++{
++  if (decoration->xdg_toplevel)
++    return FALSE;
++
++  wl_resource_post_error (decoration->resource,
++                          ZXDG_TOPLEVEL_DECORATION_V1_ERROR_ORPHANED,
++                          "xdg_toplevel was destroyed before its decoration");
++  return TRUE;
++}
++
++static void
++toplevel_decoration_destroy (struct wl_client   *client,
++                             struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static void
++toplevel_decoration_set_mode (struct wl_client   *client,
++                              struct wl_resource *resource,
++                              uint32_t            mode)
++{
++  MetaWaylandXdgToplevelDecoration *decoration =
++    wl_resource_get_user_data (resource);
++
++  if (decoration_check_orphaned (decoration))
++    return;
++
++  switch (mode)
++    {
++    case ZXDG_TOPLEVEL_DECORATION_V1_MODE_CLIENT_SIDE:
++    case ZXDG_TOPLEVEL_DECORATION_V1_MODE_SERVER_SIDE:
++      break;
++    default:
++      wl_resource_post_error (resource,
++                              ZXDG_TOPLEVEL_DECORATION_V1_ERROR_INVALID_MODE,
++                              "Invalid decoration mode %u", mode);
++      return;
++    }
++
++  decoration->requested_mode = mode;
++  decoration_update (decoration, TRUE);
++}
++
++static void
++toplevel_decoration_unset_mode (struct wl_client   *client,
++                                struct wl_resource *resource)
++{
++  MetaWaylandXdgToplevelDecoration *decoration =
++    wl_resource_get_user_data (resource);
++
++  if (decoration_check_orphaned (decoration))
++    return;
++
++  decoration->requested_mode = 0;
++  decoration_update (decoration, TRUE);
++}
++
++static const struct zxdg_toplevel_decoration_v1_interface toplevel_decoration_interface = {
++  toplevel_decoration_destroy,
++  toplevel_decoration_set_mode,
++  toplevel_decoration_unset_mode,
++};
++
++static void
++toplevel_decoration_destructor (struct wl_resource *resource)
++{
++  MetaWaylandXdgToplevelDecoration *decoration =
++    wl_resource_get_user_data (resource);
++  MetaWaylandXdgDecorationManager *manager = decoration->manager;
++
++  /* The window switches back to client-side decorations with its next
++   * commit (see meta_window_wayland_finish_move_resize()). */
++  decoration_detach (decoration);
++  manager->decorations = g_list_remove (manager->decorations, decoration);
++  g_free (decoration);
++}
++
++static void
++decoration_manager_destroy (struct wl_client   *client,
++                            struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static void
++decoration_manager_get_toplevel_decoration (struct wl_client   *client,
++                                            struct wl_resource *resource,
++                                            uint32_t            id,
++                                            struct wl_resource *toplevel_resource)
++{
++  MetaWaylandXdgDecorationManager *manager =
++    wl_resource_get_user_data (resource);
++  MetaWaylandXdgToplevel *xdg_toplevel =
++    wl_resource_get_user_data (toplevel_resource);
++  MetaWaylandSurface *surface;
++  MetaWaylandXdgToplevelDecoration *decoration;
++
++  surface =
++    meta_wayland_surface_role_get_surface (META_WAYLAND_SURFACE_ROLE (xdg_toplevel));
++
++  if (decoration_from_xdg_toplevel (xdg_toplevel))
++    {
++      wl_resource_post_error (resource,
++                              ZXDG_TOPLEVEL_DECORATION_V1_ERROR_ALREADY_CONSTRUCTED,
++                              "xdg_toplevel already has a decoration object");
++      return;
++    }
++
++  if (wl_resource_get_version (resource) < 2 &&
++      meta_wayland_surface_get_buffer (surface))
++    {
++      wl_resource_post_error (resource,
++                              ZXDG_TOPLEVEL_DECORATION_V1_ERROR_UNCONFIGURED_BUFFER,
++                              "xdg_toplevel has a buffer attached");
++      return;
++    }
++
++  decoration = g_new0 (MetaWaylandXdgToplevelDecoration, 1);
++  decoration->manager = manager;
++  decoration->xdg_toplevel = xdg_toplevel;
++  decoration->resource =
++    wl_resource_create (client, &zxdg_toplevel_decoration_v1_interface,
++                        wl_resource_get_version (resource), id);
++  wl_resource_set_implementation (decoration->resource,
++                                  &toplevel_decoration_interface,
++                                  decoration,
++                                  toplevel_decoration_destructor);
++
++  /* The role object can be finalized before the decoration resource is
++   * destroyed, e.g. while a client disconnects. */
++  g_object_set_qdata_full (G_OBJECT (xdg_toplevel), quark_decoration,
++                           decoration,
++                           (GDestroyNotify) on_xdg_toplevel_finalized);
++  manager->decorations = g_list_prepend (manager->decorations, decoration);
++
++  /* A toplevel that was already configured learns its mode with a new
++   * configure; otherwise the initial configure carries it. */
++  decoration_update (decoration, TRUE);
++}
++
++static const struct zxdg_decoration_manager_v1_interface decoration_manager_interface = {
++  decoration_manager_destroy,
++  decoration_manager_get_toplevel_decoration,
++};
++
++static void
++bind_decoration_manager (struct wl_client *client,
++                         void             *data,
++                         uint32_t          version,
++                         uint32_t          id)
++{
++  MetaWaylandXdgDecorationManager *manager = data;
++  struct wl_resource *resource;
++
++  resource = wl_resource_create (client, &zxdg_decoration_manager_v1_interface,
++                                 version, id);
++  wl_resource_set_implementation (resource, &decoration_manager_interface,
++                                  manager, NULL);
++}
++
++static void
++update_policy (MetaWaylandXdgDecorationManager *manager)
++{
++  g_autofree char *mode = NULL;
++
++  manager->policy = META_DECORATION_POLICY_CLIENT_PREFERENCE;
++  if (!manager->settings)
++    return;
++
++  mode = g_settings_get_string (manager->settings, DECORATION_MODE_KEY);
++  if (g_strcmp0 (mode, "server-side") == 0)
++    manager->policy = META_DECORATION_POLICY_SERVER_SIDE;
++  else if (g_strcmp0 (mode, "client-side") == 0)
++    manager->policy = META_DECORATION_POLICY_CLIENT_SIDE;
++}
++
++static void
++on_decoration_mode_changed (GSettings                       *settings,
++                            const char                      *key,
++                            MetaWaylandXdgDecorationManager *manager)
++{
++  GList *l;
++
++  update_policy (manager);
++
++  for (l = manager->decorations; l; l = l->next)
++    decoration_update (l->data, FALSE);
++}
++
++static void
++decoration_manager_free (MetaWaylandXdgDecorationManager *manager)
++{
++  g_clear_object (&manager->settings);
++  g_free (manager);
++}
++
++void
++meta_wayland_xdg_decoration_init (MetaWaylandCompositor *compositor)
++{
++  MetaWaylandXdgDecorationManager *manager;
++  GSettingsSchemaSource *schema_source;
++  g_autoptr (GSettingsSchema) schema = NULL;
++
++  quark_decoration = g_quark_from_static_string ("-meta-wayland-xdg-decoration");
++
++  manager = g_new0 (MetaWaylandXdgDecorationManager, 1);
++  manager->compositor = compositor;
++
++  schema_source = g_settings_schema_source_get_default ();
++  if (schema_source)
++    schema = g_settings_schema_source_lookup (schema_source,
++                                              DECORATION_SCHEMA, TRUE);
++  if (schema && g_settings_schema_has_key (schema, DECORATION_MODE_KEY))
++    {
++      manager->settings = g_settings_new (DECORATION_SCHEMA);
++      g_signal_connect (manager->settings, "changed::" DECORATION_MODE_KEY,
++                        G_CALLBACK (on_decoration_mode_changed), manager);
++    }
++  update_policy (manager);
++
++  if (wl_global_create (compositor->wayland_display,
++                        &zxdg_decoration_manager_v1_interface,
++                        META_ZXDG_DECORATION_MANAGER_V1_VERSION,
++                        manager, bind_decoration_manager) == NULL)
++    g_error ("Failed to register a global xdg-decoration object");
++
++  g_object_set_data_full (G_OBJECT (compositor), "-meta-wayland-xdg-decoration",
++                          manager,
++                          (GDestroyNotify) decoration_manager_free);
++}
+diff --git a/src/wayland/meta-wayland-xdg-decoration.h b/src/wayland/meta-wayland-xdg-decoration.h
+new file mode 100644
+index 0000000..529e460
+--- /dev/null
++++ b/src/wayland/meta-wayland-xdg-decoration.h
+@@ -0,0 +1,32 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#pragma once
++
++#include "wayland/meta-wayland-types.h"
++#include "wayland/meta-wayland-xdg-shell.h"
++
++void meta_wayland_xdg_decoration_init (MetaWaylandCompositor *compositor);
++
++gboolean meta_wayland_xdg_decoration_has_decoration (MetaWaylandSurface *surface);
++
++gboolean meta_wayland_xdg_decoration_wants_server_side (MetaWaylandSurface *surface);
++
++void meta_wayland_xdg_decoration_send_configure (MetaWaylandXdgToplevel *xdg_toplevel,
++                                                 gboolean                server_side);
++
++void meta_wayland_xdg_decoration_toplevel_destroyed (MetaWaylandXdgToplevel *xdg_toplevel);
+diff --git a/src/wayland/meta-wayland-xdg-shell.c b/src/wayland/meta-wayland-xdg-shell.c
+index 1dd84ad..53ee0e5 100644
+--- a/src/wayland/meta-wayland-xdg-shell.c
++++ b/src/wayland/meta-wayland-xdg-shell.c
+@@ -22,6 +22,7 @@
+ #include "config.h"
+ 
+ #include "wayland/meta-wayland-xdg-shell.h"
++#include "wayland/meta-wayland-xdg-decoration.h"
+ 
+ #include "backends/meta-backend-private.h"
+ #include "backends/meta-logical-monitor-private.h"
+@@ -225,6 +226,7 @@ xdg_toplevel_destructor (struct wl_resource *resource)
+   MetaWaylandShellSurface *shell_surface =
+     META_WAYLAND_SHELL_SURFACE (xdg_toplevel);
+ 
++  meta_wayland_xdg_decoration_toplevel_destroyed (xdg_toplevel);
+   meta_wayland_shell_surface_destroy_window (shell_surface);
+   xdg_toplevel->resource = NULL;
+ }
+@@ -851,10 +853,42 @@ meta_wayland_xdg_toplevel_send_configure (MetaWaylandXdgToplevel         *xdg_to
+   MetaWaylandXdgSurfacePrivate *xdg_surface_priv =
+     meta_wayland_xdg_surface_get_instance_private (xdg_surface);
+   struct wl_array states;
++  int width, height;
++  int bounds_width, bounds_height;
+ 
+   wl_array_init (&states);
+   fill_states (xdg_toplevel, configuration, &states);
+ 
++  width = configuration->width;
++  height = configuration->height;
++  bounds_width = configuration->bounds_width;
++  bounds_height = configuration->bounds_height;
++
++  if (configuration->is_server_side_decorated)
++    {
++      MetaWaylandSurfaceRole *surface_role =
++        META_WAYLAND_SURFACE_ROLE (xdg_toplevel);
++      MetaWaylandSurface *surface =
++        meta_wayland_surface_role_get_surface (surface_role);
++      MetaWindow *window = meta_wayland_surface_get_window (surface);
++      MetaFrameBorder borders = { 0 };
++
++      /* Sizes are frame sizes; the client only draws inside the
++       * server-side decoration. */
++      if (window)
++        meta_window_wayland_get_decoration_borders (window,
++                                                    configuration->config,
++                                                    &borders);
++      if (width > 0)
++        width = MAX (width - borders.left - borders.right, 1);
++      if (height > 0)
++        height = MAX (height - borders.top - borders.bottom, 1);
++      if (bounds_width > 0)
++        bounds_width = MAX (bounds_width - borders.left - borders.right, 1);
++      if (bounds_height > 0)
++        bounds_height = MAX (bounds_height - borders.top - borders.bottom, 1);
++    }
++
+   if (meta_is_topic_enabled (META_DEBUG_WAYLAND))
+     {
+       MetaWaylandSurfaceRole *surface_role =
+@@ -873,8 +907,9 @@ meta_wayland_xdg_toplevel_send_configure (MetaWaylandXdgToplevel         *xdg_to
+                               configuration->serial);
+ 
+       append_state_string (&states, string);
+-      g_string_append_printf (string, ", size=%dx%d",
+-                              configuration->width, configuration->height);
++      g_string_append_printf (string, ", size=%dx%d", width, height);
++      if (configuration->is_server_side_decorated)
++        g_string_append (string, ", server-side decorated");
+       if (configuration->has_position)
+         {
+           g_string_append_printf (string, ", position=%d,%d",
+@@ -886,14 +921,12 @@ meta_wayland_xdg_toplevel_send_configure (MetaWaylandXdgToplevel         *xdg_to
+ 
+   if (wl_resource_get_version (xdg_toplevel->resource) >=
+       XDG_TOPLEVEL_CONFIGURE_BOUNDS_SINCE_VERSION &&
+-      configuration->bounds_width > 0 &&
+-      configuration->bounds_height > 0)
++      bounds_width > 0 &&
++      bounds_height > 0)
+     {
+       xdg_toplevel_send_configure_bounds (xdg_toplevel->resource,
+-                                          (configuration->bounds_width /
+-                                           configuration->scale),
+-                                          (configuration->bounds_height /
+-                                           configuration->scale));
++                                          bounds_width / configuration->scale,
++                                          bounds_height / configuration->scale);
+     }
+ 
+   if (!xdg_surface_priv->configure_sent &&
+@@ -915,9 +948,12 @@ meta_wayland_xdg_toplevel_send_configure (MetaWaylandXdgToplevel         *xdg_to
+       wl_array_release (&wm_capabilities);
+     }
+ 
++  meta_wayland_xdg_decoration_send_configure (xdg_toplevel,
++                                              configuration->is_server_side_decorated);
++
+   xdg_toplevel_send_configure (xdg_toplevel->resource,
+-                               configuration->width / configuration->scale,
+-                               configuration->height / configuration->scale,
++                               width / configuration->scale,
++                               height / configuration->scale,
+                                &states);
+   wl_array_release (&states);
+ 
+@@ -1687,6 +1723,7 @@ meta_wayland_xdg_popup_configure (MetaWaylandShellSurface        *shell_surface,
+   MetaWaylandSurface *surface =
+     meta_wayland_surface_role_get_surface (surface_role);
+   int geometry_scale;
++  int geometry_offset_x, geometry_offset_y;
+   int x, y;
+ 
+   if (!xdg_popup->resource)
+@@ -1719,9 +1756,15 @@ meta_wayland_xdg_popup_configure (MetaWaylandShellSurface        *shell_surface,
+                   xdg_popup->pending_repositioned ? "yes" : "no");
+     }
+ 
++  /* Positions relative to a server-side decorated parent are relative to
++   * its frame; the client expects them relative to its window geometry. */
++  meta_window_wayland_get_geometry_offset (parent_window,
++                                           &geometry_offset_x,
++                                           &geometry_offset_y);
++
+   geometry_scale = meta_window_wayland_get_geometry_scale (parent_window);
+-  x = configuration->rel_x / geometry_scale;
+-  y = configuration->rel_y / geometry_scale;
++  x = (configuration->rel_x - geometry_offset_x) / geometry_scale;
++  y = (configuration->rel_y - geometry_offset_y) / geometry_scale;
+   if (xdg_popup->pending_repositioned)
+     {
+       xdg_popup_send_repositioned (xdg_popup->resource,
+@@ -2570,6 +2613,9 @@ meta_wayland_xdg_positioner_to_placement (MetaWaylandXdgPositioner *xdg_position
+                                           MetaWindow               *parent_window)
+ {
+   MtkRectangle parent_rect;
++  MtkRectangle anchor_rect;
++  int geometry_offset_x, geometry_offset_y;
++  int geometry_scale;
+ 
+   meta_window_get_frame_rect (parent_window, &parent_rect);
+ 
+@@ -2619,8 +2665,18 @@ meta_wayland_xdg_positioner_to_placement (MetaWaylandXdgPositioner *xdg_position
+                                           xdg_positioner->parent_height);
+     }
+ 
++  /* The anchor rect is relative to the parent's window geometry, which a
++   * server-side decoration offsets from its frame rect. */
++  meta_window_wayland_get_geometry_offset (parent_window,
++                                           &geometry_offset_x,
++                                           &geometry_offset_y);
++  geometry_scale = meta_window_wayland_get_geometry_scale (parent_window);
++  anchor_rect = xdg_positioner->anchor_rect;
++  anchor_rect.x += geometry_offset_x / geometry_scale;
++  anchor_rect.y += geometry_offset_y / geometry_scale;
++
+   return (MetaPlacementRule) {
+-    .anchor_rect = xdg_positioner->anchor_rect,
++    .anchor_rect = anchor_rect,
+     .gravity = positioner_gravity_to_placement_gravity (xdg_positioner->gravity),
+     .anchor = positioner_anchor_to_placement_anchor (xdg_positioner->anchor),
+     .constraint_adjustment = xdg_positioner->constraint_adjustment,
+diff --git a/src/wayland/meta-wayland.c b/src/wayland/meta-wayland.c
+index a7698dc..3cd0519 100644
+--- a/src/wayland/meta-wayland.c
++++ b/src/wayland/meta-wayland.c
+@@ -67,6 +67,7 @@
+ #include "wayland/meta-wayland-tablet-manager.h"
+ #include "wayland/meta-wayland-transaction.h"
+ #include "wayland/meta-wayland-xdg-dialog.h"
++#include "wayland/meta-wayland-xdg-decoration.h"
+ #include "wayland/meta-wayland-xdg-foreign.h"
+ #include "wayland/meta-wayland-xdg-session-manager.h"
+ #include "wayland/meta-wayland-xdg-toplevel-tag.h"
+@@ -996,6 +997,7 @@ meta_wayland_compositor_new (MetaContext *context)
+   meta_wayland_data_control_init (compositor);
+   meta_wayland_subsurfaces_init (compositor);
+   meta_wayland_shell_init (compositor);
++  meta_wayland_xdg_decoration_init (compositor);
+   meta_wayland_pointer_gestures_init (compositor);
+   meta_wayland_tablet_manager_init (compositor);
+   meta_wayland_seat_init (compositor);
+diff --git a/src/wayland/meta-window-wayland.c b/src/wayland/meta-window-wayland.c
+index 78d2e73..6bdd665 100644
+--- a/src/wayland/meta-window-wayland.c
++++ b/src/wayland/meta-window-wayland.c
+@@ -44,6 +44,7 @@
+ #include "wayland/meta-wayland-toplevel-drag.h"
+ #include "wayland/meta-wayland-transaction.h"
+ #include "wayland/meta-wayland-window-configuration.h"
++#include "wayland/meta-wayland-xdg-decoration.h"
+ #include "wayland/meta-wayland-xdg-shell.h"
+ 
+ enum
+@@ -81,6 +82,10 @@ struct _MetaWindowWayland
+   gboolean has_been_shown;
+ 
+   gboolean is_suspended;
++
++  /* Server-side decorations (xdg-decoration), as of the last acked
++   * configuration. */
++  gboolean is_server_side_decorated;
+ };
+ 
+ struct _MetaWindowWaylandClass
+@@ -1642,6 +1647,39 @@ meta_window_wayland_finish_move_resize (MetaWindow              *window,
+   acked_configuration = acquire_acked_configuration (wl_window, pending,
+                                                      &is_client_resize);
+ 
++  if (acked_configuration)
++    {
++      wl_window->is_server_side_decorated =
++        acked_configuration->is_server_side_decorated;
++    }
++
++  /* A destroyed decoration object switches back to client-side decorations
++   * at the next commit. */
++  if (!meta_wayland_xdg_decoration_has_decoration (surface))
++    wl_window->is_server_side_decorated = FALSE;
++
++  if (wl_window->is_server_side_decorated)
++    {
++      MetaFrameBorder borders;
++
++      /* The frame rect of a server-side decorated window includes the
++       * titlebar and borders drawn around the client's window geometry,
++       * so the frame extents become negative. */
++      meta_window_wayland_get_decoration_borders (window,
++                                                  acked_configuration ?
++                                                  acked_configuration->config :
++                                                  NULL,
++                                                  &borders);
++      new_geom.x -= borders.left;
++      new_geom.y -= borders.top;
++      new_geom.width += borders.left + borders.right;
++      new_geom.height += borders.top + borders.bottom;
++      window->custom_frame_extents.left -= borders.left;
++      window->custom_frame_extents.top -= borders.top;
++      window->custom_frame_extents.right -= borders.right;
++      window->custom_frame_extents.bottom -= borders.bottom;
++    }
++
+   if (meta_is_topic_enabled (META_DEBUG_WAYLAND))
+     {
+       g_autoptr (GString) string = NULL;
+@@ -1844,11 +1882,41 @@ meta_window_update_placement_rule (MetaWindow        *window,
+   meta_window_place_with_placement_rule (window, placement_rule);
+ }
+ 
++/*
++ * The size hints are in buffer coordinates (see
++ * meta_window_client_rect_to_frame_rect()). For a server-side decorated
++ * window, the frame extents include the negative decoration borders, but
++ * the client's min and max sizes only apply to its window geometry, so the
++ * decoration is added on top.
++ */
++static void
++get_size_hints_extents (MetaWindow *window,
++                        int        *width,
++                        int        *height)
++{
++  MetaWindowWayland *wl_window = META_WINDOW_WAYLAND (window);
++
++  *width = (window->custom_frame_extents.left +
++            window->custom_frame_extents.right);
++  *height = (window->custom_frame_extents.top +
++             window->custom_frame_extents.bottom);
++
++  if (wl_window->is_server_side_decorated)
++    {
++      MetaFrameBorder borders;
++
++      meta_window_wayland_get_decoration_borders (window, NULL, &borders);
++      *width += borders.left + borders.right;
++      *height += borders.top + borders.bottom;
++    }
++}
++
+ void
+ meta_window_wayland_set_min_size (MetaWindow *window,
+                                   int         width,
+                                   int         height)
+ {
++  int extents_width, extents_height;
+   gint64 new_width, new_height;
+   float scale;
+ 
+@@ -1867,10 +1935,9 @@ meta_window_wayland_set_min_size (MetaWindow *window,
+   scale = (float) meta_window_wayland_get_geometry_scale (window);
+   scale_size (&width, &height, scale);
+ 
+-  new_width = width + (window->custom_frame_extents.left +
+-                       window->custom_frame_extents.right);
+-  new_height = height + (window->custom_frame_extents.top +
+-                         window->custom_frame_extents.bottom);
++  get_size_hints_extents (window, &extents_width, &extents_height);
++  new_width = width + extents_width;
++  new_height = height + extents_height;
+ 
+   window->size_hints.min_width = (int) MIN (new_width, G_MAXINT);
+   window->size_hints.min_height = (int) MIN (new_height, G_MAXINT);
+@@ -1883,6 +1950,7 @@ meta_window_wayland_set_max_size (MetaWindow *window,
+                                   int         height)
+ 
+ {
++  int extents_width, extents_height;
+   gint64 new_width, new_height;
+   float scale;
+ 
+@@ -1901,10 +1969,9 @@ meta_window_wayland_set_max_size (MetaWindow *window,
+   scale = (float) meta_window_wayland_get_geometry_scale (window);
+   scale_size (&width, &height, scale);
+ 
+-  new_width = width + (window->custom_frame_extents.left +
+-                       window->custom_frame_extents.right);
+-  new_height = height + (window->custom_frame_extents.top +
+-                         window->custom_frame_extents.bottom);
++  get_size_hints_extents (window, &extents_width, &extents_height);
++  new_width = width + extents_width;
++  new_height = height + extents_height;
+ 
+   window->size_hints.max_width = (int) ((new_width > 0 && new_width < G_MAXINT) ?
+                                         new_width : G_MAXINT);
+@@ -1918,6 +1985,7 @@ meta_window_wayland_get_min_size (MetaWindow *window,
+                                   int        *width,
+                                   int        *height)
+ {
++  int extents_width, extents_height;
+   gint64 current_width, current_height;
+   float scale;
+ 
+@@ -1930,12 +1998,9 @@ meta_window_wayland_get_min_size (MetaWindow *window,
+       return;
+     }
+ 
+-  current_width = window->size_hints.min_width -
+-                  (window->custom_frame_extents.left +
+-                   window->custom_frame_extents.right);
+-  current_height = window->size_hints.min_height -
+-                   (window->custom_frame_extents.top +
+-                    window->custom_frame_extents.bottom);
++  get_size_hints_extents (window, &extents_width, &extents_height);
++  current_width = window->size_hints.min_width - extents_width;
++  current_height = window->size_hints.min_height - extents_height;
+ 
+   *width = MAX (current_width, 0);
+   *height = MAX (current_height, 0);
+@@ -1949,6 +2014,7 @@ meta_window_wayland_get_max_size (MetaWindow *window,
+                                   int        *width,
+                                   int        *height)
+ {
++  int extents_width, extents_height;
+   gint64 current_width = 0;
+   gint64 current_height = 0;
+   float scale;
+@@ -1962,15 +2028,13 @@ meta_window_wayland_get_max_size (MetaWindow *window,
+       return;
+     }
+ 
++  get_size_hints_extents (window, &extents_width, &extents_height);
++
+   if (window->size_hints.max_width < G_MAXINT)
+-    current_width = window->size_hints.max_width -
+-                    (window->custom_frame_extents.left +
+-                     window->custom_frame_extents.right);
++    current_width = window->size_hints.max_width - extents_width;
+ 
+   if (window->size_hints.max_height < G_MAXINT)
+-    current_height = window->size_hints.max_height -
+-                     (window->custom_frame_extents.top +
+-                      window->custom_frame_extents.bottom);
++    current_height = window->size_hints.max_height - extents_height;
+ 
+   *width = CLAMP (current_width, 0, G_MAXINT);
+   *height = CLAMP (current_height, 0, G_MAXINT);
+@@ -2033,3 +2097,118 @@ meta_window_wayland_get_client (MetaWindowWayland *wl_window)
+ {
+   return wl_window->client;
+ }
++
++gboolean
++meta_window_wayland_is_server_side_decorated (MetaWindowWayland *wl_window)
++{
++  return wl_window->is_server_side_decorated;
++}
++
++/**
++ * meta_window_wayland_get_decoration_borders:
++ * @window: a #MetaWindow
++ * @config: (nullable): the window config to compute the borders for, or
++ *   %NULL for the current one
++ * @borders: (out): the server-side decoration around the window geometry
++ *
++ * Gets the size of the titlebar and borders Mutter draws around the window
++ * geometry of a server-side decorated window in the state of @config, in
++ * the same coordinate space as the frame rect. This does not check whether
++ * the window is server-side decorated.
++ */
++void
++meta_window_wayland_get_decoration_borders (MetaWindow       *window,
++                                            MetaWindowConfig *config,
++                                            MetaFrameBorder  *borders)
++{
++  int geometry_scale;
++
++  if (!config)
++    config = window->config;
++
++  *borders = (MetaFrameBorder) { 0 };
++
++  if (meta_window_config_get_is_fullscreen (config))
++    return;
++
++  geometry_scale = meta_window_wayland_get_geometry_scale (window);
++
++  borders->top = META_WINDOW_DECORATION_TITLEBAR_HEIGHT * geometry_scale;
++  if (meta_window_config_is_floating (config))
++    {
++      borders->left = META_WINDOW_DECORATION_BORDER_WIDTH * geometry_scale;
++      borders->right = META_WINDOW_DECORATION_BORDER_WIDTH * geometry_scale;
++      borders->bottom = META_WINDOW_DECORATION_BORDER_WIDTH * geometry_scale;
++    }
++}
++
++/**
++ * meta_window_wayland_get_geometry_offset:
++ * @window: a #MetaWindow
++ * @x: (out): horizontal offset
++ * @y: (out): vertical offset
++ *
++ * Gets the offset of the client's window geometry from the frame rect,
++ * which is the server-side decoration's left border and titlebar, or 0
++ * for windows without server-side decorations.
++ */
++void
++meta_window_wayland_get_geometry_offset (MetaWindow *window,
++                                         int        *x,
++                                         int        *y)
++{
++  MetaWindowWayland *wl_window;
++  MetaFrameBorder borders;
++
++  *x = *y = 0;
++
++  if (!META_IS_WINDOW_WAYLAND (window))
++    return;
++
++  wl_window = META_WINDOW_WAYLAND (window);
++  if (!wl_window->is_server_side_decorated)
++    return;
++
++  meta_window_wayland_get_decoration_borders (window,
++                                              wl_window->last_acked_configuration ?
++                                              wl_window->last_acked_configuration->config :
++                                              NULL,
++                                              &borders);
++  *x = borders.left;
++  *y = borders.top;
++}
++
++/**
++ * meta_window_wayland_update_decoration_mode:
++ * @wl_window: a #MetaWindowWayland
++ *
++ * @force: whether to send a configuration even if the mode did not change
++ *
++ * Sends a new configuration if the decoration mode the client should use
++ * differs from the last one sent, e.g. after the policy changed, or
++ * always when @force is set, as for a set_mode request on an already
++ * configured toplevel.
++ */
++void
++meta_window_wayland_update_decoration_mode (MetaWindowWayland *wl_window,
++                                            gboolean           force)
++{
++  MetaWindow *window = META_WINDOW (wl_window);
++  MetaWaylandWindowConfiguration *last_sent_configuration =
++    wl_window->last_sent_configuration;
++  MtkRectangle frame_rect;
++
++  if (!last_sent_configuration || window->unmanaging)
++    return;
++
++  if (!force &&
++      last_sent_configuration->is_server_side_decorated ==
++      meta_wayland_xdg_decoration_wants_server_side (wl_window->surface))
++    return;
++
++  frame_rect = meta_window_config_get_rect (window->config);
++  meta_window_move_resize (window,
++                           (META_MOVE_RESIZE_RESIZE_ACTION |
++                            META_MOVE_RESIZE_WAYLAND_FORCE_CONFIGURE),
++                           frame_rect);
++}
+diff --git a/src/wayland/meta-window-wayland.h b/src/wayland/meta-window-wayland.h
+index 0c3e7fb..a71b06c 100644
+--- a/src/wayland/meta-window-wayland.h
++++ b/src/wayland/meta-window-wayland.h
+@@ -28,6 +28,10 @@
+ 
+ G_BEGIN_DECLS
+ 
++/* Size of the server-side decoration of xdg-decoration clients. */
++#define META_WINDOW_DECORATION_TITLEBAR_HEIGHT 37
++#define META_WINDOW_DECORATION_BORDER_WIDTH 1
++
+ #define META_TYPE_WINDOW_WAYLAND (meta_window_wayland_get_type())
+ META_EXPORT_TEST
+ G_DECLARE_FINAL_TYPE (MetaWindowWayland, meta_window_wayland,
+@@ -86,3 +90,16 @@ gboolean meta_window_wayland_get_pending_serial (MetaWindowWayland *wl_window,
+                                                  uint32_t          *serial);
+ 
+ MetaWaylandClient * meta_window_wayland_get_client (MetaWindowWayland *wl_window);
++
++gboolean meta_window_wayland_is_server_side_decorated (MetaWindowWayland *wl_window);
++
++void meta_window_wayland_get_decoration_borders (MetaWindow       *window,
++                                                 MetaWindowConfig *config,
++                                                 MetaFrameBorder  *borders);
++
++void meta_window_wayland_get_geometry_offset (MetaWindow *window,
++                                              int        *x,
++                                              int        *y);
++
++void meta_window_wayland_update_decoration_mode (MetaWindowWayland *wl_window,
++                                                 gboolean           force);
