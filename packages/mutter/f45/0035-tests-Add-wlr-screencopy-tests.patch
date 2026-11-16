@@ -1,0 +1,907 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 00:50:24 +1100
+Subject: [PATCH] tests: Add wlr-screencopy tests
+
+Run a screencopy client against the test backend. It maps a fullscreen
+window whose pixels encode their own coordinates and checks the
+captures pixel by pixel:
+
+- capture_output returns the whole output, unflipped, in the advertised
+  XRGB8888 size and stride
+- capture_output_region returns the region, clipped to the output; a
+  region outside the output fails
+- the first copy_with_damage completes at once with full damage; the
+  next one waits for damage and reports the changed area
+- a buffer of the wrong size is an invalid_buffer protocol error
+- turning allow-screen-capture off fails frames in flight and hides the
+  global from new registries; captures through an already bound manager
+  fail; turning it back on restores both
+- with allow-screen-capture off a new client is not offered the global
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/tests/meson.build                       |  11 +
+ src/tests/wayland-screencopy-tests.c        | 201 +++++++
+ src/tests/wayland-test-clients/meson.build  |   6 +
+ src/tests/wayland-test-clients/screencopy.c | 621 ++++++++++++++++++++
+ 4 files changed, 839 insertions(+)
+ create mode 100644 src/tests/wayland-screencopy-tests.c
+ create mode 100644 src/tests/wayland-test-clients/screencopy.c
+
+diff --git a/src/tests/meson.build b/src/tests/meson.build
+index 9d3c77b..014aac6 100644
+--- a/src/tests/meson.build
++++ b/src/tests/meson.build
+@@ -1097,6 +1097,17 @@ wayland_test_cases = [
+       test_client_executables.get('xdg-session-management-restore'),
+     ],
+   },
++  {
++    'name': 'wayland-screencopy',
++    'suite': 'wayland',
++    'sources': [
++      'wayland-screencopy-tests.c',
++      wayland_test_utils,
++    ],
++    'depends': [
++      test_client_executables.get('screencopy'),
++    ],
++  },
+   {
+     'name': 'wayland-gamma-control',
+     'suite': 'wayland',
+diff --git a/src/tests/wayland-screencopy-tests.c b/src/tests/wayland-screencopy-tests.c
+new file mode 100644
+index 0000000..30ea482
+--- /dev/null
++++ b/src/tests/wayland-screencopy-tests.c
+@@ -0,0 +1,201 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include "config.h"
++
++#include "backends/meta-monitor-manager-private.h"
++#include "meta-test/meta-context-test.h"
++#include "tests/meta-monitor-manager-test.h"
++#include "tests/meta-monitor-test-utils.h"
++#include "tests/meta-wayland-test-driver.h"
++#include "tests/meta-wayland-test-utils.h"
++
++static MetaContext *test_context;
++static MetaWaylandTestDriver *test_driver;
++
++/* Must match OUTPUT_WIDTH and OUTPUT_HEIGHT in the test client. */
++static MonitorTestCaseSetup monitor_setup = {
++  .modes = {
++    {
++      .width = 1024,
++      .height = 768,
++      .refresh_rate = 60.0
++    }
++  },
++  .n_modes = 1,
++  .outputs = {
++     {
++      .crtc = 0,
++      .modes = { 0 },
++      .n_modes = 1,
++      .preferred_mode = 0,
++      .possible_crtcs = { 0 },
++      .n_possible_crtcs = 1,
++      .width_mm = 222,
++      .height_mm = 125,
++      .serial = "screencopy",
++    },
++  },
++  .n_outputs = 1,
++  .crtcs = {
++    {
++      .current_mode = 0
++    },
++  },
++  .n_crtcs = 1
++};
++
++static void
++setup_monitor (void)
++{
++  MetaBackend *backend = meta_context_get_backend (test_context);
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++  MetaMonitorTestSetup *test_setup;
++
++  test_setup = meta_create_monitor_test_setup (backend, &monitor_setup,
++                                               MONITOR_TEST_FLAG_NO_STORED);
++  meta_monitor_manager_test_emulate_hotplug (
++    META_MONITOR_MANAGER_TEST (monitor_manager), test_setup);
++}
++
++static void
++set_allow_screen_capture (gboolean allow)
++{
++  g_autoptr (GSettings) settings = g_settings_new ("org.gnome.mutter.wayland");
++
++  g_settings_set_boolean (settings, "allow-screen-capture", allow);
++}
++
++static void
++screencopy_capture (void)
++{
++  MetaWaylandTestClient *client;
++
++  setup_monitor ();
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "screencopy",
++                                                   "capture",
++                                                   NULL);
++  meta_wayland_test_driver_wait_for_sync_point (test_driver, 0);
++  meta_wayland_test_driver_emit_sync_event (test_driver, 0);
++  meta_wayland_test_client_finish (client);
++}
++
++static void
++screencopy_invalid_buffer (void)
++{
++  MetaWaylandTestClient *client;
++
++  setup_monitor ();
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "screencopy",
++                                                   "invalid-buffer",
++                                                   NULL);
++  g_test_expect_message ("libmutter", G_LOG_LEVEL_WARNING,
++                         "WL: error in client communication*");
++  meta_wayland_test_client_finish (client);
++  g_test_assert_expected_messages ();
++}
++
++static void
++screencopy_gate (void)
++{
++  MetaWaylandTestClient *client;
++
++  setup_monitor ();
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "screencopy",
++                                                   "gate",
++                                                   NULL);
++  meta_wayland_test_driver_wait_for_sync_point (test_driver, 0);
++  set_allow_screen_capture (FALSE);
++  meta_wayland_test_driver_emit_sync_event (test_driver, 0);
++
++  meta_wayland_test_driver_wait_for_sync_point (test_driver, 1);
++  set_allow_screen_capture (TRUE);
++  meta_wayland_test_driver_emit_sync_event (test_driver, 1);
++
++  meta_wayland_test_client_finish (client);
++}
++
++static void
++screencopy_denied (void)
++{
++  MetaWaylandTestClient *client;
++
++  setup_monitor ();
++  set_allow_screen_capture (FALSE);
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "screencopy",
++                                                   "denied",
++                                                   NULL);
++  meta_wayland_test_client_finish (client);
++  set_allow_screen_capture (TRUE);
++}
++
++static void
++on_before_tests (MetaContext *context)
++{
++  MetaWaylandCompositor *compositor =
++    meta_context_get_wayland_compositor (context);
++
++  test_driver = meta_wayland_test_driver_new (compositor);
++}
++
++static void
++on_after_tests (MetaContext *context)
++{
++  g_clear_object (&test_driver);
++}
++
++static void
++init_tests (void)
++{
++  g_test_add_func ("/wayland/screencopy/capture",
++                   screencopy_capture);
++  g_test_add_func ("/wayland/screencopy/invalid-buffer",
++                   screencopy_invalid_buffer);
++  g_test_add_func ("/wayland/screencopy/gate",
++                   screencopy_gate);
++  g_test_add_func ("/wayland/screencopy/denied",
++                   screencopy_denied);
++}
++
++int
++main (int    argc,
++      char **argv)
++{
++  g_autoptr (MetaContext) context = NULL;
++
++  context = meta_create_test_context (META_CONTEXT_TEST_TYPE_TEST,
++                                      META_CONTEXT_TEST_FLAG_NO_X11 |
++                                      META_CONTEXT_TEST_FLAG_TEST_CLIENT);
++  g_assert_true (meta_context_configure (context, &argc, &argv, NULL));
++
++  test_context = context;
++
++  init_tests ();
++
++  g_signal_connect (context, "before-tests",
++                    G_CALLBACK (on_before_tests), NULL);
++  g_signal_connect (context, "after-tests",
++                    G_CALLBACK (on_after_tests), NULL);
++
++  return meta_context_test_run_tests (META_CONTEXT_TEST (context),
++                                      META_TEST_RUN_FLAG_NONE);
++}
+diff --git a/src/tests/wayland-test-clients/meson.build b/src/tests/wayland-test-clients/meson.build
+index c8a16a8..a1ddd92 100644
+--- a/src/tests/wayland-test-clients/meson.build
++++ b/src/tests/wayland-test-clients/meson.build
+@@ -152,6 +152,12 @@ wayland_test_clients = [
+   {
+     'name': 'ycbcr',
+   },
++  {
++    'name': 'screencopy',
++    'extra_deps': [
++      libmutter_mtk_dep,
++    ],
++  },
+   {
+     'name': 'cursor-tests-client',
+     'extra_deps': [
+diff --git a/src/tests/wayland-test-clients/screencopy.c b/src/tests/wayland-test-clients/screencopy.c
+new file mode 100644
+index 0000000..d0234d3
+--- /dev/null
++++ b/src/tests/wayland-test-clients/screencopy.c
+@@ -0,0 +1,621 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include "config.h"
++
++#include <errno.h>
++#include <glib.h>
++#include <string.h>
++#include <sys/mman.h>
++#include <unistd.h>
++
++#include "mtk/mtk.h"
++#include "wayland-test-client-utils.h"
++
++#include "wlr-screencopy-unstable-v1-client-protocol.h"
++
++/* Must match the monitor in wayland-screencopy-tests.c */
++#define OUTPUT_WIDTH 1024
++#define OUTPUT_HEIGHT 768
++
++#define BOX_X 100
++#define BOX_Y 120
++#define BOX_SIZE 32
++#define BOX_COLOR 0xff20c040
++
++typedef struct _Frame
++{
++  struct zwlr_screencopy_frame_v1 *frame;
++
++  uint32_t format;
++  uint32_t width;
++  uint32_t height;
++  uint32_t stride;
++  gboolean have_buffer;
++  gboolean buffer_done;
++  gboolean ready;
++  gboolean failed;
++  uint32_t flags;
++  MtkRegion *damage;
++
++  struct wl_buffer *buffer;
++  uint32_t *data;
++  size_t size;
++} Frame;
++
++static struct zwlr_screencopy_manager_v1 *screencopy_manager;
++static struct wl_output *wl_output;
++
++static struct wl_surface *surface;
++static struct wl_buffer *surface_buffer;
++static uint32_t *surface_data;
++static gboolean surface_configured;
++
++static uint32_t
++pattern_at (int x,
++            int y)
++{
++  uint32_t r = x & 0xff;
++  uint32_t g = y & 0xff;
++  uint32_t b = (((x >> 8) & 0xf) << 4) | ((y >> 8) & 0xf);
++
++  return 0xff000000 | r << 16 | g << 8 | b;
++}
++
++static void
++handle_registry_global (void               *user_data,
++                        struct wl_registry *registry,
++                        uint32_t            id,
++                        const char         *interface,
++                        uint32_t            version)
++{
++  gboolean *found = user_data;
++
++  if (strcmp (interface, zwlr_screencopy_manager_v1_interface.name) == 0)
++    {
++      if (found)
++        {
++          *found = TRUE;
++          return;
++        }
++      screencopy_manager =
++        wl_registry_bind (registry, id,
++                          &zwlr_screencopy_manager_v1_interface, 3);
++    }
++  else if (strcmp (interface, wl_output_interface.name) == 0 &&
++           !wl_output && !found)
++    {
++      wl_output = wl_registry_bind (registry, id, &wl_output_interface, 1);
++    }
++}
++
++static void
++handle_registry_global_remove (void               *user_data,
++                               struct wl_registry *registry,
++                               uint32_t            name)
++{
++}
++
++static const struct wl_registry_listener registry_listener = {
++  handle_registry_global,
++  handle_registry_global_remove
++};
++
++static gboolean
++is_screencopy_offered (WaylandDisplay *display)
++{
++  struct wl_registry *registry;
++  gboolean found = FALSE;
++
++  registry = wl_display_get_registry (display->display);
++  wl_registry_add_listener (registry, &registry_listener, &found);
++  g_assert_cmpint (wl_display_roundtrip (display->display), !=, -1);
++  wl_registry_destroy (registry);
++
++  return found;
++}
++
++static void
++handle_xdg_toplevel_configure (void                *data,
++                               struct xdg_toplevel *xdg_toplevel,
++                               int32_t              width,
++                               int32_t              height,
++                               struct wl_array     *state)
++{
++}
++
++static void
++handle_xdg_toplevel_close (void                *data,
++                           struct xdg_toplevel *xdg_toplevel)
++{
++  g_assert_not_reached ();
++}
++
++static const struct xdg_toplevel_listener xdg_toplevel_listener = {
++  handle_xdg_toplevel_configure,
++  handle_xdg_toplevel_close,
++};
++
++static void
++handle_xdg_surface_configure (void               *data,
++                              struct xdg_surface *xdg_surface,
++                              uint32_t            serial)
++{
++  xdg_surface_ack_configure (xdg_surface, serial);
++  if (!surface_configured)
++    {
++      wl_surface_attach (surface, surface_buffer, 0, 0);
++      wl_surface_damage_buffer (surface, 0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
++    }
++  wl_surface_commit (surface);
++  surface_configured = TRUE;
++}
++
++static const struct xdg_surface_listener xdg_surface_listener = {
++  handle_xdg_surface_configure,
++};
++
++static struct wl_buffer *
++create_shm_buffer (WaylandDisplay  *display,
++                   int              width,
++                   int              height,
++                   int              stride,
++                   uint32_t         format,
++                   uint32_t       **data,
++                   size_t          *size)
++{
++  struct wl_shm_pool *pool;
++  struct wl_buffer *buffer;
++  int fd;
++
++  *size = (size_t) stride * height;
++  fd = create_anonymous_file (*size);
++  g_assert_cmpint (fd, >=, 0);
++  *data = mmap (NULL, *size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++  g_assert_true (*data != MAP_FAILED);
++  memset (*data, 0x5a, *size);
++
++  pool = wl_shm_create_pool (display->shm, fd, *size);
++  buffer = wl_shm_pool_create_buffer (pool, 0, width, height, stride, format);
++  wl_shm_pool_destroy (pool);
++  close (fd);
++
++  return buffer;
++}
++
++static void
++map_pattern_window (WaylandDisplay *display)
++{
++  struct xdg_surface *xdg_surface;
++  struct xdg_toplevel *xdg_toplevel;
++  size_t size;
++  int x, y;
++
++  surface_buffer = create_shm_buffer (display,
++                                      OUTPUT_WIDTH, OUTPUT_HEIGHT,
++                                      OUTPUT_WIDTH * 4,
++                                      WL_SHM_FORMAT_XRGB8888,
++                                      &surface_data, &size);
++  for (y = 0; y < OUTPUT_HEIGHT; y++)
++    for (x = 0; x < OUTPUT_WIDTH; x++)
++      surface_data[y * OUTPUT_WIDTH + x] = pattern_at (x, y);
++
++  surface = wl_compositor_create_surface (display->compositor);
++  xdg_surface = xdg_wm_base_get_xdg_surface (display->xdg_wm_base, surface);
++  xdg_surface_add_listener (xdg_surface, &xdg_surface_listener, display);
++  xdg_toplevel = xdg_surface_get_toplevel (xdg_surface);
++  xdg_toplevel_add_listener (xdg_toplevel, &xdg_toplevel_listener, NULL);
++  xdg_toplevel_set_title (xdg_toplevel, "screencopy");
++  xdg_toplevel_set_fullscreen (xdg_toplevel, NULL);
++  wl_surface_commit (surface);
++
++  while (!surface_configured)
++    wayland_display_dispatch (display);
++
++  wait_for_window_shown (display, surface);
++  wait_for_effects_completed (display, surface);
++}
++
++static void
++paint_box (WaylandDisplay *display)
++{
++  int x, y;
++
++  for (y = BOX_Y; y < BOX_Y + BOX_SIZE; y++)
++    for (x = BOX_X; x < BOX_X + BOX_SIZE; x++)
++      surface_data[y * OUTPUT_WIDTH + x] = BOX_COLOR;
++
++  wl_surface_attach (surface, surface_buffer, 0, 0);
++  wl_surface_damage_buffer (surface, BOX_X, BOX_Y, BOX_SIZE, BOX_SIZE);
++  wl_surface_commit (surface);
++}
++
++static void
++handle_frame_buffer (void                            *user_data,
++                     struct zwlr_screencopy_frame_v1 *frame,
++                     uint32_t                         format,
++                     uint32_t                         width,
++                     uint32_t                         height,
++                     uint32_t                         stride)
++{
++  Frame *f = user_data;
++
++  f->format = format;
++  f->width = width;
++  f->height = height;
++  f->stride = stride;
++  f->have_buffer = TRUE;
++}
++
++static void
++handle_frame_flags (void                            *user_data,
++                    struct zwlr_screencopy_frame_v1 *frame,
++                    uint32_t                         flags)
++{
++  Frame *f = user_data;
++
++  f->flags = flags;
++}
++
++static void
++handle_frame_ready (void                            *user_data,
++                    struct zwlr_screencopy_frame_v1 *frame,
++                    uint32_t                         tv_sec_hi,
++                    uint32_t                         tv_sec_lo,
++                    uint32_t                         tv_nsec)
++{
++  Frame *f = user_data;
++
++  g_assert_cmpuint (tv_nsec, <, 1000000000);
++  f->ready = TRUE;
++}
++
++static void
++handle_frame_failed (void                            *user_data,
++                     struct zwlr_screencopy_frame_v1 *frame)
++{
++  Frame *f = user_data;
++
++  f->failed = TRUE;
++}
++
++static void
++handle_frame_damage (void                            *user_data,
++                     struct zwlr_screencopy_frame_v1 *frame,
++                     uint32_t                         x,
++                     uint32_t                         y,
++                     uint32_t                         width,
++                     uint32_t                         height)
++{
++  Frame *f = user_data;
++  MtkRectangle rect = MTK_RECTANGLE_INIT (x, y, width, height);
++
++  mtk_region_union_rectangle (f->damage, &rect);
++}
++
++static void
++handle_frame_linux_dmabuf (void                            *user_data,
++                           struct zwlr_screencopy_frame_v1 *frame,
++                           uint32_t                         format,
++                           uint32_t                         width,
++                           uint32_t                         height)
++{
++}
++
++static void
++handle_frame_buffer_done (void                            *user_data,
++                          struct zwlr_screencopy_frame_v1 *frame)
++{
++  Frame *f = user_data;
++
++  f->buffer_done = TRUE;
++}
++
++static const struct zwlr_screencopy_frame_v1_listener frame_listener = {
++  handle_frame_buffer,
++  handle_frame_flags,
++  handle_frame_ready,
++  handle_frame_failed,
++  handle_frame_damage,
++  handle_frame_linux_dmabuf,
++  handle_frame_buffer_done,
++};
++
++static Frame *
++frame_new (WaylandDisplay     *display,
++           const MtkRectangle *region)
++{
++  Frame *f = g_new0 (Frame, 1);
++
++  f->damage = mtk_region_create ();
++  if (region)
++    {
++      f->frame =
++        zwlr_screencopy_manager_v1_capture_output_region (screencopy_manager,
++                                                          0, wl_output,
++                                                          region->x,
++                                                          region->y,
++                                                          region->width,
++                                                          region->height);
++    }
++  else
++    {
++      f->frame =
++        zwlr_screencopy_manager_v1_capture_output (screencopy_manager,
++                                                   0, wl_output);
++    }
++  zwlr_screencopy_frame_v1_add_listener (f->frame, &frame_listener, f);
++
++  while (!f->buffer_done && !f->failed)
++    wayland_display_dispatch (display);
++
++  return f;
++}
++
++static void
++frame_free (Frame *f)
++{
++  zwlr_screencopy_frame_v1_destroy (f->frame);
++  if (f->buffer)
++    {
++      wl_buffer_destroy (f->buffer);
++      munmap (f->data, f->size);
++    }
++  mtk_region_unref (f->damage);
++  g_free (f);
++}
++
++static void
++frame_copy (WaylandDisplay *display,
++            Frame          *f,
++            gboolean        with_damage)
++{
++  g_assert_true (f->have_buffer);
++  g_assert_cmpuint (f->format, ==, WL_SHM_FORMAT_XRGB8888);
++  g_assert_cmpuint (f->stride, ==, f->width * 4);
++
++  f->buffer = create_shm_buffer (display, f->width, f->height, f->stride,
++                                 f->format, &f->data, &f->size);
++  if (with_damage)
++    zwlr_screencopy_frame_v1_copy_with_damage (f->frame, f->buffer);
++  else
++    zwlr_screencopy_frame_v1_copy (f->frame, f->buffer);
++}
++
++static void
++frame_wait (WaylandDisplay *display,
++            Frame          *f)
++{
++  while (!f->ready && !f->failed)
++    wayland_display_dispatch (display);
++}
++
++static void
++assert_frame_matches (Frame              *f,
++                      const MtkRectangle *area,
++                      gboolean            with_box)
++{
++  int x, y;
++
++  g_assert_true (f->ready);
++  g_assert_cmpuint (f->flags, ==, 0);
++  g_assert_cmpuint (f->width, ==, area->width);
++  g_assert_cmpuint (f->height, ==, area->height);
++
++  for (y = 0; y < area->height; y++)
++    {
++      for (x = 0; x < area->width; x++)
++        {
++          int sx = area->x + x;
++          int sy = area->y + y;
++          uint32_t expected = pattern_at (sx, sy);
++          uint32_t pixel = f->data[y * (f->stride / 4) + x] | 0xff000000;
++
++          if (with_box &&
++              sx >= BOX_X && sx < BOX_X + BOX_SIZE &&
++              sy >= BOX_Y && sy < BOX_Y + BOX_SIZE)
++            expected = BOX_COLOR;
++
++          if (pixel != expected)
++            g_error ("Pixel %d,%d of the %dx%d+%d+%d capture is 0x%08x, "
++                     "expected 0x%08x",
++                     x, y, area->width, area->height, area->x, area->y,
++                     pixel, expected);
++        }
++    }
++}
++
++static void
++test_capture (WaylandDisplay *display)
++{
++  MtkRectangle output = MTK_RECTANGLE_INIT (0, 0, OUTPUT_WIDTH, OUTPUT_HEIGHT);
++  MtkRectangle region = MTK_RECTANGLE_INIT (300, 200, 257, 129);
++  MtkRectangle edge = MTK_RECTANGLE_INIT (OUTPUT_WIDTH - 24, OUTPUT_HEIGHT - 8,
++                                          100, 100);
++  MtkRectangle clipped = MTK_RECTANGLE_INIT (OUTPUT_WIDTH - 24,
++                                             OUTPUT_HEIGHT - 8, 24, 8);
++  MtkRectangle outside = MTK_RECTANGLE_INIT (OUTPUT_WIDTH, 0, 10, 10);
++  MtkRectangle box = MTK_RECTANGLE_INIT (BOX_X, BOX_Y, BOX_SIZE, BOX_SIZE);
++  MtkRectangle damage_extents;
++  Frame *f;
++
++  map_pattern_window (display);
++
++  /* The whole output. */
++  f = frame_new (display, NULL);
++  frame_copy (display, f, FALSE);
++  frame_wait (display, f);
++  assert_frame_matches (f, &output, FALSE);
++  frame_free (f);
++
++  /* A region, and one clipped to the output. */
++  f = frame_new (display, &region);
++  frame_copy (display, f, FALSE);
++  frame_wait (display, f);
++  assert_frame_matches (f, &region, FALSE);
++  frame_free (f);
++
++  f = frame_new (display, &edge);
++  frame_copy (display, f, FALSE);
++  frame_wait (display, f);
++  assert_frame_matches (f, &clipped, FALSE);
++  frame_free (f);
++
++  /* A region outside the output fails. */
++  f = frame_new (display, &outside);
++  g_assert_true (f->failed);
++  g_assert_false (f->have_buffer);
++  frame_free (f);
++
++  /* The first copy_with_damage completes at once with full damage. */
++  f = frame_new (display, NULL);
++  frame_copy (display, f, TRUE);
++  frame_wait (display, f);
++  assert_frame_matches (f, &output, FALSE);
++  damage_extents = mtk_region_get_extents (f->damage);
++  g_assert_true (mtk_rectangle_equal (&damage_extents, &output));
++  frame_free (f);
++
++  /* The next one waits for damage, and reports it. */
++  f = frame_new (display, NULL);
++  frame_copy (display, f, TRUE);
++  g_assert_cmpint (wl_display_roundtrip (display->display), !=, -1);
++  g_assert_false (f->ready);
++  paint_box (display);
++  frame_wait (display, f);
++  assert_frame_matches (f, &output, TRUE);
++  g_assert_true (mtk_region_contains_rectangle (f->damage, &box) ==
++                 MTK_REGION_OVERLAP_IN);
++  damage_extents = mtk_region_get_extents (f->damage);
++  g_assert_false (mtk_rectangle_equal (&damage_extents, &output));
++  frame_free (f);
++
++  test_driver_sync_point (display->test_driver, 0, NULL);
++  wait_for_sync_event (display, 0);
++}
++
++static void
++test_invalid_buffer (WaylandDisplay *display)
++{
++  const struct wl_interface *interface;
++  uint32_t id;
++  Frame *f;
++
++  f = frame_new (display, NULL);
++  g_assert_true (f->have_buffer);
++  f->buffer = create_shm_buffer (display, f->width / 2, f->height, f->stride,
++                                 f->format, &f->data, &f->size);
++  zwlr_screencopy_frame_v1_copy (f->frame, f->buffer);
++
++  g_assert_cmpint (wl_display_roundtrip (display->display), ==, -1);
++  g_assert_cmpint (wl_display_get_error (display->display), ==, EPROTO);
++  g_assert_cmpuint (wl_display_get_protocol_error (display->display,
++                                                   &interface, &id),
++                    ==,
++                    ZWLR_SCREENCOPY_FRAME_V1_ERROR_INVALID_BUFFER);
++  g_assert_true (interface == &zwlr_screencopy_frame_v1_interface);
++}
++
++static void
++test_gate (WaylandDisplay *display)
++{
++  Frame *f;
++
++  g_assert_true (is_screencopy_offered (display));
++
++  f = frame_new (display, NULL);
++  frame_copy (display, f, TRUE);
++  frame_wait (display, f);
++  g_assert_true (f->ready);
++  frame_free (f);
++
++  /* A frame that was offered a buffer but not copied yet when screen
++   * capture gets turned off fails, and copying into it afterwards is
++   * ignored. */
++  f = frame_new (display, NULL);
++  g_assert_true (f->buffer_done);
++  g_assert_false (f->failed);
++
++  test_driver_sync_point (display->test_driver, 0, NULL);
++  wait_for_sync_event (display, 0);
++
++  while (!f->failed)
++    wayland_display_dispatch (display);
++  frame_copy (display, f, FALSE);
++  g_assert_cmpint (wl_display_roundtrip (display->display), !=, -1);
++  g_assert_false (f->ready);
++  frame_free (f);
++
++  /* The bound manager still works as an object, but captures fail, and new
++   * registries don't see the global. */
++  f = frame_new (display, NULL);
++  g_assert_true (f->failed);
++  g_assert_false (f->have_buffer);
++  frame_free (f);
++  g_assert_false (is_screencopy_offered (display));
++
++  /* Turned back on. */
++  test_driver_sync_point (display->test_driver, 1, NULL);
++  wait_for_sync_event (display, 1);
++
++  g_assert_true (is_screencopy_offered (display));
++  f = frame_new (display, NULL);
++  frame_copy (display, f, FALSE);
++  frame_wait (display, f);
++  g_assert_true (f->ready);
++  frame_free (f);
++}
++
++static void
++test_denied (WaylandDisplay *display)
++{
++  g_assert_null (screencopy_manager);
++  g_assert_false (is_screencopy_offered (display));
++}
++
++int
++main (int    argc,
++      char **argv)
++{
++  g_autoptr (WaylandDisplay) display = NULL;
++  struct wl_registry *registry;
++
++  display = wayland_display_new (WAYLAND_DISPLAY_CAPABILITY_TEST_DRIVER);
++  registry = wl_display_get_registry (display->display);
++  wl_registry_add_listener (registry, &registry_listener, NULL);
++  g_assert_cmpint (wl_display_roundtrip (display->display), !=, -1);
++
++  if (g_strcmp0 (argv[1], "denied") == 0)
++    {
++      test_denied (display);
++      return EXIT_SUCCESS;
++    }
++
++  g_assert_nonnull (screencopy_manager);
++  g_assert_nonnull (wl_output);
++
++  if (g_strcmp0 (argv[1], "capture") == 0)
++    test_capture (display);
++  else if (g_strcmp0 (argv[1], "invalid-buffer") == 0)
++    test_invalid_buffer (display);
++  else if (g_strcmp0 (argv[1], "gate") == 0)
++    test_gate (display);
++  else
++    g_error ("Unknown test '%s'", argv[1]);
++
++  return EXIT_SUCCESS;
++}
+-- 
+2.54.0
+

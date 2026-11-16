@@ -1,0 +1,373 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 00:44:09 +1100
+Subject: [PATCH] wayland/screencopy: Capture into linux-dmabuf buffers
+
+Offer XRGB8888 linux-dmabuf buffers (the version 3 linux_dmabuf event)
+next to wl_shm on outputs without a transform, and paint the stage
+straight into the client's dma-buf on the GPU, so recorders and remote
+desktop servers that encode on the GPU don't need a CPU copy. The
+buffer is imported once as a framebuffer and kept with the dma-buf
+buffer, so clients that reuse their buffers don't re-import them every
+frame. Rotated and flipped outputs keep offering wl_shm only, which is
+remapped to the output's buffer orientation on the CPU.
+
+Add meta_wayland_dma_buf_buffer_from_resource(), size and format
+getters, and meta_wayland_dma_buf_buffer_ensure_framebuffer() for this.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/wayland/meta-wayland-dma-buf.c    |  99 ++++++++++++++++++++++
+ src/wayland/meta-wayland-dma-buf.h    |  14 ++++
+ src/wayland/meta-wayland-screencopy.c | 113 +++++++++++++++++++++++---
+ 3 files changed, 214 insertions(+), 12 deletions(-)
+
+diff --git a/src/wayland/meta-wayland-dma-buf.c b/src/wayland/meta-wayland-dma-buf.c
+index aef277e..2beb8f1 100644
+--- a/src/wayland/meta-wayland-dma-buf.c
++++ b/src/wayland/meta-wayland-dma-buf.c
+@@ -137,6 +137,9 @@ struct _MetaWaylandDmaBufBuffer
+   int fds[META_WAYLAND_DMA_BUF_MAX_FDS];
+   uint32_t offsets[META_WAYLAND_DMA_BUF_MAX_FDS];
+   uint32_t strides[META_WAYLAND_DMA_BUF_MAX_FDS];
++
++  /* The buffer as a render target, for screen capture into it. */
++  CoglFramebuffer *framebuffer;
+ };
+ 
+ G_DEFINE_TYPE (MetaWaylandDmaBufBuffer, meta_wayland_dma_buf_buffer, G_TYPE_OBJECT);
+@@ -917,6 +920,100 @@ meta_wayland_dma_buf_from_buffer (MetaWaylandBuffer *buffer)
+   return buffer->dma_buf.dma_buf;
+ }
+ 
++/**
++ * meta_wayland_dma_buf_buffer_from_resource:
++ * @resource: a wl_buffer resource
++ *
++ * Returns: (transfer none) (nullable): the dma-buf behind @resource, or
++ * %NULL if it is not a linux-dmabuf buffer.
++ */
++MetaWaylandDmaBufBuffer *
++meta_wayland_dma_buf_buffer_from_resource (struct wl_resource *resource)
++{
++  if (wl_resource_instance_of (resource, &wl_buffer_interface,
++                               &dma_buf_buffer_impl))
++    return wl_resource_get_user_data (resource);
++
++  return NULL;
++}
++
++int
++meta_wayland_dma_buf_buffer_get_width (MetaWaylandDmaBufBuffer *dma_buf)
++{
++  return dma_buf->width;
++}
++
++int
++meta_wayland_dma_buf_buffer_get_height (MetaWaylandDmaBufBuffer *dma_buf)
++{
++  return dma_buf->height;
++}
++
++uint32_t
++meta_wayland_dma_buf_buffer_get_drm_format (MetaWaylandDmaBufBuffer *dma_buf)
++{
++  return dma_buf->drm_format;
++}
++
++/**
++ * meta_wayland_dma_buf_buffer_ensure_framebuffer:
++ *
++ * Imports the buffer as a framebuffer that can be painted into, for
++ * clients that receive screen contents in their own buffers. Only single
++ * plane RGB formats are supported. The framebuffer lives as long as the
++ * buffer.
++ *
++ * Returns: (transfer none): the framebuffer, or %NULL on failure
++ */
++CoglFramebuffer *
++meta_wayland_dma_buf_buffer_ensure_framebuffer (MetaWaylandDmaBufBuffer  *dma_buf,
++                                                CoglContext              *cogl_context,
++                                                GError                  **error)
++{
++  CoglRenderer *cogl_renderer = cogl_context_get_renderer (cogl_context);
++  const MetaFormatInfo *format_info;
++  uint64_t modifiers[META_WAYLAND_DMA_BUF_MAX_FDS];
++  int n_planes;
++
++  if (dma_buf->framebuffer)
++    return dma_buf->framebuffer;
++
++  format_info = meta_format_info_from_drm_format (dma_buf->drm_format);
++  if (!format_info ||
++      format_info->multi_texture_format != META_MULTI_TEXTURE_FORMAT_SIMPLE)
++    {
++      g_set_error (error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
++                   "Can't render into DRM format 0x%08x",
++                   dma_buf->drm_format);
++      return NULL;
++    }
++
++  for (n_planes = 0; n_planes < META_WAYLAND_DMA_BUF_MAX_FDS; n_planes++)
++    {
++      if (dma_buf->fds[n_planes] < 0)
++        break;
++
++      modifiers[n_planes] = dma_buf->drm_modifier;
++    }
++
++  dma_buf->framebuffer =
++    cogl_renderer_create_dma_buf_framebuffer (cogl_renderer,
++                                              cogl_context,
++                                              dma_buf->width,
++                                              dma_buf->height,
++                                              dma_buf->drm_format,
++                                              format_info->cogl_format,
++                                              n_planes,
++                                              dma_buf->fds,
++                                              dma_buf->strides,
++                                              dma_buf->offsets,
++                                              dma_buf->drm_modifier ==
++                                              DRM_FORMAT_MOD_INVALID ?
++                                              NULL : modifiers,
++                                              error);
++  return dma_buf->framebuffer;
++}
++
+ typedef struct _MetaWaylandDmaBufSource
+ {
+   GSource parent;
+@@ -1974,6 +2071,8 @@ meta_wayland_dma_buf_buffer_finalize (GObject *object)
+   MetaWaylandDmaBufBuffer *dma_buf = META_WAYLAND_DMA_BUF_BUFFER (object);
+   int i;
+ 
++  g_clear_object (&dma_buf->framebuffer);
++
+   for (i = 0; i < META_WAYLAND_DMA_BUF_MAX_FDS; i++)
+     g_clear_fd (&dma_buf->fds[i], NULL);
+ 
+diff --git a/src/wayland/meta-wayland-dma-buf.h b/src/wayland/meta-wayland-dma-buf.h
+index 729c0a5..08a7bf1 100644
+--- a/src/wayland/meta-wayland-dma-buf.h
++++ b/src/wayland/meta-wayland-dma-buf.h
+@@ -55,6 +55,20 @@ meta_wayland_dma_buf_fds_for_wayland_buffer (MetaWaylandBuffer *buffer);
+ MetaWaylandDmaBufBuffer *
+ meta_wayland_dma_buf_from_buffer (MetaWaylandBuffer *buffer);
+ 
++MetaWaylandDmaBufBuffer *
++meta_wayland_dma_buf_buffer_from_resource (struct wl_resource *resource);
++
++int meta_wayland_dma_buf_buffer_get_width (MetaWaylandDmaBufBuffer *dma_buf);
++
++int meta_wayland_dma_buf_buffer_get_height (MetaWaylandDmaBufBuffer *dma_buf);
++
++uint32_t meta_wayland_dma_buf_buffer_get_drm_format (MetaWaylandDmaBufBuffer *dma_buf);
++
++CoglFramebuffer *
++meta_wayland_dma_buf_buffer_ensure_framebuffer (MetaWaylandDmaBufBuffer  *dma_buf,
++                                                CoglContext              *cogl_context,
++                                                GError                  **error);
++
+ typedef void (*MetaWaylandDmaBufSourceDispatch) (MetaWaylandBuffer *buffer,
+                                                  gpointer           user_data);
+ 
+diff --git a/src/wayland/meta-wayland-screencopy.c b/src/wayland/meta-wayland-screencopy.c
+index b371313..4ef7269 100644
+--- a/src/wayland/meta-wayland-screencopy.c
++++ b/src/wayland/meta-wayland-screencopy.c
+@@ -28,7 +28,8 @@
+  *
+  * Buffers are wl_shm XRGB8888, in the orientation of the output's buffer, as
+  * on wlroots: clients (grim) apply the wl_output transform themselves. Frames
+- * are never y-inverted.
++ * are never y-inverted. Outputs without a transform also offer XRGB8888
++ * linux-dmabuf buffers, which are painted into directly on the GPU.
+  *
+  * 'copy' captures on the next idle. 'copy_with_damage' waits until the
+  * captured area has been damaged since the last copy_with_damage of the
+@@ -46,6 +47,7 @@
+ 
+ #include "wayland/meta-wayland-screencopy.h"
+ 
++#include <drm_fourcc.h>
+ #include <glib/gstdio.h>
+ #include <string.h>
+ 
+@@ -55,6 +57,7 @@
+ #include "backends/meta-monitor-private.h"
+ #include "backends/meta-stage-private.h"
+ #include "clutter/clutter.h"
++#include "wayland/meta-wayland-dma-buf.h"
+ #include "wayland/meta-wayland-filter-manager.h"
+ #include "wayland/meta-wayland-outputs.h"
+ #include "wayland/meta-wayland-private.h"
+@@ -121,6 +124,9 @@ typedef struct _MetaWaylandScreencopyFrame
+   int buffer_width;
+   int buffer_height;
+ 
++  /* Whether linux_dmabuf was offered. */
++  gboolean dma_buf_allowed;
++
+   struct wl_resource *buffer_resource;
+   struct wl_listener buffer_destroy_listener;
+ } MetaWaylandScreencopyFrame;
+@@ -292,22 +298,59 @@ copy_transformed (MtkMonitorTransform  transform,
+     }
+ }
+ 
++static ClutterPaintFlag
++get_paint_flags (MetaWaylandScreencopyFrame *frame)
++{
++  ClutterPaintFlag paint_flags = CLUTTER_PAINT_FLAG_CLEAR;
++
++  if (frame->overlay_cursor)
++    paint_flags |= CLUTTER_PAINT_FLAG_FORCE_CURSORS;
++  else
++    paint_flags |= CLUTTER_PAINT_FLAG_NO_CURSORS;
++
++  return paint_flags;
++}
++
++static gboolean
++paint_frame_to_dma_buf (MetaWaylandScreencopyFrame  *frame,
++                        MetaWaylandDmaBufBuffer     *dma_buf,
++                        GError                     **error)
++{
++  MetaBackend *backend = get_backend (frame->screencopy);
++  ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
++  CoglContext *cogl_context =
++    clutter_backend_get_cogl_context (clutter_backend);
++  CoglFramebuffer *framebuffer;
++
++  framebuffer = meta_wayland_dma_buf_buffer_ensure_framebuffer (dma_buf,
++                                                                cogl_context,
++                                                                error);
++  if (!framebuffer)
++    return FALSE;
++
++  clutter_stage_paint_to_framebuffer (get_stage (frame->screencopy),
++                                      framebuffer,
++                                      &frame->rect, frame->scale,
++                                      NULL,
++                                      get_paint_flags (frame));
++
++  /* The client reads the buffer as soon as it gets 'ready'. */
++  cogl_framebuffer_finish (framebuffer);
++
++  return TRUE;
++}
++
+ static gboolean
+ paint_frame_to_shm (MetaWaylandScreencopyFrame  *frame,
+                     struct wl_shm_buffer        *shm_buffer,
+                     GError                     **error)
+ {
+   ClutterStage *stage = get_stage (frame->screencopy);
+-  ClutterPaintFlag paint_flags = CLUTTER_PAINT_FLAG_CLEAR;
++  ClutterPaintFlag paint_flags = get_paint_flags (frame);
+   int stride = wl_shm_buffer_get_stride (shm_buffer);
+   uint8_t *data;
+   gboolean ret;
+ 
+-  if (frame->overlay_cursor)
+-    paint_flags |= CLUTTER_PAINT_FLAG_FORCE_CURSORS;
+-  else
+-    paint_flags |= CLUTTER_PAINT_FLAG_NO_CURSORS;
+-
+   wl_shm_buffer_begin_access (shm_buffer);
+   data = wl_shm_buffer_get_data (shm_buffer);
+ 
+@@ -457,6 +500,7 @@ process_frame (MetaWaylandScreencopyFrame *frame)
+   g_autoptr (MtkRegion) damage = NULL;
+   g_autoptr (GError) error = NULL;
+   struct wl_shm_buffer *shm_buffer;
++  gboolean ret;
+   int64_t now_us;
+   uint64_t tv_sec;
+   uint32_t tv_nsec;
+@@ -472,7 +516,13 @@ process_frame (MetaWaylandScreencopyFrame *frame)
+     return;
+ 
+   shm_buffer = wl_shm_buffer_get (frame->buffer_resource);
+-  if (!paint_frame_to_shm (frame, shm_buffer, &error))
++  if (shm_buffer)
++    ret = paint_frame_to_shm (frame, shm_buffer, &error);
++  else
++    ret = paint_frame_to_dma_buf (frame,
++                                  meta_wayland_dma_buf_buffer_from_resource (frame->buffer_resource),
++                                  &error);
++  if (!ret)
+     {
+       g_warning ("wlr-screencopy: failed to capture the screen: %s",
+                  error->message);
+@@ -714,10 +764,36 @@ frame_copy_common (struct wl_resource *resource,
+   shm_buffer = wl_shm_buffer_get (buffer_resource);
+   if (!shm_buffer)
+     {
+-      wl_resource_post_error (resource,
+-                              ZWLR_SCREENCOPY_FRAME_V1_ERROR_INVALID_BUFFER,
+-                              "Only wl_shm buffers are supported");
+-      return;
++      MetaWaylandDmaBufBuffer *dma_buf =
++        meta_wayland_dma_buf_buffer_from_resource (buffer_resource);
++
++      if (!dma_buf || !frame->dma_buf_allowed)
++        {
++          wl_resource_post_error (resource,
++                                  ZWLR_SCREENCOPY_FRAME_V1_ERROR_INVALID_BUFFER,
++                                  "Unsupported buffer type");
++          return;
++        }
++
++      format = meta_wayland_dma_buf_buffer_get_drm_format (dma_buf);
++      if ((format != DRM_FORMAT_XRGB8888 && format != DRM_FORMAT_ARGB8888) ||
++          meta_wayland_dma_buf_buffer_get_width (dma_buf) !=
++          frame->buffer_width ||
++          meta_wayland_dma_buf_buffer_get_height (dma_buf) !=
++          frame->buffer_height)
++        {
++          wl_resource_post_error (resource,
++                                  ZWLR_SCREENCOPY_FRAME_V1_ERROR_INVALID_BUFFER,
++                                  "Expected a %dx%d XRGB8888 dma-buf, got "
++                                  "%dx%d format 0x%08x",
++                                  frame->buffer_width, frame->buffer_height,
++                                  meta_wayland_dma_buf_buffer_get_width (dma_buf),
++                                  meta_wayland_dma_buf_buffer_get_height (dma_buf),
++                                  format);
++          return;
++        }
++
++      goto accept;
+     }
+ 
+   format = wl_shm_buffer_get_format (shm_buffer);
+@@ -742,6 +818,7 @@ frame_copy_common (struct wl_resource *resource,
+       return;
+     }
+ 
++accept:
+   frame->buffer_resource = buffer_resource;
+   frame->buffer_destroy_listener.notify = on_buffer_destroyed;
+   wl_resource_add_destroy_listener (buffer_resource,
+@@ -907,6 +984,18 @@ capture_output_common (struct wl_resource *manager_resource,
+                                         frame->buffer_height,
+                                         frame->buffer_width * SCREENCOPY_BPP);
+ 
++  if (wl_resource_get_version (frame->resource) >=
++      ZWLR_SCREENCOPY_FRAME_V1_LINUX_DMABUF_SINCE_VERSION &&
++      screencopy->compositor->dma_buf_manager &&
++      frame->transform == MTK_MONITOR_TRANSFORM_NORMAL)
++    {
++      frame->dma_buf_allowed = TRUE;
++      zwlr_screencopy_frame_v1_send_linux_dmabuf (frame->resource,
++                                                  DRM_FORMAT_XRGB8888,
++                                                  frame->buffer_width,
++                                                  frame->buffer_height);
++    }
++
+   if (wl_resource_get_version (frame->resource) >=
+       ZWLR_SCREENCOPY_FRAME_V1_BUFFER_DONE_SINCE_VERSION)
+     zwlr_screencopy_frame_v1_send_buffer_done (frame->resource);
+-- 
+2.54.0
+
