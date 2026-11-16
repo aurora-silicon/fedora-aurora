@@ -1,0 +1,1535 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 12:39:06 +1100
+Subject: [PATCH] wayland: Implement wlr-layer-shell-unstable-v1
+
+Add a zwlr_layer_shell_v1 global (version 5) and a layer surface role.
+
+A layer surface is a shell surface backed by a MetaWindowWayland, like
+an xdg_toplevel, so it goes through the normal window management code:
+
+- Background layer surfaces are desktop windows, the other layers are
+  docks, so they are on all workspaces, skip the task bar and the pager,
+  are not placed and are left alone by the onscreen constraints.
+- The stack layer follows the layer: background -> DESKTOP, bottom ->
+  BOTTOM, top -> DOCK (BOTTOM while the monitor has a fullscreen
+  window, as for docks), overlay -> OVERRIDE_REDIRECT.
+- The size and position come from the anchors, size, margins and the
+  exclusive zones of the other layer surfaces on the output. A size of
+  0 fills the space between the anchored edges. They are applied with
+  meta_window_move_resize(), which sends the configure through the
+  shell surface configure vfunc; the acked commit completes it through
+  meta_window_wayland_finish_move_resize().
+- A positive exclusive zone becomes a strut on the window, so the work
+  area shrinks around it. Layer surfaces with an exclusive zone of 0
+  are placed inside the area left by the others; -1 ignores them.
+- Keyboard interactivity none makes the window not focusable;
+  on_demand and exclusive surfaces take focus on click (new
+  MetaWindow::dock_click_focus), and exclusive surfaces on the top and
+  overlay layers are focused when they map.
+- The closed event is sent when the output goes away or the window is
+  closed.
+
+meta_window_set_struts() lets the layer shell set struts directly,
+since they don't come from window properties.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/core/window-private.h              |    7 +
+ src/core/window.c                      |   24 +
+ src/meson.build                        |    2 +
+ src/wayland/meta-wayland-layer-shell.c | 1304 ++++++++++++++++++++++++
+ src/wayland/meta-wayland-layer-shell.h |   31 +
+ src/wayland/meta-wayland-surface.c     |    2 +
+ src/wayland/meta-wayland-versions.h    |    1 +
+ src/wayland/meta-window-wayland.c      |   12 +
+ 8 files changed, 1383 insertions(+)
+ create mode 100644 src/wayland/meta-wayland-layer-shell.c
+ create mode 100644 src/wayland/meta-wayland-layer-shell.h
+
+diff --git a/src/core/window-private.h b/src/core/window-private.h
+index 00abada..23e6d47 100644
+--- a/src/core/window-private.h
++++ b/src/core/window-private.h
+@@ -508,6 +508,10 @@ struct _MetaWindow
+   guint skip_pager : 1;
+   guint skip_from_window_list : 1;
+ 
++  /* TRUE if a click focuses this window even though it is a dock (set by
++   * wlr-layer-shell surfaces that accept keyboard focus) */
++  guint dock_click_focus : 1;
++
+   /* TRUE if client set these */
+   guint wm_state_above : 1;
+   guint wm_state_below : 1;
+@@ -682,6 +686,9 @@ gboolean    meta_window_should_show (MetaWindow  *window);
+ 
+ void        meta_window_update_struts      (MetaWindow  *window);
+ 
++void        meta_window_set_struts         (MetaWindow  *window,
++                                            GSList      *struts);
++
+ void        meta_window_update_appears_focused (MetaWindow *window);
+ 
+ void     meta_window_set_focused_internal (MetaWindow *window,
+diff --git a/src/core/window.c b/src/core/window.c
+index c8bf540..e210bf7 100644
+--- a/src/core/window.c
++++ b/src/core/window.c
+@@ -5934,6 +5934,23 @@ meta_window_update_struts (MetaWindow *window)
+     invalidate_work_areas (window);
+ }
+ 
++/**
++ * meta_window_set_struts:
++ * @window: A #MetaWindow
++ * @struts: (transfer full) (element-type MetaStrut): The new struts
++ *
++ * Replaces the struts of a window whose struts are not read from window
++ * properties (e.g. Wayland layer surfaces), and invalidates the work areas.
++ */
++void
++meta_window_set_struts (MetaWindow *window,
++                        GSList     *struts)
++{
++  g_slist_free_full (window->struts, g_free);
++  window->struts = struts;
++  invalidate_work_areas (window);
++}
++
+ static void
+ meta_window_type_changed (MetaWindow *window)
+ {
+@@ -7857,6 +7874,13 @@ meta_window_handle_ungrabbed_event (MetaWindow         *window,
+       meta_window_focus (window, time_ms);
+       meta_window_check_alive (window, time_ms);
+     }
++  else if (window->dock_click_focus)
++    {
++      meta_topic (META_DEBUG_FOCUS,
++                  "Focusing dock %s due to button %u press",
++                  window->desc, button);
++      meta_window_focus (window, time_ms);
++    }
+ 
+   /* We have three passive button grabs:
+    * - on any button, without modifiers => focuses and maybe raises the window
+diff --git a/src/meson.build b/src/meson.build
+index a721893..1b0c597 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -548,6 +548,8 @@ mutter_sources += [
+   'wayland/meta-wayland-input-device.h',
+   'wayland/meta-wayland-keyboard.c',
+   'wayland/meta-wayland-keyboard.h',
++  'wayland/meta-wayland-layer-shell.c',
++  'wayland/meta-wayland-layer-shell.h',
+   'wayland/meta-wayland-legacy-xdg-foreign.c',
+   'wayland/meta-wayland-legacy-xdg-foreign.h',
+   'wayland/meta-wayland-linux-drm-syncobj.c',
+diff --git a/src/wayland/meta-wayland-layer-shell.c b/src/wayland/meta-wayland-layer-shell.c
+new file mode 100644
+index 0000000..4730b3e
+--- /dev/null
++++ b/src/wayland/meta-wayland-layer-shell.c
+@@ -0,0 +1,1304 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++/*
++ * zwlr_layer_shell_v1 (wlr-layer-shell-unstable-v1).
++ *
++ * Every mapped layer surface is backed by a MetaWindowWayland, the same way
++ * an xdg_toplevel is, so that stacking, struts/work areas, input and focus
++ * go through the existing window management code:
++ *
++ *  - background layer surfaces are META_WINDOW_DESKTOP windows, the other
++ *    layers are META_WINDOW_DOCK windows. Both types are sticky, skip the
++ *    task bar and pager, are left alone by placement and by the onscreen
++ *    constraints, and are not in the normal tab chain.
++ *  - The stack layer is picked by meta_wayland_layer_surface_get_stack_layer()
++ *    (background -> DESKTOP, bottom -> BOTTOM, top -> DOCK, overlay ->
++ *    OVERRIDE_REDIRECT), so background/bottom go below normal windows and
++ *    top/overlay go above them.
++ *  - Exclusive zones become window struts, so the work area that maximized,
++ *    tiled and newly placed windows use shrinks around them.
++ *  - Size and position are computed here from anchor, size, margin and the
++ *    exclusive zones of the other layer surfaces on the same output, and are
++ *    pushed through meta_window_move_resize(), which sends the configure
++ *    event through the shell surface configure vfunc and completes it with
++ *    meta_window_wayland_finish_move_resize() once the client acked and
++ *    committed, as for xdg_toplevel.
++ */
++
++#include "config.h"
++
++#include "wayland/meta-wayland-layer-shell.h"
++
++#include "backends/meta-backend-private.h"
++#include "backends/meta-logical-monitor-private.h"
++#include "backends/meta-monitor-manager-private.h"
++#include "backends/meta-monitor-private.h"
++#include "core/display-private.h"
++#include "core/meta-workspace-manager-private.h"
++#include "core/window-private.h"
++#include "core/workspace-private.h"
++#include "meta/meta-window-config.h"
++#include "wayland/meta-wayland-outputs.h"
++#include "wayland/meta-wayland-private.h"
++#include "wayland/meta-wayland-surface-private.h"
++#include "wayland/meta-wayland-versions.h"
++#include "wayland/meta-wayland-window-configuration.h"
++#include "wayland/meta-wayland-xdg-shell.h"
++#include "wayland/meta-window-wayland.h"
++
++#include "wlr-layer-shell-unstable-v1-server-protocol.h"
++
++#define ANCHOR_TOP ZWLR_LAYER_SURFACE_V1_ANCHOR_TOP
++#define ANCHOR_BOTTOM ZWLR_LAYER_SURFACE_V1_ANCHOR_BOTTOM
++#define ANCHOR_LEFT ZWLR_LAYER_SURFACE_V1_ANCHOR_LEFT
++#define ANCHOR_RIGHT ZWLR_LAYER_SURFACE_V1_ANCHOR_RIGHT
++#define ANCHOR_ALL (ANCHOR_TOP | ANCHOR_BOTTOM | ANCHOR_LEFT | ANCHOR_RIGHT)
++
++typedef struct _MetaWaylandLayerShell
++{
++  MetaWaylandCompositor *compositor;
++  GList *layer_surfaces;
++  gulong monitors_changed_handler_id;
++} MetaWaylandLayerShell;
++
++typedef struct _MetaWaylandLayerSurfaceState
++{
++  uint32_t layer;
++  uint32_t anchor;
++  int32_t exclusive_zone;
++  uint32_t exclusive_edge;
++  struct {
++    int32_t top;
++    int32_t right;
++    int32_t bottom;
++    int32_t left;
++  } margin;
++  uint32_t width;
++  uint32_t height;
++  uint32_t keyboard_interactivity;
++} MetaWaylandLayerSurfaceState;
++
++struct _MetaWaylandLayerSurface
++{
++  MetaWaylandShellSurface parent;
++
++  MetaWaylandLayerShell *layer_shell;
++  struct wl_resource *resource;
++  char *namespace;
++
++  MetaWaylandOutput *output;
++  gulong output_destroyed_handler_id;
++
++  /* Double-buffered state: requests change 'pending', commits copy it to
++   * 'current'. */
++  MetaWaylandLayerSurfaceState pending;
++  MetaWaylandLayerSurfaceState current;
++
++  gboolean initial_commit_done;
++  gboolean configure_sent;
++  gboolean mapped;
++  gboolean closed;
++  MtkRectangle configured_rect;
++};
++
++G_DEFINE_TYPE (MetaWaylandLayerSurface,
++               meta_wayland_layer_surface,
++               META_TYPE_WAYLAND_SHELL_SURFACE)
++
++static void meta_wayland_layer_shell_arrange (MetaWaylandLayerShell *layer_shell);
++
++static MetaDisplay *
++display_from_surface (MetaWaylandSurface *surface)
++{
++  MetaContext *context =
++    meta_wayland_compositor_get_context (surface->compositor);
++
++  return meta_context_get_display (context);
++}
++
++static MetaWaylandSurface *
++surface_from_layer_surface (MetaWaylandLayerSurface *layer_surface)
++{
++  return meta_wayland_surface_role_get_surface (META_WAYLAND_SURFACE_ROLE (layer_surface));
++}
++
++static MetaWindow *
++window_from_layer_surface (MetaWaylandLayerSurface *layer_surface)
++{
++  return meta_wayland_surface_get_window (surface_from_layer_surface (layer_surface));
++}
++
++MetaStackLayer
++meta_wayland_layer_surface_get_stack_layer (MetaWaylandLayerSurface *layer_surface)
++{
++  MetaWindow *window = window_from_layer_surface (layer_surface);
++
++  switch (layer_surface->current.layer)
++    {
++    case ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND:
++      return META_LAYER_DESKTOP;
++    case ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM:
++      return META_LAYER_BOTTOM;
++    case ZWLR_LAYER_SHELL_V1_LAYER_TOP:
++      /* Like docks, the top layer goes below fullscreen windows. */
++      if (window && window->monitor && window->monitor->in_fullscreen)
++        return META_LAYER_BOTTOM;
++      return META_LAYER_DOCK;
++    case ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY:
++      return META_LAYER_OVERRIDE_REDIRECT;
++    }
++
++  g_assert_not_reached ();
++}
++
++static MetaWindowType
++window_type_for_layer (uint32_t layer)
++{
++  if (layer == ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND)
++    return META_WINDOW_DESKTOP;
++  else
++    return META_WINDOW_DOCK;
++}
++
++static MetaLogicalMonitor *
++get_logical_monitor (MetaWaylandLayerSurface *layer_surface)
++{
++  MetaWaylandSurface *surface = surface_from_layer_surface (layer_surface);
++  MetaContext *context =
++    meta_wayland_compositor_get_context (surface->compositor);
++  MetaBackend *backend = meta_context_get_backend (context);
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++
++  if (layer_surface->output)
++    {
++      MetaMonitor *monitor;
++
++      monitor = meta_wayland_output_get_monitor (layer_surface->output);
++      if (monitor)
++        return meta_monitor_get_logical_monitor (monitor);
++      return NULL;
++    }
++
++  return meta_monitor_manager_get_primary_logical_monitor (monitor_manager);
++}
++
++/* The edge an exclusive zone applies to, or 0 if none applies. */
++static uint32_t
++get_exclusive_edge (MetaWaylandLayerSurfaceState *state)
++{
++  uint32_t anchor = state->anchor;
++
++  if (state->exclusive_edge)
++    return state->exclusive_edge;
++
++  if (anchor == ANCHOR_TOP ||
++      anchor == (ANCHOR_TOP | ANCHOR_LEFT | ANCHOR_RIGHT))
++    return ANCHOR_TOP;
++  if (anchor == ANCHOR_BOTTOM ||
++      anchor == (ANCHOR_BOTTOM | ANCHOR_LEFT | ANCHOR_RIGHT))
++    return ANCHOR_BOTTOM;
++  if (anchor == ANCHOR_LEFT ||
++      anchor == (ANCHOR_LEFT | ANCHOR_TOP | ANCHOR_BOTTOM))
++    return ANCHOR_LEFT;
++  if (anchor == ANCHOR_RIGHT ||
++      anchor == (ANCHOR_RIGHT | ANCHOR_TOP | ANCHOR_BOTTOM))
++    return ANCHOR_RIGHT;
++
++  return 0;
++}
++
++static gboolean
++has_exclusive_zone (MetaWaylandLayerSurface *layer_surface)
++{
++  return (layer_surface->current.exclusive_zone > 0 &&
++          get_exclusive_edge (&layer_surface->current) != 0);
++}
++
++static MtkRectangle
++calculate_rect (MetaWaylandLayerSurfaceState *state,
++                const MtkRectangle           *bounds)
++{
++  MtkRectangle rect;
++  uint32_t anchor = state->anchor;
++  gboolean horizontal = ((anchor & ANCHOR_LEFT) && (anchor & ANCHOR_RIGHT));
++  gboolean vertical = ((anchor & ANCHOR_TOP) && (anchor & ANCHOR_BOTTOM));
++
++  rect.width = state->width;
++  rect.height = state->height;
++
++  if (horizontal && rect.width == 0)
++    {
++      rect.x = bounds->x + state->margin.left;
++      rect.width = bounds->width - state->margin.left - state->margin.right;
++    }
++  else if (horizontal)
++    {
++      rect.x = bounds->x + (bounds->width - rect.width) / 2;
++    }
++  else if (anchor & ANCHOR_LEFT)
++    {
++      rect.x = bounds->x + state->margin.left;
++    }
++  else if (anchor & ANCHOR_RIGHT)
++    {
++      rect.x = (bounds->x + bounds->width -
++                rect.width - state->margin.right);
++    }
++  else
++    {
++      rect.x = bounds->x + (bounds->width - rect.width) / 2;
++    }
++
++  if (vertical && rect.height == 0)
++    {
++      rect.y = bounds->y + state->margin.top;
++      rect.height = bounds->height - state->margin.top - state->margin.bottom;
++    }
++  else if (vertical)
++    {
++      rect.y = bounds->y + (bounds->height - rect.height) / 2;
++    }
++  else if (anchor & ANCHOR_TOP)
++    {
++      rect.y = bounds->y + state->margin.top;
++    }
++  else if (anchor & ANCHOR_BOTTOM)
++    {
++      rect.y = (bounds->y + bounds->height -
++                rect.height - state->margin.bottom);
++    }
++  else
++    {
++      rect.y = bounds->y + (bounds->height - rect.height) / 2;
++    }
++
++  rect.width = MAX (rect.width, 1);
++  rect.height = MAX (rect.height, 1);
++
++  return rect;
++}
++
++/* Shrink 'usable' by the exclusive zone of the layer surface and return the
++ * strut that covers the area taken away, from the output edge inwards. */
++static MetaStrut *
++apply_exclusive_zone (MetaWaylandLayerSurface *layer_surface,
++                      const MtkRectangle      *output_rect,
++                      MtkRectangle            *usable)
++{
++  MetaWaylandLayerSurfaceState *state = &layer_surface->current;
++  MetaStrut *strut;
++  int amount;
++
++  strut = g_new0 (MetaStrut, 1);
++  strut->rect = *output_rect;
++
++  switch (get_exclusive_edge (state))
++    {
++    case ANCHOR_TOP:
++      amount = state->exclusive_zone + state->margin.top;
++      usable->y += amount;
++      usable->height -= amount;
++      strut->side = META_SIDE_TOP;
++      strut->rect.height = usable->y - output_rect->y;
++      break;
++    case ANCHOR_BOTTOM:
++      amount = state->exclusive_zone + state->margin.bottom;
++      usable->height -= amount;
++      strut->side = META_SIDE_BOTTOM;
++      strut->rect.y = usable->y + usable->height;
++      strut->rect.height = (output_rect->y + output_rect->height -
++                            strut->rect.y);
++      break;
++    case ANCHOR_LEFT:
++      amount = state->exclusive_zone + state->margin.left;
++      usable->x += amount;
++      usable->width -= amount;
++      strut->side = META_SIDE_LEFT;
++      strut->rect.width = usable->x - output_rect->x;
++      break;
++    case ANCHOR_RIGHT:
++      amount = state->exclusive_zone + state->margin.right;
++      usable->width -= amount;
++      strut->side = META_SIDE_RIGHT;
++      strut->rect.x = usable->x + usable->width;
++      strut->rect.width = (output_rect->x + output_rect->width -
++                           strut->rect.x);
++      break;
++    default:
++      g_assert_not_reached ();
++    }
++
++  return strut;
++}
++
++static gboolean
++struts_equal (GSList *a,
++              GSList *b)
++{
++  for (; a && b; a = a->next, b = b->next)
++    {
++      MetaStrut *strut_a = a->data;
++      MetaStrut *strut_b = b->data;
++
++      if (strut_a->side != strut_b->side ||
++          !mtk_rectangle_equal (&strut_a->rect, &strut_b->rect))
++        return FALSE;
++    }
++
++  return a == b;
++}
++
++static void
++update_struts (MetaWaylandLayerSurface *layer_surface,
++               MetaStrut               *strut)
++{
++  MetaWindow *window = window_from_layer_surface (layer_surface);
++  GSList *struts = NULL;
++
++  if (!window)
++    {
++      g_free (strut);
++      return;
++    }
++
++  if (strut)
++    struts = g_slist_prepend (NULL, strut);
++
++  if (struts_equal (window->struts, struts))
++    {
++      g_slist_free_full (struts, g_free);
++      return;
++    }
++
++  meta_topic (META_DEBUG_WAYLAND,
++              "layer surface %s: exclusive zone strut %s",
++              layer_surface->namespace,
++              strut ? "set" : "cleared");
++
++  meta_window_set_struts (window, struts);
++}
++
++static void
++place_layer_surface (MetaWaylandLayerSurface *layer_surface,
++                     MtkRectangle             rect)
++{
++  MetaWindow *window = window_from_layer_surface (layer_surface);
++  MtkRectangle frame_rect;
++
++  if (!window)
++    return;
++
++  frame_rect = meta_window_config_get_rect (window->config);
++
++  if (!layer_surface->configure_sent ||
++      rect.width != layer_surface->configured_rect.width ||
++      rect.height != layer_surface->configured_rect.height)
++    {
++      layer_surface->configured_rect = rect;
++      meta_window_move_resize (window,
++                               (META_MOVE_RESIZE_MOVE_ACTION |
++                                META_MOVE_RESIZE_RESIZE_ACTION |
++                                META_MOVE_RESIZE_WAYLAND_FORCE_CONFIGURE),
++                               rect);
++    }
++  else if (rect.x != frame_rect.x || rect.y != frame_rect.y)
++    {
++      layer_surface->configured_rect = rect;
++      if (layer_surface->mapped)
++        {
++          rect.width = frame_rect.width;
++          rect.height = frame_rect.height;
++          meta_window_move_resize (window,
++                                   (META_MOVE_RESIZE_MOVE_ACTION |
++                                    META_MOVE_RESIZE_FORCE_MOVE),
++                                   rect);
++        }
++    }
++}
++
++static gboolean
++is_arrangeable (MetaWaylandLayerSurface *layer_surface)
++{
++  return (layer_surface->resource &&
++          !layer_surface->closed &&
++          layer_surface->initial_commit_done &&
++          window_from_layer_surface (layer_surface));
++}
++
++static void
++arrange_logical_monitor (MetaWaylandLayerShell *layer_shell,
++                         MetaLogicalMonitor    *logical_monitor)
++{
++  static const uint32_t layer_order[] = {
++    ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY,
++    ZWLR_LAYER_SHELL_V1_LAYER_TOP,
++    ZWLR_LAYER_SHELL_V1_LAYER_BOTTOM,
++    ZWLR_LAYER_SHELL_V1_LAYER_BACKGROUND,
++  };
++  MtkRectangle output_rect;
++  MtkRectangle usable;
++  GList *l;
++  size_t i;
++
++  output_rect = meta_logical_monitor_get_layout (logical_monitor);
++  usable = output_rect;
++
++  /* Surfaces with an exclusive zone first, from the top layer down, each
++   * shrinking the area left for the next ones. */
++  for (i = 0; i < G_N_ELEMENTS (layer_order); i++)
++    {
++      for (l = layer_shell->layer_surfaces; l; l = l->next)
++        {
++          MetaWaylandLayerSurface *layer_surface = l->data;
++          MetaStrut *strut = NULL;
++
++          if (!is_arrangeable (layer_surface) ||
++              get_logical_monitor (layer_surface) != logical_monitor ||
++              layer_surface->current.layer != layer_order[i] ||
++              !has_exclusive_zone (layer_surface))
++            continue;
++
++          place_layer_surface (layer_surface,
++                               calculate_rect (&layer_surface->current,
++                                               &usable));
++
++          if (layer_surface->mapped)
++            strut = apply_exclusive_zone (layer_surface, &output_rect, &usable);
++          update_struts (layer_surface, strut);
++        }
++    }
++
++  /* Then the rest, either avoiding the exclusive zones (0) or not (-1). */
++  for (i = 0; i < G_N_ELEMENTS (layer_order); i++)
++    {
++      for (l = layer_shell->layer_surfaces; l; l = l->next)
++        {
++          MetaWaylandLayerSurface *layer_surface = l->data;
++          const MtkRectangle *bounds;
++
++          if (!is_arrangeable (layer_surface) ||
++              get_logical_monitor (layer_surface) != logical_monitor ||
++              layer_surface->current.layer != layer_order[i] ||
++              has_exclusive_zone (layer_surface))
++            continue;
++
++          if (layer_surface->current.exclusive_zone < 0)
++            bounds = &output_rect;
++          else
++            bounds = &usable;
++
++          place_layer_surface (layer_surface,
++                               calculate_rect (&layer_surface->current,
++                                               bounds));
++          update_struts (layer_surface, NULL);
++        }
++    }
++}
++
++static void
++meta_wayland_layer_shell_arrange (MetaWaylandLayerShell *layer_shell)
++{
++  MetaContext *context =
++    meta_wayland_compositor_get_context (layer_shell->compositor);
++  MetaBackend *backend = meta_context_get_backend (context);
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++  GList *logical_monitors;
++  GList *l;
++
++  logical_monitors =
++    meta_monitor_manager_get_logical_monitors (monitor_manager);
++  for (l = logical_monitors; l; l = l->next)
++    arrange_logical_monitor (layer_shell, l->data);
++}
++
++static void
++send_closed (MetaWaylandLayerSurface *layer_surface)
++{
++  MetaWaylandShellSurface *shell_surface =
++    META_WAYLAND_SHELL_SURFACE (layer_surface);
++
++  if (layer_surface->closed)
++    return;
++
++  layer_surface->closed = TRUE;
++
++  if (layer_surface->resource)
++    zwlr_layer_surface_v1_send_closed (layer_surface->resource);
++
++  meta_wayland_shell_surface_destroy_window (shell_surface);
++}
++
++static void
++on_output_destroyed (MetaWaylandOutput       *wayland_output,
++                     MetaWaylandLayerSurface *layer_surface)
++{
++  g_clear_signal_handler (&layer_surface->output_destroyed_handler_id,
++                          layer_surface->output);
++  g_clear_object (&layer_surface->output);
++  send_closed (layer_surface);
++}
++
++static void
++on_monitors_changed (MetaMonitorManager    *monitor_manager,
++                     MetaWaylandLayerShell *layer_shell)
++{
++  GList *l;
++
++  for (l = layer_shell->layer_surfaces; l; l = l->next)
++    {
++      MetaWaylandLayerSurface *layer_surface = l->data;
++
++      if (!get_logical_monitor (layer_surface))
++        send_closed (layer_surface);
++    }
++
++  meta_wayland_layer_shell_arrange (layer_shell);
++}
++
++static void
++update_window_type (MetaWaylandLayerSurface *layer_surface)
++{
++  MetaWindow *window = window_from_layer_surface (layer_surface);
++  uint32_t keyboard_interactivity =
++    layer_surface->current.keyboard_interactivity;
++
++  if (!window)
++    return;
++
++  window->input =
++    keyboard_interactivity != ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE;
++  window->dock_click_focus =
++    keyboard_interactivity != ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_NONE;
++
++  meta_window_set_type (window,
++                        window_type_for_layer (layer_surface->current.layer));
++  meta_window_update_layer (window);
++
++  if (!window->input && meta_window_has_focus (window))
++    {
++      MetaDisplay *display = window->display;
++      MetaWorkspace *workspace =
++        display->workspace_manager->active_workspace;
++      uint32_t timestamp = meta_display_get_current_time_roundtrip (display);
++
++      meta_workspace_focus_default_window (workspace, window, timestamp);
++    }
++}
++
++static void
++create_window (MetaWaylandLayerSurface *layer_surface)
++{
++  MetaWaylandShellSurface *shell_surface =
++    META_WAYLAND_SHELL_SURFACE (layer_surface);
++  MetaWaylandSurface *surface = surface_from_layer_surface (layer_surface);
++  MetaWindow *window;
++
++  window = meta_window_wayland_new (display_from_surface (surface), surface);
++  meta_wayland_shell_surface_set_window (shell_surface, window);
++
++  meta_window_set_wm_class (window,
++                            layer_surface->namespace,
++                            layer_surface->namespace);
++  meta_window_set_title (window, layer_surface->namespace);
++
++  /* The position is always ours; never run placement on it. */
++  window->placed = TRUE;
++  update_window_type (layer_surface);
++  meta_window_stick (window);
++}
++
++static void
++reset_layer_surface (MetaWaylandLayerSurface *layer_surface)
++{
++  MetaWaylandShellSurface *shell_surface =
++    META_WAYLAND_SHELL_SURFACE (layer_surface);
++
++  layer_surface->initial_commit_done = FALSE;
++  layer_surface->configure_sent = FALSE;
++  layer_surface->mapped = FALSE;
++  layer_surface->configured_rect = (MtkRectangle) { 0 };
++
++  meta_wayland_shell_surface_destroy_window (shell_surface);
++  meta_wayland_actor_surface_reset_actor (META_WAYLAND_ACTOR_SURFACE (layer_surface));
++  create_window (layer_surface);
++}
++
++static gboolean
++validate_state (MetaWaylandLayerSurface *layer_surface)
++{
++  MetaWaylandLayerSurfaceState *state = &layer_surface->current;
++
++  if (state->width == 0 &&
++      !((state->anchor & ANCHOR_LEFT) && (state->anchor & ANCHOR_RIGHT)))
++    {
++      wl_resource_post_error (layer_surface->resource,
++                              ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_SIZE,
++                              "width 0 requires anchoring to the left and "
++                              "right edges");
++      return FALSE;
++    }
++
++  if (state->height == 0 &&
++      !((state->anchor & ANCHOR_TOP) && (state->anchor & ANCHOR_BOTTOM)))
++    {
++      wl_resource_post_error (layer_surface->resource,
++                              ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_SIZE,
++                              "height 0 requires anchoring to the top and "
++                              "bottom edges");
++      return FALSE;
++    }
++
++  if (state->exclusive_edge &&
++      !(state->anchor & state->exclusive_edge))
++    {
++      wl_resource_post_error (layer_surface->resource,
++                              ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_EXCLUSIVE_EDGE,
++                              "exclusive edge is not an anchored edge");
++      return FALSE;
++    }
++
++  return TRUE;
++}
++
++static void
++meta_wayland_layer_surface_apply_state (MetaWaylandSurfaceRole  *surface_role,
++                                        MetaWaylandSurfaceState *pending)
++{
++  MetaWaylandLayerSurface *layer_surface =
++    META_WAYLAND_LAYER_SURFACE (surface_role);
++  MetaWaylandActorSurface *actor_surface =
++    META_WAYLAND_ACTOR_SURFACE (surface_role);
++  MetaWaylandSurface *surface =
++    meta_wayland_surface_role_get_surface (surface_role);
++  MetaWaylandSurfaceRoleClass *surface_role_class;
++  MetaWaylandLayerSurfaceState old_state;
++  MetaWindow *window;
++
++  window = meta_wayland_surface_get_window (surface);
++  if (!window || !layer_surface->resource)
++    {
++      meta_wayland_actor_surface_queue_frame_callbacks (actor_surface, pending);
++      return;
++    }
++
++  old_state = layer_surface->current;
++  layer_surface->current = layer_surface->pending;
++
++  if (!validate_state (layer_surface))
++    return;
++
++  if (!surface->buffer && layer_surface->mapped)
++    {
++      /* A null buffer unmaps; the client must commit again without a
++       * buffer to get a new configure. */
++      reset_layer_surface (layer_surface);
++      meta_wayland_layer_shell_arrange (layer_surface->layer_shell);
++      meta_wayland_actor_surface_queue_frame_callbacks (actor_surface, pending);
++      return;
++    }
++
++  if (surface->buffer && !layer_surface->configure_sent)
++    {
++      wl_resource_post_error (layer_surface->resource,
++                              ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_SURFACE_STATE,
++                              "buffer committed before the first configure");
++      return;
++    }
++
++  surface_role_class =
++    META_WAYLAND_SURFACE_ROLE_CLASS (meta_wayland_layer_surface_parent_class);
++  surface_role_class->apply_state (surface_role, pending);
++
++  if (old_state.layer != layer_surface->current.layer ||
++      old_state.keyboard_interactivity !=
++      layer_surface->current.keyboard_interactivity)
++    update_window_type (layer_surface);
++
++  if (!layer_surface->initial_commit_done)
++    {
++      layer_surface->initial_commit_done = TRUE;
++      meta_window_notify_ready (window);
++
++      if (!get_logical_monitor (layer_surface))
++        {
++          send_closed (layer_surface);
++          return;
++        }
++
++      /* Sends the initial configure. */
++      meta_wayland_layer_shell_arrange (layer_surface->layer_shell);
++    }
++  else if (memcmp (&old_state, &layer_surface->current,
++                   sizeof (old_state)) != 0)
++    {
++      meta_wayland_layer_shell_arrange (layer_surface->layer_shell);
++    }
++}
++
++static void
++meta_wayland_layer_surface_post_apply_state (MetaWaylandSurfaceRole  *surface_role,
++                                             MetaWaylandSurfaceState *pending)
++{
++  MetaWaylandLayerSurface *layer_surface =
++    META_WAYLAND_LAYER_SURFACE (surface_role);
++  MetaWaylandShellSurface *shell_surface =
++    META_WAYLAND_SHELL_SURFACE (surface_role);
++  MetaWaylandSurface *surface =
++    meta_wayland_surface_role_get_surface (surface_role);
++  MetaWaylandSurfaceRoleClass *surface_role_class;
++  MetaWindow *window;
++  MtkRectangle geometry;
++  gboolean newly_mapped = FALSE;
++
++  window = meta_wayland_surface_get_window (surface);
++  if (!window || !layer_surface->resource)
++    return;
++
++  surface_role_class =
++    META_WAYLAND_SURFACE_ROLE_CLASS (meta_wayland_layer_surface_parent_class);
++  if (surface_role_class->post_apply_state)
++    surface_role_class->post_apply_state (surface_role, pending);
++
++  if (!meta_wayland_surface_get_buffer (surface))
++    return;
++
++  if (!layer_surface->mapped)
++    {
++      layer_surface->mapped = TRUE;
++      newly_mapped = TRUE;
++    }
++
++  meta_wayland_shell_surface_calculate_geometry (shell_surface, &geometry);
++  if (mtk_rectangle_is_empty (&geometry))
++    return;
++
++  if (newly_mapped ||
++      pending->derived.surface_size_changed ||
++      pending->has_acked_configure_serial)
++    meta_window_wayland_finish_move_resize (window, geometry, pending);
++
++  if (newly_mapped)
++    {
++      /* Now that it is mapped, its exclusive zone counts. */
++      meta_wayland_layer_shell_arrange (layer_surface->layer_shell);
++
++      if (layer_surface->current.keyboard_interactivity ==
++          ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE &&
++          layer_surface->current.layer >= ZWLR_LAYER_SHELL_V1_LAYER_TOP)
++        {
++          uint32_t timestamp =
++            meta_display_get_current_time_roundtrip (window->display);
++
++          meta_window_focus (window, timestamp);
++        }
++    }
++}
++
++static MetaWaylandSurface *
++meta_wayland_layer_surface_get_toplevel (MetaWaylandSurfaceRole *surface_role)
++{
++  return meta_wayland_surface_role_get_surface (surface_role);
++}
++
++static void
++meta_wayland_layer_surface_configure (MetaWaylandShellSurface        *shell_surface,
++                                      MetaWaylandWindowConfiguration *configuration)
++{
++  MetaWaylandLayerSurface *layer_surface =
++    META_WAYLAND_LAYER_SURFACE (shell_surface);
++  MetaWaylandSurface *surface = surface_from_layer_surface (layer_surface);
++  int width;
++  int height;
++
++  if (!layer_surface->resource || !surface->resource)
++    return;
++
++  if (configuration->has_size)
++    {
++      width = configuration->width / configuration->scale;
++      height = configuration->height / configuration->scale;
++    }
++  else
++    {
++      width = layer_surface->configured_rect.width;
++      height = layer_surface->configured_rect.height;
++    }
++
++  meta_topic (META_DEBUG_WAYLAND,
++              "Configuring zwlr_layer_surface_v1#%u (wl_surface#%u, %s): "
++              "serial=%u, size=%dx%d",
++              wl_resource_get_id (layer_surface->resource),
++              wl_resource_get_id (surface->resource),
++              layer_surface->namespace,
++              configuration->serial, width, height);
++
++  zwlr_layer_surface_v1_send_configure (layer_surface->resource,
++                                        configuration->serial,
++                                        width, height);
++  layer_surface->configure_sent = TRUE;
++}
++
++static void
++meta_wayland_layer_surface_managed (MetaWaylandShellSurface *shell_surface,
++                                    MetaWindow              *window)
++{
++}
++
++static void
++meta_wayland_layer_surface_ping (MetaWaylandShellSurface *shell_surface,
++                                 uint32_t                 serial)
++{
++  MetaWaylandSurface *surface =
++    surface_from_layer_surface (META_WAYLAND_LAYER_SURFACE (shell_surface));
++
++  /* There is no ping in this protocol; never mark these as not responding. */
++  meta_display_pong_for_serial (display_from_surface (surface), serial);
++}
++
++static void
++meta_wayland_layer_surface_close (MetaWaylandShellSurface *shell_surface)
++{
++  send_closed (META_WAYLAND_LAYER_SURFACE (shell_surface));
++}
++
++static void
++layer_surface_destructor (struct wl_resource *resource)
++{
++  MetaWaylandLayerSurface *layer_surface = wl_resource_get_user_data (resource);
++  MetaWaylandShellSurface *shell_surface =
++    META_WAYLAND_SHELL_SURFACE (layer_surface);
++  MetaWaylandLayerShell *layer_shell = layer_surface->layer_shell;
++
++  layer_surface->resource = NULL;
++  layer_surface->initial_commit_done = FALSE;
++  layer_surface->mapped = FALSE;
++  layer_surface->configure_sent = FALSE;
++
++  meta_wayland_shell_surface_destroy_window (shell_surface);
++
++  if (layer_shell)
++    {
++      layer_shell->layer_surfaces =
++        g_list_remove (layer_shell->layer_surfaces, layer_surface);
++      meta_wayland_layer_shell_arrange (layer_shell);
++    }
++}
++
++static void
++layer_surface_set_size (struct wl_client   *client,
++                        struct wl_resource *resource,
++                        uint32_t            width,
++                        uint32_t            height)
++{
++  MetaWaylandLayerSurface *layer_surface = wl_resource_get_user_data (resource);
++
++  layer_surface->pending.width = width;
++  layer_surface->pending.height = height;
++}
++
++static void
++layer_surface_set_anchor (struct wl_client   *client,
++                          struct wl_resource *resource,
++                          uint32_t            anchor)
++{
++  MetaWaylandLayerSurface *layer_surface = wl_resource_get_user_data (resource);
++
++  if (anchor & ~ANCHOR_ALL)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_ANCHOR,
++                              "invalid anchor %u", anchor);
++      return;
++    }
++
++  layer_surface->pending.anchor = anchor;
++}
++
++static void
++layer_surface_set_exclusive_zone (struct wl_client   *client,
++                                  struct wl_resource *resource,
++                                  int32_t             zone)
++{
++  MetaWaylandLayerSurface *layer_surface = wl_resource_get_user_data (resource);
++
++  layer_surface->pending.exclusive_zone = MAX (zone, -1);
++}
++
++static void
++layer_surface_set_margin (struct wl_client   *client,
++                          struct wl_resource *resource,
++                          int32_t             top,
++                          int32_t             right,
++                          int32_t             bottom,
++                          int32_t             left)
++{
++  MetaWaylandLayerSurface *layer_surface = wl_resource_get_user_data (resource);
++
++  layer_surface->pending.margin.top = top;
++  layer_surface->pending.margin.right = right;
++  layer_surface->pending.margin.bottom = bottom;
++  layer_surface->pending.margin.left = left;
++}
++
++static void
++layer_surface_set_keyboard_interactivity (struct wl_client   *client,
++                                          struct wl_resource *resource,
++                                          uint32_t            keyboard_interactivity)
++{
++  MetaWaylandLayerSurface *layer_surface = wl_resource_get_user_data (resource);
++  uint32_t max_value;
++
++  if (wl_resource_get_version (resource) >= 4)
++    max_value = ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_ON_DEMAND;
++  else
++    max_value = ZWLR_LAYER_SURFACE_V1_KEYBOARD_INTERACTIVITY_EXCLUSIVE;
++
++  if (keyboard_interactivity > max_value)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_KEYBOARD_INTERACTIVITY,
++                              "invalid keyboard interactivity %u",
++                              keyboard_interactivity);
++      return;
++    }
++
++  layer_surface->pending.keyboard_interactivity = keyboard_interactivity;
++}
++
++static void
++layer_surface_get_popup (struct wl_client   *client,
++                         struct wl_resource *resource,
++                         struct wl_resource *popup_resource)
++{
++  g_warning ("zwlr_layer_surface_v1.get_popup is not supported yet");
++}
++
++static void
++layer_surface_ack_configure (struct wl_client   *client,
++                             struct wl_resource *resource,
++                             uint32_t            serial)
++{
++  MetaWaylandLayerSurface *layer_surface = wl_resource_get_user_data (resource);
++  MetaWaylandSurface *surface = surface_from_layer_surface (layer_surface);
++  MetaWaylandSurfaceState *pending;
++
++  pending = meta_wayland_surface_get_pending_state (surface);
++  if (!pending)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_SURFACE_STATE,
++                              "underlying wl_surface already destroyed");
++      return;
++    }
++
++  pending->has_acked_configure_serial = TRUE;
++  pending->acked_configure_serial = serial;
++}
++
++static void
++layer_surface_destroy (struct wl_client   *client,
++                       struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static void
++layer_surface_set_layer (struct wl_client   *client,
++                         struct wl_resource *resource,
++                         uint32_t            layer)
++{
++  MetaWaylandLayerSurface *layer_surface = wl_resource_get_user_data (resource);
++
++  if (layer > ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_LAYER_SHELL_V1_ERROR_INVALID_LAYER,
++                              "invalid layer %u", layer);
++      return;
++    }
++
++  layer_surface->pending.layer = layer;
++}
++
++static void
++layer_surface_set_exclusive_edge (struct wl_client   *client,
++                                  struct wl_resource *resource,
++                                  uint32_t            edge)
++{
++  MetaWaylandLayerSurface *layer_surface = wl_resource_get_user_data (resource);
++
++  if (edge != 0 &&
++      edge != ANCHOR_TOP && edge != ANCHOR_BOTTOM &&
++      edge != ANCHOR_LEFT && edge != ANCHOR_RIGHT)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_EXCLUSIVE_EDGE,
++                              "exclusive edge must be a single edge");
++      return;
++    }
++
++  layer_surface->pending.exclusive_edge = edge;
++}
++
++static const struct zwlr_layer_surface_v1_interface meta_wayland_layer_surface_interface = {
++  layer_surface_set_size,
++  layer_surface_set_anchor,
++  layer_surface_set_exclusive_zone,
++  layer_surface_set_margin,
++  layer_surface_set_keyboard_interactivity,
++  layer_surface_get_popup,
++  layer_surface_ack_configure,
++  layer_surface_destroy,
++  layer_surface_set_layer,
++  layer_surface_set_exclusive_edge,
++};
++
++static void
++meta_wayland_layer_surface_finalize (GObject *object)
++{
++  MetaWaylandLayerSurface *layer_surface = META_WAYLAND_LAYER_SURFACE (object);
++
++  if (layer_surface->resource)
++    {
++      wl_resource_set_user_data (layer_surface->resource, NULL);
++      wl_resource_set_destructor (layer_surface->resource, NULL);
++    }
++
++  if (layer_surface->layer_shell)
++    {
++      layer_surface->layer_shell->layer_surfaces =
++        g_list_remove (layer_surface->layer_shell->layer_surfaces,
++                       layer_surface);
++    }
++
++  if (layer_surface->output)
++    {
++      g_clear_signal_handler (&layer_surface->output_destroyed_handler_id,
++                              layer_surface->output);
++      g_clear_object (&layer_surface->output);
++    }
++
++  g_free (layer_surface->namespace);
++
++  G_OBJECT_CLASS (meta_wayland_layer_surface_parent_class)->finalize (object);
++}
++
++static void
++meta_wayland_layer_surface_init (MetaWaylandLayerSurface *layer_surface)
++{
++}
++
++static void
++meta_wayland_layer_surface_class_init (MetaWaylandLayerSurfaceClass *klass)
++{
++  GObjectClass *object_class = G_OBJECT_CLASS (klass);
++  MetaWaylandSurfaceRoleClass *surface_role_class =
++    META_WAYLAND_SURFACE_ROLE_CLASS (klass);
++  MetaWaylandShellSurfaceClass *shell_surface_class =
++    META_WAYLAND_SHELL_SURFACE_CLASS (klass);
++
++  object_class->finalize = meta_wayland_layer_surface_finalize;
++
++  surface_role_class->apply_state = meta_wayland_layer_surface_apply_state;
++  surface_role_class->post_apply_state =
++    meta_wayland_layer_surface_post_apply_state;
++  surface_role_class->get_toplevel = meta_wayland_layer_surface_get_toplevel;
++
++  shell_surface_class->configure = meta_wayland_layer_surface_configure;
++  shell_surface_class->managed = meta_wayland_layer_surface_managed;
++  shell_surface_class->ping = meta_wayland_layer_surface_ping;
++  shell_surface_class->close = meta_wayland_layer_surface_close;
++}
++
++static void
++layer_shell_get_layer_surface (struct wl_client   *client,
++                               struct wl_resource *resource,
++                               uint32_t            id,
++                               struct wl_resource *surface_resource,
++                               struct wl_resource *output_resource,
++                               uint32_t            layer,
++                               const char         *namespace)
++{
++  MetaWaylandLayerShell *layer_shell = wl_resource_get_user_data (resource);
++  MetaWaylandSurface *surface = wl_resource_get_user_data (surface_resource);
++  MetaWaylandLayerSurface *layer_surface;
++
++  if (layer > ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_LAYER_SHELL_V1_ERROR_INVALID_LAYER,
++                              "invalid layer %u", layer);
++      return;
++    }
++
++  if (surface->buffer)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_LAYER_SHELL_V1_ERROR_ALREADY_CONSTRUCTED,
++                              "wl_surface@%d already has a buffer committed",
++                              wl_resource_get_id (surface_resource));
++      return;
++    }
++
++  if (!meta_wayland_surface_assign_role (surface,
++                                         META_TYPE_WAYLAND_LAYER_SURFACE,
++                                         NULL))
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_LAYER_SHELL_V1_ERROR_ROLE,
++                              "wl_surface@%d already has a different role",
++                              wl_resource_get_id (surface_resource));
++      return;
++    }
++
++  layer_surface = META_WAYLAND_LAYER_SURFACE (surface->role);
++  if (layer_surface->resource)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_LAYER_SHELL_V1_ERROR_ALREADY_CONSTRUCTED,
++                              "wl_surface@%d already has a layer surface",
++                              wl_resource_get_id (surface_resource));
++      return;
++    }
++
++  layer_surface->layer_shell = layer_shell;
++  g_free (layer_surface->namespace);
++  layer_surface->namespace = g_strdup (namespace);
++  layer_surface->pending = (MetaWaylandLayerSurfaceState) {
++    .layer = layer,
++  };
++  layer_surface->current = layer_surface->pending;
++  layer_surface->closed = FALSE;
++  layer_surface->initial_commit_done = FALSE;
++  layer_surface->configure_sent = FALSE;
++  layer_surface->mapped = FALSE;
++
++  if (output_resource)
++    {
++      MetaWaylandOutput *wayland_output =
++        wl_resource_get_user_data (output_resource);
++
++      if (wayland_output)
++        {
++          layer_surface->output = g_object_ref (wayland_output);
++          layer_surface->output_destroyed_handler_id =
++            g_signal_connect (wayland_output, "output-destroyed",
++                              G_CALLBACK (on_output_destroyed),
++                              layer_surface);
++        }
++    }
++
++  layer_surface->resource =
++    wl_resource_create (client,
++                        &zwlr_layer_surface_v1_interface,
++                        wl_resource_get_version (resource),
++                        id);
++  wl_resource_set_implementation (layer_surface->resource,
++                                  &meta_wayland_layer_surface_interface,
++                                  layer_surface,
++                                  layer_surface_destructor);
++
++  layer_shell->layer_surfaces =
++    g_list_append (layer_shell->layer_surfaces, layer_surface);
++
++  create_window (layer_surface);
++
++  if (output_resource && !layer_surface->output)
++    send_closed (layer_surface);
++}
++
++static void
++layer_shell_destroy (struct wl_client   *client,
++                     struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static const struct zwlr_layer_shell_v1_interface meta_wayland_layer_shell_interface = {
++  layer_shell_get_layer_surface,
++  layer_shell_destroy,
++};
++
++static void
++bind_layer_shell (struct wl_client *client,
++                  void             *data,
++                  uint32_t          version,
++                  uint32_t          id)
++{
++  MetaWaylandLayerShell *layer_shell = data;
++  struct wl_resource *resource;
++
++  resource = wl_resource_create (client, &zwlr_layer_shell_v1_interface,
++                                 version, id);
++  wl_resource_set_implementation (resource,
++                                  &meta_wayland_layer_shell_interface,
++                                  layer_shell, NULL);
++}
++
++static void
++layer_shell_free (MetaWaylandLayerShell *layer_shell)
++{
++  MetaContext *context =
++    meta_wayland_compositor_get_context (layer_shell->compositor);
++  MetaBackend *backend = meta_context_get_backend (context);
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++  GList *l;
++
++  for (l = layer_shell->layer_surfaces; l; l = l->next)
++    {
++      MetaWaylandLayerSurface *layer_surface = l->data;
++
++      layer_surface->layer_shell = NULL;
++    }
++  g_list_free (layer_shell->layer_surfaces);
++
++  g_clear_signal_handler (&layer_shell->monitors_changed_handler_id,
++                          monitor_manager);
++  g_free (layer_shell);
++}
++
++void
++meta_wayland_layer_shell_init (MetaWaylandCompositor *compositor)
++{
++  MetaContext *context = meta_wayland_compositor_get_context (compositor);
++  MetaBackend *backend = meta_context_get_backend (context);
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++  MetaWaylandLayerShell *layer_shell;
++
++  layer_shell = g_new0 (MetaWaylandLayerShell, 1);
++  layer_shell->compositor = compositor;
++
++  if (wl_global_create (compositor->wayland_display,
++                        &zwlr_layer_shell_v1_interface,
++                        META_ZWLR_LAYER_SHELL_V1_VERSION,
++                        layer_shell, bind_layer_shell) == NULL)
++    g_error ("Failed to register a global wlr-layer-shell object");
++
++  layer_shell->monitors_changed_handler_id =
++    g_signal_connect (monitor_manager, "monitors-changed-internal",
++                      G_CALLBACK (on_monitors_changed),
++                      layer_shell);
++
++  g_object_set_data_full (G_OBJECT (compositor), "-meta-wayland-layer-shell",
++                          layer_shell,
++                          (GDestroyNotify) layer_shell_free);
++}
+diff --git a/src/wayland/meta-wayland-layer-shell.h b/src/wayland/meta-wayland-layer-shell.h
+new file mode 100644
+index 0000000..c84693d
+--- /dev/null
++++ b/src/wayland/meta-wayland-layer-shell.h
+@@ -0,0 +1,31 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#pragma once
++
++#include "meta/meta-enums.h"
++#include "wayland/meta-wayland-shell-surface.h"
++
++#define META_TYPE_WAYLAND_LAYER_SURFACE (meta_wayland_layer_surface_get_type ())
++G_DECLARE_FINAL_TYPE (MetaWaylandLayerSurface,
++                      meta_wayland_layer_surface,
++                      META, WAYLAND_LAYER_SURFACE,
++                      MetaWaylandShellSurface)
++
++void meta_wayland_layer_shell_init (MetaWaylandCompositor *compositor);
++
++MetaStackLayer meta_wayland_layer_surface_get_stack_layer (MetaWaylandLayerSurface *layer_surface);
+diff --git a/src/wayland/meta-wayland-surface.c b/src/wayland/meta-wayland-surface.c
+index ea70206..056ec4f 100644
+--- a/src/wayland/meta-wayland-surface.c
++++ b/src/wayland/meta-wayland-surface.c
+@@ -41,6 +41,7 @@
+ #include "wayland/meta-wayland-color-representation.h"
+ #include "wayland/meta-wayland-fractional-scale.h"
+ #include "wayland/meta-wayland-gtk-shell.h"
++#include "wayland/meta-wayland-layer-shell.h"
+ #include "wayland/meta-wayland-outputs.h"
+ #include "wayland/meta-wayland-presentation-time-private.h"
+ #include "wayland/meta-wayland-private.h"
+@@ -1912,6 +1913,7 @@ void
+ meta_wayland_shell_init (MetaWaylandCompositor *compositor)
+ {
+   meta_wayland_xdg_shell_init (compositor);
++  meta_wayland_layer_shell_init (compositor);
+   meta_wayland_init_gtk_shell (compositor);
+   meta_wayland_init_viewporter (compositor);
+   meta_wayland_init_fractional_scale (compositor);
+diff --git a/src/wayland/meta-wayland-versions.h b/src/wayland/meta-wayland-versions.h
+index f17a642..06b2db1 100644
+--- a/src/wayland/meta-wayland-versions.h
++++ b/src/wayland/meta-wayland-versions.h
+@@ -71,3 +71,4 @@
+ #define META_WL_FIXES_VERSION 1
+ #define META_WP_POINTER_WARP_VERSION 1
+ #define META_EXT_BACKGROUND_EFFECT_V1_VERSION 1
++#define META_ZWLR_LAYER_SHELL_V1_VERSION 5
+diff --git a/src/wayland/meta-window-wayland.c b/src/wayland/meta-window-wayland.c
+index daa7162..78d2e73 100644
+--- a/src/wayland/meta-window-wayland.c
++++ b/src/wayland/meta-window-wayland.c
+@@ -38,6 +38,7 @@
+ #include "core/window-private.h"
+ #include "wayland/meta-wayland-actor-surface.h"
+ #include "wayland/meta-wayland-client-private.h"
++#include "wayland/meta-wayland-layer-shell.h"
+ #include "wayland/meta-wayland-private.h"
+ #include "wayland/meta-wayland-surface-private.h"
+ #include "wayland/meta-wayland-toplevel-drag.h"
+@@ -1174,6 +1175,17 @@ meta_window_wayland_save_rect (MetaWindow *window)
+ static MetaStackLayer
+ meta_window_wayland_calculate_layer (MetaWindow *window)
+ {
++  MetaWindowWayland *wl_window = META_WINDOW_WAYLAND (window);
++
++  if (wl_window->surface &&
++      META_IS_WAYLAND_LAYER_SURFACE (wl_window->surface->role))
++    {
++      MetaWaylandLayerSurface *layer_surface =
++        META_WAYLAND_LAYER_SURFACE (wl_window->surface->role);
++
++      return meta_wayland_layer_surface_get_stack_layer (layer_surface);
++    }
++
+   return meta_window_get_default_layer (window);
+ }
+ 

@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       8%{?dist}.aurora
+Release:       9%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -40,6 +40,8 @@ Patch3:        0003-x11-assign-frame-counters-on-actor-views.patch
 Patch4:        0004-backends-take-the-pq-reference-white-from-pq-reference-luminance.patch
 Patch5:        0005-onscreen-native-use-variable-refresh-rate-on-the-whole-desktop-of-built-in-panels.patch
 Patch6:        0006-renderer-native-drop-power-save-page-flip-onscreens-on-dispose.patch
+Patch10:       0010-wayland-Add-the-wlr-layer-shell-unstable-v1-protocol.patch
+Patch11:       0011-wayland-Implement-wlr-layer-shell-unstable-v1.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -258,6 +260,12 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-9.aurora
+- Support wlr-layer-shell-unstable-v1 (zwlr_layer_shell_v1, version 5), so
+  panels, docks, launchers, notification daemons, wallpaper tools, lock
+  screens and overlays written for it (waybar, swaybg, swaync,
+  gtk-layer-shell apps) run on GNOME
+
 * Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-8.aurora
 - Drop the onscreens queued for power save page flips when the renderer is
   disposed, before the Cogl display goes away. gnome-shell no longer
