@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       20%{?dist}.aurora
+Release:       21%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -80,6 +80,10 @@ Patch45:       0045-onscreen-native-Flip-asynchronously-when-the-view-te.patch
 Patch46:       0046-tests-Add-tearing-control-tests.patch
 Patch47:       0047-wayland-activation-Add-honor-activation-focus-to-foc.patch
 Patch48:       0048-prefs-Default-check-alive-timeout-to-20-seconds.patch
+Patch49:       0049-wayland-Add-the-ext-session-lock-v1-protocol.patch
+Patch50:       0050-wayland-Implement-ext-session-lock-v1.patch
+Patch51:       0051-wayland-keyboard-Let-the-event-handlers-focus-a-newl.patch
+Patch52:       0052-tests-Add-ext-session-lock-v1-tests.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -298,6 +302,18 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-21.aurora
+- Support ext-session-lock-v1 (ext_session_lock_manager_v1) so screen
+  lockers such as swaylock, hyprlock and gtklock can lock the session:
+  every output, including outputs added while locked, shows only an
+  opaque blank and the lock client's surfaces; locked is sent only once
+  that is on screen everywhere; direct scanout is inhibited; input goes
+  only to the lock surfaces (VT and layout switching excepted). A lock
+  client that dies leaves the session locked until a new one unlocks
+  it. Flatpak-sandboxed clients are not offered it.
+- Give a keyboard plugged in while locked to the lock surface, not to
+  the focused window.
+
 * Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-20.aurora
 - Add org.gnome.mutter honor-activation-focus (default true): an
   xdg-activation token requested by the focused window activates and
