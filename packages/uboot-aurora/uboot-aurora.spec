@@ -1,8 +1,8 @@
 %global debug_package %{nil}
-%global commit 250385f8c8aaafd47a8f7990f6efe0443c28d0b5
+%global commit 25cbb0f0d09c20bf4ebc88907430efc26c9464ae
 Name: uboot-aurora
 Version: 2026.07
-Release: 13%{?dist}
+Release: 14%{?dist}
 Summary: Aurora U-Boot for Apple Silicon
 License: GPL-2.0-or-later
 URL: https://github.com/aurora-silicon/u-boot
@@ -17,7 +17,7 @@ BuildRequires: gcc make bc bison flex dtc python3 python3-pyelftools swig openss
 Aurora U-Boot for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n u-boot-250385f8c8aaafd47a8f7990f6efe0443c28d0b5
+%autosetup -n u-boot-25cbb0f0d09c20bf4ebc88907430efc26c9464ae
 
 %build
 make O=build-aurora apple_m1_defconfig
@@ -33,6 +33,13 @@ install -Dm644 build-aurora/u-boot-nodtb.bin %{buildroot}/usr/lib/asahi-boot/u-b
 /usr/lib/asahi-boot/u-boot-nodtb.bin
 
 %changelog
+* Mon Nov 16 2026 MisterY3515 <171454393+root800080@users.noreply.github.com> - 2026.07-14
+- Track U-Boot aurora-wip at 25cbb0f. U-Boot binds the T8140 and T8142
+  NVMe controllers (u-boot#47), so the J813 (MacBook Air 13-inch, M5)
+  finds its ESP and starts GRUB instead of stopping at the prompt with
+  "Cannot persist EFI variables without system partition"
+  (aurora-installer#143). Also carries Secure Boot audit mode (u-boot#43).
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 2026.07-13
 - Track U-Boot aurora-wip at 250385f. On a normal boot U-Boot stays
   quiet on screen and keeps the loader's picture, so the aura logo stays
