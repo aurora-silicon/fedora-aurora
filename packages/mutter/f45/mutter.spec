@@ -67,7 +67,7 @@ Patch32:       0032-wayland-Add-the-wlr-output-management-unstable-v1-pr.patch
 Patch33:       0033-context-main-Allow-several-modes-per-virtual-monitor.patch
 Patch34:       0034-wayland-Implement-wlr-output-management-unstable-v1.patch
 Patch35:       0035-tests-Add-wlr-output-management-tests.patch
-Patch36:       0036-wayland-activation-Add-honor-activation-focus-to-focu.patch
+Patch36:       0036-wayland-activation-Add-honor-activation-focus-to-foc.patch
 Patch37:       0037-prefs-Default-check-alive-timeout-to-20-seconds.patch
 
 BuildRequires: cvt
