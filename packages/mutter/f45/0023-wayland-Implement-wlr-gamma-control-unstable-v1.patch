@@ -28,10 +28,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 src/wayland/meta-wayland-gamma-control.h
 
 diff --git a/src/meson.build b/src/meson.build
-index adde424..b252c7b 100644
+index 07c7e6d..34d65e5 100644
 --- a/src/meson.build
 +++ b/src/meson.build
-@@ -535,6 +535,8 @@ mutter_sources += [
+@@ -537,6 +537,8 @@ mutter_sources += [
    'wayland/meta-wayland-fractional-scale.h',
    'wayland/meta-wayland-foreign-toplevel.c',
    'wayland/meta-wayland-foreign-toplevel.h',
@@ -454,16 +454,16 @@ index 0000000..28051fd
 +
 +void meta_wayland_gamma_control_init (MetaWaylandCompositor *compositor);
 diff --git a/src/wayland/meta-wayland-versions.h b/src/wayland/meta-wayland-versions.h
-index 9f2c8cc..77209b2 100644
+index 7b4c8c0..e4ced2e 100644
 --- a/src/wayland/meta-wayland-versions.h
 +++ b/src/wayland/meta-wayland-versions.h
-@@ -73,3 +73,4 @@
- #define META_EXT_BACKGROUND_EFFECT_V1_VERSION 1
+@@ -74,3 +74,4 @@
  #define META_ZWLR_LAYER_SHELL_V1_VERSION 5
  #define META_ZWLR_FOREIGN_TOPLEVEL_MANAGER_V1_VERSION 3
+ #define META_ZWLR_DATA_CONTROL_V1_VERSION 2
 +#define META_ZWLR_GAMMA_CONTROL_MANAGER_V1_VERSION 1
 diff --git a/src/wayland/meta-wayland.c b/src/wayland/meta-wayland.c
-index cf8a990..4e4c07b 100644
+index a7698dc..a7b268f 100644
 --- a/src/wayland/meta-wayland.c
 +++ b/src/wayland/meta-wayland.c
 @@ -47,6 +47,7 @@
@@ -471,10 +471,10 @@ index cf8a990..4e4c07b 100644
  #include "wayland/meta-wayland-cursor-shape.h"
  #include "wayland/meta-wayland-fifo.h"
 +#include "wayland/meta-wayland-gamma-control.h"
+ #include "wayland/meta-wayland-data-control.h"
  #include "wayland/meta-wayland-data-device.h"
  #include "wayland/meta-wayland-dma-buf.h"
- #include "wayland/meta-wayland-filter-manager.h"
-@@ -1017,6 +1018,7 @@ meta_wayland_compositor_new (MetaContext *context)
+@@ -1019,6 +1020,7 @@ meta_wayland_compositor_new (MetaContext *context)
    meta_wayland_init_system_bell (compositor);
    meta_wayland_xdg_toplevel_tag_init (compositor);
    meta_wayland_drm_lease_manager_init (compositor);
