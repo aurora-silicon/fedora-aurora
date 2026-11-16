@@ -69,6 +69,7 @@ Patch34:       0034-clutter-frame-clock-Add-a-tearing-mode.patch
 Patch35:       0035-compositor-native-Decide-per-view-whether-to-tear.patch
 Patch36:       0036-kms-Support-asynchronous-page-flips.patch
 Patch37:       0037-onscreen-native-Flip-asynchronously-when-the-view-te.patch
+Patch38:       0038-tests-Add-tearing-control-tests.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
