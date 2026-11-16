@@ -22,11 +22,11 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 src/tests/wayland-test-clients/tearing-control.c
 
 diff --git a/src/tests/meson.build b/src/tests/meson.build
-index 9d3c77b..6741802 100644
+index 9e3b2cb..9611791 100644
 --- a/src/tests/meson.build
 +++ b/src/tests/meson.build
-@@ -1108,6 +1108,17 @@ wayland_test_cases = [
-       test_client_executables.get('gamma-control'),
+@@ -1119,6 +1119,17 @@ wayland_test_cases = [
+       test_client_executables.get('output-management'),
      ],
    },
 +  {
@@ -261,7 +261,7 @@ index 0000000..e986c5c
 +                                      META_TEST_RUN_FLAG_NONE);
 +}
 diff --git a/src/tests/wayland-test-clients/meson.build b/src/tests/wayland-test-clients/meson.build
-index c8a16a8..dc6e531 100644
+index 88ee698..14e49ba 100644
 --- a/src/tests/wayland-test-clients/meson.build
 +++ b/src/tests/wayland-test-clients/meson.build
 @@ -59,6 +59,9 @@ wayland_test_clients = [
