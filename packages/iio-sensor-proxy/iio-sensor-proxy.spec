@@ -1,6 +1,6 @@
 Name:           iio-sensor-proxy
-Version:        3.8
-Release:        2%{?dist}.aurora1
+Version:        3.9
+Release:        1%{?dist}.aurora1
 Summary:        IIO accelerometer sensor to input device proxy
 
 # tests/unittest_inspector.py is LGPL-2.1-or-later but it is not packaged
@@ -43,7 +43,7 @@ This package contains the documentation for %{name}.
 %autosetup -p1
 
 %build
-%meson -Dgtk_doc=true -Dgtk-tests=false -Dtests=true
+%meson -Dgtk_doc=true -Dgtk-tests=false -Dssc-support=disabled -Dtests=true
 %meson_build
 
 %install
@@ -77,6 +77,11 @@ This package contains the documentation for %{name}.
 %{_datadir}/gtk-doc/html/%{name}/
 
 %changelog
+* Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 3.9-1.aurora1
+- Fedora 44: update to 3.9 (as the Fedora 45 recipe) with SSC support
+  disabled (libssc is not packaged); the ColorTemperature patch applies
+  unchanged
+
 * Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 3.8-2.aurora1
 - Report the ambient light's correlated colour temperature as the
   ColorTemperature property, from the IIO in_colortemp_input channel

@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       18%{?dist}.aurora
+Release:       20%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -67,8 +67,19 @@ Patch32:       0032-wayland-Add-the-wlr-output-management-unstable-v1-pr.patch
 Patch33:       0033-context-main-Allow-several-modes-per-virtual-monitor.patch
 Patch34:       0034-wayland-Implement-wlr-output-management-unstable-v1.patch
 Patch35:       0035-tests-Add-wlr-output-management-tests.patch
-Patch36:       0036-wayland-activation-Add-honor-activation-focus-to-foc.patch
-Patch37:       0037-prefs-Default-check-alive-timeout-to-20-seconds.patch
+Patch36:       0036-wayland-Add-the-wlr-screencopy-unstable-v1-protocol.patch
+Patch37:       0037-wayland-Implement-wlr-screencopy-unstable-v1.patch
+Patch38:       0038-wayland-screencopy-Capture-into-linux-dmabuf-buffers.patch
+Patch39:       0039-tests-Add-wlr-screencopy-tests.patch
+Patch40:       0040-wayland-Add-the-tearing-control-v1-protocol.patch
+Patch41:       0041-wayland-Implement-tearing-control-v1.patch
+Patch42:       0042-clutter-frame-clock-Add-a-tearing-mode.patch
+Patch43:       0043-compositor-native-Decide-per-view-whether-to-tear.patch
+Patch44:       0044-kms-Support-asynchronous-page-flips.patch
+Patch45:       0045-onscreen-native-Flip-asynchronously-when-the-view-te.patch
+Patch46:       0046-tests-Add-tearing-control-tests.patch
+Patch47:       0047-wayland-activation-Add-honor-activation-focus-to-foc.patch
+Patch48:       0048-prefs-Default-check-alive-timeout-to-20-seconds.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -287,7 +298,7 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
-* Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-18.aurora
+* Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-20.aurora
 - Add org.gnome.mutter honor-activation-focus (default true): an
   xdg-activation token requested by the focused window activates and
   raises its target even without a matching input serial, so links
@@ -297,6 +308,24 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 - Default org.gnome.mutter check-alive-timeout to 20000 ms so the "not
   responding" dialog stays away during shader compilation and game
   loading screens (0 still disables it).
+
+* Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-19.aurora
+- Support tearing-control-v1 (wp_tearing_control_manager_v1): fullscreen
+  games and other clients that ask for tearing (Vulkan immediate present
+  mode) are presented with asynchronous page flips, without waiting for
+  vertical blank. New org.gnome.mutter async-tearing setting
+  (fullscreen-only by default, always, off). Surfaces that do not ask for
+  tearing are unchanged, and drivers without async page flips keep vsync.
+
+* Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-18.aurora
+- Support wlr-screencopy-unstable-v1 (zwlr_screencopy_manager_v1,
+  version 3) so screenshot, recording and color picker tools such as
+  grim, slurp + grim, wf-recorder and hyprpicker work: clients copy an
+  output, or a region of it, into a wl_shm (XRGB8888) or, on outputs
+  without a transform, a linux-dmabuf buffer, with optional cursor and
+  damage tracking. Gated by the new org.gnome.mutter.wayland
+  allow-screen-capture setting (on by default); Flatpak-sandboxed
+  clients are never offered it.
 
 * Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-17.aurora
 - Support wlr-output-management-unstable-v1 (zwlr_output_manager_v1 v4),
