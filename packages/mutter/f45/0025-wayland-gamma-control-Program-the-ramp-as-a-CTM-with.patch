@@ -1,0 +1,363 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 21:13:25 +1100
+Subject: [PATCH] wayland/gamma-control: Program the ramp as a CTM without a
+ gamma LUT
+
+Some outputs, such as Apple DCP panels, have no gamma LUT but do have a
+CTM, which is what night light uses on them. Offer gamma controls on
+those outputs a 256 entry ramp and program its white point (the scale
+each channel reaches at full input) as a diagonal CTM. The ramps color
+temperature tools upload (gammastep, wlsunset, wl-gammarelay-rs) are a
+per channel scale of an identity ramp, temperature times brightness, so
+the result is the same as with a LUT; any curvature of the ramp is
+dropped.
+
+The CTM cannot be read back, so when the control goes away the CTM is
+reset to identity and the device programs its own white point (night
+light) over it if it has one.
+
+Add tests for both, against a test CRTC without a gamma LUT.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/backends/meta-color-device.c         | 102 ++++++++++++++++++---
+ src/backends/meta-color-device.h         |   5 ++
+ src/tests/wayland-gamma-control-tests.c  | 109 ++++++++++++++++++++++-
+ src/wayland/meta-wayland-gamma-control.c |  15 ++--
+ 4 files changed, 215 insertions(+), 16 deletions(-)
+
+diff --git a/src/backends/meta-color-device.c b/src/backends/meta-color-device.c
+index 861a26e..91fd87d 100644
+--- a/src/backends/meta-color-device.c
++++ b/src/backends/meta-color-device.c
+@@ -1634,18 +1634,57 @@ set_monitor_gamma_lut (MetaMonitor        *monitor,
+   return TRUE;
+ }
+ 
++static float
++get_ramp_scale (const uint16_t *ramp,
++                size_t          size)
++{
++  return ramp[size - 1] / (float) UINT16_MAX;
++}
++
+ static UpdateResult
+ apply_gamma_override (MetaColorDevice *color_device)
+ {
++  MetaMonitor *monitor = color_device->monitor;
++  const MetaGammaLut *lut = color_device->gamma_override;
++  g_autoptr (MetaCtm) ctm = NULL;
++  float red_scale, green_scale, blue_scale;
++
++  if (meta_monitor_get_gamma_lut_size (monitor) > 0)
++    {
++      meta_topic (META_DEBUG_COLOR,
++                  "Applying client gamma ramp (%zu entries) to device "
++                  "'%s' (%s)",
++                  lut->size,
++                  meta_color_device_get_id (color_device),
++                  meta_monitor_get_connector (monitor));
++
++      if (!set_monitor_gamma_lut (monitor, lut))
++        return 0;
++
++      return UPDATE_RESULT_CALIBRATION;
++    }
++
++  if (!meta_monitor_is_active (monitor) ||
++      !meta_monitor_is_ctm_supported (monitor))
++    return 0;
++
++  /* Without a gamma LUT, program the white point of the ramp (the scale
++   * each channel reaches at full input) as a diagonal CTM, like night
++   * light does. Color temperature and brightness ramps are linear per
++   * channel and come out exact; any curvature of the ramp is dropped. */
++  red_scale = get_ramp_scale (lut->red, lut->size);
++  green_scale = get_ramp_scale (lut->green, lut->size);
++  blue_scale = get_ramp_scale (lut->blue, lut->size);
++
+   meta_topic (META_DEBUG_COLOR,
+-              "Applying client gamma ramp (%zu entries) to device '%s' (%s)",
+-              color_device->gamma_override->size,
++              "Applying client gamma ramp to device '%s' (%s) as CTM "
++              "(no GAMMA_LUT); scales (%.4f, %.4f, %.4f)",
+               meta_color_device_get_id (color_device),
+-              meta_monitor_get_connector (color_device->monitor));
++              meta_monitor_get_connector (monitor),
++              red_scale, green_scale, blue_scale);
+ 
+-  if (!set_monitor_gamma_lut (color_device->monitor,
+-                              color_device->gamma_override))
+-    return 0;
++  ctm = meta_ctm_new_from_rgb_scales (red_scale, green_scale, blue_scale);
++  meta_monitor_set_ctm (monitor, ctm);
+ 
+   return UPDATE_RESULT_CALIBRATION;
+ }
+@@ -1821,10 +1860,26 @@ meta_color_device_set_gamma_override (MetaColorDevice    *color_device,
+                   meta_color_device_get_id (color_device),
+                   meta_monitor_get_connector (monitor));
+ 
+-      if (!color_device->is_calibrating &&
+-          !color_device->has_white_point &&
+-          color_device->saved_gamma_lut)
+-        set_monitor_gamma_lut (monitor, color_device->saved_gamma_lut);
++      if (color_device->saved_gamma_lut)
++        {
++          if (!color_device->is_calibrating &&
++              !color_device->has_white_point)
++            set_monitor_gamma_lut (monitor, color_device->saved_gamma_lut);
++        }
++      else if (meta_monitor_is_active (monitor) &&
++               meta_monitor_is_ctm_supported (monitor))
++        {
++          /* The CTM cannot be read back. Reset it, and have the device
++           * program its own white point over it if it has one. */
++          g_autoptr (MetaCtm) ctm = NULL;
++
++          if (!color_device->is_calibrating)
++            {
++              ctm = meta_ctm_new_from_rgb_scales (1.0f, 1.0f, 1.0f);
++              meta_monitor_set_ctm (monitor, ctm);
++            }
++          color_device->has_white_point = TRUE;
++        }
+ 
+       g_clear_pointer (&color_device->saved_gamma_lut, meta_gamma_lut_free);
+     }
+@@ -1843,3 +1898,30 @@ meta_color_device_has_gamma_override (MetaColorDevice *color_device)
+ {
+   return color_device->gamma_override != NULL;
+ }
++
++/**
++ * meta_color_device_get_gamma_override_size:
++ * @color_device: A #MetaColorDevice
++ *
++ * Returns: The number of entries a gamma override ramp should have: the
++ *   CRTC gamma LUT size, %META_COLOR_DEVICE_CTM_GAMMA_SIZE if the ramp can
++ *   only be approximated with a CTM, or 0 if the monitor can do neither.
++ */
++size_t
++meta_color_device_get_gamma_override_size (MetaColorDevice *color_device)
++{
++  MetaMonitor *monitor = color_device->monitor;
++  size_t lut_size;
++
++  if (!meta_monitor_is_active (monitor))
++    return 0;
++
++  lut_size = meta_monitor_get_gamma_lut_size (monitor);
++  if (lut_size > 0)
++    return lut_size;
++
++  if (meta_monitor_is_ctm_supported (monitor))
++    return META_COLOR_DEVICE_CTM_GAMMA_SIZE;
++
++  return 0;
++}
+diff --git a/src/backends/meta-color-device.h b/src/backends/meta-color-device.h
+index 13c69de..51df11f 100644
+--- a/src/backends/meta-color-device.h
++++ b/src/backends/meta-color-device.h
+@@ -81,6 +81,11 @@ size_t meta_color_device_get_calibration_lut_size (MetaColorDevice *color_device
+ void meta_color_device_set_calibration_lut (MetaColorDevice    *color_device,
+                                             const MetaGammaLut *lut);
+ 
++/* Ramp size offered for gamma overrides on monitors with only a CTM */
++#define META_COLOR_DEVICE_CTM_GAMMA_SIZE 256
++
++size_t meta_color_device_get_gamma_override_size (MetaColorDevice *color_device);
++
+ void meta_color_device_set_gamma_override (MetaColorDevice    *color_device,
+                                            const MetaGammaLut *lut);
+ 
+diff --git a/src/tests/wayland-gamma-control-tests.c b/src/tests/wayland-gamma-control-tests.c
+index b84c4d0..67b6bef 100644
+--- a/src/tests/wayland-gamma-control-tests.c
++++ b/src/tests/wayland-gamma-control-tests.c
+@@ -194,7 +194,32 @@ assert_crtc_lut_equals (const MetaGammaLut *expected)
+ }
+ 
+ static void
+-setup_monitor (gboolean disable_gamma_lut)
++assert_crtc_ctm_scales (float red,
++                        float green,
++                        float blue)
++{
++  MetaCrtcTest *crtc_test = META_CRTC_TEST (get_crtc ());
++  g_autoptr (MetaCtm) expected = NULL;
++
++  expected = meta_ctm_new_from_rgb_scales (red, green, blue);
++  g_assert_nonnull (crtc_test->ctm);
++  g_assert_cmpmem (crtc_test->ctm->matrix, sizeof (crtc_test->ctm->matrix),
++                   expected->matrix, sizeof (expected->matrix));
++}
++
++static void
++assert_crtc_ctm_ramp (int seed)
++{
++  g_autoptr (MetaGammaLut) ramp = create_client_ramp (seed);
++
++  assert_crtc_ctm_scales (ramp->red[GAMMA_SIZE - 1] / (float) UINT16_MAX,
++                          ramp->green[GAMMA_SIZE - 1] / (float) UINT16_MAX,
++                          ramp->blue[GAMMA_SIZE - 1] / (float) UINT16_MAX);
++}
++
++static void
++setup_monitor_full (gboolean disable_gamma_lut,
++                    gboolean enable_ctm)
+ {
+   MetaBackend *backend = meta_context_get_backend (test_context);
+   MetaMonitorManager *monitor_manager =
+@@ -204,6 +229,7 @@ setup_monitor (gboolean disable_gamma_lut)
+   MetaColorDevice *color_device;
+ 
+   test_case_setup.crtcs[0].disable_gamma_lut = disable_gamma_lut;
++  test_case_setup.crtcs[0].enable_ctm = enable_ctm;
+   test_setup = meta_create_monitor_test_setup (backend, &test_case_setup,
+                                                MONITOR_TEST_FLAG_NO_STORED);
+   meta_monitor_manager_test_emulate_hotplug (
+@@ -215,6 +241,12 @@ setup_monitor (gboolean disable_gamma_lut)
+     g_main_context_iteration (NULL, TRUE);
+ }
+ 
++static void
++setup_monitor (gboolean disable_gamma_lut)
++{
++  setup_monitor_full (disable_gamma_lut, FALSE);
++}
++
+ static void
+ remove_monitors (void)
+ {
+@@ -458,6 +490,77 @@ gamma_control_night_light (void)
+   set_night_light_temperature (6500);
+ }
+ 
++static void
++gamma_control_ctm (void)
++{
++  MetaWaylandTestClient *client;
++
++  /* No gamma LUT, only a CTM: the client still gets a 256 entry ramp, and
++   * its white point is programmed as the CTM. */
++  setup_monitor_full (TRUE, TRUE);
++  g_assert_cmpuint (meta_monitor_get_gamma_lut_size (get_monitor ()), ==, 0);
++
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "gamma-control",
++                                                   "basic",
++                                                   NULL);
++  wait_for_client (0);
++  assert_crtc_ctm_ramp (0);
++  g_assert_true (meta_color_device_has_gamma_override (get_color_device ()));
++  release (0);
++
++  wait_for_client (1);
++  assert_crtc_ctm_ramp (7);
++  release (1);
++
++  wait_for_client (2);
++  assert_crtc_ctm_scales (1.0f, 1.0f, 1.0f);
++  g_assert_false (meta_color_device_has_gamma_override (get_color_device ()));
++  release (2);
++
++  meta_wayland_test_client_finish (client);
++}
++
++static void
++gamma_control_ctm_night_light (void)
++{
++  MetaWaylandTestClient *client;
++  g_autoptr (MetaCtm) night_light = NULL;
++  MetaCrtcTest *crtc_test;
++
++  setup_monitor_full (TRUE, TRUE);
++
++  set_night_light_temperature (3305);
++  crtc_test = META_CRTC_TEST (get_crtc ());
++  g_assert_nonnull (crtc_test->ctm);
++  night_light = meta_ctm_copy (crtc_test->ctm);
++  set_night_light_temperature (6500);
++  assert_crtc_ctm_scales (1.0f, 1.0f, 1.0f);
++
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "gamma-control",
++                                                   "night-light",
++                                                   NULL);
++  wait_for_client (0);
++  assert_crtc_ctm_ramp (0);
++  release (0);
++
++  wait_for_client (1);
++  set_night_light_temperature (3305);
++  assert_crtc_ctm_ramp (0);
++  release (1);
++
++  wait_for_client (2);
++  crtc_test = META_CRTC_TEST (get_crtc ());
++  g_assert_cmpmem (crtc_test->ctm->matrix, sizeof (crtc_test->ctm->matrix),
++                   night_light->matrix, sizeof (night_light->matrix));
++  release (2);
++
++  meta_wayland_test_client_finish (client);
++
++  set_night_light_temperature (6500);
++}
++
+ static void
+ on_before_tests (MetaContext *context)
+ {
+@@ -495,6 +598,10 @@ init_tests (void)
+                    gamma_control_output_removed);
+   g_test_add_func ("/wayland/gamma-control/night-light",
+                    gamma_control_night_light);
++  g_test_add_func ("/wayland/gamma-control/ctm",
++                   gamma_control_ctm);
++  g_test_add_func ("/wayland/gamma-control/ctm-night-light",
++                   gamma_control_ctm_night_light);
+ }
+ 
+ int
+diff --git a/src/wayland/meta-wayland-gamma-control.c b/src/wayland/meta-wayland-gamma-control.c
+index a356144..721ae40 100644
+--- a/src/wayland/meta-wayland-gamma-control.c
++++ b/src/wayland/meta-wayland-gamma-control.c
+@@ -19,6 +19,11 @@
+  * wlr-gamma-control-unstable-v1: lets a client (gammastep, wlsunset,
+  * wl-gammarelay-rs, ...) program the gamma ramp of an output.
+  *
++ * Outputs with a gamma LUT get the ramp as is. Outputs with only a CTM
++ * (such as Apple DCP panels) are offered a 256 entry ramp whose white point
++ * is programmed as a diagonal CTM, which is exact for the color temperature
++ * and brightness ramps these tools produce.
++ *
+  * Each output has at most one active gamma control. A newer control for the
+  * same output takes over: the previous one is sent 'failed' and the output
+  * goes back to its own ramp until the new client sets one. The ramp is
+@@ -248,10 +253,9 @@ gamma_control_manager_get_gamma_control (struct wl_client   *client,
+   if (wayland_output)
+     monitor = meta_wayland_output_get_monitor (wayland_output);
+   if (monitor && meta_monitor_is_active (monitor))
+-    {
+-      color_device = get_color_device (manager, monitor);
+-      gamma_size = meta_monitor_get_gamma_lut_size (monitor);
+-    }
++    color_device = get_color_device (manager, monitor);
++  if (color_device)
++    gamma_size = meta_color_device_get_gamma_override_size (color_device);
+ 
+   if (!color_device || gamma_size == 0)
+     {
+@@ -327,7 +331,8 @@ on_monitors_changed (MetaMonitorManager             *monitor_manager,
+       if (!monitor ||
+           !meta_monitor_is_active (monitor) ||
+           get_color_device (manager, monitor) != gamma_control->color_device ||
+-          meta_monitor_get_gamma_lut_size (monitor) != gamma_control->gamma_size)
++          meta_color_device_get_gamma_override_size (gamma_control->color_device) !=
++          gamma_control->gamma_size)
+         gamma_control_fail (gamma_control);
+     }
+ }

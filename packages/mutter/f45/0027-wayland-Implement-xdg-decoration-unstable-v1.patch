@@ -91,10 +91,10 @@ index c4dde1d..0d08115 100644
    </schema>
  
 diff --git a/src/meson.build b/src/meson.build
-index 97cfb8a..5a86977 100644
+index 32a8789..4d3d4dd 100644
 --- a/src/meson.build
 +++ b/src/meson.build
-@@ -638,6 +638,8 @@ mutter_sources += [
+@@ -640,6 +640,8 @@ mutter_sources += [
    'wayland/meta-wayland-xdg-session.h',
    'wayland/meta-wayland-xdg-shell.c',
    'wayland/meta-wayland-xdg-shell.h',
@@ -104,13 +104,13 @@ index 97cfb8a..5a86977 100644
    'wayland/meta-wayland-xdg-dialog.h',
    'wayland/meta-wayland-xdg-toplevel-tag.c',
 diff --git a/src/wayland/meta-wayland-versions.h b/src/wayland/meta-wayland-versions.h
-index 7b4c8c0..3ab11a1 100644
+index e4ced2e..1d4485c 100644
 --- a/src/wayland/meta-wayland-versions.h
 +++ b/src/wayland/meta-wayland-versions.h
-@@ -74,3 +74,4 @@
- #define META_ZWLR_LAYER_SHELL_V1_VERSION 5
+@@ -75,3 +75,4 @@
  #define META_ZWLR_FOREIGN_TOPLEVEL_MANAGER_V1_VERSION 3
  #define META_ZWLR_DATA_CONTROL_V1_VERSION 2
+ #define META_ZWLR_GAMMA_CONTROL_MANAGER_V1_VERSION 1
 +#define META_ZXDG_DECORATION_MANAGER_V1_VERSION 2
 diff --git a/src/wayland/meta-wayland-window-configuration.c b/src/wayland/meta-wayland-window-configuration.c
 index df309b9..0ee7fc8 100644
@@ -822,10 +822,10 @@ index 1dd84ad..53ee0e5 100644
      .anchor = positioner_anchor_to_placement_anchor (xdg_positioner->anchor),
      .constraint_adjustment = xdg_positioner->constraint_adjustment,
 diff --git a/src/wayland/meta-wayland.c b/src/wayland/meta-wayland.c
-index a7698dc..3cd0519 100644
+index a7b268f..d348ce2 100644
 --- a/src/wayland/meta-wayland.c
 +++ b/src/wayland/meta-wayland.c
-@@ -67,6 +67,7 @@
+@@ -68,6 +68,7 @@
  #include "wayland/meta-wayland-tablet-manager.h"
  #include "wayland/meta-wayland-transaction.h"
  #include "wayland/meta-wayland-xdg-dialog.h"
@@ -833,7 +833,7 @@ index a7698dc..3cd0519 100644
  #include "wayland/meta-wayland-xdg-foreign.h"
  #include "wayland/meta-wayland-xdg-session-manager.h"
  #include "wayland/meta-wayland-xdg-toplevel-tag.h"
-@@ -996,6 +997,7 @@ meta_wayland_compositor_new (MetaContext *context)
+@@ -997,6 +998,7 @@ meta_wayland_compositor_new (MetaContext *context)
    meta_wayland_data_control_init (compositor);
    meta_wayland_subsurfaces_init (compositor);
    meta_wayland_shell_init (compositor);

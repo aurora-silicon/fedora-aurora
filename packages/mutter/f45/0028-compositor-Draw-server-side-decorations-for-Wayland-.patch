@@ -1232,7 +1232,7 @@ index b2e89dd..d043193 100644
         * events go through, so fancy clutter dialogs can get to handle
         * all events.
 diff --git a/src/meson.build b/src/meson.build
-index 5a86977..477a87f 100644
+index 4d3d4dd..ae59d38 100644
 --- a/src/meson.build
 +++ b/src/meson.build
 @@ -301,6 +301,8 @@ mutter_sources = [
