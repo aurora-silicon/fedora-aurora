@@ -267,12 +267,12 @@
   },
   "lsp-plugins": {
     "repository": "https://github.com/lsp-plugins/lsp-plugins",
-    "commit": "5dc3474fa7ff74fa43ae3bb3df5e25f093787c87",
-    "version": "1.2.37",
-    "source_url": "https://github.com/lsp-plugins/lsp-plugins/releases/download/1.2.37/lsp-plugins-src-1.2.37.tar.gz",
+    "commit": "4c5da8224af1abc279adcb959d9e932130024333",
+    "version": "1.2.29",
+    "source_url": "https://github.com/lsp-plugins/lsp-plugins/releases/download/1.2.29/lsp-plugins-src-1.2.29.tar.gz",
     "archive_root": "lsp-plugins",
-    "archive_file": "lsp-plugins-src-1.2.37.tar.gz",
-    "sha256": "ae7f22b249b41a37db965229ae2ab7237330f83279369f9961277d8bf10d2df4"
+    "archive_file": "lsp-plugins-src-1.2.29.tar.gz",
+    "sha256": "404297c3add879c508db06d5119e11efc1d0473527d2a69ed39ec77c1d1972f2"
   },
   "pipewire": {
     "repository": "https://gitlab.freedesktop.org/pipewire/pipewire",
