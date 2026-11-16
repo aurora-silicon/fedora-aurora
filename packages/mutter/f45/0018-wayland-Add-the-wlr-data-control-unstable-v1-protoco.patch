@@ -18,17 +18,17 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 src/wayland/protocol/wlr-data-control-unstable-v1.xml
 
 diff --git a/src/meson.build b/src/meson.build
-index 1b0c597..7ab75b9 100644
+index 3ea4f79..6f2321e 100644
 --- a/src/meson.build
 +++ b/src/meson.build
-@@ -1030,6 +1030,7 @@ wayland_protocols = [
+@@ -1032,6 +1032,7 @@ wayland_protocols = [
    ['single-pixel-buffer', 'staging', 1, ],
    ['tablet', 'stable', 2, ],
    ['text-input', 'unstable', 3, ],
 +  ['wlr-data-control-unstable-v1', 'private', ],
+   ['wlr-foreign-toplevel-management-unstable-v1', 'private', ],
    ['wlr-layer-shell-unstable-v1', 'private', ],
    ['viewporter', 'stable', ],
-   ['xdg-activation', 'staging', 1, ],
 diff --git a/src/wayland/protocol/wlr-data-control-unstable-v1.xml b/src/wayland/protocol/wlr-data-control-unstable-v1.xml
 new file mode 100644
 index 0000000..567a09e
