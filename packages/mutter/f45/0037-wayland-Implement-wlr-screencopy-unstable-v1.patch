@@ -70,10 +70,10 @@ index 0d08115..63b7f13 100644
    </schema>
  
 diff --git a/src/meson.build b/src/meson.build
-index 3f5d13e..f781b40 100644
+index 11839d9..d717ab6 100644
 --- a/src/meson.build
 +++ b/src/meson.build
-@@ -585,6 +585,8 @@ mutter_sources += [
+@@ -587,6 +587,8 @@ mutter_sources += [
    'wayland/meta-wayland-private.h',
    'wayland/meta-wayland-region.c',
    'wayland/meta-wayland-region.h',
@@ -1268,17 +1268,17 @@ index 0000000..e637f96
 +
 +void meta_wayland_screencopy_init (MetaWaylandCompositor *compositor);
 diff --git a/src/wayland/meta-wayland-versions.h b/src/wayland/meta-wayland-versions.h
-index 1d4485c..f218c69 100644
+index d123b05..eec8bec 100644
 --- a/src/wayland/meta-wayland-versions.h
 +++ b/src/wayland/meta-wayland-versions.h
-@@ -75,4 +75,5 @@
- #define META_ZWLR_FOREIGN_TOPLEVEL_MANAGER_V1_VERSION 3
+@@ -76,4 +76,5 @@
  #define META_ZWLR_DATA_CONTROL_V1_VERSION 2
  #define META_ZWLR_GAMMA_CONTROL_MANAGER_V1_VERSION 1
+ #define META_ZWLR_OUTPUT_MANAGER_V1_VERSION 4
 +#define META_ZWLR_SCREENCOPY_MANAGER_V1_VERSION 3
  #define META_ZXDG_DECORATION_MANAGER_V1_VERSION 2
 diff --git a/src/wayland/meta-wayland.c b/src/wayland/meta-wayland.c
-index d348ce2..c435fc2 100644
+index f7e1b2b..616ee07 100644
 --- a/src/wayland/meta-wayland.c
 +++ b/src/wayland/meta-wayland.c
 @@ -48,6 +48,7 @@
@@ -1289,10 +1289,10 @@ index d348ce2..c435fc2 100644
  #include "wayland/meta-wayland-data-control.h"
  #include "wayland/meta-wayland-data-device.h"
  #include "wayland/meta-wayland-dma-buf.h"
-@@ -1023,6 +1024,7 @@ meta_wayland_compositor_new (MetaContext *context)
-   meta_wayland_xdg_toplevel_tag_init (compositor);
+@@ -1025,6 +1026,7 @@ meta_wayland_compositor_new (MetaContext *context)
    meta_wayland_drm_lease_manager_init (compositor);
    meta_wayland_gamma_control_init (compositor);
+   meta_wayland_output_management_init (compositor);
 +  meta_wayland_screencopy_init (compositor);
    meta_wayland_commit_timing_init (compositor);
    meta_wayland_fifo_init (compositor);

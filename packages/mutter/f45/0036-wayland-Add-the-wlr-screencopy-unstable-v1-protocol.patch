@@ -18,13 +18,13 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 src/wayland/protocol/wlr-screencopy-unstable-v1.xml
 
 diff --git a/src/meson.build b/src/meson.build
-index ae59d38..3f5d13e 100644
+index 78a6758..11839d9 100644
 --- a/src/meson.build
 +++ b/src/meson.build
-@@ -1044,6 +1044,7 @@ wayland_protocols = [
-   ['wlr-foreign-toplevel-management-unstable-v1', 'private', ],
+@@ -1047,6 +1047,7 @@ wayland_protocols = [
    ['wlr-gamma-control-unstable-v1', 'private', ],
    ['wlr-layer-shell-unstable-v1', 'private', ],
+   ['wlr-output-management-unstable-v1', 'private', ],
 +  ['wlr-screencopy-unstable-v1', 'private', ],
    ['viewporter', 'stable', ],
    ['xdg-decoration-unstable-v1', 'private', ],
