@@ -49,6 +49,7 @@ Patch14:       0014-wayland-layer-shell-Destroy-the-layer-surface-resour.patch
 Patch15:       0015-wayland-layer-shell-Stack-layer-surfaces-with-the-sh.patch
 Patch18:       0018-wayland-Add-the-wlr-data-control-unstable-v1-protoco.patch
 Patch19:       0019-wayland-Implement-wlr-data-control-unstable-v1.patch
+Patch20:       0020-wayland-data-control-Pass-the-receive-fd-straight-to.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -270,7 +271,9 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-12.aurora
 - Support wlr-data-control-unstable-v1 (version 2): clipboard managers
   such as cliphist, clipman and wl-clip-persist can read and set the
-  clipboard and the primary selection without keyboard focus.
+  clipboard and the primary selection without keyboard focus. Reads of
+  a Wayland-owned selection get the reader's fd directly, as on wlroots
+  (wl-clip-persist needs this to recognize its own selection).
 
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-11.aurora
 - Update right away when a frame clock update misses the next
