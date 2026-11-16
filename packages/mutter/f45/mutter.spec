@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       21%{?dist}.aurora
+Release:       22%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -84,6 +84,11 @@ Patch49:       0049-wayland-Add-the-ext-session-lock-v1-protocol.patch
 Patch50:       0050-wayland-Implement-ext-session-lock-v1.patch
 Patch51:       0051-wayland-keyboard-Let-the-event-handlers-focus-a-newl.patch
 Patch52:       0052-tests-Add-ext-session-lock-v1-tests.patch
+Patch53:       0053-wayland-input-Keep-the-pinned-handler-s-focus-under-.patch
+Patch54:       0054-wayland-session-lock-Keep-the-lock-above-restacked-s.patch
+Patch55:       0055-wayland-foreign-toplevel-Freeze-the-toplevel-list-wh.patch
+Patch56:       0056-wayland-session-lock-Keep-captures-from-showing-what.patch
+Patch57:       0057-tests-Add-session-lock-capture-window-list-and-grab-.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -302,6 +307,19 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-22.aurora
+- Keep what is behind a session lock out of every capture and window
+  list: window screen casts and window screenshots get transparent
+  images while locked (one frame recorded at lock and unlock, none
+  while a hidden window changes); wlr-screencopy copy_with_damage no
+  longer reports the damage of windows behind the lock; the
+  wlr-foreign-toplevel list is frozen (no new windows, title changes or
+  closes, no list for managers bound while locked, requests ignored)
+  and brought up to date on unlock.
+- Keep the lock surfaces' keyboard and pointer focus under a stage grab
+  taken by something else while locked, and keep the lock above stage
+  children raised over it.
+
 * Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-21.aurora
 - Support ext-session-lock-v1 (ext_session_lock_manager_v1) so screen
   lockers such as swaylock, hyprlock and gtklock can lock the session:
