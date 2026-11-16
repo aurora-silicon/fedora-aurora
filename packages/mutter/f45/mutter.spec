@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       11%{?dist}.aurora
+Release:       12%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -47,6 +47,8 @@ Patch12:       0012-wayland-layer-shell-Wait-for-the-configure-ack-acros.patch
 Patch13:       0013-wayland-Support-xdg_popups-parented-to-layer-surface.patch
 Patch14:       0014-wayland-layer-shell-Destroy-the-layer-surface-resour.patch
 Patch15:       0015-wayland-layer-shell-Stack-layer-surfaces-with-the-sh.patch
+Patch18:       0018-wayland-Add-the-wlr-data-control-unstable-v1-protoco.patch
+Patch19:       0019-wayland-Implement-wlr-data-control-unstable-v1.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -265,6 +267,11 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-12.aurora
+- Support wlr-data-control-unstable-v1 (version 2): clipboard managers
+  such as cliphist, clipman and wl-clip-persist can read and set the
+  clipboard and the primary selection without keyboard focus.
+
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-11.aurora
 - Update right away when a frame clock update misses the next
   presentation even with the minimum estimate. In a fixed refresh rate

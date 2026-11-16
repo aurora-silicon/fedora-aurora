@@ -1,0 +1,807 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 19:51:23 +1100
+Subject: [PATCH] wayland: Implement wlr-data-control-unstable-v1
+
+Add the zwlr_data_control_manager_v1 global (version 2). It lets a
+client read and set the clipboard and the primary selection without
+keyboard focus, which is what clipboard managers such as cliphist,
+clipman and wl-clip-persist need.
+
+Reading: every data-control device gets the current selection and
+primary selection when it is created and again on every MetaSelection
+owner change, as an offer carrying the owner's mime types. receive is
+served with meta_selection_transfer_async(), like the offers of focused
+clients. An offer that was replaced returns EOF instead of newer data.
+The handler announces the current owner rather than the signal
+argument, because the clipboard manager re-sets the owner from inside
+the owner-changed emission that unsets it.
+
+Setting: set_selection and set_primary_selection go through
+meta_wayland_data_device_set_selection() and
+meta_wayland_data_device_primary_set_selection() (now exported), so a
+data-control source becomes the selection the same way a focused
+client's source does, without the focus check. The last selection
+serial is reused, so a focused client's next copy still takes over.
+Setting NULL also clears an owner the data devices do not track, such
+as the clipboard manager's saved copy. Sources send send/cancelled.
+Reusing a source raises used_source, and offering after the source was
+set raises invalid_offer.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/meson.build                               |   2 +
+ src/wayland/meta-wayland-data-control.c       | 637 ++++++++++++++++++
+ src/wayland/meta-wayland-data-control.h       |  29 +
+ .../meta-wayland-data-device-primary.c        |   7 +-
+ .../meta-wayland-data-device-primary.h        |   4 +
+ src/wayland/meta-wayland-versions.h           |   1 +
+ src/wayland/meta-wayland.c                    |   2 +
+ 7 files changed, 680 insertions(+), 2 deletions(-)
+ create mode 100644 src/wayland/meta-wayland-data-control.c
+ create mode 100644 src/wayland/meta-wayland-data-control.h
+
+diff --git a/src/meson.build b/src/meson.build
+index 7ab75b9..3a3a6b1 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -511,6 +511,8 @@ mutter_sources += [
+   'wayland/meta-wayland-fifo.c',
+   'wayland/meta-wayland-cursor-surface.c',
+   'wayland/meta-wayland-cursor-surface.h',
++  'wayland/meta-wayland-data-control.c',
++  'wayland/meta-wayland-data-control.h',
+   'wayland/meta-wayland-data-device.c',
+   'wayland/meta-wayland-data-device.h',
+   'wayland/meta-wayland-data-device-primary.c',
+diff --git a/src/wayland/meta-wayland-data-control.c b/src/wayland/meta-wayland-data-control.c
+new file mode 100644
+index 0000000..1dd8f9b
+--- /dev/null
++++ b/src/wayland/meta-wayland-data-control.c
+@@ -0,0 +1,637 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++/*
++ * wlr-data-control-unstable-v1: lets a client (a clipboard manager such
++ * as cliphist, clipman or wl-clip-persist) read and set the regular and
++ * primary selection of a seat without having keyboard focus.
++ *
++ * Reading mirrors MetaSelection: every owner change of the clipboard or
++ * primary selection is sent to every data-control device as a new offer,
++ * and receive requests are served with meta_selection_transfer_async(),
++ * the same as the focused-client offers in meta-wayland-data-offer.c.
++ *
++ * Setting goes through the seat's own data devices
++ * (meta_wayland_data_device_set_selection() and
++ * meta_wayland_data_device_primary_set_selection()), so a data-control
++ * source becomes the selection exactly like a focused client's
++ * wl_data_source or primary selection source, minus the focus check.
++ */
++
++#include "config.h"
++
++#include <gio/gunixoutputstream.h>
++#include <unistd.h>
++
++#include "core/display-private.h"
++#include "core/meta-selection-private.h"
++#include "meta/meta-selection-source-memory.h"
++#include "wayland/meta-wayland-data-control.h"
++#include "wayland/meta-wayland-data-device.h"
++#include "wayland/meta-wayland-data-device-primary.h"
++#include "wayland/meta-wayland-private.h"
++#include "wayland/meta-wayland-seat.h"
++#include "wayland/meta-wayland-versions.h"
++
++#include "wlr-data-control-unstable-v1-server-protocol.h"
++
++typedef struct _MetaWaylandDataControl
++{
++  MetaWaylandCompositor *compositor;
++
++  struct wl_list device_resource_list;
++
++  MetaSelection *selection;
++  gulong owner_changed_handler_id;
++
++  /* The owner every data-control device was last told about, per
++   * selection type. */
++  MetaSelectionSource *announced[META_N_SELECTION_TYPES];
++} MetaWaylandDataControl;
++
++typedef struct _MetaWaylandDataControlDevice
++{
++  MetaWaylandDataControl *data_control;
++  MetaWaylandSeat *seat;
++} MetaWaylandDataControlDevice;
++
++typedef struct _MetaWaylandDataControlOffer
++{
++  MetaWaylandDataControl *data_control;
++  MetaSelectionType selection_type;
++
++  /* The selection owner this offer describes; the offer is stale once
++   * the owner changes. */
++  MetaSelectionSource *owner;
++} MetaWaylandDataControlOffer;
++
++struct _MetaWaylandDataSourceControl
++{
++  MetaWaylandDataSource parent;
++
++  gboolean used;
++};
++
++G_DEFINE_TYPE (MetaWaylandDataSourceControl, meta_wayland_data_source_control,
++               META_TYPE_WAYLAND_DATA_SOURCE);
++
++static MetaDisplay *
++display_from_data_control (MetaWaylandDataControl *data_control)
++{
++  MetaContext *context =
++    meta_wayland_compositor_get_context (data_control->compositor);
++
++  return meta_context_get_display (context);
++}
++
++static MetaSelection *
++selection_from_data_control (MetaWaylandDataControl *data_control)
++{
++  return meta_display_get_selection (display_from_data_control (data_control));
++}
++
++static void
++default_destructor (struct wl_client   *client,
++                    struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++/* zwlr_data_control_source_v1 */
++
++static void
++control_source_offer (struct wl_client   *client,
++                      struct wl_resource *resource,
++                      const char         *type)
++{
++  MetaWaylandDataSourceControl *source_control =
++    wl_resource_get_user_data (resource);
++  MetaWaylandDataSource *source = META_WAYLAND_DATA_SOURCE (source_control);
++
++  if (source_control->used)
++    {
++      wl_resource_post_error (resource,
++                              ZWLR_DATA_CONTROL_SOURCE_V1_ERROR_INVALID_OFFER,
++                              "offer sent after the source was set as a selection");
++      return;
++    }
++
++  if (!meta_wayland_data_source_add_mime_type (source, type))
++    wl_resource_post_no_memory (resource);
++}
++
++static const struct zwlr_data_control_source_v1_interface control_source_interface = {
++  control_source_offer,
++  default_destructor,
++};
++
++static void
++destroy_control_source (struct wl_resource *resource)
++{
++  MetaWaylandDataSource *source = wl_resource_get_user_data (resource);
++
++  meta_wayland_data_source_set_resource (source, NULL);
++  g_object_unref (source);
++}
++
++static void
++meta_wayland_data_source_control_send (MetaWaylandDataSource *source,
++                                       const gchar           *mime_type,
++                                       gint                   fd)
++{
++  struct wl_resource *resource = meta_wayland_data_source_get_resource (source);
++
++  if (resource)
++    zwlr_data_control_source_v1_send_send (resource, mime_type, fd);
++  close (fd);
++}
++
++static void
++meta_wayland_data_source_control_cancel (MetaWaylandDataSource *source)
++{
++  struct wl_resource *resource = meta_wayland_data_source_get_resource (source);
++
++  if (resource)
++    zwlr_data_control_source_v1_send_cancelled (resource);
++}
++
++static void
++meta_wayland_data_source_control_init (MetaWaylandDataSourceControl *source_control)
++{
++}
++
++static void
++meta_wayland_data_source_control_class_init (MetaWaylandDataSourceControlClass *klass)
++{
++  MetaWaylandDataSourceClass *data_source_class =
++    META_WAYLAND_DATA_SOURCE_CLASS (klass);
++
++  data_source_class->send = meta_wayland_data_source_control_send;
++  data_source_class->cancel = meta_wayland_data_source_control_cancel;
++}
++
++static MetaWaylandDataSource *
++meta_wayland_data_source_control_new (struct wl_resource *resource)
++{
++  MetaWaylandDataSource *source =
++    g_object_new (META_TYPE_WAYLAND_DATA_SOURCE_CONTROL, NULL);
++
++  meta_wayland_data_source_set_resource (source, resource);
++  wl_resource_set_implementation (resource, &control_source_interface,
++                                  source, destroy_control_source);
++
++  return source;
++}
++
++/* zwlr_data_control_offer_v1 */
++
++static void
++transfer_cb (MetaSelection *selection,
++             GAsyncResult  *res,
++             GOutputStream *stream)
++{
++  g_autoptr (GError) error = NULL;
++
++  if (!meta_selection_transfer_finish (selection, res, &error))
++    g_warning ("Could not fetch selection data: %s", error->message);
++
++  g_output_stream_close (stream, NULL, NULL);
++  g_object_unref (stream);
++}
++
++static void
++control_offer_receive (struct wl_client   *client,
++                       struct wl_resource *resource,
++                       const char         *mime_type,
++                       int32_t             fd)
++{
++  MetaWaylandDataControlOffer *offer = wl_resource_get_user_data (resource);
++  MetaSelection *selection =
++    selection_from_data_control (offer->data_control);
++  GOutputStream *stream;
++  GList *mime_types;
++  gboolean found;
++
++  if (!offer->owner ||
++      offer->owner != meta_selection_get_current_owner (selection,
++                                                        offer->selection_type))
++    {
++      close (fd);
++      return;
++    }
++
++  mime_types = meta_selection_get_mimetypes (selection, offer->selection_type);
++  found = g_list_find_custom (mime_types, mime_type, (GCompareFunc) g_strcmp0) != NULL;
++  g_list_free_full (mime_types, g_free);
++
++  if (!found)
++    {
++      close (fd);
++      return;
++    }
++
++  stream = g_unix_output_stream_new (fd, TRUE);
++  meta_selection_transfer_async (selection,
++                                 offer->selection_type,
++                                 mime_type,
++                                 -1,
++                                 stream,
++                                 NULL,
++                                 (GAsyncReadyCallback) transfer_cb,
++                                 stream);
++}
++
++static const struct zwlr_data_control_offer_v1_interface control_offer_interface = {
++  control_offer_receive,
++  default_destructor,
++};
++
++static void
++destroy_control_offer (struct wl_resource *resource)
++{
++  MetaWaylandDataControlOffer *offer = wl_resource_get_user_data (resource);
++
++  g_clear_weak_pointer (&offer->owner);
++  g_free (offer);
++}
++
++static struct wl_resource *
++create_and_send_offer (MetaWaylandDataControl *data_control,
++                       struct wl_resource     *device_resource,
++                       MetaSelectionType       selection_type)
++{
++  MetaSelection *selection = selection_from_data_control (data_control);
++  MetaWaylandDataControlOffer *offer;
++  struct wl_resource *offer_resource;
++  GList *mime_types, *l;
++
++  mime_types = meta_selection_get_mimetypes (selection, selection_type);
++  if (!mime_types)
++    return NULL;
++
++  offer = g_new0 (MetaWaylandDataControlOffer, 1);
++  offer->data_control = data_control;
++  offer->selection_type = selection_type;
++  g_set_weak_pointer (&offer->owner,
++                      meta_selection_get_current_owner (selection,
++                                                        selection_type));
++
++  offer_resource = wl_resource_create (wl_resource_get_client (device_resource),
++                                       &zwlr_data_control_offer_v1_interface,
++                                       wl_resource_get_version (device_resource),
++                                       0);
++  wl_resource_set_implementation (offer_resource,
++                                  &control_offer_interface,
++                                  offer,
++                                  destroy_control_offer);
++
++  zwlr_data_control_device_v1_send_data_offer (device_resource, offer_resource);
++
++  for (l = mime_types; l; l = l->next)
++    zwlr_data_control_offer_v1_send_offer (offer_resource, l->data);
++
++  g_list_free_full (mime_types, g_free);
++
++  return offer_resource;
++}
++
++static void
++send_selection (MetaWaylandDataControl *data_control,
++                struct wl_resource     *device_resource,
++                MetaSelectionType       selection_type)
++{
++  struct wl_resource *offer_resource;
++
++  switch (selection_type)
++    {
++    case META_SELECTION_CLIPBOARD:
++      offer_resource = create_and_send_offer (data_control, device_resource,
++                                              selection_type);
++      zwlr_data_control_device_v1_send_selection (device_resource,
++                                                  offer_resource);
++      break;
++    case META_SELECTION_PRIMARY:
++      if (wl_resource_get_version (device_resource) <
++          ZWLR_DATA_CONTROL_DEVICE_V1_PRIMARY_SELECTION_SINCE_VERSION)
++        return;
++
++      offer_resource = create_and_send_offer (data_control, device_resource,
++                                              selection_type);
++      zwlr_data_control_device_v1_send_primary_selection (device_resource,
++                                                          offer_resource);
++      break;
++    default:
++      break;
++    }
++}
++
++static void
++owner_changed_cb (MetaSelection          *selection,
++                  MetaSelectionType       selection_type,
++                  MetaSelectionSource    *new_owner,
++                  MetaWaylandDataControl *data_control)
++{
++  MetaSelectionSource *current_owner;
++  struct wl_resource *device_resource;
++
++  if (selection_type != META_SELECTION_CLIPBOARD &&
++      selection_type != META_SELECTION_PRIMARY)
++    return;
++
++  /* Owner changes can nest: the clipboard manager in
++   * meta-clipboard-manager.c takes over the clipboard from inside the
++   * owner-changed emission that unsets it. The inner emission reaches
++   * this handler before the outer one, so announce the current owner
++   * rather than @new_owner, and only once per change. */
++  current_owner = meta_selection_get_current_owner (selection, selection_type);
++  if (current_owner == data_control->announced[selection_type])
++    return;
++
++  g_set_weak_pointer (&data_control->announced[selection_type], current_owner);
++
++  wl_resource_for_each (device_resource, &data_control->device_resource_list)
++    send_selection (data_control, device_resource, selection_type);
++}
++
++static void
++ensure_owner_changed_handler_connected (MetaWaylandDataControl *data_control)
++{
++  MetaSelection *selection;
++
++  if (data_control->owner_changed_handler_id != 0)
++    return;
++
++  selection = selection_from_data_control (data_control);
++  g_set_weak_pointer (&data_control->selection, selection);
++
++  g_set_weak_pointer (&data_control->announced[META_SELECTION_CLIPBOARD],
++                      meta_selection_get_current_owner (selection,
++                                                        META_SELECTION_CLIPBOARD));
++  g_set_weak_pointer (&data_control->announced[META_SELECTION_PRIMARY],
++                      meta_selection_get_current_owner (selection,
++                                                        META_SELECTION_PRIMARY));
++
++  data_control->owner_changed_handler_id =
++    g_signal_connect (selection, "owner-changed",
++                      G_CALLBACK (owner_changed_cb), data_control);
++}
++
++/* zwlr_data_control_device_v1 */
++
++static void
++clear_selection (MetaWaylandDataControl *data_control,
++                 MetaSelectionType       selection_type)
++{
++  MetaSelection *selection = selection_from_data_control (data_control);
++  g_autoptr (MetaSelectionSource) empty_source = NULL;
++  GList *mime_types;
++
++  /* The owner may be something other than a Wayland source (the
++   * clipboard manager's saved copy, an X11 client), which the seat's
++   * data devices do not track. Replace whatever is left with an empty
++   * source. */
++  mime_types = meta_selection_get_mimetypes (selection, selection_type);
++  if (!mime_types)
++    return;
++
++  g_list_free_full (mime_types, g_free);
++
++  empty_source = g_object_new (META_TYPE_SELECTION_SOURCE_MEMORY, NULL);
++  meta_selection_set_owner (selection, selection_type, empty_source);
++}
++
++static MetaWaylandDataSource *
++take_source (struct wl_resource *device_resource,
++             struct wl_resource *source_resource,
++             gboolean           *valid)
++{
++  MetaWaylandDataSourceControl *source_control;
++
++  *valid = TRUE;
++
++  if (!source_resource)
++    return NULL;
++
++  source_control = wl_resource_get_user_data (source_resource);
++  if (source_control->used)
++    {
++      wl_resource_post_error (device_resource,
++                              ZWLR_DATA_CONTROL_DEVICE_V1_ERROR_USED_SOURCE,
++                              "source was already used");
++      *valid = FALSE;
++      return NULL;
++    }
++
++  source_control->used = TRUE;
++
++  return META_WAYLAND_DATA_SOURCE (source_control);
++}
++
++static void
++control_device_set_selection (struct wl_client   *client,
++                              struct wl_resource *resource,
++                              struct wl_resource *source_resource)
++{
++  MetaWaylandDataControlDevice *device = wl_resource_get_user_data (resource);
++  MetaWaylandDataDevice *data_device;
++  MetaWaylandDataSource *source;
++  gboolean valid;
++
++  source = take_source (resource, source_resource, &valid);
++  if (!valid)
++    return;
++
++  if (!device->seat)
++    {
++      if (source)
++        meta_wayland_data_source_cancel (source);
++      return;
++    }
++
++  data_device = &device->seat->data_device;
++
++  if (source || data_device->selection_data_source)
++    {
++      /* Reuse the last serial so that a focused client's next copy, made
++       * with a newer input serial, still takes over. */
++      meta_wayland_data_device_set_selection (data_device, source,
++                                              data_device->selection_serial);
++    }
++
++  if (!source)
++    clear_selection (device->data_control, META_SELECTION_CLIPBOARD);
++}
++
++static void
++control_device_set_primary_selection (struct wl_client   *client,
++                                      struct wl_resource *resource,
++                                      struct wl_resource *source_resource)
++{
++  MetaWaylandDataControlDevice *device = wl_resource_get_user_data (resource);
++  MetaWaylandDataDevicePrimary *data_device;
++  MetaWaylandDataSource *source;
++  gboolean valid;
++
++  source = take_source (resource, source_resource, &valid);
++  if (!valid)
++    return;
++
++  if (!device->seat)
++    {
++      if (source)
++        meta_wayland_data_source_cancel (source);
++      return;
++    }
++
++  data_device = &device->seat->primary_data_device;
++
++  if (source || data_device->data_source)
++    {
++      meta_wayland_data_device_primary_set_selection (data_device, source,
++                                                      data_device->serial);
++    }
++
++  if (!source)
++    clear_selection (device->data_control, META_SELECTION_PRIMARY);
++}
++
++static const struct zwlr_data_control_device_v1_interface control_device_interface = {
++  control_device_set_selection,
++  default_destructor,
++  control_device_set_primary_selection,
++};
++
++static void
++destroy_control_device (struct wl_resource *resource)
++{
++  MetaWaylandDataControlDevice *device = wl_resource_get_user_data (resource);
++
++  wl_list_remove (wl_resource_get_link (resource));
++  g_free (device);
++}
++
++/* zwlr_data_control_manager_v1 */
++
++static void
++control_manager_create_data_source (struct wl_client   *client,
++                                    struct wl_resource *manager_resource,
++                                    uint32_t            id)
++{
++  struct wl_resource *source_resource;
++
++  source_resource =
++    wl_resource_create (client, &zwlr_data_control_source_v1_interface,
++                        wl_resource_get_version (manager_resource), id);
++  meta_wayland_data_source_control_new (source_resource);
++}
++
++static void
++control_manager_get_data_device (struct wl_client   *client,
++                                 struct wl_resource *manager_resource,
++                                 uint32_t            id,
++                                 struct wl_resource *seat_resource)
++{
++  MetaWaylandDataControl *data_control =
++    wl_resource_get_user_data (manager_resource);
++  MetaWaylandDataControlDevice *device;
++  struct wl_resource *device_resource;
++
++  device_resource =
++    wl_resource_create (client, &zwlr_data_control_device_v1_interface,
++                        wl_resource_get_version (manager_resource), id);
++
++  device = g_new0 (MetaWaylandDataControlDevice, 1);
++  device->data_control = data_control;
++  device->seat = wl_resource_get_user_data (seat_resource);
++
++  wl_resource_set_implementation (device_resource, &control_device_interface,
++                                  device, destroy_control_device);
++  wl_list_insert (&data_control->device_resource_list,
++                  wl_resource_get_link (device_resource));
++
++  ensure_owner_changed_handler_connected (data_control);
++
++  send_selection (data_control, device_resource, META_SELECTION_CLIPBOARD);
++  send_selection (data_control, device_resource, META_SELECTION_PRIMARY);
++}
++
++static const struct zwlr_data_control_manager_v1_interface control_manager_interface = {
++  control_manager_create_data_source,
++  control_manager_get_data_device,
++  default_destructor,
++};
++
++static void
++bind_control_manager (struct wl_client *client,
++                      void             *data,
++                      uint32_t          version,
++                      uint32_t          id)
++{
++  MetaWaylandDataControl *data_control = data;
++  struct wl_resource *resource;
++
++  resource = wl_resource_create (client, &zwlr_data_control_manager_v1_interface,
++                                 version, id);
++  wl_resource_set_implementation (resource, &control_manager_interface,
++                                  data_control, NULL);
++}
++
++static void
++data_control_free (MetaWaylandDataControl *data_control)
++{
++  struct wl_resource *device_resource, *tmp;
++
++  wl_resource_for_each_safe (device_resource, tmp,
++                             &data_control->device_resource_list)
++    {
++      MetaWaylandDataControlDevice *device =
++        wl_resource_get_user_data (device_resource);
++
++      zwlr_data_control_device_v1_send_finished (device_resource);
++      device->seat = NULL;
++      wl_list_remove (wl_resource_get_link (device_resource));
++      wl_list_init (wl_resource_get_link (device_resource));
++    }
++
++  if (data_control->selection)
++    g_clear_signal_handler (&data_control->owner_changed_handler_id,
++                            data_control->selection);
++  g_clear_weak_pointer (&data_control->selection);
++  g_clear_weak_pointer (&data_control->announced[META_SELECTION_CLIPBOARD]);
++  g_clear_weak_pointer (&data_control->announced[META_SELECTION_PRIMARY]);
++  g_free (data_control);
++}
++
++void
++meta_wayland_data_control_init (MetaWaylandCompositor *compositor)
++{
++  MetaWaylandDataControl *data_control;
++
++  data_control = g_new0 (MetaWaylandDataControl, 1);
++  data_control->compositor = compositor;
++  wl_list_init (&data_control->device_resource_list);
++
++  if (wl_global_create (compositor->wayland_display,
++                        &zwlr_data_control_manager_v1_interface,
++                        META_ZWLR_DATA_CONTROL_V1_VERSION,
++                        data_control, bind_control_manager) == NULL)
++    g_error ("Failed to register a global wlr-data-control object");
++
++  g_object_set_data_full (G_OBJECT (compositor), "-meta-wayland-data-control",
++                          data_control,
++                          (GDestroyNotify) data_control_free);
++}
+diff --git a/src/wayland/meta-wayland-data-control.h b/src/wayland/meta-wayland-data-control.h
+new file mode 100644
+index 0000000..e2acf21
+--- /dev/null
++++ b/src/wayland/meta-wayland-data-control.h
+@@ -0,0 +1,29 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#pragma once
++
++#include "wayland/meta-wayland-data-source.h"
++#include "wayland/meta-wayland-types.h"
++
++#define META_TYPE_WAYLAND_DATA_SOURCE_CONTROL (meta_wayland_data_source_control_get_type ())
++G_DECLARE_FINAL_TYPE (MetaWaylandDataSourceControl,
++                      meta_wayland_data_source_control,
++                      META, WAYLAND_DATA_SOURCE_CONTROL,
++                      MetaWaylandDataSource);
++
++void meta_wayland_data_control_init (MetaWaylandCompositor *compositor);
+diff --git a/src/wayland/meta-wayland-data-device-primary.c b/src/wayland/meta-wayland-data-device-primary.c
+index 1a8ed65..57d1cb8 100644
+--- a/src/wayland/meta-wayland-data-device-primary.c
++++ b/src/wayland/meta-wayland-data-device-primary.c
+@@ -30,6 +30,7 @@
+ #include "compositor/meta-dnd-actor-private.h"
+ #include "meta/meta-selection-source-memory.h"
+ #include "wayland/meta-selection-source-wayland-private.h"
++#include "wayland/meta-wayland-data-control.h"
+ #include "wayland/meta-wayland-data-offer-primary.h"
+ #include "wayland/meta-wayland-data-source-primary.h"
+ #include "wayland/meta-wayland-dnd-surface.h"
+@@ -126,7 +127,7 @@ primary_source_destroyed (gpointer  data,
+   unset_selection_source (data_device);
+ }
+ 
+-static void
++void
+ meta_wayland_data_device_primary_set_selection (MetaWaylandDataDevicePrimary *data_device,
+                                                 MetaWaylandDataSource        *source,
+                                                 uint32_t                      serial)
+@@ -134,7 +135,9 @@ meta_wayland_data_device_primary_set_selection (MetaWaylandDataDevicePrimary *da
+   MetaWaylandSeat *seat = wl_container_of (data_device, seat, primary_data_device);
+   MetaSelectionSource *selection_source;
+ 
+-  g_assert (!source || META_IS_WAYLAND_DATA_SOURCE_PRIMARY (source));
++  g_assert (!source ||
++            META_IS_WAYLAND_DATA_SOURCE_PRIMARY (source) ||
++            META_IS_WAYLAND_DATA_SOURCE_CONTROL (source));
+ 
+   if (data_device->data_source &&
+       serial - data_device->serial > UINT32_MAX / 2)
+diff --git a/src/wayland/meta-wayland-data-device-primary.h b/src/wayland/meta-wayland-data-device-primary.h
+index ae5e648..413b33d 100644
+--- a/src/wayland/meta-wayland-data-device-primary.h
++++ b/src/wayland/meta-wayland-data-device-primary.h
+@@ -54,3 +54,7 @@ void meta_wayland_data_device_primary_init (MetaWaylandDataDevicePrimary *data_d
+ 
+ void meta_wayland_data_device_primary_set_focus (MetaWaylandDataDevicePrimary *data_device,
+                                                  MetaWaylandSurface           *surface);
++
++void meta_wayland_data_device_primary_set_selection (MetaWaylandDataDevicePrimary *data_device,
++                                                     MetaWaylandDataSource        *source,
++                                                     uint32_t                      serial);
+diff --git a/src/wayland/meta-wayland-versions.h b/src/wayland/meta-wayland-versions.h
+index 06b2db1..659cd36 100644
+--- a/src/wayland/meta-wayland-versions.h
++++ b/src/wayland/meta-wayland-versions.h
+@@ -72,3 +72,4 @@
+ #define META_WP_POINTER_WARP_VERSION 1
+ #define META_EXT_BACKGROUND_EFFECT_V1_VERSION 1
+ #define META_ZWLR_LAYER_SHELL_V1_VERSION 5
++#define META_ZWLR_DATA_CONTROL_V1_VERSION 2
+diff --git a/src/wayland/meta-wayland.c b/src/wayland/meta-wayland.c
+index cf8a990..a7698dc 100644
+--- a/src/wayland/meta-wayland.c
++++ b/src/wayland/meta-wayland.c
+@@ -47,6 +47,7 @@
+ #include "wayland/meta-wayland-commit-timing.h"
+ #include "wayland/meta-wayland-cursor-shape.h"
+ #include "wayland/meta-wayland-fifo.h"
++#include "wayland/meta-wayland-data-control.h"
+ #include "wayland/meta-wayland-data-device.h"
+ #include "wayland/meta-wayland-dma-buf.h"
+ #include "wayland/meta-wayland-filter-manager.h"
+@@ -992,6 +993,7 @@ meta_wayland_compositor_new (MetaContext *context)
+   meta_wayland_outputs_init (compositor);
+   meta_wayland_data_device_manager_init (compositor);
+   meta_wayland_data_device_primary_manager_init (compositor);
++  meta_wayland_data_control_init (compositor);
+   meta_wayland_subsurfaces_init (compositor);
+   meta_wayland_shell_init (compositor);
+   meta_wayland_pointer_gestures_init (compositor);
