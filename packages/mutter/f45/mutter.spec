@@ -51,6 +51,7 @@ Patch21:       0021-wayland-Add-the-wlr-gamma-control-unstable-v1-protoc.patch
 Patch22:       0022-color-device-Allow-a-client-gamma-ramp-to-override-t.patch
 Patch23:       0023-wayland-Implement-wlr-gamma-control-unstable-v1.patch
 Patch24:       0024-tests-Add-wlr-gamma-control-tests.patch
+Patch25:       0025-wayland-gamma-control-Program-the-ramp-as-a-CTM-with.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -275,7 +276,8 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
   output gamma ramp (gammastep, wlsunset, wl-gammarelay-rs, redshift's
   Wayland backend) work. The client ramp replaces the night light ramp
   while it is set and the output's own ramp comes back when the client
-  lets go
+  lets go. Outputs without a gamma LUT but with a CTM (Apple DCP panels)
+  get the ramp's white point as a CTM
 
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-11.aurora
 - Update right away when a frame clock update misses the next
