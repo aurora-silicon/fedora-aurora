@@ -65,6 +65,8 @@ Patch30:       0030-color-device-Apply-ramps-the-CRTC-cannot-take-in-the.patch
 Patch31:       0031-tests-Read-back-gamma-ramps-applied-in-the-composito.patch
 Patch32:       0032-wayland-Add-the-tearing-control-v1-protocol.patch
 Patch33:       0033-wayland-Implement-tearing-control-v1.patch
+Patch34:       0034-clutter-frame-clock-Add-a-tearing-mode.patch
+Patch35:       0035-compositor-native-Decide-per-view-whether-to-tear.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
