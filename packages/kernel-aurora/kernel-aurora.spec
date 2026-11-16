@@ -1,4 +1,4 @@
-%global commit 9125b31475836ce0a6634df45b539c6d604f36a5
+%global commit 48cac4841dba72aab4e3c4b3b73bc4c5c8c820a1
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # modules_install signs every module (CONFIG_MODULE_SIG_ALL) after
@@ -14,7 +14,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 40%{?dist}.aurora
+Release: 41%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -172,6 +172,96 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Mon Nov 16 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 7.3.0-41
+- Pin integration/aurora 48cac484 (fleet75), the first pin with both halves of
+  linux#1934 (T6040 CPU boost: cpufreq/topology commits and the turbo-mode OPPs)
+  next to linux#1733 (J616s ProRes). update-m1n1 builds the T6040 boot-ctxr.bin
+  from this package's DTBs, so the J616s gets the ProRes node and turbo-mode
+  together with the driver code they need. 43 first-parent commits after
+  be8d4cd1 (the -40 cand/ branch carried linux#1946 and #1948 early):
+  - linux#2034 drm/apple: dcp-fabric: keep DP alt mode pipelines free of a
+    second tunnel
+  - linux#1930 drm/apple, thunderbolt: apple: stop waiting for a link on a
+    DP tunnel that went
+  - linux#2041 tools: host tests: follow #1921's per-DP IN tunnel slots
+  - linux#1921 drm/apple: dcp-fabric: J714s: drive a dock's third display
+    through dcpext1
+  - linux#2039 usb: typec: tipd: sn201202x: register the J714s MagSafe
+    port again
+  - linux#2030 arm64: dts: apple: t6050-j714s: the deep sleep's SoC data
+  - linux#2029 drm/apple: T6050: one display coprocessor restart per wake
+    (panel lit 0.84 s after the wake)
+  - linux#2028 drm/apple: T6050: restart the display coprocessors during
+    the wake (internal panel lit after deep sleep)
+  - linux#2027 T6050: display coprocessor DART and power helpers for its
+    restart after a wake
+  - linux#2038 thunderbolt: run a T6050 host DP IN's bandwidth allocation
+    as macOS does
+  - linux#2037 drm/apple: dptxep: name a T6050 tunnel's DP IN in the DPTX
+    connection
+  - linux#2036 phy: apple: atc-t6050-dp: run a DP tunnel clock only for
+    its link
+  - linux#2035 drm/apple: T6050: offer a merged mode only while a pair
+    fits the platform
+  - linux#2033 phy: apple: atc: leave a tunnel PHY of another driver
+    unopened off t600x
+  - linux#1944 arm64: dts: apple: t6050-j714s: let userspace set the fan
+    speeds
+  - linux#2012 PCI: apple: suspend-to-idle on the J714s (adopted N1 link;
+    stacks on #1647)
+  - linux#2018 arm64: dts: apple: t6050: keep the ATC usb-aon power
+    domains on (J714s Type-C dead after s2idle)
+  - linux#1789 arm64: dts: apple: t6050: keep the PMP's power domains on
+    (PMP crash after s2idle)
+  - linux#1647 PCI: apple: suspend-to-idle on the K116s (adopted N1 link,
+    kernel-trained SD reader port)
+  - linux#1947 usb: dwc3: apple: keep USB teardown out of the PM notifier
+    chain
+  - linux#2022 PCI: apple: T6050: reset an unarmed N1 before firmware
+    sleep
+  - linux#1936 media: apple: avd: don't overrun the SRAM ring at the
+    counter wrap
+  - linux#2001 media: apple: ave: encode P010 as HEVC Main 10 and list it
+    only for HEVC
+  - linux#2003 hwmon: macsmc + t8112: gate the GPU keys of the SoC die
+    zone
+  - linux#1980 media: apple: avd: refuse VP9/AV1 non-4:2:0 and HEVC 4:4:4
+    streams
+  - linux#2000 mfd: macsmc: KUnit: the notice's second argument and the
+    lid's read
+  - linux#1999 mfd: macsmc: J714s: name the wake record's bits, read the
+    lid at wakes
+  - linux#1992 drm/apple: send the present deadline at every internal
+    desktop timing
+  - linux#1952 accel/ane: run the M4 (T8132) Neural Engine, enabled on the
+    J713
+  - linux#1934 t6040: let schedutil reach the P-core boost states
+  - linux#1927 iommu: apple-dart: leave a powered-down DCP DART alone in
+    its IRQ handler
+  - linux#1950 arm64: dts: apple: t6050-j714s: Enforce the PMP's fast-die
+    effort
+  - linux#1963 T6050 (M5 Pro, J714s): suspend to RAM
+  - linux#1967 drm/apple: skip suspend for an external DCP given up for
+    good
+  - linux#1960 arm64: cpufeature: hide HWCAP2_WFXT on parts where WFxT
+    loses state
+  - linux#1788 soc: apple: rtkit: print the start of crashlog sections
+    without a decoder
+  - linux#1786 soc: apple: rtkit: don't read a header from a firmware-
+    owned crashlog
+  - linux#1880 media: apple: jpeg: T8142 (M5) JPEG engines, enabled on
+    J815
+  - linux#1903 ci: mask the pattern list of unmatched-property dt-schema
+    messages
+  - linux#1948 drm/asahi: g17: let a refused render take back idle render
+    pools
+  - linux#1946 drm/asahi: g17: give back the pool pages of kept render
+    graphs
+  - arm64: asahi: enable the T6050 N1 and Type-C drivers in shared
+    defaults (#1938)
+  - arm64: asahi: include every native hardware driver in shared defaults
+    (#1939)
+
 * Sat Nov 14 2026 Diljit Singh <hey@djdev.me> - 7.3.0-40
 - Pin cand/7.3.0-40 9125b314, the MacBook Neo (J700) rig's release
   candidate kernel (qualified on hardware first); 2 first-parent commits
