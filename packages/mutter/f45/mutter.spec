@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       12%{?dist}.aurora
+Release:       13%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -47,6 +47,8 @@ Patch12:       0012-wayland-layer-shell-Wait-for-the-configure-ack-acros.patch
 Patch13:       0013-wayland-Support-xdg_popups-parented-to-layer-surface.patch
 Patch14:       0014-wayland-layer-shell-Destroy-the-layer-surface-resour.patch
 Patch15:       0015-wayland-layer-shell-Stack-layer-surfaces-with-the-sh.patch
+Patch16:       0016-wayland-Add-the-wlr-foreign-toplevel-management-unst.patch
+Patch17:       0017-wayland-Implement-wlr-foreign-toplevel-management-un.patch
 Patch21:       0021-wayland-Add-the-wlr-gamma-control-unstable-v1-protoc.patch
 Patch22:       0022-color-device-Allow-a-client-gamma-ramp-to-override-t.patch
 Patch23:       0023-wayland-Implement-wlr-gamma-control-unstable-v1.patch
@@ -270,7 +272,7 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
-* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-12.aurora
+* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-13.aurora
 - Support wlr-gamma-control-unstable-v1 (zwlr_gamma_control_manager_v1,
   version 1), so color temperature and night light tools that set the
   output gamma ramp (gammastep, wlsunset, wl-gammarelay-rs, redshift's
@@ -278,6 +280,13 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
   while it is set and the output's own ramp comes back when the client
   lets go. Outputs without a gamma LUT but with a CTM (Apple DCP panels)
   get the ramp's white point as a CTM
+
+* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-12.aurora
+- Support wlr-foreign-toplevel-management-unstable-v1
+  (zwlr_foreign_toplevel_manager_v1, version 3), so task bars, docks and
+  window switchers written for it (waybar's wlr/taskbar, wlrctl) can list
+  the open windows and activate, close, maximize, minimize and fullscreen
+  them
 
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-11.aurora
 - Update right away when a frame clock update misses the next

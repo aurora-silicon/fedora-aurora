@@ -18,13 +18,13 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 src/wayland/protocol/wlr-gamma-control-unstable-v1.xml
 
 diff --git a/src/meson.build b/src/meson.build
-index 1b0c597..8bef393 100644
+index 3ea4f79..adde424 100644
 --- a/src/meson.build
 +++ b/src/meson.build
-@@ -1030,6 +1030,7 @@ wayland_protocols = [
-   ['single-pixel-buffer', 'staging', 1, ],
+@@ -1033,6 +1033,7 @@ wayland_protocols = [
    ['tablet', 'stable', 2, ],
    ['text-input', 'unstable', 3, ],
+   ['wlr-foreign-toplevel-management-unstable-v1', 'private', ],
 +  ['wlr-gamma-control-unstable-v1', 'private', ],
    ['wlr-layer-shell-unstable-v1', 'private', ],
    ['viewporter', 'stable', ],

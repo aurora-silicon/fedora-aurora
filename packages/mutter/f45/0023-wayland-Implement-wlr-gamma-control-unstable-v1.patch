@@ -28,13 +28,13 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 src/wayland/meta-wayland-gamma-control.h
 
 diff --git a/src/meson.build b/src/meson.build
-index 8bef393..f7b643f 100644
+index adde424..b252c7b 100644
 --- a/src/meson.build
 +++ b/src/meson.build
-@@ -533,6 +533,8 @@ mutter_sources += [
-   'wayland/meta-wayland-fixes.h',
-   'wayland/meta-wayland-fractional-scale.c',
+@@ -535,6 +535,8 @@ mutter_sources += [
    'wayland/meta-wayland-fractional-scale.h',
+   'wayland/meta-wayland-foreign-toplevel.c',
+   'wayland/meta-wayland-foreign-toplevel.h',
 +  'wayland/meta-wayland-gamma-control.c',
 +  'wayland/meta-wayland-gamma-control.h',
    'wayland/meta-wayland-gtk-shell.c',
@@ -454,13 +454,13 @@ index 0000000..28051fd
 +
 +void meta_wayland_gamma_control_init (MetaWaylandCompositor *compositor);
 diff --git a/src/wayland/meta-wayland-versions.h b/src/wayland/meta-wayland-versions.h
-index 06b2db1..03fe0a2 100644
+index 9f2c8cc..77209b2 100644
 --- a/src/wayland/meta-wayland-versions.h
 +++ b/src/wayland/meta-wayland-versions.h
-@@ -72,3 +72,4 @@
- #define META_WP_POINTER_WARP_VERSION 1
+@@ -73,3 +73,4 @@
  #define META_EXT_BACKGROUND_EFFECT_V1_VERSION 1
  #define META_ZWLR_LAYER_SHELL_V1_VERSION 5
+ #define META_ZWLR_FOREIGN_TOPLEVEL_MANAGER_V1_VERSION 3
 +#define META_ZWLR_GAMMA_CONTROL_MANAGER_V1_VERSION 1
 diff --git a/src/wayland/meta-wayland.c b/src/wayland/meta-wayland.c
 index cf8a990..4e4c07b 100644
