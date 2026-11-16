@@ -44,6 +44,7 @@ Patch10:       0010-wayland-Add-the-wlr-layer-shell-unstable-v1-protocol.patch
 Patch11:       0011-wayland-Implement-wlr-layer-shell-unstable-v1.patch
 Patch12:       0012-wayland-layer-shell-Wait-for-the-configure-ack-acros.patch
 Patch13:       0013-wayland-Support-xdg_popups-parented-to-layer-surface.patch
+Patch14:       0014-wayland-layer-shell-Destroy-the-layer-surface-resour.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
