@@ -427,11 +427,11 @@
   },
   "omdrop-awdl": {
     "repository": "https://github.com/netmojo-systems/omdrop-awdl",
-    "commit": "ffc201f33773541063f2f3d57c8a279cad5ede11",
-    "version": "0.10.5",
-    "source_url": "https://codeload.github.com/netmojo-systems/omdrop-awdl/tar.gz/ffc201f33773541063f2f3d57c8a279cad5ede11",
-    "archive_root": "omdrop-awdl-ffc201f33773541063f2f3d57c8a279cad5ede11",
-    "sha256": "bc52318293615f773ef0f9a9523772a83bf73edaaf87b528e2a32856ff02d385",
+    "commit": "9b59420299203805b213f7f65fbcba1d7690177f",
+    "version": "0.10.7",
+    "source_url": "https://codeload.github.com/netmojo-systems/omdrop-awdl/tar.gz/9b59420299203805b213f7f65fbcba1d7690177f",
+    "archive_root": "omdrop-awdl-9b59420299203805b213f7f65fbcba1d7690177f",
+    "sha256": "a332002304b6c76986dfcfb2ba82c27d0b23c298200bb4e325bab2bf53de275c",
     "extra_sources": {
       "omdrop-plugin": {
         "repository": "https://github.com/netmojo-systems/omdrop-plugin",
