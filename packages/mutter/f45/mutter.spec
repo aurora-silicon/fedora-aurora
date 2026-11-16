@@ -42,6 +42,8 @@ Patch5:        0005-onscreen-native-use-variable-refresh-rate-on-the-whole-deskt
 Patch6:        0006-renderer-native-drop-power-save-page-flip-onscreens-on-dispose.patch
 Patch10:       0010-wayland-Add-the-wlr-layer-shell-unstable-v1-protocol.patch
 Patch11:       0011-wayland-Implement-wlr-layer-shell-unstable-v1.patch
+Patch12:       0012-wayland-layer-shell-Wait-for-the-configure-ack-acros.patch
+Patch13:       0013-wayland-Support-xdg_popups-parented-to-layer-surface.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
