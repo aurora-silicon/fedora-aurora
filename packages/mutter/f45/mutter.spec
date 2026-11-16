@@ -66,6 +66,7 @@ Patch31:       0031-tests-Read-back-gamma-ramps-applied-in-the-composito.patch
 Patch32:       0032-wayland-Add-the-wlr-output-management-unstable-v1-pr.patch
 Patch33:       0033-context-main-Allow-several-modes-per-virtual-monitor.patch
 Patch34:       0034-wayland-Implement-wlr-output-management-unstable-v1.patch
+Patch35:       0035-tests-Add-wlr-output-management-tests.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -292,6 +293,8 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
   through the monitor manager (verified like a DisplayConfig request,
   not stored in monitors.xml); test runs the CRTC assignment only.
 - --virtual-monitor accepts several comma separated modes.
+- Add wayland-output-management tests (listing, test/apply, adaptive
+  sync, refused configurations, mirroring, cancel on hotplug).
 
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-16.aurora
 - Apply gamma ramps the display hardware cannot take in the compositor:
