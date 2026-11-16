@@ -276,12 +276,12 @@
   },
   "pipewire": {
     "repository": "https://gitlab.freedesktop.org/pipewire/pipewire",
-    "commit": "8fa27cabdc6c0c1350c69c026af5850ef0af1e26",
-    "version": "1.6.9",
-    "source_url": "https://gitlab.freedesktop.org/pipewire/pipewire/-/archive/1.6.9/pipewire-1.6.9.tar.gz",
-    "archive_root": "pipewire-1.6.9",
-    "archive_file": "pipewire-1.6.9.tar.gz",
-    "sha256": "dbc3624cf71215c26a22fc98f6f71f7b8599f5f6b415eab4a5c90ca96c170c7c"
+    "commit": "4287f31510771fc999f8a58a024c81ca10b8d55f",
+    "version": "1.6.11",
+    "source_url": "https://gitlab.freedesktop.org/pipewire/pipewire/-/archive/1.6.11/pipewire-1.6.11.tar.gz",
+    "archive_root": "pipewire-1.6.11",
+    "archive_file": "pipewire-1.6.11.tar.gz",
+    "sha256": "f3f70c4af173cc93d05070a9d412efe3ef5889bdf4ac32298e2c0d9ae1350559"
   },
   "fex-emu": {
     "repository": "https://github.com/aurora-silicon/fex",
