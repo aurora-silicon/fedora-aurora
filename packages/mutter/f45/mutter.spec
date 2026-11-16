@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       9%{?dist}.aurora
+Release:       11%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -41,6 +41,12 @@ Patch4:        0004-backends-take-the-pq-reference-white-from-pq-reference-lumin
 Patch5:        0005-onscreen-native-use-variable-refresh-rate-on-the-whole-desktop-of-built-in-panels.patch
 Patch6:        0006-renderer-native-drop-power-save-page-flip-onscreens-on-dispose.patch
 Patch7:        0007-clutter-frame-clock-update-now-when-even-the-minimum-estimate-is-too-late.patch
+Patch10:       0010-wayland-Add-the-wlr-layer-shell-unstable-v1-protocol.patch
+Patch11:       0011-wayland-Implement-wlr-layer-shell-unstable-v1.patch
+Patch12:       0012-wayland-layer-shell-Wait-for-the-configure-ack-acros.patch
+Patch13:       0013-wayland-Support-xdg_popups-parented-to-layer-surface.patch
+Patch14:       0014-wayland-layer-shell-Destroy-the-layer-surface-resour.patch
+Patch15:       0015-wayland-layer-shell-Stack-layer-surfaces-with-the-sh.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -259,11 +265,22 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
-* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-9.aurora
+* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-11.aurora
 - Update right away when a frame clock update misses the next
   presentation even with the minimum estimate. In a fixed refresh rate
   mode a fullscreen client drawing every frame no longer locks to every
   other refresh cycle (60-85 fps on a 120 Hz panel)
+
+* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-10.aurora
+- Stack layer surfaces with the shell's chrome: top anchored bars go below
+  the gnome-shell top panel and their exclusive zone adds to the panel's,
+  and the overlay layer is drawn above the panel and notification banners
+
+* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-9.aurora
+- Support wlr-layer-shell-unstable-v1 (zwlr_layer_shell_v1, version 5), so
+  panels, docks, launchers, notification daemons, wallpaper tools, lock
+  screens and overlays written for it (waybar, swaybg, swaync,
+  gtk-layer-shell apps) run on GNOME
 
 * Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-8.aurora
 - Drop the onscreens queued for power save page flips when the renderer is
