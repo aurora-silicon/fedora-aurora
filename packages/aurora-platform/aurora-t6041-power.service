@@ -1,9 +1,11 @@
-# Power defaults for the M4 Max (T6041), measured on a J616c. Every other
-# Mac skips this unit. To keep the kernel's defaults, mask it:
+# Power defaults for the M4 Pro and M4 Max (T6040, T6041), measured on a
+# J616s and a J616c. Every other Mac skips this unit. To keep the kernel's
+# defaults, mask it:
 #   systemctl mask aurora-t6041-power.service
 [Unit]
-Description=M4 Max (T6041) power defaults
-ConditionFirmware=device-tree-compatible(apple,t6041)
+Description=M4 Pro and M4 Max (T6040, T6041) power defaults
+ConditionFirmware=|device-tree-compatible(apple,t6040)
+ConditionFirmware=|device-tree-compatible(apple,t6041)
 DefaultDependencies=no
 After=systemd-sysctl.service
 Before=sysinit.target shutdown.target

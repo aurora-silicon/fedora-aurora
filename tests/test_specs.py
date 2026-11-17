@@ -601,14 +601,16 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(text, r'(?m)^Source\d+: 60-aurora-t6041-trackpad\.quirks$')
         core_files = text.split('%files core', 1)[1].split('%files kdump', 1)[0]
         self.assertIn('%{_datadir}/libinput/60-aurora-t6041-trackpad.quirks', core_files)
-    def test_t6041_power_defaults_apply_on_the_t6041_only(self):
+    def test_m4_power_defaults_apply_on_the_t6040_and_t6041_only(self):
         d = ROOT / 'packages' / 'aurora-platform'
         unit = configparser.ConfigParser(interpolation=None, strict=False)
         unit.optionxform = str
         unit.read_string((d / 'aurora-t6041-power.service').read_text())
-        self.assertEqual(unit['Unit']['ConditionFirmware'], 'device-tree-compatible(apple,t6041)')
         self.assertEqual(unit['Service']['Type'], 'oneshot')
         lines = (d / 'aurora-t6041-power.service').read_text().splitlines()
+        self.assertEqual([l for l in lines if l.startswith('Condition')], [
+            'ConditionFirmware=|device-tree-compatible(apple,t6040)',
+            'ConditionFirmware=|device-tree-compatible(apple,t6041)'])
         self.assertEqual([l for l in lines if l.startswith('ExecStart=')], [
             "ExecStart=/bin/sh -c 'echo powersupersave > /sys/module/pcie_aspm/parameters/policy'",
             'ExecStart=/usr/sbin/sysctl -q -w kernel.sched_util_clamp_min_rt_default=0'])

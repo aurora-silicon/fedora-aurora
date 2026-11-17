@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 41%{?dist}
+Release: 42%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -256,6 +256,13 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-42
+- Apply aurora-t6041-power.service on the M4 Pro (T6040) too. On a J616s
+  at display-off idle, kernel.sched_util_clamp_min_rt_default=0 cuts
+  system power by 0.52 W (5.21 -> 4.68 W) and ASPM powersupersave by
+  0.23 W (5.21 -> 4.98 W). With both on, Wi-Fi, Bluetooth and the SD
+  reader keep working and s2idle wakes 3/3.
+
 * Sun Nov 15 2026 AxxzyWasTaken <axxzytte@gmail.com> - 44-41
 - M4 Max (T6041) power defaults (aurora-t6041-power.service): PCIe ASPM
   policy powersupersave, so the Wi-Fi/Bluetooth and SD reader links use the
