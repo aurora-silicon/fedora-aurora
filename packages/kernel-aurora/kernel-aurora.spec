@@ -1,4 +1,4 @@
-%global commit 9125b31475836ce0a6634df45b539c6d604f36a5
+%global commit 6020f67d5ce13e7aae6820cd51ab70826404932c
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # modules_install signs every module (CONFIG_MODULE_SIG_ALL) after
@@ -14,7 +14,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 41%{?dist}.aurora
+Release: 42%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -176,6 +176,9 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Tue Nov 17 2026 Diljit Singh <hey@djdev.me> - 7.3.0-42
+- Pin the frozen aurora-edge Linux revision 6020f67d.
+
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-41
 - Require avd-fw 0.1-3 or later, so a kernel installed or upgraded on its
   own always has the video decoder firmware it loads (queue ABI 2 with
