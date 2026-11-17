@@ -1,0 +1,73 @@
+From 9492b8d926bed24f4e4cb0ce068ce7b98b4fd80c Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 08:42:52 +1100
+Subject: [PATCH 54/57] wayland/session-lock: Keep the lock above restacked
+ stage children
+
+The lock group was put back on top when a child was added to the stage,
+but not when an existing child was raised above it with
+clutter_actor_set_child_above_sibling() (the shell restacking its
+chrome, a modal dialog being raised). That child was then painted over
+the lock on screen and in every capture of the stage.
+
+Put the lock group back on top whenever the stage's last child
+changes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/wayland/meta-wayland-session-lock.c | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/src/wayland/meta-wayland-session-lock.c b/src/wayland/meta-wayland-session-lock.c
+index 9d68d1e..21b2a3c 100644
+--- a/src/wayland/meta-wayland-session-lock.c
++++ b/src/wayland/meta-wayland-session-lock.c
+@@ -146,6 +146,7 @@ struct _MetaWaylandSessionLockManager
+   gulong stage_after_paint_handler_id;
+   gulong stage_presented_handler_id;
+   gulong stage_child_added_handler_id;
++  gulong stage_last_child_handler_id;
+   gulong monitors_changed_handler_id;
+   gulong power_save_handler_id;
+ };
+@@ -554,6 +555,19 @@ on_stage_child_added (ClutterActor                  *stage,
+     clutter_actor_set_child_above_sibling (stage, manager->lock_group, NULL);
+ }
+ 
++/* A stage child raised above the lock group (the shell restacking its
++ * chrome, a grab raising a dialog) would be painted over the lock and be
++ * captured with it; put the lock group back on top. */
++static void
++on_stage_last_child_changed (ClutterActor                  *stage,
++                             GParamSpec                    *pspec,
++                             MetaWaylandSessionLockManager *manager)
++{
++  if (clutter_actor_get_last_child (stage) != manager->lock_group &&
++      clutter_actor_get_parent (manager->lock_group) == stage)
++    clutter_actor_set_child_above_sibling (stage, manager->lock_group, NULL);
++}
++
+ /*
+  * Locking and unlocking
+  */
+@@ -1296,6 +1310,7 @@ session_lock_manager_free (MetaWaylandSessionLockManager *manager)
+       g_clear_signal_handler (&manager->stage_after_paint_handler_id, stage);
+       g_clear_signal_handler (&manager->stage_presented_handler_id, stage);
+       g_clear_signal_handler (&manager->stage_child_added_handler_id, stage);
++      g_clear_signal_handler (&manager->stage_last_child_handler_id, stage);
+       g_clear_weak_pointer (&manager->stage);
+     }
+ 
+@@ -1342,6 +1357,9 @@ meta_wayland_session_lock_init (MetaWaylandCompositor *compositor)
+   manager->stage_child_added_handler_id =
+     g_signal_connect (stage, "child-added",
+                       G_CALLBACK (on_stage_child_added), manager);
++  manager->stage_last_child_handler_id =
++    g_signal_connect (stage, "notify::last-child",
++                      G_CALLBACK (on_stage_last_child_changed), manager);
+   manager->stage_after_paint_handler_id =
+     g_signal_connect (stage, "after-paint",
+                       G_CALLBACK (on_after_paint), manager);
+-- 
+2.54.0
+

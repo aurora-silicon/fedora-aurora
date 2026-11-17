@@ -1,0 +1,997 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 21:01:29 +1100
+Subject: [PATCH] tests: Add wlr-gamma-control tests
+
+Run a gamma control client against the test backend, whose CRTCs have
+a 256 entry gamma LUT, and check the CRTC gamma after each step:
+
+- gamma_size is the CRTC gamma size, set_gamma programs the client
+  ramp exactly, a second table replaces it, and destroying the control
+  restores the original ramp
+- a client that disconnects without destroying its control gets the
+  original ramp restored too
+- a newer control takes over: the older one gets failed, the output
+  gets its own ramp back, and the failed control's set_gamma and
+  destroy are ignored
+- a short table is an invalid_gamma protocol error and changes nothing
+- an output without a gamma LUT, or an inert wl_output, gets failed
+- unplugging the monitor sends failed and drops the override
+- changing the night light temperature does not replace the client
+  ramp, and night light applies again once the client lets go
+
+Export meta_color_manager_get_temperature() for the tests.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/backends/meta-color-manager-private.h     |   1 +
+ src/tests/meson.build                         |  11 +
+ src/tests/wayland-gamma-control-tests.c       | 522 ++++++++++++++++++
+ .../wayland-test-clients/gamma-control.c      | 382 +++++++++++++
+ src/tests/wayland-test-clients/meson.build    |   3 +
+ 5 files changed, 919 insertions(+)
+ create mode 100644 src/tests/wayland-gamma-control-tests.c
+ create mode 100644 src/tests/wayland-test-clients/gamma-control.c
+
+diff --git a/src/backends/meta-color-manager-private.h b/src/backends/meta-color-manager-private.h
+index e264351..69bbe3f 100644
+--- a/src/backends/meta-color-manager-private.h
++++ b/src/backends/meta-color-manager-private.h
+@@ -43,4 +43,5 @@ int meta_color_manager_get_num_color_devices (MetaColorManager *color_manager);
+ 
+ cmsContext meta_color_manager_get_lcms_context (MetaColorManager *color_manager);
+ 
++META_EXPORT_TEST
+ unsigned int meta_color_manager_get_temperature (MetaColorManager *color_manager);
+diff --git a/src/tests/meson.build b/src/tests/meson.build
+index a58ddac..c47f394 100644
+--- a/src/tests/meson.build
++++ b/src/tests/meson.build
+@@ -1095,6 +1095,17 @@ wayland_test_cases = [
+       test_client_executables.get('xdg-session-management-restore'),
+     ],
+   },
++  {
++    'name': 'wayland-gamma-control',
++    'suite': 'wayland',
++    'sources': [
++      'wayland-gamma-control-tests.c',
++      wayland_test_utils,
++    ],
++    'depends': [
++      test_client_executables.get('gamma-control'),
++    ],
++  },
+   {
+     'name': 'wayland-idle-inhibit',
+     'suite': 'wayland',
+diff --git a/src/tests/wayland-gamma-control-tests.c b/src/tests/wayland-gamma-control-tests.c
+new file mode 100644
+index 0000000..b84c4d0
+--- /dev/null
++++ b/src/tests/wayland-gamma-control-tests.c
+@@ -0,0 +1,522 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include "config.h"
++
++#include "backends/meta-color-device.h"
++#include "backends/meta-color-manager-private.h"
++#include "backends/meta-crtc.h"
++#include "backends/meta-monitor-manager-private.h"
++#include "backends/meta-monitor-private.h"
++#include "backends/meta-output.h"
++#include "meta-test/meta-context-test.h"
++#include "tests/meta-crtc-test.h"
++#include "tests/meta-monitor-manager-test.h"
++#include "tests/meta-monitor-test-utils.h"
++#include "tests/meta-wayland-test-driver.h"
++#include "tests/meta-wayland-test-utils.h"
++
++#define GAMMA_SIZE 256
++
++static MetaContext *test_context;
++static MetaWaylandTestDriver *test_driver;
++
++static MonitorTestCaseSetup base_monitor_setup = {
++  .modes = {
++    {
++      .width = 1024,
++      .height = 768,
++      .refresh_rate = 60.0
++    }
++  },
++  .n_modes = 1,
++  .outputs = {
++     {
++      .crtc = 0,
++      .modes = { 0 },
++      .n_modes = 1,
++      .preferred_mode = 0,
++      .possible_crtcs = { 0 },
++      .n_possible_crtcs = 1,
++      .width_mm = 222,
++      .height_mm = 125,
++      .serial = "gamma-control",
++    },
++  },
++  .n_outputs = 1,
++  .crtcs = {
++    {
++      .current_mode = 0
++    },
++  },
++  .n_crtcs = 1
++};
++
++static GDBusProxy *
++get_gsd_color_mock_proxy (void)
++{
++  GDBusProxy *proxy;
++  g_autoptr (GError) error = NULL;
++
++  proxy =
++    g_dbus_proxy_new_for_bus_sync (G_BUS_TYPE_SESSION,
++                                   G_DBUS_PROXY_FLAGS_DO_NOT_AUTO_START |
++                                   G_DBUS_PROXY_FLAGS_DO_NOT_CONNECT_SIGNALS,
++                                   NULL,
++                                   "org.gnome.SettingsDaemon.Color",
++                                   "/org/gnome/SettingsDaemon/Color",
++                                   "org.freedesktop.DBus.Mock",
++                                   NULL, &error);
++  if (!proxy)
++    g_error ("Failed to find mocked gsd-color service, %s", error->message);
++
++  return proxy;
++}
++
++static void
++set_night_light_temperature (unsigned int temperature)
++{
++  MetaBackend *backend = meta_context_get_backend (test_context);
++  MetaColorManager *color_manager = meta_backend_get_color_manager (backend);
++  g_autoptr (GDBusProxy) proxy = NULL;
++  g_autoptr (GError) error = NULL;
++  g_autoptr (GVariant) result = NULL;
++
++  proxy = get_gsd_color_mock_proxy ();
++  result = g_dbus_proxy_call_sync (proxy,
++                                   "SetTemperature",
++                                   g_variant_new ("(u)", temperature),
++                                   G_DBUS_CALL_FLAGS_NO_AUTO_START, -1, NULL,
++                                   &error);
++  if (!result)
++    g_error ("Failed to set gsd-color temperature: %s", error->message);
++
++  while (meta_color_manager_get_temperature (color_manager) != temperature)
++    g_main_context_iteration (NULL, TRUE);
++}
++
++static MetaMonitor *
++get_monitor (void)
++{
++  MetaBackend *backend = meta_context_get_backend (test_context);
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++  GList *monitors = meta_monitor_manager_get_monitors (monitor_manager);
++
++  g_assert_cmpuint (g_list_length (monitors), ==, 1);
++  return monitors->data;
++}
++
++static MetaCrtc *
++get_crtc (void)
++{
++  MetaOutput *output = meta_monitor_get_main_output (get_monitor ());
++
++  return meta_output_get_assigned_crtc (output);
++}
++
++static MetaColorDevice *
++get_color_device (void)
++{
++  MetaBackend *backend = meta_context_get_backend (test_context);
++  MetaColorManager *color_manager = meta_backend_get_color_manager (backend);
++
++  return meta_color_manager_get_color_device (color_manager, get_monitor ());
++}
++
++/* The gamma LUT the test CRTC was last programmed with. */
++static MetaGammaLut *
++get_crtc_lut (void)
++{
++  MetaCrtcTest *crtc_test = META_CRTC_TEST (get_crtc ());
++
++  return meta_gamma_lut_new (crtc_test->gamma.size,
++                             crtc_test->gamma.red,
++                             crtc_test->gamma.green,
++                             crtc_test->gamma.blue);
++}
++
++/* Must match ramp_value() in wayland-test-clients/gamma-control.c */
++static MetaGammaLut *
++create_client_ramp (int seed)
++{
++  MetaGammaLut *lut = meta_gamma_lut_new_sized (GAMMA_SIZE);
++  int i;
++
++  for (i = 0; i < GAMMA_SIZE; i++)
++    {
++      lut->red[i] = (uint16_t) MIN (65535, i * 257 + seed);
++      lut->green[i] = (uint16_t) (i * 181 + seed);
++      lut->blue[i] = (uint16_t) (65535 - i * 257);
++    }
++
++  return lut;
++}
++
++static void
++assert_crtc_lut_equals (const MetaGammaLut *expected)
++{
++  g_autoptr (MetaGammaLut) lut = get_crtc_lut ();
++
++  g_assert_cmpuint (lut->size, ==, expected->size);
++  if (!meta_gamma_lut_equal (lut, expected))
++    {
++      size_t i;
++
++      for (i = 0; i < lut->size; i++)
++        {
++          if (lut->red[i] != expected->red[i] ||
++              lut->green[i] != expected->green[i] ||
++              lut->blue[i] != expected->blue[i])
++            {
++              g_error ("CRTC gamma differs at %zu: (%hu, %hu, %hu), "
++                       "expected (%hu, %hu, %hu)",
++                       i, lut->red[i], lut->green[i], lut->blue[i],
++                       expected->red[i], expected->green[i],
++                       expected->blue[i]);
++            }
++        }
++    }
++}
++
++static void
++setup_monitor (gboolean disable_gamma_lut)
++{
++  MetaBackend *backend = meta_context_get_backend (test_context);
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++  MonitorTestCaseSetup test_case_setup = base_monitor_setup;
++  MetaMonitorTestSetup *test_setup;
++  MetaColorDevice *color_device;
++
++  test_case_setup.crtcs[0].disable_gamma_lut = disable_gamma_lut;
++  test_setup = meta_create_monitor_test_setup (backend, &test_case_setup,
++                                               MONITOR_TEST_FLAG_NO_STORED);
++  meta_monitor_manager_test_emulate_hotplug (
++    META_MONITOR_MANAGER_TEST (monitor_manager), test_setup);
++
++  color_device = get_color_device ();
++  g_assert_nonnull (color_device);
++  while (!meta_color_device_is_ready (color_device))
++    g_main_context_iteration (NULL, TRUE);
++}
++
++static void
++remove_monitors (void)
++{
++  MetaBackend *backend = meta_context_get_backend (test_context);
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++  MonitorTestCaseSetup test_case_setup = base_monitor_setup;
++  MetaMonitorTestSetup *test_setup;
++
++  test_case_setup.n_outputs = 0;
++  test_setup = meta_create_monitor_test_setup (backend, &test_case_setup,
++                                               MONITOR_TEST_FLAG_NO_STORED);
++  meta_monitor_manager_test_emulate_hotplug (
++    META_MONITOR_MANAGER_TEST (monitor_manager), test_setup);
++}
++
++static void
++wait_for_client (int sequence)
++{
++  meta_wayland_test_driver_wait_for_sync_point (test_driver, sequence);
++}
++
++static void
++release (int sequence)
++{
++  meta_wayland_test_driver_emit_sync_event (test_driver, sequence);
++}
++
++static void
++gamma_control_basic (void)
++{
++  MetaWaylandTestClient *client;
++  g_autoptr (MetaGammaLut) original = NULL;
++  g_autoptr (MetaGammaLut) ramp0 = create_client_ramp (0);
++  g_autoptr (MetaGammaLut) ramp7 = create_client_ramp (7);
++
++  setup_monitor (FALSE);
++  original = get_crtc_lut ();
++  g_assert_cmpuint (original->size, ==, GAMMA_SIZE);
++  g_assert_false (meta_gamma_lut_equal (original, ramp0));
++
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "gamma-control",
++                                                   "basic",
++                                                   NULL);
++  wait_for_client (0);
++  assert_crtc_lut_equals (ramp0);
++  g_assert_true (meta_color_device_has_gamma_override (get_color_device ()));
++  release (0);
++
++  wait_for_client (1);
++  assert_crtc_lut_equals (ramp7);
++  release (1);
++
++  wait_for_client (2);
++  assert_crtc_lut_equals (original);
++  g_assert_false (meta_color_device_has_gamma_override (get_color_device ()));
++  release (2);
++
++  meta_wayland_test_client_finish (client);
++}
++
++static void
++gamma_control_disconnect (void)
++{
++  MetaWaylandTestClient *client;
++  g_autoptr (MetaGammaLut) original = NULL;
++  g_autoptr (MetaGammaLut) ramp0 = create_client_ramp (0);
++
++  setup_monitor (FALSE);
++  original = get_crtc_lut ();
++
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "gamma-control",
++                                                   "disconnect",
++                                                   NULL);
++  wait_for_client (0);
++  assert_crtc_lut_equals (ramp0);
++  release (0);
++
++  meta_wayland_test_client_finish (client);
++
++  while (meta_color_device_has_gamma_override (get_color_device ()))
++    g_main_context_iteration (NULL, TRUE);
++  assert_crtc_lut_equals (original);
++}
++
++static void
++gamma_control_supersede (void)
++{
++  MetaWaylandTestClient *client;
++  g_autoptr (MetaGammaLut) original = NULL;
++  g_autoptr (MetaGammaLut) ramp0 = create_client_ramp (0);
++  g_autoptr (MetaGammaLut) ramp7 = create_client_ramp (7);
++
++  setup_monitor (FALSE);
++  original = get_crtc_lut ();
++
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "gamma-control",
++                                                   "supersede",
++                                                   NULL);
++  wait_for_client (0);
++  assert_crtc_lut_equals (ramp0);
++  release (0);
++
++  /* The second control took over; the output has its own ramp back until
++   * the new control sets one. */
++  wait_for_client (1);
++  assert_crtc_lut_equals (original);
++  g_assert_false (meta_color_device_has_gamma_override (get_color_device ()));
++  release (1);
++
++  /* The failed control's table (seed 3) was ignored. */
++  wait_for_client (2);
++  assert_crtc_lut_equals (ramp7);
++  release (2);
++
++  /* Destroying the failed control leaves the active one alone. */
++  wait_for_client (3);
++  assert_crtc_lut_equals (ramp7);
++  release (3);
++
++  wait_for_client (4);
++  assert_crtc_lut_equals (original);
++  release (4);
++
++  meta_wayland_test_client_finish (client);
++}
++
++static void
++gamma_control_bad_size (void)
++{
++  MetaWaylandTestClient *client;
++  g_autoptr (MetaGammaLut) original = NULL;
++
++  setup_monitor (FALSE);
++  original = get_crtc_lut ();
++
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "gamma-control",
++                                                   "bad-size",
++                                                   NULL);
++  g_test_expect_message ("libmutter", G_LOG_LEVEL_WARNING,
++                         "WL: error in client communication*");
++  meta_wayland_test_client_finish (client);
++  g_test_assert_expected_messages ();
++
++  g_assert_false (meta_color_device_has_gamma_override (get_color_device ()));
++  assert_crtc_lut_equals (original);
++}
++
++static void
++gamma_control_no_gamma (void)
++{
++  MetaWaylandTestClient *client;
++
++  setup_monitor (TRUE);
++  g_assert_cmpuint (meta_monitor_get_gamma_lut_size (get_monitor ()), ==, 0);
++
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "gamma-control",
++                                                   "no-gamma",
++                                                   NULL);
++  meta_wayland_test_client_finish (client);
++
++  g_assert_false (meta_color_device_has_gamma_override (get_color_device ()));
++}
++
++static void
++gamma_control_output_removed (void)
++{
++  MetaWaylandTestClient *client;
++  g_autoptr (MetaGammaLut) ramp0 = create_client_ramp (0);
++  g_autoptr (MetaColorDevice) color_device = NULL;
++
++  setup_monitor (FALSE);
++
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "gamma-control",
++                                                   "output-removed",
++                                                   NULL);
++  wait_for_client (0);
++  assert_crtc_lut_equals (ramp0);
++  color_device = g_object_ref (get_color_device ());
++  g_assert_true (meta_color_device_has_gamma_override (color_device));
++  remove_monitors ();
++  g_assert_false (meta_color_device_has_gamma_override (color_device));
++  release (0);
++
++  wait_for_client (1);
++  release (1);
++
++  wait_for_client (2);
++  release (2);
++
++  meta_wayland_test_client_finish (client);
++}
++
++static void
++gamma_control_night_light (void)
++{
++  MetaWaylandTestClient *client;
++  g_autoptr (MetaGammaLut) original = NULL;
++  g_autoptr (MetaGammaLut) night_light = NULL;
++  g_autoptr (MetaGammaLut) ramp0 = create_client_ramp (0);
++
++  setup_monitor (FALSE);
++  original = get_crtc_lut ();
++
++  /* The ramp night light programs at 3305K without a client. */
++  set_night_light_temperature (3305);
++  night_light = get_crtc_lut ();
++  g_assert_false (meta_gamma_lut_equal (night_light, original));
++  g_assert_cmpuint (night_light->blue[GAMMA_SIZE - 1], <,
++                    night_light->red[GAMMA_SIZE - 1]);
++  set_night_light_temperature (6500);
++  g_assert_false (meta_gamma_lut_equal (get_crtc_lut (), night_light));
++
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "gamma-control",
++                                                   "night-light",
++                                                   NULL);
++  wait_for_client (0);
++  assert_crtc_lut_equals (ramp0);
++  release (0);
++
++  /* Night light changing must not replace the client ramp. */
++  wait_for_client (1);
++  set_night_light_temperature (3305);
++  assert_crtc_lut_equals (ramp0);
++  release (1);
++
++  /* Once the client lets go, night light applies again. */
++  wait_for_client (2);
++  assert_crtc_lut_equals (night_light);
++  release (2);
++
++  meta_wayland_test_client_finish (client);
++
++  set_night_light_temperature (6500);
++}
++
++static void
++on_before_tests (MetaContext *context)
++{
++  MetaWaylandCompositor *compositor =
++    meta_context_get_wayland_compositor (context);
++  MetaBackend *backend = meta_context_get_backend (context);
++  MetaColorManager *color_manager = meta_backend_get_color_manager (backend);
++
++  test_driver = meta_wayland_test_driver_new (compositor);
++
++  while (!meta_color_manager_is_ready (color_manager))
++    g_main_context_iteration (NULL, TRUE);
++}
++
++static void
++on_after_tests (MetaContext *context)
++{
++  g_clear_object (&test_driver);
++}
++
++static void
++init_tests (void)
++{
++  g_test_add_func ("/wayland/gamma-control/basic",
++                   gamma_control_basic);
++  g_test_add_func ("/wayland/gamma-control/disconnect",
++                   gamma_control_disconnect);
++  g_test_add_func ("/wayland/gamma-control/supersede",
++                   gamma_control_supersede);
++  g_test_add_func ("/wayland/gamma-control/bad-size",
++                   gamma_control_bad_size);
++  g_test_add_func ("/wayland/gamma-control/no-gamma",
++                   gamma_control_no_gamma);
++  g_test_add_func ("/wayland/gamma-control/output-removed",
++                   gamma_control_output_removed);
++  g_test_add_func ("/wayland/gamma-control/night-light",
++                   gamma_control_night_light);
++}
++
++int
++main (int    argc,
++      char **argv)
++{
++  g_autoptr (MetaContext) context = NULL;
++
++  context = meta_create_test_context (META_CONTEXT_TEST_TYPE_TEST,
++                                      META_CONTEXT_TEST_FLAG_NO_X11 |
++                                      META_CONTEXT_TEST_FLAG_TEST_CLIENT);
++  g_assert_true (meta_context_configure (context, &argc, &argv, NULL));
++
++  test_context = context;
++
++  init_tests ();
++
++  g_signal_connect (context, "before-tests",
++                    G_CALLBACK (on_before_tests), NULL);
++  g_signal_connect (context, "after-tests",
++                    G_CALLBACK (on_after_tests), NULL);
++
++  return meta_context_test_run_tests (META_CONTEXT_TEST (context),
++                                      META_TEST_RUN_FLAG_NONE);
++}
+diff --git a/src/tests/wayland-test-clients/gamma-control.c b/src/tests/wayland-test-clients/gamma-control.c
+new file mode 100644
+index 0000000..b83075c
+--- /dev/null
++++ b/src/tests/wayland-test-clients/gamma-control.c
+@@ -0,0 +1,382 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include "config.h"
++
++#include <errno.h>
++#include <glib.h>
++#include <string.h>
++#include <unistd.h>
++
++#include "wayland-test-client-utils.h"
++
++#include "wlr-gamma-control-unstable-v1-client-protocol.h"
++
++#define EXPECTED_GAMMA_SIZE 256
++
++typedef struct _GammaControl
++{
++  struct zwlr_gamma_control_v1 *control;
++  uint32_t gamma_size;
++  gboolean failed;
++} GammaControl;
++
++static struct zwlr_gamma_control_manager_v1 *gamma_control_manager;
++static struct wl_output *wl_output;
++
++static void
++handle_registry_global (void               *user_data,
++                        struct wl_registry *registry,
++                        uint32_t            id,
++                        const char         *interface,
++                        uint32_t            version)
++{
++  if (strcmp (interface, zwlr_gamma_control_manager_v1_interface.name) == 0)
++    {
++      gamma_control_manager =
++        wl_registry_bind (registry, id,
++                          &zwlr_gamma_control_manager_v1_interface, 1);
++    }
++  else if (strcmp (interface, wl_output_interface.name) == 0 && !wl_output)
++    {
++      wl_output = wl_registry_bind (registry, id, &wl_output_interface, 1);
++    }
++}
++
++static void
++handle_registry_global_remove (void               *user_data,
++                               struct wl_registry *registry,
++                               uint32_t            name)
++{
++}
++
++static const struct wl_registry_listener registry_listener = {
++  handle_registry_global,
++  handle_registry_global_remove
++};
++
++static void
++handle_gamma_size (void                          *user_data,
++                   struct zwlr_gamma_control_v1  *control,
++                   uint32_t                       size)
++{
++  GammaControl *gamma_control = user_data;
++
++  gamma_control->gamma_size = size;
++}
++
++static void
++handle_failed (void                         *user_data,
++               struct zwlr_gamma_control_v1 *control)
++{
++  GammaControl *gamma_control = user_data;
++
++  gamma_control->failed = TRUE;
++}
++
++static const struct zwlr_gamma_control_v1_listener gamma_control_listener = {
++  handle_gamma_size,
++  handle_failed,
++};
++
++static GammaControl *
++gamma_control_new (WaylandDisplay *display)
++{
++  GammaControl *gamma_control = g_new0 (GammaControl, 1);
++
++  gamma_control->control =
++    zwlr_gamma_control_manager_v1_get_gamma_control (gamma_control_manager,
++                                                     wl_output);
++  zwlr_gamma_control_v1_add_listener (gamma_control->control,
++                                      &gamma_control_listener,
++                                      gamma_control);
++  return gamma_control;
++}
++
++static void
++gamma_control_free (GammaControl *gamma_control)
++{
++  zwlr_gamma_control_v1_destroy (gamma_control->control);
++  g_free (gamma_control);
++}
++
++/* Must match the ramp wayland-gamma-control-tests.c expects. */
++static uint16_t
++ramp_value (int channel,
++            int i,
++            int seed)
++{
++  switch (channel)
++    {
++    case 0:
++      return (uint16_t) MIN (65535, i * 257 + seed);
++    case 1:
++      return (uint16_t) (i * 181 + seed);
++    default:
++      return (uint16_t) (65535 - i * 257);
++    }
++}
++
++static int
++create_ramp_fd (uint32_t size,
++                int      seed,
++                size_t   n_bytes)
++{
++  g_autofree uint16_t *table = NULL;
++  size_t table_size = size * 3 * sizeof (uint16_t);
++  int fd;
++  uint32_t i;
++  int c;
++
++  table = g_malloc0 (table_size);
++  for (c = 0; c < 3; c++)
++    {
++      for (i = 0; i < size; i++)
++        table[c * size + i] = ramp_value (c, i, seed);
++    }
++
++  fd = create_anonymous_file (n_bytes);
++  g_assert_cmpint (fd, >=, 0);
++  /* Write (not mmap) so the file offset ends up past the data, as with
++   * clients that write() their table; the compositor must read from 0. */
++  g_assert_cmpint (write (fd, table, MIN (n_bytes, table_size)), ==,
++                   (ssize_t) MIN (n_bytes, table_size));
++  return fd;
++}
++
++static void
++set_ramp (GammaControl *gamma_control,
++          int           seed)
++{
++  int fd;
++
++  fd = create_ramp_fd (gamma_control->gamma_size, seed,
++                       gamma_control->gamma_size * 3 * sizeof (uint16_t));
++  zwlr_gamma_control_v1_set_gamma (gamma_control->control, fd);
++  close (fd);
++}
++
++static void
++sync_point (WaylandDisplay *display,
++            int             sequence)
++{
++  wl_display_roundtrip (display->display);
++  test_driver_sync_point (display->test_driver, sequence, NULL);
++  wait_for_sync_event (display, sequence);
++}
++
++static void
++test_basic (WaylandDisplay *display)
++{
++  GammaControl *gamma_control;
++
++  gamma_control = gamma_control_new (display);
++  wl_display_roundtrip (display->display);
++  g_assert_false (gamma_control->failed);
++  g_assert_cmpuint (gamma_control->gamma_size, ==, EXPECTED_GAMMA_SIZE);
++
++  set_ramp (gamma_control, 0);
++  sync_point (display, 0);
++  g_assert_false (gamma_control->failed);
++
++  /* A second table replaces the first. */
++  set_ramp (gamma_control, 7);
++  sync_point (display, 1);
++  g_assert_false (gamma_control->failed);
++
++  gamma_control_free (gamma_control);
++  sync_point (display, 2);
++}
++
++static void
++test_disconnect (WaylandDisplay *display)
++{
++  GammaControl *gamma_control;
++
++  gamma_control = gamma_control_new (display);
++  wl_display_roundtrip (display->display);
++  g_assert_cmpuint (gamma_control->gamma_size, ==, EXPECTED_GAMMA_SIZE);
++
++  set_ramp (gamma_control, 0);
++  sync_point (display, 0);
++
++  /* Exit without destroying anything; the compositor must clean up. */
++}
++
++static void
++test_supersede (WaylandDisplay *display)
++{
++  GammaControl *first;
++  GammaControl *second;
++
++  first = gamma_control_new (display);
++  wl_display_roundtrip (display->display);
++  g_assert_cmpuint (first->gamma_size, ==, EXPECTED_GAMMA_SIZE);
++  set_ramp (first, 0);
++  sync_point (display, 0);
++
++  second = gamma_control_new (display);
++  wl_display_roundtrip (display->display);
++  g_assert_true (first->failed);
++  g_assert_false (second->failed);
++  g_assert_cmpuint (second->gamma_size, ==, EXPECTED_GAMMA_SIZE);
++  sync_point (display, 1);
++
++  /* Setting gamma on a failed control is ignored, not an error. */
++  set_ramp (first, 3);
++  set_ramp (second, 7);
++  sync_point (display, 2);
++  g_assert_false (second->failed);
++
++  gamma_control_free (first);
++  sync_point (display, 3);
++  g_assert_false (second->failed);
++
++  gamma_control_free (second);
++  sync_point (display, 4);
++}
++
++static void
++test_bad_size (WaylandDisplay *display)
++{
++  GammaControl *gamma_control;
++  const struct wl_interface *interface;
++  uint32_t object_id;
++  int fd;
++
++  gamma_control = gamma_control_new (display);
++  wl_display_roundtrip (display->display);
++  g_assert_cmpuint (gamma_control->gamma_size, ==, EXPECTED_GAMMA_SIZE);
++  object_id = wl_proxy_get_id ((struct wl_proxy *) gamma_control->control);
++
++  fd = create_ramp_fd (gamma_control->gamma_size, 0,
++                       gamma_control->gamma_size * 2 * sizeof (uint16_t));
++  zwlr_gamma_control_v1_set_gamma (gamma_control->control, fd);
++  close (fd);
++  g_assert_cmpint (wl_display_flush (display->display), >=, 0);
++
++  /* Only read from here on, so the error event is seen before a write
++   * to the closed connection could fail with EPIPE. */
++  while (wl_display_dispatch (display->display) != -1)
++    ;
++  g_assert_cmpint (wl_display_get_error (display->display), ==, EPROTO);
++  g_assert_cmpuint (wl_display_get_protocol_error (display->display,
++                                                   &interface,
++                                                   &object_id),
++                    ==,
++                    ZWLR_GAMMA_CONTROL_V1_ERROR_INVALID_GAMMA);
++  g_assert_true (interface == &zwlr_gamma_control_v1_interface);
++}
++
++static void
++test_no_gamma (WaylandDisplay *display)
++{
++  GammaControl *gamma_control;
++
++  gamma_control = gamma_control_new (display);
++  wl_display_roundtrip (display->display);
++  g_assert_true (gamma_control->failed);
++  g_assert_cmpuint (gamma_control->gamma_size, ==, 0);
++
++  gamma_control_free (gamma_control);
++  wl_display_roundtrip (display->display);
++}
++
++static void
++test_output_removed (WaylandDisplay *display)
++{
++  GammaControl *gamma_control;
++
++  gamma_control = gamma_control_new (display);
++  wl_display_roundtrip (display->display);
++  g_assert_cmpuint (gamma_control->gamma_size, ==, EXPECTED_GAMMA_SIZE);
++  set_ramp (gamma_control, 0);
++  sync_point (display, 0);
++
++  /* The compositor unplugs the monitor here. */
++  sync_point (display, 1);
++  g_assert_true (gamma_control->failed);
++
++  /* Creating a control for the now inert wl_output fails at once. */
++  {
++    GammaControl *inert = gamma_control_new (display);
++
++    wl_display_roundtrip (display->display);
++    g_assert_true (inert->failed);
++    g_assert_cmpuint (inert->gamma_size, ==, 0);
++    gamma_control_free (inert);
++  }
++
++  set_ramp (gamma_control, 3);
++  gamma_control_free (gamma_control);
++  sync_point (display, 2);
++}
++
++static void
++test_night_light (WaylandDisplay *display)
++{
++  GammaControl *gamma_control;
++
++  gamma_control = gamma_control_new (display);
++  wl_display_roundtrip (display->display);
++  g_assert_cmpuint (gamma_control->gamma_size, ==, EXPECTED_GAMMA_SIZE);
++  set_ramp (gamma_control, 0);
++  sync_point (display, 0);
++
++  /* The compositor changes the night light temperature here. */
++  sync_point (display, 1);
++  g_assert_false (gamma_control->failed);
++
++  gamma_control_free (gamma_control);
++  sync_point (display, 2);
++}
++
++int
++main (int    argc,
++      char **argv)
++{
++  g_autoptr (WaylandDisplay) display = NULL;
++  struct wl_registry *registry;
++
++  g_assert_cmpint (argc, ==, 2);
++
++  display = wayland_display_new (WAYLAND_DISPLAY_CAPABILITY_TEST_DRIVER);
++  registry = wl_display_get_registry (display->display);
++  wl_registry_add_listener (registry, &registry_listener, NULL);
++  wl_display_roundtrip (display->display);
++  g_assert_nonnull (gamma_control_manager);
++  g_assert_nonnull (wl_output);
++
++  if (g_strcmp0 (argv[1], "basic") == 0)
++    test_basic (display);
++  else if (g_strcmp0 (argv[1], "disconnect") == 0)
++    test_disconnect (display);
++  else if (g_strcmp0 (argv[1], "supersede") == 0)
++    test_supersede (display);
++  else if (g_strcmp0 (argv[1], "bad-size") == 0)
++    test_bad_size (display);
++  else if (g_strcmp0 (argv[1], "no-gamma") == 0)
++    test_no_gamma (display);
++  else if (g_strcmp0 (argv[1], "output-removed") == 0)
++    test_output_removed (display);
++  else if (g_strcmp0 (argv[1], "night-light") == 0)
++    test_night_light (display);
++  else
++    g_error ("Unknown test '%s'", argv[1]);
++
++  return EXIT_SUCCESS;
++}
+diff --git a/src/tests/wayland-test-clients/meson.build b/src/tests/wayland-test-clients/meson.build
+index 9c92663..c8a16a8 100644
+--- a/src/tests/wayland-test-clients/meson.build
++++ b/src/tests/wayland-test-clients/meson.build
+@@ -53,6 +53,9 @@ wayland_test_clients = [
+   {
+     'name': 'fullscreen',
+   },
++  {
++    'name': 'gamma-control',
++  },
+   {
+     'name': 'idle-inhibit',
+   },

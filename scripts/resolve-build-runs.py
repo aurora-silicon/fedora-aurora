@@ -90,12 +90,13 @@ def published_runs(repository, limit=30, fedora=44):
     """Native build IDs that published snapshots already include."""
     snapshots = []
     # Another release's snapshots must not hide this release's base/history.
-    for page in range(1, 11):
-        releases = lib.gh_api(f'repos/{repository}/releases?per_page=100&page={page}')
-        snapshots.extend(r for r in releases if r['tag_name'].startswith(fedoralib.prefix(fedora))
-                         and (fedora != 44 or not r['tag_name'].startswith('testing-f45-')) and not r['draft'])
-        if len(snapshots) >= limit or len(releases) < 100:
-            break
+    # Small pages, newest first (lib.releases): a page of 100 releases times out.
+    for release in lib.releases(repository):
+        if (release['tag_name'].startswith(fedoralib.prefix(fedora)) and not release['draft']
+                and (fedora != 44 or not release['tag_name'].startswith('testing-f45-'))):
+            snapshots.append(release)
+            if len(snapshots) >= limit:
+                break
     snapshots = sorted(snapshots, key=lambda r: r['created_at'], reverse=True)[:limit]
     found = set()
     for release in snapshots:

@@ -1,6 +1,6 @@
 Name: update-m1n1
 Version: 20261107
-Release: 6%{?dist}.aurora
+Release: 8%{?dist}.aurora
 Summary: Transactional Aurora Stage 2 updates with retained-kernel DTB checks
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -53,6 +53,9 @@ install -Dm644 %{SOURCE8} %{buildroot}%{_unitdir}/aurora-stage2-commit.service
 install -Dm644 %{SOURCE10} %{buildroot}%{_unitdir}/aurora-stage2-guard.service
 install -Dm644 %{SOURCE11} %{buildroot}%{_unitdir}/aurora-stage2-guard.timer
 install -Dm644 %{SOURCE9} %{buildroot}%{_presetdir}/90-aurora-stage2.preset
+# bootchain.py hands each Stage 2 to "aurora-secboot stage2 hook"; aurora-secboot stage1 build --enforce
+# looks for this marker before it builds a Stage 1 that refuses unsigned Stage 2s.
+install -Dm644 /dev/null %{buildroot}%{_datadir}/aurora/stage2-sign-hook
 
 %post
 %systemd_post aurora-stage2-commit.service aurora-stage2-guard.timer
@@ -75,6 +78,19 @@ install -Dm644 %{SOURCE9} %{buildroot}%{_presetdir}/90-aurora-stage2.preset
 %transfiletriggerin -- /usr/lib/m1n1 /usr/lib64/m1n1 /usr/share/uboot/apple_m1 /etc/m1n1.conf
 %{_sbindir}/update-m1n1 || :
 
+# A transaction runs kernel-install remove for every kernel it erases, also
+# for one it reinstalls, before the kernels it installs are added. Record the
+# transaction before it starts: its removals then leave Stage 2 to the kernels
+# it adds and to a refresh after it, which follows what GRUB boots next.
+%transfiletriggerun -- /usr/lib/modules
+AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-m1n1 --transaction-begin || :
+
+%transfiletriggerpostun -- /usr/lib/modules
+%{_sbindir}/update-m1n1 --transaction-end || :
+
+%transfiletriggerin -- /usr/lib/modules
+%{_sbindir}/update-m1n1 --transaction-end || :
+
 %files
 %license LICENSE
 %{_sbindir}/update-m1n1
@@ -85,11 +101,34 @@ install -Dm644 %{SOURCE9} %{buildroot}%{_presetdir}/90-aurora-stage2.preset
 %{_unitdir}/aurora-stage2-guard.service
 %{_unitdir}/aurora-stage2-guard.timer
 %{_presetdir}/90-aurora-stage2.preset
+%{_datadir}/aurora/stage2-sign-hook
 %config(noreplace) %{_sysconfdir}/kernel/install.d/10-devicetree.install
 %{_kernel_install_dir}/15-update-m1n1.install
 %config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1
 
 %changelog
+* Sun Nov 15 2026 Diljit Singh <hey@djdev.me> - 20261107-8
+- A reinstall of the GRUB default kernel no longer arms a Stage 2 trial
+  with another kernel's device trees. dnf runs kernel-install remove for
+  the old instance before it adds the kernel again, and that removal
+  armed a trial for the newest remaining kernel, which the add left
+  armed. Kernel removals inside a package transaction now leave Stage 2
+  to the kernels the transaction adds and to a refresh after it, which
+  RPM file triggers on /usr/lib/modules run.
+- Withdraw an armed trial that was never booted when the Stage 2 for the
+  kernel GRUB boots is already live, or when the trial was armed for
+  another kernel. Its candidate may be armed again later; one that fell
+  back is still never rearmed.
+- When GRUB's default is unknown or removed, compose from GRUB's first
+  boot entry in GRUB's own order, not from the version-sorted newest
+  kernel. Local kernels such as 7.3.0-neo.1 sorted above every release.
+
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261107-7
+- Hand each composed Stage 2 to aurora-secboot's stage2 hook when it is
+  installed, so an owner-key Stage 1 gets a Stage 2 signed with the
+  owner's key; a signing failure keeps the last Stage 2. Ship the
+  stage2-sign-hook marker that aurora-secboot stage1 build checks.
+
 * Mon Nov 09 2026 Diljit Singh <hey@djdev.me> - 20261107-6
 - Stop stranding Macs on an old kernel. A refused Stage 2 update failed
   15-update-m1n1.install, so kernel-install stopped before the new

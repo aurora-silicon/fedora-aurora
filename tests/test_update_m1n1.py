@@ -417,6 +417,14 @@ class Recipes(unittest.TestCase):
         self.assertIn('%{_kernel_install_dir}/15-update-m1n1.install', spec)
         self.assertIn('%transfiletriggerin -- /usr/lib/m1n1 /usr/lib64/m1n1 /usr/share/uboot/apple_m1 /etc/m1n1.conf', spec)
 
+    def test_kernel_transactions_are_recorded_before_and_closed_after(self):
+        spec = SPEC.read_text()
+        # Before the transaction, with the rpm process that runs it.
+        self.assertIn('%transfiletriggerun -- /usr/lib/modules\n'
+                      'AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-m1n1 --transaction-begin || :\n', spec)
+        for trigger in ('%transfiletriggerpostun', '%transfiletriggerin'):
+            self.assertIn(f'{trigger} -- /usr/lib/modules\n%{{_sbindir}}/update-m1n1 --transaction-end || :\n', spec)
+
     def test_aura_needs_the_capability_only_this_package_provides(self):
         self.assertRegex(SPEC.read_text(), r'(?m)^Provides: aurora-stage2-ctxr-slot = 1$')
         self.assertRegex((ROOT / 'packages/aura/aura.spec').read_text(), r'(?m)^Requires: .*\baurora-stage2-ctxr-slot\b')
@@ -509,6 +517,59 @@ class Recipes(unittest.TestCase):
                                         capture_output=True, text=True)
                 self.assertEqual('MOUNTED' in result.stdout, mount, result.stdout + result.stderr)
                 self.assertEqual(result.returncode, 1 if mount else 0, result.stderr)
+
+    def run_entry_point(self, *args, defer=1, end=1, **env):
+        """The shell entry point with a stubbed helper: its result and the helper modes it ran."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'bin').mkdir()
+            calls = root / 'calls'
+            (root / 'bin/python3').write_text(
+                f'#!/bin/sh\necho "${{2:-apply}}" >> {calls}\n'
+                f'case "$2" in --defer-remove) exit {defer};; --transaction-end) exit {end};; esac\nexit 0\n')
+            (root / 'bin/flock').write_text('#!/bin/sh\nexit 0\n')
+            for tool in ('python3', 'flock'):
+                (root / 'bin' / tool).chmod(0o755)
+            (root / 'functions.sh').write_text('mount_sys_esp() { echo MOUNTED; return 1; }\n')
+            (root / 'present').write_bytes(compatible_file('j700', 't8140'))
+            script = SCRIPT.read_text().replace('/run/lock', str(root / 'lock')).replace(
+                '/etc/sysconfig/update-m1n1', str(root / 'none')).replace(
+                '/etc/u-boot.conf', str(root / 'none')).replace(
+                '/usr/share/asahi-scripts/functions.sh', str(root / 'functions.sh'))
+            (root / 'update-m1n1').write_text(script)
+            settings = dict(os.environ, PATH=f'{root / "bin"}:{os.environ["PATH"]}',
+                            AURORA_DEVICE_TREE_COMPATIBLE=str(root / 'present'), **env)
+            settings.pop('TARGET', None)
+            result = subprocess.run(['bash', str(root / 'update-m1n1'), *args], env=settings,
+                                    capture_output=True, text=True)
+            return result, calls.read_text().split() if calls.exists() else []
+
+    def test_a_removal_inside_a_package_transaction_stops_before_the_esp(self):
+        result, calls = self.run_entry_point(defer=0, AURORA_KERNEL_ACTION='remove',
+                                             AURORA_KERNEL_VERSION='7.3.0-40.fc44.aurora.aarch64')
+        self.assertEqual((result.returncode, calls), (0, ['--defer-remove']), result.stderr)
+        self.assertNotIn('MOUNTED', result.stdout)
+
+    def test_a_removal_outside_one_updates_stage2_as_before(self):
+        result, calls = self.run_entry_point(AURORA_KERNEL_ACTION='remove', AURORA_KERNEL_VERSION='7.3')
+        self.assertEqual(calls[:2], ['--defer-remove', '--check'])
+        self.assertIn('MOUNTED', result.stdout)
+
+    def test_an_add_never_defers(self):
+        result, calls = self.run_entry_point(defer=0, AURORA_KERNEL_ACTION='add', AURORA_KERNEL_VERSION='7.3')
+        self.assertEqual(calls[:1], ['--check'])
+        self.assertIn('MOUNTED', result.stdout)
+
+    def test_transaction_triggers_touch_the_esp_only_for_a_deferred_removal(self):
+        result, calls = self.run_entry_point('--transaction-begin', AURORA_RPM_TRANSACTION_PID='4242')
+        self.assertEqual((result.returncode, calls), (0, ['--transaction-begin']), result.stderr)
+        result, calls = self.run_entry_point('--transaction-end')
+        self.assertEqual((result.returncode, calls), (0, ['--transaction-end']), result.stderr)
+        self.assertNotIn('MOUNTED', result.stdout)
+        # A removal left Stage 2 to the end: refresh as a plain update-m1n1 does.
+        result, calls = self.run_entry_point('--transaction-end', end=0)
+        self.assertEqual(calls[:2], ['--transaction-end', '--check'])
+        self.assertIn('MOUNTED', result.stdout)
 
     def test_image_build_ignores_the_builders_device_tree(self):
         text = (ROOT / 'scripts/build-image').read_text()

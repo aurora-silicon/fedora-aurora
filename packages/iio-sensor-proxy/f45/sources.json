@@ -1,0 +1,11 @@
+{
+  "iio-sensor-proxy": {
+    "repository": "https://gitlab.freedesktop.org/hadess/iio-sensor-proxy",
+    "commit": "0085ddf8ecb173a1c5fcf2344aa40e561125354f",
+    "version": "3.9",
+    "source_url": "https://gitlab.freedesktop.org/hadess/iio-sensor-proxy/-/archive/3.9/iio-sensor-proxy-3.9.tar.bz2",
+    "archive_root": "iio-sensor-proxy-3.9",
+    "archive_file": "iio-sensor-proxy-3.9.tar.bz2",
+    "sha256": "19a4ae99b1b8af603fc789841025f9747bf445418d69ec7389e75adb6c8186bf"
+  }
+}

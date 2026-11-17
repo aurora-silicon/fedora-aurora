@@ -1,0 +1,517 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 00:50:37 +1100
+Subject: [PATCH] kms: Support asynchronous page flips
+
+Query DRM_CAP_ASYNC_PAGE_FLIP and DRM_CAP_ATOMIC_ASYNC_PAGE_FLIP and
+expose the one matching the KMS mode as
+meta_kms_device_supports_async_page_flip().
+
+An update can now ask for an asynchronous flip with
+meta_kms_update_set_async_flip(). Such an update skips the deadline
+timer (it is committed as soon as it is ready, or as soon as the
+previous flip completed) and is committed with DRM_MODE_PAGE_FLIP_ASYNC:
+
+ - atomic: when the driver has the atomic cap and the update only
+   changes primary plane buffers (no mode set, connector, CRTC, color,
+   cursor or overlay plane changes, which atomic async commits cannot
+   carry); a commit the driver refuses is retried synchronously.
+ - legacy: drmModePageFlip with DRM_MODE_PAGE_FLIP_ASYNC when the driver
+   has the cap, retried synchronously when refused.
+
+Anything else falls back to a normal vertical blank synchronized flip.
+The feedback of an update says whether it was flipped asynchronously
+(meta_kms_feedback_is_async_flip()).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/backends/native/meta-kms-device.c         |   9 ++
+ src/backends/native/meta-kms-device.h         |   3 +
+ .../native/meta-kms-impl-device-atomic.c      |  38 ++++++-
+ .../native/meta-kms-impl-device-simple.c      |  75 +++++++++++--
+ src/backends/native/meta-kms-impl-device.c    |  24 +++-
+ src/backends/native/meta-kms-impl-device.h    |   2 +
+ src/backends/native/meta-kms-update-private.h |   8 ++
+ src/backends/native/meta-kms-update.c         | 106 ++++++++++++++++++
+ src/backends/native/meta-kms-update.h         |  10 ++
+ 9 files changed, 261 insertions(+), 14 deletions(-)
+
+diff --git a/src/backends/native/meta-kms-device.c b/src/backends/native/meta-kms-device.c
+index acf0b45..018927f 100644
+--- a/src/backends/native/meta-kms-device.c
++++ b/src/backends/native/meta-kms-device.c
+@@ -128,6 +128,15 @@ meta_kms_device_prefers_shadow_buffer (MetaKmsDevice *device)
+   return device->caps.prefers_shadow_buffer;
+ }
+ 
++gboolean
++meta_kms_device_supports_async_page_flip (MetaKmsDevice *device)
++{
++  if (META_IS_KMS_IMPL_DEVICE_ATOMIC (device->impl_device))
++    return device->caps.atomic_async_page_flip;
++  else
++    return device->caps.async_page_flip;
++}
++
+ gboolean
+ meta_kms_device_uses_monotonic_clock (MetaKmsDevice *device)
+ {
+diff --git a/src/backends/native/meta-kms-device.h b/src/backends/native/meta-kms-device.h
+index 564bfb9..717a5f4 100644
+--- a/src/backends/native/meta-kms-device.h
++++ b/src/backends/native/meta-kms-device.h
+@@ -49,6 +49,9 @@ gboolean meta_kms_device_prefers_shadow_buffer (MetaKmsDevice *device);
+ META_EXPORT_TEST
+ gboolean meta_kms_device_uses_monotonic_clock (MetaKmsDevice *device);
+ 
++META_EXPORT_TEST
++gboolean meta_kms_device_supports_async_page_flip (MetaKmsDevice *device);
++
+ META_EXPORT_TEST
+ GList * meta_kms_device_get_connectors (MetaKmsDevice *device);
+ 
+diff --git a/src/backends/native/meta-kms-impl-device-atomic.c b/src/backends/native/meta-kms-impl-device-atomic.c
+index 8c8da83..7f460b6 100644
+--- a/src/backends/native/meta-kms-impl-device-atomic.c
++++ b/src/backends/native/meta-kms-impl-device-atomic.c
+@@ -1084,6 +1084,8 @@ commit_flags_string (uint32_t commit_flags)
+     commit_flag_strings[i++] = "ATOMIC_ALLOW_MODESET";
+   if (commit_flags & DRM_MODE_PAGE_FLIP_EVENT)
+     commit_flag_strings[i++] = "PAGE_FLIP_EVENT";
++  if (commit_flags & DRM_MODE_PAGE_FLIP_ASYNC)
++    commit_flag_strings[i++] = "PAGE_FLIP_ASYNC";
+   if (commit_flags & DRM_MODE_ATOMIC_TEST_ONLY)
+     commit_flag_strings[i++] = "TEST_ONLY";
+ 
+@@ -1198,6 +1200,8 @@ meta_kms_impl_device_atomic_process_update (MetaKmsImplDevice *impl_device,
+   g_autoptr (GArray) blob_ids = NULL;
+   int fd;
+   uint32_t commit_flags = 0;
++  gboolean async_flip = FALSE;
++  MetaKmsFeedback *feedback;
+   int ret;
+ 
+   blob_ids = g_array_new (FALSE, TRUE, sizeof (uint32_t));
+@@ -1280,12 +1284,42 @@ meta_kms_impl_device_atomic_process_update (MetaKmsImplDevice *impl_device,
+   if (flags & META_KMS_UPDATE_FLAG_TEST_ONLY)
+     commit_flags |= DRM_MODE_ATOMIC_TEST_ONLY;
+ 
++  if (meta_kms_update_get_async_flip (update) &&
++      !(flags & META_KMS_UPDATE_FLAG_TEST_ONLY))
++    {
++      MetaKmsDeviceCaps *caps = meta_kms_impl_device_get_caps (impl_device);
++      const char *reason = NULL;
++
++      if (!caps->atomic_async_page_flip)
++        reason = "driver does not support atomic async page flips";
++      else if (meta_kms_update_can_flip_async (update, &reason))
++        async_flip = TRUE;
++
++      if (async_flip)
++        commit_flags |= DRM_MODE_PAGE_FLIP_ASYNC;
++      else
++        meta_topic (META_DEBUG_KMS,
++                    "[atomic] Not flipping asynchronously: %s", reason);
++    }
++
+   meta_topic (META_DEBUG_KMS,
+               "[atomic] Committing update flags: %s",
+               commit_flags_string (commit_flags));
+ 
+   fd = meta_kms_impl_device_get_fd (impl_device);
+   ret = drmModeAtomicCommit (fd, req, commit_flags, impl_device);
++  if (ret < 0 && async_flip)
++    {
++      /* The driver may refuse an asynchronous flip it cannot do right now
++       * (e.g. a buffer with a different modifier); flip synchronously.
++       */
++      meta_topic (META_DEBUG_KMS,
++                  "[atomic] Async page flip refused (%s), committing "
++                  "synchronously", g_strerror (-ret));
++      async_flip = FALSE;
++      commit_flags &= ~DRM_MODE_PAGE_FLIP_ASYNC;
++      ret = drmModeAtomicCommit (fd, req, commit_flags, impl_device);
++    }
+   if (ret < 0)
+     {
+       g_set_error (&error, G_IO_ERROR, g_io_error_from_errno (-ret),
+@@ -1306,7 +1340,9 @@ meta_kms_impl_device_atomic_process_update (MetaKmsImplDevice *impl_device,
+ 
+   release_blob_ids (impl_device, blob_ids);
+ 
+-  return meta_kms_feedback_new_passed (NULL);
++  feedback = meta_kms_feedback_new_passed (NULL);
++  meta_kms_feedback_set_async_flip (feedback, async_flip);
++  return feedback;
+ 
+ err:
+   meta_topic (META_DEBUG_KMS, "[atomic] KMS update failed: %s", error->message);
+diff --git a/src/backends/native/meta-kms-impl-device-simple.c b/src/backends/native/meta-kms-impl-device-simple.c
+index ae843d0..47608c5 100644
+--- a/src/backends/native/meta-kms-impl-device-simple.c
++++ b/src/backends/native/meta-kms-impl-device-simple.c
+@@ -65,6 +65,9 @@ struct _MetaKmsImplDeviceSimple
+   GList *posted_page_flip_datas;
+ 
+   GHashTable *cached_mode_sets;
++
++  /* Whether the page flip of the update being processed is asynchronous */
++  gboolean flipped_async;
+ };
+ 
+ static GInitableIface *initable_parent_iface;
+@@ -1141,18 +1144,59 @@ dispatch_page_flip (MetaKmsImplDevice    *impl_device,
+   fd = meta_kms_impl_device_get_fd (impl_device);
+   fb_id = meta_drm_buffer_get_fb_id (plane_assignment->buffer);
+ 
+-  meta_topic (META_DEBUG_KMS,
+-              "[simple] Page flipping CRTC %u (%s) with %u, data: %p",
+-              meta_kms_crtc_get_id (crtc),
+-              meta_kms_impl_device_get_path (impl_device),
+-              fb_id,
+-              page_flip_data);
++  ret = -EINVAL;
++  if (meta_kms_update_get_async_flip (update) &&
++      !meta_kms_update_get_mode_sets (update))
++    {
++      MetaKmsDeviceCaps *caps = meta_kms_impl_device_get_caps (impl_device);
+ 
+-  ret = drmModePageFlip (fd,
+-                         meta_kms_crtc_get_id (crtc),
+-                         fb_id,
+-                         DRM_MODE_PAGE_FLIP_EVENT,
+-                         page_flip_data);
++      if (caps->async_page_flip)
++        {
++          meta_topic (META_DEBUG_KMS,
++                      "[simple] Page flipping CRTC %u (%s) asynchronously "
++                      "with %u, data: %p",
++                      meta_kms_crtc_get_id (crtc),
++                      meta_kms_impl_device_get_path (impl_device),
++                      fb_id,
++                      page_flip_data);
++
++          ret = drmModePageFlip (fd,
++                                 meta_kms_crtc_get_id (crtc),
++                                 fb_id,
++                                 DRM_MODE_PAGE_FLIP_EVENT |
++                                 DRM_MODE_PAGE_FLIP_ASYNC,
++                                 page_flip_data);
++          if (ret == 0)
++            impl_device_simple->flipped_async = TRUE;
++          else
++            meta_topic (META_DEBUG_KMS,
++                        "[simple] Async page flip refused (%s), flipping "
++                        "synchronously",
++                        g_strerror (-ret));
++        }
++      else
++        {
++          meta_topic (META_DEBUG_KMS,
++                      "[simple] Not flipping asynchronously: driver does not "
++                      "support async page flips");
++        }
++    }
++
++  if (!impl_device_simple->flipped_async)
++    {
++      meta_topic (META_DEBUG_KMS,
++                  "[simple] Page flipping CRTC %u (%s) with %u, data: %p",
++                  meta_kms_crtc_get_id (crtc),
++                  meta_kms_impl_device_get_path (impl_device),
++                  fb_id,
++                  page_flip_data);
++
++      ret = drmModePageFlip (fd,
++                             meta_kms_crtc_get_id (crtc),
++                             fb_id,
++                             DRM_MODE_PAGE_FLIP_EVENT,
++                             page_flip_data);
++    }
+ 
+   if (ret == -EBUSY)
+     {
+@@ -1664,9 +1708,12 @@ meta_kms_impl_device_simple_process_update (MetaKmsImplDevice *impl_device,
+                                             MetaKmsUpdate     *update,
+                                             MetaKmsUpdateFlag  flags)
+ {
++  MetaKmsImplDeviceSimple *impl_device_simple =
++    META_KMS_IMPL_DEVICE_SIMPLE (impl_device);
+   GError *error = NULL;
+   GList *failed_planes = NULL;
+   g_autoptr (GArray) blob_ids = NULL;
++  MetaKmsFeedback *feedback;
+ 
+   blob_ids = g_array_new (FALSE, TRUE, sizeof (uint32_t));
+ 
+@@ -1710,13 +1757,17 @@ meta_kms_impl_device_simple_process_update (MetaKmsImplDevice *impl_device,
+   if (!process_plane_assignments (impl_device, update, &failed_planes, &error))
+     goto err;
+ 
++  impl_device_simple->flipped_async = FALSE;
+   if (!maybe_dispatch_page_flips (impl_device, update, &failed_planes, flags,
+                                   &error))
+     goto err;
+ 
+   release_blob_ids (impl_device, blob_ids);
+ 
+-  return meta_kms_feedback_new_passed (failed_planes);
++  feedback = meta_kms_feedback_new_passed (failed_planes);
++  meta_kms_feedback_set_async_flip (feedback, impl_device_simple->flipped_async);
++  impl_device_simple->flipped_async = FALSE;
++  return feedback;
+ 
+ err:
+   release_blob_ids (impl_device, blob_ids);
+diff --git a/src/backends/native/meta-kms-impl-device.c b/src/backends/native/meta-kms-impl-device.c
+index 78ac4e0..ee61781 100644
+--- a/src/backends/native/meta-kms-impl-device.c
++++ b/src/backends/native/meta-kms-impl-device.c
+@@ -576,6 +576,7 @@ init_caps (MetaKmsImplDevice *impl_device)
+   uint64_t prefer_shadow;
+   uint64_t uses_monotonic_clock;
+   uint64_t addfb2_modifiers;
++  uint64_t async_page_flip;
+ 
+   fd = meta_device_file_get_fd (priv->device_file);
+   if (drmGetCap (fd, DRM_CAP_CURSOR_WIDTH, &cursor_width) == 0 &&
+@@ -603,6 +604,21 @@ init_caps (MetaKmsImplDevice *impl_device)
+     {
+       priv->caps.addfb2_modifiers = (addfb2_modifiers != 0);
+     }
++
++  if (drmGetCap (fd, DRM_CAP_ASYNC_PAGE_FLIP, &async_page_flip) == 0)
++    priv->caps.async_page_flip = (async_page_flip != 0);
++
++#ifndef DRM_CAP_ATOMIC_ASYNC_PAGE_FLIP
++#define DRM_CAP_ATOMIC_ASYNC_PAGE_FLIP 0x15
++#endif
++  if (drmGetCap (fd, DRM_CAP_ATOMIC_ASYNC_PAGE_FLIP, &async_page_flip) == 0)
++    priv->caps.atomic_async_page_flip = (async_page_flip != 0);
++
++  meta_topic (META_DEBUG_KMS,
++              "Device '%s' async page flips: legacy %s, atomic %s",
++              priv->path,
++              priv->caps.async_page_flip ? "yes" : "no",
++              priv->caps.atomic_async_page_flip ? "yes" : "no");
+ }
+ 
+ static void
+@@ -2052,8 +2068,12 @@ meta_kms_impl_device_update_ready (MetaThreadImpl  *impl,
+ 
+   latch_crtc = g_steal_pointer (&crtc_frame->submitted_update.latch_crtc);
+ 
++  /* An asynchronous flip is committed as soon as it is ready, not at the
++   * deadline before the next vertical blank.
++   */
+   want_deadline_timer =
+     !crtc_frame->await_flush &&
++    !meta_kms_update_get_async_flip (update) &&
+     is_using_deadline_timer (impl_device, latch_crtc);
+ 
+   maybe_set_kms_ready_time (crtc_frame, update);
+@@ -2289,7 +2309,9 @@ meta_kms_impl_device_schedule_process (MetaKmsImplDevice *impl_device,
+       if (crtc_frame->pending_page_flip)
+         return;
+ 
+-      if (ensure_deadline_timer_armed (impl_device, crtc_frame))
++      if (!(crtc_frame->pending_update &&
++            meta_kms_update_get_async_flip (crtc_frame->pending_update)) &&
++          ensure_deadline_timer_armed (impl_device, crtc_frame))
+         return;
+ 
+       if (crtc_frame->pending_update)
+diff --git a/src/backends/native/meta-kms-impl-device.h b/src/backends/native/meta-kms-impl-device.h
+index 5717392..ff2d70c 100644
+--- a/src/backends/native/meta-kms-impl-device.h
++++ b/src/backends/native/meta-kms-impl-device.h
+@@ -39,6 +39,8 @@ typedef struct _MetaKmsDeviceCaps
+   gboolean uses_monotonic_clock;
+   gboolean addfb2_modifiers;
+   gboolean supports_color_modes;
++  gboolean async_page_flip;
++  gboolean atomic_async_page_flip;
+ } MetaKmsDeviceCaps;
+ 
+ 
+diff --git a/src/backends/native/meta-kms-update-private.h b/src/backends/native/meta-kms-update-private.h
+index 9d5ab31..5fa5537 100644
+--- a/src/backends/native/meta-kms-update-private.h
++++ b/src/backends/native/meta-kms-update-private.h
+@@ -56,6 +56,8 @@ typedef struct _MetaKmsFeedback
+ 
+   GList *failed_planes;
+   GError *error;
++
++  gboolean async_flip;
+ } MetaKmsFeedback;
+ 
+ typedef struct _MetaKmsFbDamage
+@@ -242,5 +244,11 @@ void meta_kms_page_flip_listener_unref (MetaKmsPageFlipListener *listener);
+ 
+ gboolean meta_kms_update_is_empty (MetaKmsUpdate *update);
+ 
++gboolean meta_kms_update_can_flip_async (MetaKmsUpdate  *update,
++                                         const char    **reason);
++
++void meta_kms_feedback_set_async_flip (MetaKmsFeedback *feedback,
++                                       gboolean         async_flip);
++
+ G_DEFINE_AUTOPTR_CLEANUP_FUNC (MetaKmsPlaneFeedback,
+                                meta_kms_plane_feedback_free)
+diff --git a/src/backends/native/meta-kms-update.c b/src/backends/native/meta-kms-update.c
+index 475660e..119abfa 100644
+--- a/src/backends/native/meta-kms-update.c
++++ b/src/backends/native/meta-kms-update.c
+@@ -53,6 +53,8 @@ struct _MetaKmsUpdate
+   int sync_fd;
+ 
+   int64_t target_presentation_time_us;
++
++  gboolean async_flip;
+ };
+ 
+ void
+@@ -1158,6 +1160,11 @@ meta_kms_update_merge_from (MetaKmsUpdate *update,
+   update->target_presentation_time_us =
+     MAX (update->target_presentation_time_us,
+          other_update->target_presentation_time_us);
++
++  /* Whether the merged update can still flip asynchronously is checked when
++   * it is committed (meta_kms_update_can_flip_async()).
++   */
++  update->async_flip |= other_update->async_flip;
+ }
+ 
+ gboolean
+@@ -1264,3 +1271,102 @@ meta_kms_update_is_empty (MetaKmsUpdate *update)
+           !update->crtc_updates &&
+           !update->crtc_color_updates);
+ }
++
++/**
++ * meta_kms_update_set_async_flip:
++ * @update: a #MetaKmsUpdate
++ * @async_flip: whether to page flip without waiting for vertical blank
++ *
++ * Asks for the update to be committed with an asynchronous (tearing) page
++ * flip, right away instead of at the deadline before the next vertical
++ * blank. The device falls back to a synchronous flip when the driver cannot
++ * flip asynchronously, when the update changes more than the primary plane
++ * buffers, or when the driver refuses the asynchronous flip.
++ */
++void
++meta_kms_update_set_async_flip (MetaKmsUpdate *update,
++                                gboolean       async_flip)
++{
++  update->async_flip = async_flip;
++}
++
++gboolean
++meta_kms_update_get_async_flip (MetaKmsUpdate *update)
++{
++  return update->async_flip;
++}
++
++/*
++ * Atomic asynchronous page flips may only change the buffers of primary
++ * planes; anything else (mode sets, connector or CRTC properties, color
++ * updates, cursor or overlay planes) needs a synchronous commit.
++ */
++gboolean
++meta_kms_update_can_flip_async (MetaKmsUpdate  *update,
++                                const char    **reason)
++{
++  GList *l;
++
++  if (update->mode_sets || update->needs_modeset)
++    {
++      *reason = "mode set";
++      return FALSE;
++    }
++
++  if (update->connector_updates)
++    {
++      *reason = "connector update";
++      return FALSE;
++    }
++
++  if (update->crtc_updates)
++    {
++      *reason = "CRTC update";
++      return FALSE;
++    }
++
++  if (update->crtc_color_updates)
++    {
++      *reason = "CRTC color update";
++      return FALSE;
++    }
++
++  if (!update->plane_assignments)
++    {
++      *reason = "no plane assignment";
++      return FALSE;
++    }
++
++  for (l = update->plane_assignments; l; l = l->next)
++    {
++      MetaKmsPlaneAssignment *plane_assignment = l->data;
++
++      if (meta_kms_plane_get_plane_type (plane_assignment->plane) !=
++          META_KMS_PLANE_TYPE_PRIMARY)
++        {
++          *reason = "non-primary plane update";
++          return FALSE;
++        }
++
++      if (!plane_assignment->buffer)
++        {
++          *reason = "primary plane disabled";
++          return FALSE;
++        }
++    }
++
++  return TRUE;
++}
++
++gboolean
++meta_kms_feedback_is_async_flip (const MetaKmsFeedback *feedback)
++{
++  return feedback->async_flip;
++}
++
++void
++meta_kms_feedback_set_async_flip (MetaKmsFeedback *feedback,
++                                  gboolean         async_flip)
++{
++  feedback->async_flip = async_flip;
++}
+diff --git a/src/backends/native/meta-kms-update.h b/src/backends/native/meta-kms-update.h
+index 2ac666f..d339b14 100644
+--- a/src/backends/native/meta-kms-update.h
++++ b/src/backends/native/meta-kms-update.h
+@@ -90,6 +90,9 @@ const GError * meta_kms_feedback_get_error (const MetaKmsFeedback *feedback);
+ 
+ int64_t meta_kms_feedback_get_ready_time_us (const MetaKmsFeedback *feedback);
+ 
++META_EXPORT_TEST
++gboolean meta_kms_feedback_is_async_flip (const MetaKmsFeedback *feedback);
++
+ void meta_kms_feedback_set_ready_time_us (MetaKmsFeedback *feedback,
+                                           int64_t          ready_time_us);
+ 
+@@ -172,6 +175,13 @@ int64_t meta_kms_update_get_target_presentation_time (MetaKmsUpdate *update);
+ void meta_kms_update_set_target_presentation_time (MetaKmsUpdate *update,
+                                                    int64_t        target_presentation_time_us);
+ 
++META_EXPORT_TEST
++void meta_kms_update_set_async_flip (MetaKmsUpdate *update,
++                                     gboolean       async_flip);
++
++META_EXPORT_TEST
++gboolean meta_kms_update_get_async_flip (MetaKmsUpdate *update);
++
+ void meta_kms_plane_assignment_set_fb_damage (MetaKmsPlaneAssignment *plane_assignment,
+                                               const MtkRegion        *region);
+ 

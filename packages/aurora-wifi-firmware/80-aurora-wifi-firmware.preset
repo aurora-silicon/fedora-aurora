@@ -1,0 +1,2 @@
+# macOS runs the Wi-Fi firmware its system volume ships; follow it.
+enable aurora-wifi-firmware.service

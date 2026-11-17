@@ -19,7 +19,7 @@ The platform includes `avd-fw` from Aurora's firmware fork and `upower` from Aur
 
 ## Updates and distribution
 
-[Fedora 45 testing](docs/fedora45-testing.md) describes the release-specific build and publication path. `aurora-repos` selects `44/testing/aarch64` or `45/testing/aarch64` through `$releasever`; stable remains Fedora 44 only.
+[Fedora 45 testing](docs/fedora45-testing.md) describes the release-specific build and publication path. `aurora-repos` selects `44/testing/aarch64` or `45/testing/aarch64` through `$releasever`; stable remains Fedora 44 only. [Upgrading from Fedora 44 to 45](docs/upgrade-fedora45.md) covers `dnf system-upgrade` for installed systems.
 
 See [the release procedure](RELEASING.md) for package publication, image and catalog pairing, native installer delivery, hardware qualification and snapshot restoration.
 

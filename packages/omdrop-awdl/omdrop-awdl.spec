@@ -1,4 +1,4 @@
-%global commit ffc201f33773541063f2f3d57c8a279cad5ede11
+%global commit 9b59420299203805b213f7f65fbcba1d7690177f
 %global plugin_commit e5aa51a41f963e73b5a67914cae3c916a83739f1
 # -s only: the helpers import their sibling modules from their own directory,
 # which -P (safe path) would take off sys.path.
@@ -9,12 +9,12 @@
 # the omdrop-awdl helpers (create awdl0, open a discoverable window, send) and
 # the receiver from omdrop-plugin. Everything is installed off.
 Name:           omdrop-awdl
-Version:        0.10.5
-Release:        1%{?dist}.aurora3
+Version:        0.10.7
+Release:        1%{?dist}.aurora1
 Summary:        AirDrop over firmware-native AWDL on Apple Silicon Macs
 License:        GPL-2.0-only AND MIT
 URL:            https://github.com/netmojo-systems/omdrop-awdl
-# Upstream main at 0.10.5 (ffc201f33773), pinned in sources.json.
+# Upstream 0.10.7 (9b5942029920), pinned in sources.json.
 Source0:        omdrop-awdl-%{commit}.tar.gz
 # The receiver (bin/airdrop-serve.py and its modules), MIT; pinned in sources.json.
 Source1:        omdrop-plugin-%{plugin_commit}.tar.gz
@@ -174,6 +174,10 @@ grep -q '^ExecStartPre=+/usr/bin/mkdir -p -m 0700 %%h/.omdrop$' %{buildroot}%{_u
 %{_userunitdir}/airdrop-receiver.service
 
 %changelog
+* Tue Nov 17 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.10.7-1.aurora1
+- Update to upstream 0.10.7 (brcmfmac AWDL provenance probe, warm-up opt-in);
+  the three Aurora patches apply unchanged.
+
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.10.5-1.aurora3
 - Set awdl_osoc_chan (5 GHz social channel, default 149, /etc/omdrop/osoc-chan)
   when a window opens. Without it macOS hears us only on 2.4 GHz and will

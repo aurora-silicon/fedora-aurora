@@ -18,6 +18,15 @@ creator NAME_CONFLICT handling remain. No firewall rules or logging levels
 are weakened. See [the upstream report](https://github.com/moby/moby/issues/53752).
 The patch includes mocked D-Bus tests for each branch. Docker remains optional.
 
+Under firewalld, Docker's startup cleanup sends a delete for every legacy
+chain and jump rule through firewalld's passthrough, and firewalld logs each
+one that fails as a `COMMAND_FAILED` warning: 64 warnings per start when the
+chains are absent, as on every boot. The Fedora engine now asks the iptables
+binary first (a read-only listing or `-C` check) and skips chains and jump
+rules that do not exist. Chains that exist are still flushed and deleted as
+before, and without firewalld nothing changes. If the binary cannot run, the
+old unconditional cleanup runs.
+
 The optional `/var/swap/swapfile2` unit is ordered after
 `/var/swap/swapfile`. Btrfs serializes swapfile activation as an exclusive
 filesystem operation, so parallel activation can return EBUSY. Fedora and
@@ -52,8 +61,8 @@ retains its source checksums and adds the engine patch and regression check.
 On NixOS the existing pinned Docker 29 derivation builds the patched engine;
 the CLI, wrappers and exposed `.moby` output all use that derivation.
 
-Remove the engine patch when the selected upstream release checks permanent
-policy names before creation. Remove the ABRT patch when its startup scanner
+Remove the engine patches when the selected upstream release checks permanent
+policy names before creation and skips absent chains in its startup cleanup. Remove the ABRT patch when its startup scanner
 respects the `.new` publication boundary. Keep the BlueZ minimum while 5.86
 could otherwise resolve, and keep swap ordering while two conventional
 swapfiles can coexist. Reverting these commits restores the prior recipes;

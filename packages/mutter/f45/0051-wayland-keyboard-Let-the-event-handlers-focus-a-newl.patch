@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 07:47:50 +1100
+Subject: [PATCH] wayland/keyboard: Let the event handlers focus a newly
+ enabled keyboard
+
+When the seat gained a keyboard, its focus was set straight to the
+input focus surface, bypassing the event handler stack. While the
+session is locked that is the focused normal window, so a keyboard
+plugged in while locked typed into it instead of the lock surface.
+
+Invalidate the key focus through the current handler instead; without
+a handler grabbing the focus this still resolves to the input focus.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/wayland/meta-wayland-keyboard.c | 18 +++++++++++++++++-
+ 1 file changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/src/wayland/meta-wayland-keyboard.c b/src/wayland/meta-wayland-keyboard.c
+index 0b50eb6..c409821 100644
+--- a/src/wayland/meta-wayland-keyboard.c
++++ b/src/wayland/meta-wayland-keyboard.c
+@@ -54,6 +54,7 @@
+ #include "backends/meta-backend-private.h"
+ #include "core/display-private.h"
+ #include "mtk/mtk.h"
++#include "wayland/meta-wayland-input.h"
+ #include "wayland/meta-wayland-private.h"
+ 
+ typedef struct
+@@ -458,7 +459,22 @@ meta_wayland_keyboard_enable (MetaWaylandKeyboard *keyboard)
+   meta_wayland_keyboard_take_keymap (keyboard,
+                                      meta_backend_get_xkb_keymap (backend));
+ 
+-  meta_wayland_keyboard_set_focus (keyboard, seat->input_focus);
++  /* Let the current event handler pick the focus (the input focus, unless
++   * e.g. the session is locked), as for any other keyboard focus change. */
++  if (seat->input_handler)
++    {
++      ClutterBackend *clutter_backend =
++        meta_backend_get_clutter_backend (backend);
++      ClutterStage *stage = CLUTTER_STAGE (meta_backend_get_stage (backend));
++
++      meta_wayland_input_invalidate_focus (
++        seat->input_handler,
++        CLUTTER_FOCUS (clutter_backend_get_key_focus (clutter_backend, stage)));
++    }
++  else
++    {
++      meta_wayland_keyboard_set_focus (keyboard, seat->input_focus);
++    }
+ }
+ 
+ static void

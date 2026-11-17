@@ -1,6 +1,6 @@
-%global commit 40ef135195724e077a10cf5688b530d32552eb6f
+%global commit bbd9ed30ac43ff4fee3a8b279ff994180d8148cb
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261110
+%global snapdate 20261117
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.40.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.49.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -24,6 +24,11 @@ BuildRequires: systemd-rpm-macros
 BuildRequires: selinux-policy-devel make bzip2
 Requires: (%{name}-selinux = %{version}-%{release} if selinux-policy-%{selinuxtype})
 Requires: pipewire-module-filter-chain-lv2
+# Aurora's PipeWire build: it applies the volume once, on the voicing
+# control (Fedora's attenuates a second time after a repeated volume or mute
+# update), and recovers a start the kernel refused. The unversioned
+# requirement above is met by Fedora's PipeWire, which lacks both.
+Requires: pipewire-speaker-graph >= 2
 # Provisioning, the gate, the self-check and the session helper: Python,
 # the ALSA tools (the gate's interface probe and the silent switch test),
 # pw-link/pw-dump for the speaker graph, loginctl for the seat user and
@@ -243,11 +248,87 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
-* Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.40.20261110git40ef13519572
-- Release candidate 9 (speakerguardd#144, on top of 8.6):
-  aurora-speaker-upgrade switches without the preview confirmation, and
-  the boot unit no longer needs --i-understand-preview (still accepted,
-  no effect). The package description drops the preview notice.
+* Tue Nov 17 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.49.20261117gitbbd9ed30ac43
+- Release candidate 9 (speakerguardd#144): v2 is no longer labelled a
+  preview; aurora-speaker-upgrade switches without the preview
+  confirmation (--i-understand-preview is still accepted, no effect).
+  Still opt-in: nothing here enables the upgrade unit.
+- speakerguardd#186: /etc/speakerguardd keeps mode 0755 (provisioning
+  repairs a 0700 directory), so the seat user's session reads
+  speakerguardd.conf after a switch.
+- speakerguardd#189, #190: provision.json and provision.bind are root
+  only (0600); provisioning says why a seat user's session gets no graph.
+- speakerguardd#191: aurora-speaker-tuning compile --unit-id-file.
+- speakerguardd#192: spp3 and the LV2 plugin model the drive the
+  supervisor asks for over the engine page, and acknowledge it.
+
+* Fri Nov 13 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.48.20261113git04169c447065
+- speakerguardd#168: speaker startup robustness: the session selects the
+  Secondary speaker route before provisioning, the self-check requires every
+  configured graph node before its silent pilots, and the supervisor enables
+  and verifies V/I sense before granting protection.
+- speakerguardd#169, #175: the supervisor can offer the LSID sense source and
+  the LV2 plugin binds the unit's LSID companion to it. No Mac here has that
+  companion, so it stays muted and runtime is unchanged.
+- speakerguardd#173: parity.json re-attested to voicing law a8c2a491; renders
+  byte-identical, protection limits and tolerance unchanged.
+
+* Fri Nov 13 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.47.20261113git26b88eac71bf
+- speakerguardd#158: the T6050 AOP audio transport (same driver
+  configuration as the T8142).
+- speakerguardd#159: aurora-speaker-upgrade goes on to route 3 after an
+  unknown speaker ID.
+
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.46.20261112git836a0efa19fc
+- Require pipewire-speaker-graph >= 2 (Aurora's PipeWire): with Fedora's,
+  a repeated volume or mute update made PipeWire apply the volume a second
+  time in software on top of the voicing control.
+
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.45.20261112git836a0efa19fc
+- speakerguardd#167: a capture of the amps' sink is unlinked until the
+  grant, so nothing wakes the sink before it; grants that a fault ends
+  within 2 s are spaced out from the second one in a row (250 ms up to
+  4 s); a late helper-liveness check vouches for up to 250 ms (12 ms
+  before), a dead helper still counts at once.
+
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.44.20261112git26db27188637
+- speakerguardd#165: the session parity attestations are regenerated at the
+  current voicing law, so `speakerguardd-selfcheck verify` accepts the
+  shipped tunings again (dda9784b refused every Mac after #157 changed
+  law-hashed files). No verdict changes.
+- speakerguardd#166: verify gates every tuning at volume sliders 0.7, 0.46
+  and 0.25.
+
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.43.20261112gitdda9784b09bc
+- speakerguardd#163: speakerguardd-provision session-stop and
+  session-start (bounded: 15 s after SIGTERM, then SIGKILL); the graph
+  refresh and the revert restart the session through them instead of
+  try-restart. Also speakerguardd#157 (lsm2 fill from the owner's own
+  collection), #164 (spp3 reports whether the closed-loop temperature
+  is current) and #161 (the J713's speaker service PCMs open at their own
+  width).
+
+* Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.42.20261112gitd2bc197249b4
+- speakerguardd#162: the gate reads the kernel's interface only from the
+  speaker card and waits for it, whatever order the cards register in
+  (a J616s on 7.3.0-33 registered the jack card 2 s before the speaker
+  card); tests for the card order. v2 stays a preview and opt-in.
+
+* Wed Nov 11 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.41.20261111gitea73fdf0eebc
+- Release candidate 8.8 (speakerguardd#153-#156 on top of RC8.7): the
+  speakers' volume is kept across graph restarts and a first start begins
+  at 30 % instead of 100 %; the first start after the switch test no
+  longer waits 60 s; lsm2 applies MaxTemperatureAttenuation as macOS does.
+  v2 stays a preview and opt-in.
+
+* Wed Nov 11 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.40.20261111git24451b6f817d
+- Release candidate 8.7 (speakerguardd#149): with nothing playing the
+  speaker path powers down (amps and sense unlinked, both PCMs closed, the
+  grant given back), as macOS does: about 1 W less at idle on a MacBook Air
+  M2, 0.4 W on a MacBook Pro M1 Pro. The stream that wakes the speakers
+  loses nothing: its first frames are held until the amps play, then
+  played in order. The self-check's graph step accounts for the sink
+  starting again with each first stream. v2 stays a preview and opt-in.
 
 * Tue Nov 10 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.39.20261110gitd69f0115edc1
 - Release candidate 8.6, a bug-fix release (speakerguardd#151, #152,

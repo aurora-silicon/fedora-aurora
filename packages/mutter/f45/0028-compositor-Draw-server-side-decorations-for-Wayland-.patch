@@ -1,0 +1,1246 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 22:06:42 +1100
+Subject: [PATCH] compositor: Draw server-side decorations for Wayland
+ toplevels
+
+Add MetaWindowDecoration, a child of the Wayland window actor that draws
+the titlebar and border of a toplevel that negotiated server-side
+decorations with xdg-decoration. It sits below the client's surfaces and
+covers the frame rect, plus an invisible resize margin while the window
+is floating; it is dropped for fullscreen windows.
+
+The look follows the default GNOME titlebar: a light headerbar with the
+window title in the titlebar-font, centered and ellipsized, round
+symbolic buttons in the button-layout order (menu, minimize, maximize or
+restore, close, as far as the window supports them), a backdrop style
+for unfocused windows and a translucent 1 px border. libmutter has no
+cairo without Xwayland, so the button images are rasterized with 4x4
+supersampling into Cogl textures, at the actor's resource scale.
+
+get_window_for_event() resolves a decoration to its window (only
+surface actors were looked up), so a click on it focuses and raises the
+window as usual, and meta_display_handle_event() then hands the pointer
+event to meta_window_decoration_handle_event(). Buttons highlight on
+hover and press, and act on release over the same button. A titlebar
+press starts a move grab; the double, middle and right click titlebar
+actions are honoured. The edges and corners start resize grabs and set
+resize cursors. Motion is still passed on, so the client gets its leave
+event.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/compositor/meta-window-actor-wayland.c |  60 +-
+ src/compositor/meta-window-decoration.c    | 985 +++++++++++++++++++++
+ src/compositor/meta-window-decoration.h    |  43 +
+ src/core/events.c                          |  18 +-
+ src/meson.build                            |   2 +
+ 5 files changed, 1105 insertions(+), 3 deletions(-)
+ create mode 100644 src/compositor/meta-window-decoration.c
+ create mode 100644 src/compositor/meta-window-decoration.h
+
+diff --git a/src/compositor/meta-window-actor-wayland.c b/src/compositor/meta-window-actor-wayland.c
+index 540975a..56af113 100644
+--- a/src/compositor/meta-window-actor-wayland.c
++++ b/src/compositor/meta-window-actor-wayland.c
+@@ -24,6 +24,8 @@
+ #include "compositor/meta-cullable.h"
+ #include "compositor/meta-surface-actor-wayland.h"
+ #include "compositor/meta-window-actor-wayland.h"
++#include "compositor/meta-window-decoration.h"
++#include "core/meta-window-config-private.h"
+ #include "meta/meta-window-actor.h"
+ #include "wayland/meta-wayland-actor-surface.h"
+ #include "wayland/meta-wayland-buffer.h"
+@@ -50,6 +52,7 @@ struct _MetaWindowActorWayland
+ {
+   MetaWindowActor parent;
+   ClutterActor *background;
++  MetaWindowDecoration *decoration;
+   MetaSurfaceContainerActorWayland *surface_container;
+   gulong highest_scale_monitor_handler_id;
+   gboolean needs_sync;
+@@ -531,7 +534,8 @@ meta_window_actor_wayland_is_single_surface_actor (MetaWindowActor *actor)
+   ClutterActor *surface_container = CLUTTER_ACTOR (self->surface_container);
+ 
+   return clutter_actor_get_n_children (surface_container) == 1 &&
+-         !self->background;
++         !self->background &&
++         !self->decoration;
+ }
+ 
+ static gboolean
+@@ -593,6 +597,58 @@ maybe_configure_black_background (MetaWindowActorWayland *self,
+   return TRUE;
+ }
+ 
++static void
++sync_decoration (MetaWindowActorWayland *self)
++{
++  MetaWindowActor *actor = META_WINDOW_ACTOR (self);
++  MetaWindow *window = meta_window_actor_get_meta_window (actor);
++  MetaFrameBorder borders;
++  MtkRectangle frame_rect;
++  float geometry_scale;
++
++  if (meta_window_wayland_is_server_side_decorated (META_WINDOW_WAYLAND (window)))
++    meta_window_wayland_get_decoration_borders (window, NULL, &borders);
++  else
++    borders = (MetaFrameBorder) { 0 };
++
++  if (borders.left == 0 && borders.right == 0 &&
++      borders.top == 0 && borders.bottom == 0)
++    {
++      if (self->decoration)
++        {
++          clutter_actor_destroy (CLUTTER_ACTOR (self->decoration));
++          self->decoration = NULL;
++        }
++      return;
++    }
++
++  if (!self->decoration)
++    {
++      self->decoration = meta_window_decoration_new (window);
++      clutter_actor_insert_child_below (CLUTTER_ACTOR (self),
++                                        CLUTTER_ACTOR (self->decoration),
++                                        CLUTTER_ACTOR (self->surface_container));
++    }
++
++  geometry_scale = (float) meta_window_actor_get_geometry_scale (actor);
++  frame_rect = meta_window_config_get_rect (window->config);
++  borders.left = (int16_t) (borders.left / geometry_scale);
++  borders.right = (int16_t) (borders.right / geometry_scale);
++  borders.top = (int16_t) (borders.top / geometry_scale);
++  borders.bottom = (int16_t) (borders.bottom / geometry_scale);
++
++  meta_window_decoration_set_geometry (self->decoration,
++                                       window->custom_frame_extents.left /
++                                       geometry_scale,
++                                       window->custom_frame_extents.top /
++                                       geometry_scale,
++                                       frame_rect.width / geometry_scale,
++                                       frame_rect.height / geometry_scale,
++                                       &borders,
++                                       meta_window_config_is_floating (window->config) &&
++                                       window->has_resize_func);
++}
++
+ static gboolean
+ do_sync_geometry (MetaWindowActorWayland *self)
+ {
+@@ -608,6 +664,8 @@ do_sync_geometry (MetaWindowActorWayland *self)
+   if (!clutter_actor_is_mapped (CLUTTER_ACTOR (actor)))
+     return FALSE;
+ 
++  sync_decoration (self);
++
+   if (maybe_configure_black_background (self,
+                                         &surfaces_width, &surfaces_height,
+                                         &background_width, &background_height))
+diff --git a/src/compositor/meta-window-decoration.c b/src/compositor/meta-window-decoration.c
+new file mode 100644
+index 0000000..d9b4843
+--- /dev/null
++++ b/src/compositor/meta-window-decoration.c
+@@ -0,0 +1,985 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++/*
++ * MetaWindowDecoration: the titlebar, buttons and borders Mutter draws
++ * around a Wayland toplevel that negotiated server-side decorations with
++ * xdg-decoration.
++ *
++ * It is a child of the window actor, placed below the client's surfaces
++ * and covering the window's frame rect plus an invisible resize margin.
++ * The frame rect of such a window includes the decoration (see
++ * meta_window_wayland_finish_move_resize()), so placement, constraints,
++ * maximization and tiling treat it like an X11 frame.
++ *
++ * Mutter has no theme engine for Wayland windows, so the look follows the
++ * default GNOME titlebar: a light headerbar with a bold centered title and
++ * round symbolic buttons laid out by the button-layout preference. The
++ * button images are rasterized here, as libmutter has no cairo without
++ * Xwayland.
++ *
++ * Input is handled by meta_window_decoration_handle_event(), called from
++ * meta_display_handle_event(): the buttons act on release, a titlebar
++ * press starts a move (or runs the double/middle/right click titlebar
++ * action) and an edge press starts a resize.
++ */
++
++#include "config.h"
++
++#include "compositor/meta-window-decoration.h"
++
++#include <gdesktop-enums.h>
++#include <math.h>
++
++#include "clutter/clutter-pango.h"
++
++#include "core/window-private.h"
++#include "meta/meta-backend.h"
++#include "meta/meta-context.h"
++#include "meta/meta-debug.h"
++#include "meta/prefs.h"
++
++#define BUTTON_SIZE 24
++#define BUTTON_SPACING 6
++#define BUTTON_PADDING 7
++#define TITLE_PADDING 12
++#define RESIZE_MARGIN 8
++#define RESIZE_CORNER 16
++#define DOUBLE_CLICK_TIME_MS 400
++
++typedef enum _DecorationPart
++{
++  PART_NONE,
++  PART_TITLEBAR,
++  PART_BUTTON,
++  PART_EDGE,
++} DecorationPart;
++
++typedef struct _DecorationButton
++{
++  MetaWindowDecoration *decoration;
++  ClutterActor *actor;
++  MetaButtonFunction function;
++  gboolean hovered;
++  gboolean pressed;
++  /* Last rendered state */
++  int state_key;
++} DecorationButton;
++
++struct _MetaWindowDecoration
++{
++  ClutterActor parent;
++
++  MetaWindow *window;
++
++  ClutterActor *border;
++  ClutterActor *titlebar;
++  ClutterActor *title;
++  ClutterActor *edges[8];
++  GPtrArray *buttons;
++
++  float width;
++  float height;
++  MetaFrameBorder borders;
++  gboolean resizable;
++  float margin;
++
++  gboolean listening_to_prefs;
++
++  uint32_t last_titlebar_press_time;
++  DecorationButton *pressed_button;
++};
++
++G_DEFINE_TYPE (MetaWindowDecoration, meta_window_decoration,
++               CLUTTER_TYPE_ACTOR)
++
++static GQuark quark_part;
++static GQuark quark_button;
++static GQuark quark_edge_op;
++
++static const struct
++{
++  MetaGrabOp op;
++  ClutterCursorType cursor;
++} edge_info[8] = {
++  { META_GRAB_OP_RESIZING_N, CLUTTER_CURSOR_N_RESIZE },
++  { META_GRAB_OP_RESIZING_S, CLUTTER_CURSOR_S_RESIZE },
++  { META_GRAB_OP_RESIZING_W, CLUTTER_CURSOR_W_RESIZE },
++  { META_GRAB_OP_RESIZING_E, CLUTTER_CURSOR_E_RESIZE },
++  { META_GRAB_OP_RESIZING_NW, CLUTTER_CURSOR_NW_RESIZE },
++  { META_GRAB_OP_RESIZING_NE, CLUTTER_CURSOR_NE_RESIZE },
++  { META_GRAB_OP_RESIZING_SW, CLUTTER_CURSOR_SW_RESIZE },
++  { META_GRAB_OP_RESIZING_SE, CLUTTER_CURSOR_SE_RESIZE },
++};
++
++/* Colors of the default GNOME headerbar, focused and backdrop. */
++static const CoglColor titlebar_colors[2] = {
++  COGL_COLOR_INIT (0xeb, 0xeb, 0xeb, 0xff),
++  COGL_COLOR_INIT (0xf6, 0xf5, 0xf4, 0xff),
++};
++static const CoglColor foreground_colors[2] = {
++  COGL_COLOR_INIT (0x2e, 0x34, 0x36, 0xff),
++  COGL_COLOR_INIT (0x92, 0x95, 0x95, 0xff),
++};
++static const CoglColor border_color = COGL_COLOR_INIT (0x00, 0x00, 0x00, 0x3b);
++
++static float
++get_scale (MetaWindowDecoration *self)
++{
++  return clutter_actor_get_resource_scale (CLUTTER_ACTOR (self));
++}
++
++static float
++segment_distance (float px, float py,
++                  float ax, float ay,
++                  float bx, float by)
++{
++  float dx = bx - ax, dy = by - ay;
++  float t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy);
++
++  t = CLAMP (t, 0.0f, 1.0f);
++  return hypotf (px - (ax + t * dx), py - (ay + t * dy));
++}
++
++/* Coverage of the button glyph at (x, y), in 24x24 button units. */
++static gboolean
++glyph_covers (MetaButtonFunction function,
++              gboolean           maximized,
++              float              x,
++              float              y)
++{
++  const float half_width = 0.75f;
++
++  switch (function)
++    {
++    case META_BUTTON_FUNCTION_CLOSE:
++      return (segment_distance (x, y, 8, 8, 16, 16) <= half_width ||
++              segment_distance (x, y, 16, 8, 8, 16) <= half_width);
++    case META_BUTTON_FUNCTION_MINIMIZE:
++      return segment_distance (x, y, 8, 15.5f, 16, 15.5f) <= half_width;
++    case META_BUTTON_FUNCTION_MAXIMIZE:
++      if (maximized)
++        {
++          /* Two overlapping squares: restore. */
++          gboolean front, back;
++
++          front = (x >= 7.25f && x <= 14.75f && y >= 9.25f && y <= 16.75f &&
++                   !(x > 8.75f && x < 13.25f && y > 10.75f && y < 15.25f));
++          back = (x >= 9.25f && x <= 16.75f && y >= 7.25f && y <= 14.75f &&
++                  !(x > 10.75f && x < 15.25f && y > 8.75f && y < 13.25f) &&
++                  !(x >= 7.25f && x <= 14.75f && y >= 9.25f));
++          return front || back;
++        }
++      return (x >= 7.25f && x <= 16.75f && y >= 7.25f && y <= 16.75f &&
++              !(x > 8.75f && x < 15.25f && y > 8.75f && y < 15.25f));
++    case META_BUTTON_FUNCTION_MENU:
++      return (segment_distance (x, y, 8, 9, 16, 9) <= half_width ||
++              segment_distance (x, y, 8, 12, 16, 12) <= half_width ||
++              segment_distance (x, y, 8, 15, 16, 15) <= half_width);
++    case META_BUTTON_FUNCTION_LAST:
++      break;
++    }
++
++  return FALSE;
++}
++
++static CoglTexture *
++render_button (MetaWindowDecoration *self,
++               MetaButtonFunction    function,
++               gboolean              focused,
++               gboolean              maximized,
++               float                 background_alpha,
++               float                 scale)
++{
++  MetaContext *context = meta_display_get_context (self->window->display);
++  MetaBackend *backend = meta_context_get_backend (context);
++  ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
++  CoglContext *cogl_context = clutter_backend_get_cogl_context (clutter_backend);
++  const CoglColor *fg = &foreground_colors[focused ? 0 : 1];
++  g_autofree uint8_t *pixels = NULL;
++  g_autoptr (GError) error = NULL;
++  CoglTexture *texture;
++  int size = (int) ceilf (BUTTON_SIZE * scale);
++  const int samples = 4;
++  int x, y;
++
++  pixels = g_malloc0 (size * size * 4);
++
++  for (y = 0; y < size; y++)
++    {
++      for (x = 0; x < size; x++)
++        {
++          int circle = 0, glyph = 0;
++          int sx, sy;
++          float alpha;
++          uint8_t *p = &pixels[(y * size + x) * 4];
++
++          for (sy = 0; sy < samples; sy++)
++            {
++              for (sx = 0; sx < samples; sx++)
++                {
++                  float ux = (x + (sx + 0.5f) / samples) / scale;
++                  float uy = (y + (sy + 0.5f) / samples) / scale;
++
++                  if (hypotf (ux - 12, uy - 12) <= 12)
++                    circle++;
++                  if (glyph_covers (function, maximized, ux, uy))
++                    glyph++;
++                }
++            }
++
++          /* Glyph over the circle, both in the foreground color. */
++          alpha = (glyph / (float) (samples * samples) +
++                   (circle / (float) (samples * samples)) * background_alpha *
++                   (1 - glyph / (float) (samples * samples)));
++          alpha *= (fg->alpha / 255.0f);
++
++          /* Premultiplied */
++          p[0] = (uint8_t) roundf (fg->red * alpha);
++          p[1] = (uint8_t) roundf (fg->green * alpha);
++          p[2] = (uint8_t) roundf (fg->blue * alpha);
++          p[3] = (uint8_t) roundf (255 * alpha);
++        }
++    }
++
++  texture = cogl_texture_2d_new_from_data (cogl_context, size, size,
++                                           COGL_PIXEL_FORMAT_RGBA_8888_PRE,
++                                           size * 4, pixels, &error);
++  if (!texture)
++    g_warning ("Failed to create decoration button texture: %s",
++               error->message);
++
++  return texture;
++}
++
++static void
++update_button (DecorationButton *button)
++{
++  MetaWindowDecoration *self = button->decoration;
++  gboolean focused = meta_window_appears_focused (self->window);
++  gboolean maximized = meta_window_is_maximized (self->window);
++  float scale = get_scale (self);
++  float background_alpha;
++  int state_key;
++  g_autoptr (CoglTexture) texture = NULL;
++  g_autoptr (ClutterContent) content = NULL;
++
++  if (button->pressed && button->hovered)
++    background_alpha = 0.28f;
++  else if (button->hovered)
++    background_alpha = 0.16f;
++  else
++    background_alpha = 0.10f;
++
++  state_key = ((int) (background_alpha * 100) |
++               (focused << 8) | (maximized << 9) |
++               ((int) (scale * 4) << 10));
++  if (state_key == button->state_key)
++    return;
++  button->state_key = state_key;
++
++  texture = render_button (self, button->function, focused, maximized,
++                           background_alpha, scale);
++  if (!texture)
++    return;
++
++  content = clutter_texture_content_new_from_texture (texture, NULL);
++  clutter_actor_set_content (button->actor, content);
++}
++
++static gboolean
++window_has_function (MetaWindow         *window,
++                     MetaButtonFunction  function)
++{
++  switch (function)
++    {
++    case META_BUTTON_FUNCTION_MENU:
++      return TRUE;
++    case META_BUTTON_FUNCTION_MINIMIZE:
++      return window->has_minimize_func;
++    case META_BUTTON_FUNCTION_MAXIMIZE:
++      return window->has_maximize_func;
++    case META_BUTTON_FUNCTION_CLOSE:
++      return window->has_close_func;
++    case META_BUTTON_FUNCTION_LAST:
++      break;
++    }
++
++  return FALSE;
++}
++
++static DecorationButton *
++add_button (MetaWindowDecoration *self,
++            MetaButtonFunction    function,
++            gboolean              left)
++{
++  DecorationButton *button;
++
++  button = g_new0 (DecorationButton, 1);
++  button->decoration = self;
++  button->function = function;
++  button->state_key = -1;
++  button->actor = clutter_actor_new ();
++  clutter_actor_set_reactive (button->actor, TRUE);
++  clutter_actor_set_size (button->actor, BUTTON_SIZE, BUTTON_SIZE);
++  clutter_actor_set_accessible_name (button->actor,
++                                     function == META_BUTTON_FUNCTION_CLOSE ? "Close" :
++                                     function == META_BUTTON_FUNCTION_MAXIMIZE ? "Maximize" :
++                                     function == META_BUTTON_FUNCTION_MINIMIZE ? "Minimize" :
++                                     "Window menu");
++  g_object_set_qdata (G_OBJECT (button->actor), quark_part,
++                      GINT_TO_POINTER (PART_BUTTON));
++  g_object_set_qdata (G_OBJECT (button->actor), quark_button, button);
++  g_object_set_data (G_OBJECT (button->actor), "-meta-decoration-left",
++                     GINT_TO_POINTER (left));
++  clutter_actor_add_child (CLUTTER_ACTOR (self), button->actor);
++  g_ptr_array_add (self->buttons, button);
++
++  update_button (button);
++
++  return button;
++}
++
++static void
++button_free (DecorationButton *button)
++{
++  g_free (button);
++}
++
++static void
++rebuild_buttons (MetaWindowDecoration *self)
++{
++  MetaButtonLayout layout;
++  int i;
++
++  self->pressed_button = NULL;
++  for (i = 0; i < (int) self->buttons->len; i++)
++    {
++      DecorationButton *button = g_ptr_array_index (self->buttons, i);
++
++      clutter_actor_destroy (button->actor);
++    }
++  g_ptr_array_set_size (self->buttons, 0);
++
++  meta_prefs_get_button_layout (&layout);
++
++  for (i = 0; i < MAX_BUTTONS_PER_CORNER; i++)
++    {
++      MetaButtonFunction function = layout.left_buttons[i];
++
++      if (function == META_BUTTON_FUNCTION_LAST)
++        break;
++      if (window_has_function (self->window, function))
++        add_button (self, function, TRUE);
++    }
++
++  for (i = 0; i < MAX_BUTTONS_PER_CORNER; i++)
++    {
++      MetaButtonFunction function = layout.right_buttons[i];
++
++      if (function == META_BUTTON_FUNCTION_LAST)
++        break;
++      if (window_has_function (self->window, function))
++        add_button (self, function, FALSE);
++    }
++}
++
++static void
++update_title (MetaWindowDecoration *self)
++{
++  const char *title = meta_window_get_title (self->window);
++
++  clutter_text_set_text (CLUTTER_TEXT (self->title), title ? title : "");
++}
++
++static void
++update_focus (MetaWindowDecoration *self)
++{
++  int index = meta_window_appears_focused (self->window) ? 0 : 1;
++  int i;
++
++  clutter_actor_set_background_color (self->titlebar,
++                                      &titlebar_colors[index]);
++  clutter_text_set_color (CLUTTER_TEXT (self->title),
++                          &foreground_colors[index]);
++
++  for (i = 0; i < (int) self->buttons->len; i++)
++    update_button (g_ptr_array_index (self->buttons, i));
++}
++
++static void
++relayout (MetaWindowDecoration *self)
++{
++  const MetaFrameBorder *borders = &self->borders;
++  float m = self->margin;
++  float titlebar_x, titlebar_y, titlebar_width, titlebar_height;
++  float left_x, right_x, button_y;
++  float title_width, title_x, title_space;
++  int i;
++
++  clutter_actor_set_position (self->border, m, m);
++  clutter_actor_set_size (self->border, self->width, self->height);
++
++  /* The titlebar sits inside the top border line when there is one. */
++  titlebar_x = m + borders->left;
++  titlebar_y = m + borders->left;
++  titlebar_width = MAX (self->width - borders->left - borders->right, 0);
++  titlebar_height = MAX (borders->top - borders->left, 0);
++  clutter_actor_set_position (self->titlebar, titlebar_x, titlebar_y);
++  clutter_actor_set_size (self->titlebar, titlebar_width, titlebar_height);
++
++  button_y = titlebar_y + floorf ((titlebar_height - BUTTON_SIZE) / 2);
++  left_x = titlebar_x + BUTTON_PADDING;
++  for (i = 0; i < (int) self->buttons->len; i++)
++    {
++      DecorationButton *button = g_ptr_array_index (self->buttons, i);
++
++      if (!g_object_get_data (G_OBJECT (button->actor), "-meta-decoration-left"))
++        continue;
++
++      clutter_actor_set_position (button->actor, left_x, button_y);
++      left_x += BUTTON_SIZE + BUTTON_SPACING;
++      update_button (button);
++    }
++
++  right_x = titlebar_x + titlebar_width - BUTTON_PADDING;
++  for (i = (int) self->buttons->len - 1; i >= 0; i--)
++    {
++      DecorationButton *button = g_ptr_array_index (self->buttons, i);
++
++      if (g_object_get_data (G_OBJECT (button->actor), "-meta-decoration-left"))
++        continue;
++
++      right_x -= BUTTON_SIZE;
++      clutter_actor_set_position (button->actor, right_x, button_y);
++      right_x -= BUTTON_SPACING;
++      update_button (button);
++    }
++
++  /* Center the title on the window if it fits between the buttons, else
++   * in the space left. */
++  clutter_actor_get_preferred_width (self->title, -1, NULL, &title_width);
++  title_space = MAX (MIN (titlebar_x + titlebar_width / 2 - left_x,
++                          right_x - (titlebar_x + titlebar_width / 2)) -
++                     TITLE_PADDING, 0) * 2;
++  if (title_width <= title_space)
++    {
++      title_x = titlebar_x + floorf ((titlebar_width - title_width) / 2);
++    }
++  else
++    {
++      title_width = MIN (title_width,
++                         MAX (right_x - left_x - 2 * TITLE_PADDING, 0));
++      title_x = left_x + TITLE_PADDING;
++    }
++  clutter_actor_set_size (self->title, title_width,
++                          clutter_actor_get_height (self->title));
++  clutter_actor_set_position (self->title, title_x,
++                              titlebar_y +
++                              floorf ((titlebar_height -
++                                       clutter_actor_get_height (self->title)) / 2));
++
++  /* Resize edges: the margin outside the frame plus its border line, and
++   * larger corners. */
++  for (i = 0; i < 8; i++)
++    {
++      if (self->resizable)
++        clutter_actor_show (self->edges[i]);
++      else
++        clutter_actor_hide (self->edges[i]);
++    }
++
++  if (self->resizable)
++    {
++      float w = self->width + 2 * m;
++      float h = self->height + 2 * m;
++      float edge_l = m + borders->left;
++      float edge_r = m + borders->right;
++      float edge_t = m + borders->left;
++      float edge_b = m + borders->bottom;
++      float corner = m + RESIZE_CORNER;
++
++      /* N, S, W, E */
++      clutter_actor_set_position (self->edges[0], corner, 0);
++      clutter_actor_set_size (self->edges[0], MAX (w - 2 * corner, 0), edge_t);
++      clutter_actor_set_position (self->edges[1], corner, h - edge_b);
++      clutter_actor_set_size (self->edges[1], MAX (w - 2 * corner, 0), edge_b);
++      clutter_actor_set_position (self->edges[2], 0, corner);
++      clutter_actor_set_size (self->edges[2], edge_l, MAX (h - 2 * corner, 0));
++      clutter_actor_set_position (self->edges[3], w - edge_r, corner);
++      clutter_actor_set_size (self->edges[3], edge_r, MAX (h - 2 * corner, 0));
++
++      /* NW, NE, SW, SE: L-shaped corners, approximated by squares that
++       * stay outside the titlebar buttons. */
++      clutter_actor_set_position (self->edges[4], 0, 0);
++      clutter_actor_set_size (self->edges[4], edge_l, corner);
++      clutter_actor_set_position (self->edges[5], w - edge_r, 0);
++      clutter_actor_set_size (self->edges[5], edge_r, corner);
++      clutter_actor_set_position (self->edges[6], 0, h - corner);
++      clutter_actor_set_size (self->edges[6], corner, corner);
++      clutter_actor_set_position (self->edges[7], w - corner, h - corner);
++      clutter_actor_set_size (self->edges[7], corner, corner);
++    }
++}
++
++/**
++ * meta_window_decoration_set_geometry:
++ * @decoration: a #MetaWindowDecoration
++ * @x: frame position relative to the window actor
++ * @y: frame position relative to the window actor
++ * @width: frame width
++ * @height: frame height
++ * @borders: the decoration borders inside the frame
++ * @resizable: whether to add resize edges around the frame
++ *
++ * Lays out the decoration around a frame rect, in window actor units.
++ */
++void
++meta_window_decoration_set_geometry (MetaWindowDecoration  *self,
++                                     float                  x,
++                                     float                  y,
++                                     float                  width,
++                                     float                  height,
++                                     const MetaFrameBorder *borders,
++                                     gboolean               resizable)
++{
++  self->width = width;
++  self->height = height;
++  self->borders = *borders;
++  self->resizable = resizable;
++  self->margin = resizable ? RESIZE_MARGIN : 0;
++
++  clutter_actor_set_position (CLUTTER_ACTOR (self),
++                              x - self->margin, y - self->margin);
++  clutter_actor_set_size (CLUTTER_ACTOR (self),
++                          width + 2 * self->margin,
++                          height + 2 * self->margin);
++  relayout (self);
++}
++
++static void
++on_prefs_changed (MetaPreference pref,
++                  gpointer       data)
++{
++  MetaWindowDecoration *self = data;
++
++  if (pref != META_PREF_BUTTON_LAYOUT || !self->window)
++    return;
++
++  rebuild_buttons (self);
++  relayout (self);
++}
++
++static void
++on_title_changed (MetaWindowDecoration *self)
++{
++  update_title (self);
++  relayout (self);
++}
++
++static void
++on_focus_changed (MetaWindowDecoration *self)
++{
++  update_focus (self);
++}
++
++MetaWindowDecoration *
++meta_window_decoration_from_actor (ClutterActor *actor)
++{
++  while (actor)
++    {
++      if (META_IS_WINDOW_DECORATION (actor))
++        return META_WINDOW_DECORATION (actor);
++
++      actor = clutter_actor_get_parent (actor);
++    }
++
++  return NULL;
++}
++
++MetaWindow *
++meta_window_decoration_get_window (MetaWindowDecoration *self)
++{
++  return self->window;
++}
++
++static void
++run_titlebar_action (MetaWindowDecoration   *self,
++                     GDesktopTitlebarAction  action,
++                     const ClutterEvent     *event)
++{
++  MetaWindow *window = self->window;
++  float x, y;
++
++  switch (action)
++    {
++    case G_DESKTOP_TITLEBAR_ACTION_TOGGLE_MAXIMIZE:
++      if (!window->has_maximize_func)
++        break;
++
++      if (meta_window_is_maximized (window))
++        meta_window_unmaximize (window);
++      else
++        meta_window_maximize (window);
++      break;
++
++    case G_DESKTOP_TITLEBAR_ACTION_TOGGLE_MAXIMIZE_HORIZONTALLY:
++      if (!window->has_maximize_func)
++        break;
++
++      if (meta_window_get_maximize_flags (window) & META_MAXIMIZE_HORIZONTAL)
++        meta_window_set_unmaximize_flags (window, META_MAXIMIZE_HORIZONTAL);
++      else
++        meta_window_set_maximize_flags (window, META_MAXIMIZE_HORIZONTAL);
++      break;
++
++    case G_DESKTOP_TITLEBAR_ACTION_TOGGLE_MAXIMIZE_VERTICALLY:
++      if (!window->has_maximize_func)
++        break;
++
++      if (meta_window_get_maximize_flags (window) & META_MAXIMIZE_VERTICAL)
++        meta_window_set_unmaximize_flags (window, META_MAXIMIZE_VERTICAL);
++      else
++        meta_window_set_maximize_flags (window, META_MAXIMIZE_VERTICAL);
++      break;
++
++    case G_DESKTOP_TITLEBAR_ACTION_MINIMIZE:
++      if (window->has_minimize_func)
++        meta_window_minimize (window);
++      break;
++
++    case G_DESKTOP_TITLEBAR_ACTION_LOWER:
++      meta_window_lower_with_transients (window,
++                                         clutter_event_get_time (event));
++      break;
++
++    case G_DESKTOP_TITLEBAR_ACTION_MENU:
++      clutter_event_get_coords (event, &x, &y);
++      meta_window_show_menu (window, META_WINDOW_MENU_WM, (int) x, (int) y);
++      break;
++
++    default:
++      break;
++    }
++}
++
++static void
++activate_button (MetaWindowDecoration *self,
++                 DecorationButton     *button,
++                 const ClutterEvent   *event)
++{
++  MetaWindow *window = self->window;
++  float x, y;
++
++  switch (button->function)
++    {
++    case META_BUTTON_FUNCTION_CLOSE:
++      meta_window_delete (window, clutter_event_get_time (event));
++      break;
++    case META_BUTTON_FUNCTION_MINIMIZE:
++      meta_window_minimize (window);
++      break;
++    case META_BUTTON_FUNCTION_MAXIMIZE:
++      if (meta_window_is_maximized (window))
++        meta_window_unmaximize (window);
++      else
++        meta_window_maximize (window);
++      break;
++    case META_BUTTON_FUNCTION_MENU:
++      clutter_event_get_coords (event, &x, &y);
++      meta_window_show_menu (window, META_WINDOW_MENU_WM, (int) x, (int) y);
++      break;
++    case META_BUTTON_FUNCTION_LAST:
++      break;
++    }
++}
++
++static gboolean
++begin_grab (MetaWindowDecoration *self,
++            MetaGrabOp            op,
++            const ClutterEvent   *event)
++{
++  MetaWindow *window = self->window;
++  MetaContext *context = meta_display_get_context (window->display);
++  MetaBackend *backend = meta_context_get_backend (context);
++  ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
++  ClutterStage *stage = CLUTTER_STAGE (meta_backend_get_stage (backend));
++  ClutterSprite *sprite;
++
++  sprite = clutter_backend_get_sprite (clutter_backend, stage, event);
++  if (!sprite)
++    return FALSE;
++
++  return meta_window_begin_grab_op (window, op, sprite,
++                                    clutter_event_get_time (event), NULL);
++}
++
++static void
++set_hovered_button (MetaWindowDecoration *self,
++                    DecorationButton     *hovered)
++{
++  int i;
++
++  for (i = 0; i < (int) self->buttons->len; i++)
++    {
++      DecorationButton *button = g_ptr_array_index (self->buttons, i);
++      gboolean is_hovered = button == hovered;
++
++      if (button->hovered == is_hovered)
++        continue;
++
++      button->hovered = is_hovered;
++      update_button (button);
++    }
++}
++
++/**
++ * meta_window_decoration_handle_event:
++ * @decoration: a #MetaWindowDecoration
++ * @event_actor: the actor the event was picked on
++ * @event: the event
++ *
++ * Returns: %TRUE if the decoration consumed the event
++ */
++gboolean
++meta_window_decoration_handle_event (MetaWindowDecoration *self,
++                                     ClutterActor         *event_actor,
++                                     const ClutterEvent   *event)
++{
++  ClutterEventType event_type = clutter_event_type (event);
++  DecorationPart part;
++  DecorationButton *button;
++  uint32_t button_number;
++  uint32_t time_ms;
++
++  if (!self->window || self->window->unmanaging)
++    return FALSE;
++
++  part = GPOINTER_TO_INT (g_object_get_qdata (G_OBJECT (event_actor),
++                                              quark_part));
++  button = g_object_get_qdata (G_OBJECT (event_actor), quark_button);
++
++  switch (event_type)
++    {
++    case CLUTTER_MOTION:
++    case CLUTTER_ENTER:
++      set_hovered_button (self, button);
++      /* Let Wayland see the motion, so the client gets a leave event. */
++      return FALSE;
++
++    case CLUTTER_LEAVE:
++      set_hovered_button (self, NULL);
++      return FALSE;
++
++    case CLUTTER_BUTTON_PRESS:
++      break;
++
++    case CLUTTER_BUTTON_RELEASE:
++      if (self->pressed_button)
++        {
++          DecorationButton *pressed = self->pressed_button;
++
++          self->pressed_button = NULL;
++          pressed->pressed = FALSE;
++          update_button (pressed);
++
++          if (pressed == button &&
++              clutter_event_get_button (event) == CLUTTER_BUTTON_PRIMARY)
++            activate_button (self, pressed, event);
++        }
++      return part != PART_NONE;
++
++    default:
++      return FALSE;
++    }
++
++  button_number = clutter_event_get_button (event);
++  time_ms = clutter_event_get_time (event);
++
++  meta_topic (META_DEBUG_WINDOW_OPS,
++              "Decoration of %s: button %u press on %s",
++              self->window->desc, button_number,
++              part == PART_BUTTON ? "button" :
++              part == PART_TITLEBAR ? "titlebar" :
++              part == PART_EDGE ? "edge" : "nothing");
++
++  switch (part)
++    {
++    case PART_BUTTON:
++      if (button_number == CLUTTER_BUTTON_PRIMARY)
++        {
++          self->pressed_button = button;
++          button->pressed = TRUE;
++          update_button (button);
++        }
++      return TRUE;
++
++    case PART_TITLEBAR:
++      if (button_number == CLUTTER_BUTTON_PRIMARY)
++        {
++          if (self->last_titlebar_press_time &&
++              time_ms - self->last_titlebar_press_time <= DOUBLE_CLICK_TIME_MS)
++            {
++              self->last_titlebar_press_time = 0;
++              run_titlebar_action (self,
++                                   meta_prefs_get_action_double_click_titlebar (),
++                                   event);
++              return TRUE;
++            }
++
++          self->last_titlebar_press_time = time_ms;
++          if (self->window->has_move_func)
++            begin_grab (self, META_GRAB_OP_MOVING, event);
++        }
++      else if (button_number == CLUTTER_BUTTON_MIDDLE)
++        {
++          run_titlebar_action (self,
++                               meta_prefs_get_action_middle_click_titlebar (),
++                               event);
++        }
++      else if (button_number == CLUTTER_BUTTON_SECONDARY)
++        {
++          run_titlebar_action (self,
++                               meta_prefs_get_action_right_click_titlebar (),
++                               event);
++        }
++      return TRUE;
++
++    case PART_EDGE:
++      if (button_number == CLUTTER_BUTTON_PRIMARY &&
++          self->window->has_resize_func)
++        {
++          MetaGrabOp op =
++            GPOINTER_TO_INT (g_object_get_qdata (G_OBJECT (event_actor),
++                                                 quark_edge_op));
++
++          begin_grab (self, op, event);
++        }
++      return TRUE;
++
++    case PART_NONE:
++      break;
++    }
++
++  return FALSE;
++}
++
++static void
++meta_window_decoration_dispose (GObject *object)
++{
++  MetaWindowDecoration *self = META_WINDOW_DECORATION (object);
++
++  if (self->listening_to_prefs)
++    {
++      meta_prefs_remove_listener (on_prefs_changed, self);
++      self->listening_to_prefs = FALSE;
++    }
++
++  if (self->window)
++    {
++      g_object_remove_weak_pointer (G_OBJECT (self->window),
++                                    (gpointer *) &self->window);
++      self->window = NULL;
++    }
++
++  g_clear_pointer (&self->buttons, g_ptr_array_unref);
++
++  G_OBJECT_CLASS (meta_window_decoration_parent_class)->dispose (object);
++}
++
++static void
++meta_window_decoration_class_init (MetaWindowDecorationClass *klass)
++{
++  GObjectClass *object_class = G_OBJECT_CLASS (klass);
++
++  object_class->dispose = meta_window_decoration_dispose;
++
++  quark_part = g_quark_from_static_string ("-meta-window-decoration-part");
++  quark_button = g_quark_from_static_string ("-meta-window-decoration-button");
++  quark_edge_op = g_quark_from_static_string ("-meta-window-decoration-edge-op");
++}
++
++static void
++meta_window_decoration_init (MetaWindowDecoration *self)
++{
++}
++
++MetaWindowDecoration *
++meta_window_decoration_new (MetaWindow *window)
++{
++  MetaWindowDecoration *self;
++  ClutterActor *actor;
++  g_autoptr (GSettings) wm_settings = NULL;
++  g_autofree char *font = NULL;
++  int i;
++
++  self = g_object_new (META_TYPE_WINDOW_DECORATION,
++                       "accessible-name", "Window decoration",
++                       NULL);
++  actor = CLUTTER_ACTOR (self);
++  self->window = window;
++  self->buttons = g_ptr_array_new_with_free_func ((GDestroyNotify) button_free);
++
++  self->border = clutter_actor_new ();
++  clutter_actor_set_background_color (self->border, &border_color);
++  clutter_actor_add_child (actor, self->border);
++
++  self->titlebar = clutter_actor_new ();
++  clutter_actor_set_reactive (self->titlebar, TRUE);
++  g_object_set_qdata (G_OBJECT (self->titlebar), quark_part,
++                      GINT_TO_POINTER (PART_TITLEBAR));
++  clutter_actor_add_child (actor, self->titlebar);
++
++  wm_settings = g_settings_new ("org.gnome.desktop.wm.preferences");
++  font = g_settings_get_string (wm_settings, "titlebar-font");
++
++  self->title = clutter_text_new ();
++  clutter_text_set_font_name (CLUTTER_TEXT (self->title), font);
++  clutter_text_set_single_line_mode (CLUTTER_TEXT (self->title), TRUE);
++  clutter_text_set_ellipsize (CLUTTER_TEXT (self->title),
++                              PANGO_ELLIPSIZE_END);
++  clutter_actor_add_child (actor, self->title);
++
++  for (i = 0; i < 8; i++)
++    {
++      self->edges[i] = clutter_actor_new ();
++      clutter_actor_set_reactive (self->edges[i], TRUE);
++      clutter_actor_set_cursor_type (self->edges[i], edge_info[i].cursor);
++      g_object_set_qdata (G_OBJECT (self->edges[i]), quark_part,
++                          GINT_TO_POINTER (PART_EDGE));
++      g_object_set_qdata (G_OBJECT (self->edges[i]), quark_edge_op,
++                          GINT_TO_POINTER (edge_info[i].op));
++      clutter_actor_add_child (actor, self->edges[i]);
++    }
++
++  rebuild_buttons (self);
++  update_title (self);
++  update_focus (self);
++
++  /* The window can be freed before its actor is destroyed. */
++  g_object_add_weak_pointer (G_OBJECT (window), (gpointer *) &self->window);
++  g_signal_connect_object (window, "notify::title",
++                           G_CALLBACK (on_title_changed), self,
++                           G_CONNECT_SWAPPED);
++  g_signal_connect_object (window, "notify::appears-focused",
++                           G_CALLBACK (on_focus_changed), self,
++                           G_CONNECT_SWAPPED);
++  meta_prefs_add_listener (on_prefs_changed, self);
++  self->listening_to_prefs = TRUE;
++
++  return self;
++}
+diff --git a/src/compositor/meta-window-decoration.h b/src/compositor/meta-window-decoration.h
+new file mode 100644
+index 0000000..b46541c
+--- /dev/null
++++ b/src/compositor/meta-window-decoration.h
+@@ -0,0 +1,43 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#pragma once
++
++#include "clutter/clutter.h"
++#include "meta/window.h"
++
++#define META_TYPE_WINDOW_DECORATION (meta_window_decoration_get_type ())
++G_DECLARE_FINAL_TYPE (MetaWindowDecoration, meta_window_decoration,
++                      META, WINDOW_DECORATION, ClutterActor)
++
++MetaWindowDecoration * meta_window_decoration_new (MetaWindow *window);
++
++void meta_window_decoration_set_geometry (MetaWindowDecoration  *decoration,
++                                          float                  x,
++                                          float                  y,
++                                          float                  width,
++                                          float                  height,
++                                          const MetaFrameBorder *borders,
++                                          gboolean               resizable);
++
++MetaWindowDecoration * meta_window_decoration_from_actor (ClutterActor *actor);
++
++MetaWindow * meta_window_decoration_get_window (MetaWindowDecoration *decoration);
++
++gboolean meta_window_decoration_handle_event (MetaWindowDecoration *decoration,
++                                              ClutterActor         *event_actor,
++                                              const ClutterEvent   *event);
+diff --git a/src/core/events.c b/src/core/events.c
+index b2e89dd..d043193 100644
+--- a/src/core/events.c
++++ b/src/core/events.c
+@@ -30,6 +30,7 @@
+ #include "backends/meta-idle-manager.h"
+ #include "compositor/compositor-private.h"
+ #include "compositor/meta-window-actor-private.h"
++#include "compositor/meta-window-decoration.h"
+ #include "core/display-private.h"
+ #include "core/window-private.h"
+ #include "meta/meta-backend.h"
+@@ -71,6 +72,7 @@ get_window_for_event (MetaDisplay        *display,
+                       ClutterActor       *event_actor)
+ {
+   MetaWindowActor *window_actor;
++  MetaWindowDecoration *decoration;
+ 
+   if (stage_has_grab (display))
+     return NULL;
+@@ -85,8 +87,13 @@ get_window_for_event (MetaDisplay        *display,
+   window_actor = meta_window_actor_from_actor (event_actor);
+   if (window_actor)
+     return meta_window_actor_get_meta_window (window_actor);
+-  else
+-    return NULL;
++
++  /* Server-side decorations of Wayland windows are not surface actors. */
++  decoration = meta_window_decoration_from_actor (event_actor);
++  if (decoration)
++    return meta_window_decoration_get_window (decoration);
++
++  return NULL;
+ }
+ 
+ static void
+@@ -299,9 +306,16 @@ meta_display_handle_event (MetaDisplay        *display,
+ 
+   if (window)
+     {
++      MetaWindowDecoration *decoration;
++
+       if (meta_window_handle_ungrabbed_event (window, event))
+         return CLUTTER_EVENT_STOP;
+ 
++      decoration = meta_window_decoration_from_actor (event_actor);
++      if (decoration &&
++          meta_window_decoration_handle_event (decoration, event_actor, event))
++        return CLUTTER_EVENT_STOP;
++
+       /* If the focus window has an active close dialog let clutter
+        * events go through, so fancy clutter dialogs can get to handle
+        * all events.
+diff --git a/src/meson.build b/src/meson.build
+index 4d3d4dd..ae59d38 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -301,6 +301,8 @@ mutter_sources = [
+   'compositor/meta-texture-mipmap.h',
+   'compositor/meta-window-actor.c',
+   'compositor/meta-window-actor-private.h',
++  'compositor/meta-window-decoration.c',
++  'compositor/meta-window-decoration.h',
+   'compositor/meta-window-drag.c',
+   'compositor/meta-window-drag.h',
+   'compositor/meta-window-group.c',

@@ -1,9 +1,11 @@
-policy_module(aurora_platform, 1.0.1)
+policy_module(aurora_platform, 1.0.2)
 
 gen_require(`
 	type init_t, kernel_t, xserver_misc_device_t;
+	type xdm_t, unconfined_service_t;
 	class netlink_kobject_uevent_socket getattr;
 	class chr_file map;
+	class key view;
 ')
 
 # systemd creates udev's kernel uevent socket (systemd-udevd-kernel.socket)
@@ -24,3 +26,13 @@ allow init_t kernel_t:netlink_kobject_uevent_socket getattr;
 # its framebuffer was denied (4 of the last 40 boots on the Neo). kernel_t may
 # already read and write the node; let it map it too.
 allow kernel_t xserver_misc_device_t:chr_file map;
+
+# pam_gdm looks for the "cryptsetup" passphrase that systemd-cryptsetup left
+# in the kernel keyring (libkeyutils find_key_by_type_and_desc), which reads
+# /proc/keys. Listing a key there needs "view" on it, and keys the session
+# worker may not view are skipped. cfg80211's built-in regulatory certificate
+# keyring and its X.509 keys are made with the label of the task that loaded
+# the module; when a platform service (unconfined_service_t) loaded it, every
+# login logged three denials. The worker never needs those keys: silence the
+# denial, grant nothing.
+dontaudit xdm_t unconfined_service_t:key view;
