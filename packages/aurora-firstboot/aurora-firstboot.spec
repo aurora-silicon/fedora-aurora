@@ -94,6 +94,13 @@ EOF
 
 %post -n aurora-power-budget
 %systemd_post aurora-power-budget.service aurora-power-modes.service
+# aurora-power-modes is new in 0.1.13-7 and %%systemd_post presets units only
+# on a first install: preset it once on the upgrade that brings it, and never
+# again, so an administrator's later disable sticks.
+if [ $1 -gt 1 ] && [ ! -e %{_sharedstatedir}/aurora/power-modes-preset-done ]; then
+  systemctl --no-reload preset aurora-power-modes.service >/dev/null 2>&1 || :
+fi
+mkdir -p %{_sharedstatedir}/aurora && touch %{_sharedstatedir}/aurora/power-modes-preset-done || :
 %preun -n aurora-power-budget
 %systemd_preun aurora-power-budget.service aurora-power-modes.service
 %postun -n aurora-power-budget
@@ -166,6 +173,7 @@ fi
 %{_unitdir}/aurora-power-modes.service
 /usr/lib/systemd/system-preset/90-aurora-power-budget.preset
 %{_datadir}/doc/aurora-power-budget/
+%ghost %{_sharedstatedir}/aurora/power-modes-preset-done
 
 %files -n aurora-gamemode
 %license LICENSE
@@ -193,7 +201,8 @@ fi
   profile, which tuned-ppd does not do on device tree boots. It also
   adds an optional macOS-style "Low Power Mode on battery" setting.
   On a MacBook Pro M4 Pro, Power Saver idle goes from 5.10 to 4.55 W
-  and load rows are unchanged.
+  and load rows are unchanged. The upgrade that brings it presets the
+  service once.
 
 * Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-6
 - New subpackage aurora-gamemode: /etc/gamemode.ini pins games started
