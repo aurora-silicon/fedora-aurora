@@ -69,7 +69,8 @@ fi
 if (( basics == 0 )) && [[ -n ${AURORA_EDGE_REPOSITORY:-} ]]; then
   boot_root=$(mktemp -d)
   if mount -o ro,loop "$installer/boot.img" "$boot_root"; then
-    python3 "$root/.github/scripts/edge-f44-image-proof.py" "$basics_root" "$boot_root"       "$root/out/edge-repository-receipt.json" "$installer/edge-image-proof.json" || basics=$?
+    python3 "$root/.github/scripts/edge-f44-image-proof.py" "$basics_root" "$boot_root" \
+      "$root/out/edge-repository-receipt.json" "$installer/edge-image-proof.json" || basics=$?
     umount "$boot_root"
   else
     basics=1

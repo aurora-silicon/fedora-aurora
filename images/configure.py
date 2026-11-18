@@ -136,7 +136,7 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
 
     if edge_repository is not None:
         edge_repository = edge_repository.resolve(strict=True)
-        if (lock["fedora_release"] != 44 or profile != "fedora-kde"
+        if (lock["fedora_release"] != "44" or profile != "fedora-kde"
                 or not (edge_repository / "repodata/repomd.xml").is_file()):
             raise ValueError("Edge staging requires the local F44 KDE repository")
     destination.mkdir(parents=True)
