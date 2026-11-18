@@ -1,0 +1,59 @@
+name: Assemble the F44 Neo Edge image artifact
+on:
+  push:
+    branches: [edge/neo-f44-image-20261118]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  attestations: write
+  id-token: write
+jobs:
+  image:
+    if: github.repository == 'aurora-silicon/fedora-aurora' && github.ref == 'refs/heads/edge/neo-f44-image-20261118'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Fetch the signed, equivalent F44 RPMs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/aurora-silicon/fedora-aurora/actions/runs/44329906984 |
+            jq -e '.conclusion=="success" and .head_sha=="c24f6f11cafe6cf659c02a6a5f0d3574fe58250e"
+                    and .path==".github/workflows/edge-f44-sign-rpms.yml"'
+          gh run download 44329906984 -R aurora-silicon/fedora-aurora -n f44-edge-signed-rpms -D signed
+          for subject in signed/equivalence.json signed/rpms/*.rpm; do
+            gh attestation verify "$subject" --repo aurora-silicon/fedora-aurora \
+              --signer-workflow aurora-silicon/fedora-aurora/.github/workflows/edge-f44-sign-rpms.yml \
+              --source-digest c24f6f11cafe6cf659c02a6a5f0d3574fe58250e --deny-self-hosted-runners
+          done
+      - name: Assemble from the frozen local RPM repository
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          docker run --rm --privileged -v /dev:/dev -v /run/udev:/run/udev:ro -v "$PWD:/src" -w /src \
+            -e AURORA_EDGE_REPOSITORY=/src/out/edge-repo \
+            registry.fedoraproject.org/fedora:44@sha256:b96f024cecbe9515eb049107d2856e7ad923f7aac09a3c90e7a0d52a46fa3454 bash -euo pipefail -c '
+              dnf install -y kiwi-cli kiwi-systemdeps distribution-gpg-keys git gnupg2 python3 xz zstd btrfs-progs cryptsetup util-linux cpio e2fsprogs createrepo_c curl
+              python3 .github/scripts/edge-f44-repository.py signed out/edge-repo out/edge-repository-receipt.json
+              bash scripts/build-image fedora-kde
+            ' 2>&1 | tee image-build.log
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            out/fedora-kde-filesystems.tar.zst
+            out/fedora-kde-installer/edge-image-proof.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fedora-kde-edge-candidate
+          compression-level: 0
+          path: |
+            out/fedora-kde-filesystems.tar.zst*
+            out/fedora-kde-installer/edge-image-proof.json
+            out/fedora-kde-installer/image.json
+            out/edge-repository-receipt.json
+            image-build.log

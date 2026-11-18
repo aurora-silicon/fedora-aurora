@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""Check the assembled Neo image against the verified F44 RPM inventory."""
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+
+KREL = "7.3.0-42.fc44.aurora.aarch64"
+FILES = {
+    f"root:usr/lib/modules/{KREL}/vmlinuz": "d6903588ce991dec6b65beafede9f6b0361d3904af8fd989b6c4bf143bb00fea",
+    f"boot:vmlinuz-{KREL}": "d6903588ce991dec6b65beafede9f6b0361d3904af8fd989b6c4bf143bb00fea",
+    "root:usr/lib64/libvulkan_asahi.so": "d28bea383537961a1ddf9c7673c4932ccde8a588203da917b9d9c0a401decb0a",
+    "root:usr/share/vulkan/icd.d/asahi_icd.aarch64.json": "5d4804f4a540be6d376d11ca6a9d34fec703b84aea97dd04a392b01d3bb1ead3",
+}
+REQUIRED = {"kernel-aurora-core.aarch64", "kernel-aurora-modules-extra.aarch64",
+            "mesa-aurora-vulkan-drivers.aarch64", "mesa-aurora-dri-drivers.aarch64"}
+
+
+def proof(root, boot, input_receipt):
+    roots = {"root": root.resolve(strict=True), "boot": boot.resolve(strict=True)}
+    for name, expected in FILES.items():
+        where, relative = name.split(":", 1)
+        path = (roots[where] / relative).resolve(strict=True)
+        if not path.is_relative_to(roots[where]):
+            raise ValueError(f"Image member escapes its filesystem: {name}")
+        with path.open("rb") as stream:
+            if hashlib.file_digest(stream, "sha256").hexdigest() != expected:
+                raise ValueError(f"Image member differs from the Neo-smoked bytes: {name}")
+    signed = input_receipt["signed_rpms"]
+    if input_receipt["signing_run"] != 44329906984 or not REQUIRED <= signed.keys():
+        raise ValueError("Image RPM input does not cover the tested package set")
+    installed = subprocess.check_output(
+        ["rpm", "--root", str(root), "-qa", "--qf", "%{NAME}.%{ARCH}\t%{NEVRA}\n"], text=True)
+    selected = []
+    for line in installed.splitlines():
+        key, nevra = line.split("\t", 1)
+        if key in signed:
+            if nevra != signed[key]["nevra"]:
+                raise ValueError(f"Image selected a stale package: {key}")
+            selected.append(key)
+    if not REQUIRED <= set(selected):
+        raise ValueError("Image is missing Edge runtime packages")
+    repos = root / "etc/yum.repos.d/aurora.repo"
+    if "enabled=0" not in repos.read_text().splitlines():
+        raise ValueError("Edge image would follow the Testing package feed")
+    return {"schema": 1, "fedora": 44, "profile": "fedora-kde", "models": ["apple,j700"],
+            "signing_run": input_receipt["signing_run"], "files": FILES,
+            "installed_edge_packages": {key: signed[key] for key in sorted(set(selected))}}
+
+
+if __name__ == "__main__":
+    root, boot, receipt, output = map(Path, sys.argv[1:])
+    output.write_text(json.dumps(proof(root, boot, json.loads(receipt.read_text())), indent=2) + "\n")

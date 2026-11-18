@@ -106,7 +106,7 @@ def write_xml(tree, path):
     tree.write(path, encoding="utf-8", xml_declaration=True)
 
 
-def prepare(source, destination, profile, repository_url, key, fingerprint, lock):
+def prepare(source, destination, profile, repository_url, key, fingerprint, lock, edge_repository=None):
     source, destination, key = map(Path, (source, destination, key))
     if profile not in PROFILES:
         raise ValueError("unknown Fedora installation profile")
@@ -134,6 +134,11 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
     if signing_fingerprint(key) != fingerprint:
         raise ValueError("repository signing-key fingerprint does not match")
 
+    if edge_repository is not None:
+        edge_repository = edge_repository.resolve(strict=True)
+        if (lock["fedora_release"] != 44 or profile != "fedora-kde"
+                or not (edge_repository / "repodata/repomd.xml").is_file()):
+            raise ValueError("Edge staging requires the local F44 KDE repository")
     destination.mkdir(parents=True)
     for name in ("components", "platforms", "repositories", "root"):
         shutil.copytree(source / name, destination / name)
@@ -223,13 +228,17 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
         "type": "rpm-md", "alias": "aurora", "sourcetype": "baseurl", "priority": "1",
         "package_gpgcheck": "true",
     })
-    origin = ET.SubElement(node, "source", {"path": repository_url.rstrip("/")})
+    origin = ET.SubElement(node, "source", {"path": edge_repository.as_uri() if edge_repository else repository_url.rstrip("/")})
     ET.SubElement(origin, "signing", {"key": (destination.resolve() / key_name).as_uri()})
     write_xml(ET.ElementTree(repository), destination / "repositories/aurora.xml")
     repo_text, baseurls = re.subn(r"(?m)^baseurl=.*$", lambda _: f"baseurl={repository_url.rstrip('/')}",
                                   REPOSITORY_FILE.read_text())
     if baseurls != 1 or f"gpgkey=file:///etc/pki/rpm-gpg/{key_name}\n" not in repo_text:
         raise ValueError("aurora-repos repository file changed; review the integration")
+    if edge_repository is not None:
+        repo_text, count = re.subn(r"(?m)^enabled=.*$", "enabled=0", repo_text)
+        if count != 1:
+            raise ValueError("expected one enabled setting in the Aurora repo")
     repo_dir = destination / "root/etc/yum.repos.d"
     repo_dir.mkdir(parents=True, exist_ok=True)
     (repo_dir / "aurora.repo").write_text(repo_text)
@@ -337,6 +346,13 @@ exit 0
 '''
     checks = checks.replace("@DEFAULT_TARGET@", DEFAULT_TARGETS[profile])
     text = text.replace("\nexit 0\n", checks.replace("@SIGNING_FINGERPRINT@", fingerprint))
+    if edge_repository is not None:
+        # The RPM can install its own copy of the repo file during bootstrap.
+        text = text.replace("\nexit 0\n", """
+sed -i -E 's/^enabled=.*/enabled=0/' /etc/yum.repos.d/aurora.repo
+grep -qx 'enabled=0' /etc/yum.repos.d/aurora.repo
+exit 0
+""")
     config.write_text(text)
     receipt = {
         "schema": 1, "distribution": "Aurora Fedora Remix",
@@ -381,11 +397,12 @@ def main():
     parser.add_argument("--signing-key", type=Path, required=True)
     parser.add_argument("--signing-key-fingerprint", required=True)
     parser.add_argument("--fedora-release", choices=sorted(LOCKS), default="44")
+    parser.add_argument("--edge-repository", type=Path)
     args = parser.parse_args()
     try:
         receipt = prepare(args.upstream, args.output, args.profile, args.repository_url,
                           args.signing_key, args.signing_key_fingerprint,
-                          lock(args.fedora_release))
+                          lock(args.fedora_release), args.edge_repository)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(receipt, indent=2))

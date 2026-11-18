@@ -20,7 +20,11 @@ if [[ ! -e $upstream ]]; then
   git clone "$repository" "$upstream"
 fi
 git -C "$upstream" checkout --detach "$revision"
-python3 "$root/images/configure.py" --upstream "$upstream" \
+edge_args=()
+if [[ -n ${AURORA_EDGE_REPOSITORY:-} ]]; then
+  edge_args=(--edge-repository "$AURORA_EDGE_REPOSITORY")
+fi
+python3 "$root/images/configure.py" "${edge_args[@]}" --upstream "$upstream" \
   --output "$root/out/$profile-description" --profile "$profile" \
   --repository-url "${AURORA_REPOSITORY_URL:-https://aurorasilicon.org/fedora-aurora/\$releasever/testing/aarch64}" \
   --signing-key "$root/keys/RPM-GPG-KEY-aurora" \
@@ -61,6 +65,16 @@ if (( basics == 0 )); then
   python3 "$root/scripts/check-basics.py" --profile "${profile#fedora-}" --root "$basics_root" \
     --esp "$installer/esp" --boot-image "$installer/boot.img" --boot-uuid "$boot_uuid" --grub-flavor fedora \
     --flatpak-gl || basics=$?
+fi
+if (( basics == 0 )) && [[ -n ${AURORA_EDGE_REPOSITORY:-} ]]; then
+  boot_root=$(mktemp -d)
+  if mount -o ro,loop "$installer/boot.img" "$boot_root"; then
+    python3 "$root/.github/scripts/edge-f44-image-proof.py" "$basics_root" "$boot_root"       "$root/out/edge-repository-receipt.json" "$installer/edge-image-proof.json" || basics=$?
+    umount "$boot_root"
+  else
+    basics=1
+  fi
+  rmdir "$boot_root"
 fi
 umount "$basics_root"
 rmdir "$basics_root"
