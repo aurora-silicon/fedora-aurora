@@ -1,0 +1,26 @@
+name: Hash the corrected Edge Mesa source archive
+on:
+  push:
+    branches: [edge-staging/hash-mesa-ef112c2b]
+permissions:
+  contents: read
+jobs:
+  archive:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check archive structure and compute the source checksum
+        run: |
+          set -euo pipefail
+          revision=ef112c2b86e4e19b2317cd88918e673de7fd55cf
+          curl -fsSL --retry 3 --max-time 600 --max-filesize 268435456 \
+            "https://codeload.github.com/aurora-silicon/mesa/tar.gz/$revision" -o mesa.tar.gz
+          tar -tzf mesa.tar.gz | awk -F/ -v root="mesa-$revision" '$1 != root {bad=1} END {exit (bad || NR == 0)}'
+          bytes=$(stat -c %s mesa.tar.gz)
+          digest=$(sha256sum mesa.tar.gz | cut -d' ' -f1)
+          printf '{"revision":"%s","sha256":"%s","bytes":%s}\n' "$revision" "$digest" "$bytes" > source.json
+          cat source.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: edge-mesa-source-receipt
+          path: source.json
+          if-no-files-found: error
