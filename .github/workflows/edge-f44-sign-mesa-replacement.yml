@@ -1,0 +1,139 @@
+name: Sign the replacement F44 Edge Mesa RPMs
+on:
+  workflow_dispatch:
+    inputs:
+      package-run:
+        description: Successful isolated F44 replacement RPM run
+        type: string
+        required: true
+      sign:
+        description: Sign with the Fedora package key and retain the RPM artifact
+        type: boolean
+        default: false
+
+permissions: {}
+
+env:
+  FEDORA_IMAGE: registry.fedoraproject.org/fedora:44@sha256:b96f024cecbe9515eb049107d2856e7ad923f7aac09a3c90e7a0d52a46fa3454
+
+jobs:
+  verify:
+    if: github.repository == 'aurora-silicon/fedora-aurora'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Verify the source run and built RPMs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EDGE_RUN: ${{ inputs.package-run }}
+        run: |
+          set -euo pipefail
+          [[ $EDGE_RUN =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$EDGE_RUN" > build-run.json
+          jq -e '.status=="completed" and .conclusion=="success" and .path==".github/workflows/rpms.yml"
+                 and .head_branch=="edge-staging/f44-mesa-ef112c2b" and .event=="workflow_dispatch"
+                 and .head_repository.full_name=="aurora-silicon/fedora-aurora"' build-run.json
+          EDGE_DISTRIBUTION_HEAD=$(jq -r .head_sha build-run.json)
+          [[ $EDGE_DISTRIBUTION_HEAD =~ ^[a-f0-9]{40}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/contents/sources.json?ref=$EDGE_DISTRIBUTION_HEAD" \
+            -H 'Accept: application/vnd.github.raw+json' > sources.json
+          jq -e '.["kernel-aurora"].commit=="6020f67d5ce13e7aae6820cd51ab70826404932c"
+                 and .["mesa-aurora"].commit=="ef112c2b86e4e19b2317cd88918e673de7fd55cf"
+                 and .["mesa-aurora-fex-guest"].commit=="ef112c2b86e4e19b2317cd88918e673de7fd55cf"' sources.json
+          mkdir -p candidate/rpms candidate/receipts
+          for package in mesa-aurora mesa-aurora-fex-guest aurora-flatpak-gl; do
+            gh run download "$EDGE_RUN" --repo "$GITHUB_REPOSITORY" -n "rpm-$package" -D "download/$package"
+            receipt="download/$package/out/manifests/$package.json"
+            jq -e --arg pkg "$package" '.package==$pkg and .succeeded==true and (.fedora // 44)==44' "$receipt"
+            cp "$receipt" candidate/receipts/
+            jq -r '.artifacts[] | select(.filename | test("\\.(src|nosrc)\\.rpm$|-(debuginfo|debugsource)-") | not)
+                   | [.sha256,.filename] | @tsv' "$receipt" > "download/$package/runtime.tsv"
+            test -s "download/$package/runtime.tsv"
+            while IFS=$'\t' read -r digest name; do
+              [[ $digest =~ ^[a-f0-9]{64}$ && $name =~ ^[A-Za-z0-9._+~-]+\.rpm$ ]]
+              file="download/$package/out/rpms/$name"
+              test -f "$file" && test ! -L "$file" && test ! -e "candidate/rpms/$name"
+              printf '%s  %s\n' "$digest" "$file" | sha256sum -c -
+              gh attestation verify "$file" --repo "$GITHUB_REPOSITORY" \
+                --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/rpms.yml" \
+                --source-digest "$EDGE_DISTRIBUTION_HEAD" --deny-self-hosted-runners
+              cp "$file" candidate/rpms/
+            done < "download/$package/runtime.tsv"
+          done
+          test -f candidate/rpms/mesa-aurora-vulkan-drivers-26.3.0-33.fc44.aurora.aarch64.rpm
+          test -f candidate/rpms/mesa-aurora-dri-drivers-26.3.0-33.fc44.aurora.aarch64.rpm
+          cp sources.json candidate/
+          python3 .github/scripts/edge-rpm-content.py candidate/rpms candidate/unsigned.json
+          cp build-run.json candidate/
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: f44-edge-verified-mesa-ef112c2b
+          path: candidate
+          compression-level: 0
+          if-no-files-found: error
+
+  sign:
+    if: inputs.sign && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-24.04
+    environment: testing-signing
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: f44-edge-verified-mesa-ef112c2b
+          path: candidate
+      - name: Sign and verify package equivalence
+        env:
+          FEDORA_RPM_SIGNING_KEY: ${{ secrets.FEDORA_RPM_SIGNING_KEY }}
+          FEDORA_RPM_SIGNING_PASSPHRASE: ${{ secrets.FEDORA_RPM_SIGNING_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/src" -w /src \
+            -e FEDORA_RPM_SIGNING_KEY -e FEDORA_RPM_SIGNING_PASSPHRASE "$FEDORA_IMAGE" bash -euo pipefail -c '
+              dnf install -y rpm-sign redhat-rpm-config gnupg2 python3
+              export GNUPGHOME
+              GNUPGHOME=$(mktemp -d)
+              trap '\''rm -rf "$GNUPGHOME"'\'' EXIT
+              fingerprint=$(cat keys/fingerprint.txt)
+              printf "%s" "$FEDORA_RPM_SIGNING_PASSPHRASE" > "$GNUPGHOME/passphrase"
+              chmod 600 "$GNUPGHOME/passphrase"
+              printf "%s" "$FEDORA_RPM_SIGNING_KEY" | gpg --batch --import
+              gpg --batch --list-secret-keys "$fingerprint" >/dev/null
+              rpmkeys --import keys/RPM-GPG-KEY-aurora
+              mkdir -p signed/rpms
+              cp candidate/rpms/*.rpm signed/rpms/
+              for rpm in signed/rpms/*.rpm; do
+                rpmsign --define "_gpg_path $GNUPGHOME" --define "_openpgp_sign_id $fingerprint" \
+                  --define "_gpg_sign_cmd_extra_args --batch --pinentry-mode loopback --passphrase-file $GNUPGHOME/passphrase" \
+                  --addsign "$rpm"
+                [[ $(rpmkeys --checksig "$rpm") == *"digests signatures OK"* ]]
+              done
+              python3 .github/scripts/edge-rpm-content.py signed/rpms signed/equivalence.json --compare candidate/unsigned.json
+              cp -r candidate/receipts candidate/build-run.json candidate/sources.json signed/
+            '
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            signed/rpms/*.rpm
+            signed/equivalence.json
+            signed/build-run.json
+            signed/sources.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: f44-edge-signed-mesa-ef112c2b
+          path: signed
+          compression-level: 0
+          if-no-files-found: error
