@@ -2,6 +2,7 @@
 """Check the assembled Neo image against the verified F44 RPM inventory."""
 import hashlib
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -17,9 +18,15 @@ REQUIRED = {"kernel-aurora-core.aarch64", "kernel-aurora-modules-extra.aarch64",
 
 def proof(root, boot, input_receipt):
     roots = {"root": root.resolve(strict=True), "boot": boot.resolve(strict=True)}
+    if (input_receipt["replacement_mesa"] != "ef112c2b86e4e19b2317cd88918e673de7fd55cf"
+            or type(input_receipt["replacement_signing_run"]) is not int
+            or input_receipt["replacement_signing_run"] <= 0):
+        raise ValueError("Expected the corrected Mesa signing receipt")
     mesa_files = input_receipt["mesa_files"]
     if set(mesa_files) != {"usr/lib64/libvulkan_asahi.so", "usr/share/vulkan/icd.d/asahi_icd.aarch64.json"}:
         raise ValueError("Replacement Mesa file inventory is incomplete")
+    if any(not re.fullmatch(r"[a-f0-9]{64}", digest) for digest in mesa_files.values()):
+        raise ValueError("Replacement Mesa file digests are invalid")
     exact = {**FILES, **{"root:" + name: digest for name, digest in mesa_files.items()}}
     for name, expected in exact.items():
         where, relative = name.split(":", 1)
@@ -32,6 +39,9 @@ def proof(root, boot, input_receipt):
     signed = input_receipt["signed_rpms"]
     if input_receipt["signing_run"] != 44329906984 or not REQUIRED <= signed.keys():
         raise ValueError("Image RPM input does not cover the tested package set")
+    for key in ("mesa-aurora-vulkan-drivers.aarch64", "mesa-aurora-dri-drivers.aarch64"):
+        if "-26.3.0-33.fc44.aurora.aarch64.rpm" not in signed[key]["filename"]:
+            raise ValueError(f"Image candidate contains stale Mesa: {key}")
     installed = subprocess.check_output(
         ["rpm", "--root", str(root), "-qa", "--qf", "%{NAME}.%{ARCH}\t%{NEVRA}\n"], text=True)
     selected = []
