@@ -1,9 +1,9 @@
-%global commit 06c4609a8e962a2baa95560039ba21de5dfaa524
+%global commit ef112c2b86e4e19b2317cd88918e673de7fd55cf
 %global debug_package %{nil}
 Name: mesa-aurora
 Epoch: 1
 Version: 26.3.0
-Release: 32%{?dist}.aurora
+Release: 33%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
