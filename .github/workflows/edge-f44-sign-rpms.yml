@@ -1,7 +1,7 @@
 name: Sign the qualified F44 Edge RPMs
 on:
   pull_request:
-    paths: [.github/workflows/edge-f44-sign-rpms.yml, scripts/edge-rpm-content.py]
+    paths: [.github/workflows/edge-f44-sign-rpms.yml, .github/scripts/edge-rpm-content.py]
   workflow_dispatch:
     inputs:
       sign:
@@ -65,7 +65,7 @@ jobs:
           470cb231e0a4d17434abe22033b5d6a4143834e830cb0a5031489cfd6b68ab89  mesa-aurora-vulkan-drivers-26.3.0-32.fc44.aurora.aarch64.rpm
           SUMS
           )
-          python3 scripts/edge-rpm-content.py candidate/rpms candidate/unsigned.json
+          python3 .github/scripts/edge-rpm-content.py candidate/rpms candidate/unsigned.json
           cp build-run.json candidate/
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -117,7 +117,7 @@ jobs:
                   --addsign "$rpm"
                 [[ $(rpmkeys --checksig "$rpm") == *"digests signatures OK"* ]]
               done
-              python3 scripts/edge-rpm-content.py signed/rpms signed/equivalence.json --compare candidate/unsigned.json
+              python3 .github/scripts/edge-rpm-content.py signed/rpms signed/equivalence.json --compare candidate/unsigned.json
               cp -r candidate/receipts candidate/build-run.json signed/
             '
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
