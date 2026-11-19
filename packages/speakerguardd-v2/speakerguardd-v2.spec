@@ -1,6 +1,6 @@
-%global commit 04169c4470650f8e2554db70d4072fb92e484138
+%global commit bbd9ed30ac43ff4fee3a8b279ff994180d8148cb
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261113
+%global snapdate 20261117
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
@@ -8,8 +8,8 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.48.%{snapdate}git%{shortcommit}%{?dist}
-Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0, preview)
+Release: 0.49.%{snapdate}git%{shortcommit}%{?dist}
+Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
 URL: https://github.com/aurora-silicon/speakerguardd
@@ -41,10 +41,6 @@ Requires: aurora-audio >= 4.1-11
 %{?systemd_requires}
 
 %description
-speakerguardd v2 is a preview. It does not fully match macOS yet. The legacy
-protection (speakersafetyd, speakerguardd 0.1) is the supported default and
-stays installed. To go back at any time: sudo aurora-speaker-upgrade --revert.
-
 speakerguardd 1.0 is a new speaker protection stack that works the way
 macOS's does: the protection unit runs inside the PipeWire speaker graph as
 an LV2 plugin, with the amplifier's voltage and current sense as its second
@@ -252,6 +248,20 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 17 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.49.20261117gitbbd9ed30ac43
+- Release candidate 9 (speakerguardd#144): v2 is no longer labelled a
+  preview; aurora-speaker-upgrade switches without the preview
+  confirmation (--i-understand-preview is still accepted, no effect).
+  Still opt-in: nothing here enables the upgrade unit.
+- speakerguardd#186: /etc/speakerguardd keeps mode 0755 (provisioning
+  repairs a 0700 directory), so the seat user's session reads
+  speakerguardd.conf after a switch.
+- speakerguardd#189, #190: provision.json and provision.bind are root
+  only (0600); provisioning says why a seat user's session gets no graph.
+- speakerguardd#191: aurora-speaker-tuning compile --unit-id-file.
+- speakerguardd#192: spp3 and the LV2 plugin model the drive the
+  supervisor asks for over the engine page, and acknowledge it.
+
 * Fri Nov 13 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.48.20261113git04169c447065
 - speakerguardd#168: speaker startup robustness: the session selects the
   Secondary speaker route before provisioning, the self-check requires every
