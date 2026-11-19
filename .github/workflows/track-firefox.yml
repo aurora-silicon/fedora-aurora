@@ -12,6 +12,13 @@ name: Track Fedora Firefox
 # A failed proposal build fails this workflow until a newer import replaces it.
 # Disable with the repository variable TRACK_FIREFOX=false; keep proposals
 # unmerged with AUTO_MERGE_FIREFOX=false.
+# The security-sla job holds Aurora to the rebuild deadlines in
+# docs/firefox/security-updates.md: one firefox-security issue per Fedora
+# Firefox security update Aurora's served channels are behind, labelled
+# overdue past its deadline (scripts/check-firefox-security.py). It fails the
+# workflow while an obligation is overdue. FIREFOX_SECURITY_SLA=false stops
+# it changing issues; FIREFOX_SLA_MENTION (e.g. @org/team) is mentioned when
+# it escalates.
 on:
   schedule:
     - cron: '23 */2 * * *'
@@ -25,6 +32,7 @@ on:
     paths:
       - .github/workflows/track-firefox.yml
       - scripts/import-fedora-firefox.py
+      - scripts/check-firefox-security.py
 permissions: {}
 defaults:
   run:
@@ -151,3 +159,24 @@ jobs:
           say "proposed $branch"
       - if: steps.merge.outputs.failed == '1'
         run: exit 1
+  security-sla:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+      FIREFOX_SLA_MENTION: ${{ vars.FIREFOX_SLA_MENTION }}
+      LIVE: >-
+        ${{ github.ref == 'refs/heads/main' && vars.FIREFOX_SECURITY_SLA != 'false' &&
+            (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.dry-run == false)) }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Check Aurora's Firefox against Fedora's security updates
+        run: |
+          set -euo pipefail
+          live=()
+          [[ $LIVE == true ]] && live=(--live)
+          python3 scripts/check-firefox-security.py --repository "$REPOSITORY" "${live[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
