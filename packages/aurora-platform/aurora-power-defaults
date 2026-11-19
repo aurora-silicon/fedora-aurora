@@ -1,0 +1,35 @@
+#!/bin/sh
+# Power defaults for Apple silicon Macs, run once at boot by
+# aurora-power-defaults.service. Each lever applies wherever the hardware has
+# what it acts on; a SoC is left out only for a measured reason, named below.
+set -u
+
+compatible() {
+    tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -qxE "$1"
+}
+
+# PCIe ASPM policy powersupersave: L1 with the L1.1 and L1.2 substates. The
+# kernel enables each state only on links whose two ends advertise it (and
+# leaves alone a link whose driver disabled ASPM), so the policy is safe on
+# every Mac; the default policy leaves the substates off even where both ends
+# support them with LTR. Measured on a J616s (M4 Pro): -0.23 W at display-off
+# idle; Wi-Fi, Bluetooth and the SD reader keep working, s2idle 3/3.
+if [ -w /sys/module/pcie_aspm/parameters/policy ]; then
+    echo powersupersave > /sys/module/pcie_aspm/parameters/policy ||
+        echo "aurora-power-defaults: ASPM policy not changed" >&2
+fi
+
+# No utilization floor for realtime threads (the kernel default, 1024, runs
+# their CPU at its top clock whenever one runs: threaded IRQs of the
+# trackpad, keyboard, Wi-Fi and speaker amps, PipeWire's data loop).
+# Measured: -0.52 W on a J616s (M4 Pro), -0.31 W on an M1 Pro, display-off
+# idle. Left at the kernel default on:
+# - T8112 (M2): with 0, PipeWire's speaker sense capture follower resynced
+#   during speaker playback; until a playback row through the speaker
+#   protection graph is clean there, the floor stays.
+if [ -w /proc/sys/kernel/sched_util_clamp_min_rt_default ] &&
+    ! compatible 'apple,t8112'; then
+    sysctl -q -w kernel.sched_util_clamp_min_rt_default=0 ||
+        echo "aurora-power-defaults: realtime utilization floor not changed" >&2
+fi
+exit 0

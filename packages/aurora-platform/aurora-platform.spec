@@ -45,7 +45,8 @@ Source123: aurora-kdump-setup
 Source124: aurora-kdump-clock-module-setup.sh
 Source125: aurora-kdump-clock.sh
 Source126: 60-aurora-t6041-trackpad.quirks
-Source127: aurora-t6041-power.service
+Source127: aurora-power-defaults.service
+Source128: aurora-power-defaults
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -164,11 +165,12 @@ install -Dm755 %{SOURCE115} %{buildroot}%{_libexecdir}/aurora/aurora-wake-for-ne
 install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-network.rules
 install -Dm644 %{SOURCE120} %{buildroot}%{_udevrulesdir}/64-aurora-trackpad-clicks.rules
 install -Dm644 %{SOURCE126} %{buildroot}%{_datadir}/libinput/60-aurora-t6041-trackpad.quirks
-install -Dm644 %{SOURCE127} %{buildroot}%{_unitdir}/aurora-t6041-power.service
+install -Dm644 %{SOURCE127} %{buildroot}%{_unitdir}/aurora-power-defaults.service
+install -Dm755 %{SOURCE128} %{buildroot}%{_libexecdir}/aurora/aurora-power-defaults
 # Wanted by sysinit.target itself: a preset would not reach Macs that
-# already have aurora-platform-core. ConditionFirmware skips other Macs.
+# already have aurora-platform-core.
 install -d %{buildroot}%{_unitdir}/sysinit.target.wants
-ln -s ../aurora-t6041-power.service %{buildroot}%{_unitdir}/sysinit.target.wants/aurora-t6041-power.service
+ln -s ../aurora-power-defaults.service %{buildroot}%{_unitdir}/sysinit.target.wants/aurora-power-defaults.service
 install -Dm644 %{SOURCE118} %{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 install -Dm644 %{SOURCE121} %{buildroot}%{_prefix}/lib/kdump/dracut.conf.d/99-zz-aurora.conf
 install -Dm644 %{SOURCE122} %{buildroot}%{_unitdir}/kdump.service.d/50-aurora-kdump.conf
@@ -225,8 +227,8 @@ fi
 %{_unitdir}/var-swap-swapfile2.swap.d/
 %dir %{_unitdir}/irqbalance.service.d
 %{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf
-%{_unitdir}/aurora-t6041-power.service
-%{_unitdir}/sysinit.target.wants/aurora-t6041-power.service
+%{_unitdir}/aurora-power-defaults.service
+%{_unitdir}/sysinit.target.wants/aurora-power-defaults.service
 %{_udevrulesdir}/61-aurora-dmi-id.rules
 %{_udevrulesdir}/62-aurora-gpu-render-only.rules
 %{_udevrulesdir}/63-aurora-wake-for-network.rules
@@ -241,6 +243,7 @@ fi
 %{_libexecdir}/aurora/aurora-grub-uuid
 %{_libexecdir}/aurora/aurora-ppd-config
 %{_libexecdir}/aurora/aurora-wake-for-network
+%{_libexecdir}/aurora/aurora-power-defaults
 %dir %{_prefix}/lib/tuned/profiles/aurora-performance
 %{_prefix}/lib/tuned/profiles/aurora-performance/tuned.conf
 
@@ -256,12 +259,17 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
-* Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-42
-- Apply aurora-t6041-power.service on the M4 Pro (T6040) too. On a J616s
-  at display-off idle, kernel.sched_util_clamp_min_rt_default=0 cuts
-  system power by 0.52 W (5.21 -> 4.68 W) and ASPM powersupersave by
-  0.23 W (5.21 -> 4.98 W). With both on, Wi-Fi, Bluetooth and the SD
-  reader keep working and s2idle wakes 3/3.
+* Thu Nov 19 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-42
+- aurora-t6041-power.service becomes aurora-power-defaults.service, run on
+  every Apple silicon Mac (aurora-power-defaults):
+  - PCIe ASPM policy powersupersave everywhere: the kernel enables the L1
+    substates only on links whose two ends advertise them. On a J616s at
+    display-off idle -0.23 W (5.21 -> 4.98 W); Wi-Fi, Bluetooth and the SD
+    reader keep working and s2idle wakes 3/3.
+  - kernel.sched_util_clamp_min_rt_default=0 everywhere except on T8112
+    (M2), where PipeWire's speaker sense capture follower resynced with it:
+    -0.52 W on a J616s (5.21 -> 4.68 W), -0.31 W on an M1 Pro.
+  A mask of aurora-t6041-power.service still keeps the kernel's defaults.
 
 * Sun Nov 15 2026 AxxzyWasTaken <axxzytte@gmail.com> - 44-41
 - M4 Max (T6041) power defaults (aurora-t6041-power.service): PCIe ASPM

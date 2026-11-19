@@ -1,0 +1,18 @@
+# Power defaults for every Apple silicon Mac; see aurora-power-defaults for
+# what each lever does and where it stays off. To keep the kernel's
+# defaults, mask it:
+#   systemctl mask aurora-power-defaults.service
+[Unit]
+Description=Apple silicon power defaults
+ConditionFirmware=device-tree-compatible(apple,arm-platform)
+# A mask of the unit this replaced (aurora-t6041-power.service) still applies.
+ConditionPathExists=!/etc/systemd/system/aurora-t6041-power.service
+DefaultDependencies=no
+After=systemd-sysctl.service
+Before=sysinit.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/libexec/aurora/aurora-power-defaults
