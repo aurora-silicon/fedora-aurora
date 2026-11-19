@@ -203,7 +203,7 @@ the keyring deleted imported the key without asking, and so did PackageKit.
 | `deploy-snapshot.yml` | manual or called | Serves a snapshot's signed metadata on `testing` or `stable` (both channels are rebuilt into one Pages site), verifies signatures, attestation and the live repository's versions, records `channels.json` |
 | `promote.yml` | manual | `stable` gets what `testing` serves, after a `stable-promotion` reviewer approves |
 | `images.yml` | manual or after a testing deploy (`AUTO_IMAGES`) | Builds an image; `channel` sets its repository URL |
-| `payload-after-images.yml` | after an image build (`AUTO_PAYLOADS`) | Signed payload release; catalog adoption stays manual |
+| `publish-payload.yml` | manual | Signed installer payload release from a successful image run; catalog adoption stays manual |
 
 ## Common tasks
 

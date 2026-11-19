@@ -75,6 +75,40 @@ class IncompleteSnapshot(ValueError):
         self.missing = missing
 
 
+# Binary packages a snapshot must carry together from Aurora's own build of
+# their source recipe. Repository priority keeps a system on Aurora's build
+# only while it is published; without it dnf moves to Fedora's stock package
+# and silently drops what Aurora patches in (Firefox: the V4L2 request video
+# decoder). Images without a browser are not affected: this only checks what
+# the repository serves.
+REQUIRED_TOGETHER = {
+    'firefox': (('firefox', 'aarch64'), ('firefox-langpacks', 'aarch64')),
+}
+
+
+class MissingRequiredPackage(ValueError):
+    def __init__(self, recipe, message):
+        super().__init__(message)
+        self.recipe = recipe
+
+
+def check_required(selected, expected):
+    """Each REQUIRED_TOGETHER set is present, built from the expected Aurora source."""
+    for recipe, packages in REQUIRED_TOGETHER.items():
+        sources = [s for s in expected if s.rsplit('-', 2)[0] == recipe]
+        if not sources:
+            continue  # The recipe is not part of this release's distribution.
+        source = sources[0]
+        if '.aurora' not in source.rsplit('-', 1)[1]:
+            raise MissingRequiredPackage(recipe, f'{recipe}: {source} is not an Aurora build')
+        for name, arch in packages:
+            found = selected.get((name, arch))
+            if found is None:
+                raise MissingRequiredPackage(recipe, f'Snapshot lacks {name}.{arch} from {source}')
+            if found[1] != source:
+                raise MissingRequiredPackage(recipe, f'{name}.{arch} comes from {found[1]}, not {source}')
+
+
 def assemble(base, candidates, output, expected):
     fresh = {}
     for path in sorted(candidates.glob('*.rpm')):
@@ -107,6 +141,7 @@ def assemble(base, candidates, output, expected):
     actual = {source for _, source in selected.values()}
     if actual != expected:
         raise IncompleteSnapshot(expected - actual, actual - expected)
+    check_required(selected, expected)
     output.mkdir()
     for path, _ in selected.values():
         shutil.copyfile(path, output / path.name)
@@ -132,6 +167,10 @@ def main():
     except IncompleteSnapshot as error:
         if args.missing_output:
             args.missing_output.write_text(' '.join(sorted(n.rsplit('-', 2)[0] for n in error.missing)) + '\n')
+        raise
+    except MissingRequiredPackage as error:
+        if args.missing_output:
+            args.missing_output.write_text(error.recipe + '\n')
         raise
     print(f'Assembled {len(names)} RPMs covering every current source recipe')
 
