@@ -30,5 +30,4 @@ installkernel() {
 
 install() {
     inst_hook pre-trigger 20 "$moddir/aurora-early-kms.sh"
-    inst_hook pre-pivot 90 "$moddir/aurora-early-kms-wait.sh"
 }
