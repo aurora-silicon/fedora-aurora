@@ -206,6 +206,16 @@ class SpecTests(unittest.TestCase):
         self.assertIn('%{_prefix}/lib/dracut/modules.d/91aurora-usb4/', core_files)
         config = (ROOT / 'packages' / 'kernel-aurora' / 'config').read_text()
         self.assertIn('CONFIG_USB4_APPLE_SOC=m', config.splitlines())
+    def test_initramfs_carries_the_cpu_frequency_driver(self):
+        # Without it the cores stay at the boot loader's clock until the real
+        # root loads the driver (MacBook Neo: 744 MHz until ~7 s).
+        d = ROOT / 'packages' / 'aurora-platform'
+        conf = (d / '90-aurora-cpufreq.conf').read_text()
+        self.assertRegex(conf, r'(?m)^add_drivers\+=" apple-soc-cpufreq "$')
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: 90-aurora-cpufreq\.conf$')
+        core_files = text.split('%files core', 1)[1].split('%changelog', 1)[0]
+        self.assertIn('%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-cpufreq.conf\n', core_files)
     def test_initramfs_coldplugs_the_display_first(self):
         # F45's initramfs pivots before udev reaches the display; a pre-trigger
         # hook queues it (and its suppliers) ahead of systemd-udev-trigger.
