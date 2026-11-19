@@ -17,8 +17,8 @@ Epoch:          1
 # aurora10: the Touch ID lockout reaches fprintd as FP_DEVICE_ERROR_LOCKED_OUT.
 # aurora11: and why Touch ID needs the password (after boot, other reasons).
 # aurora12: fp_device_get_password_required() for front-ends.
-# aurora13: ENOSPC is reported as DATA_FULL, paired with fprintd's no-GC guard.
-Release:        1%{?dist}.aurora13
+# aurora14: ENOSPC is reported as DATA_FULL, paired with fprintd's no-GC guard.
+Release:        1%{?dist}.aurora14
 Summary:        Toolkit for fingerprint scanner
 
 # Automatically converted from old format: LGPLv2+ - review is highly recommended.
@@ -73,7 +73,7 @@ Patch1008:      0009-aurora-say-why-touch-id-needs-the-password.patch
 # the password, so front-ends don't ask for a finger first.
 Patch1009:      0010-let-a-front-end-ask-whether-the-reader-needs-the-password.patch
 # Report full storage as DATA_FULL; paired with fprintd's apple-sep no-GC guard.
-Patch1010:      0011-aurora-report-fingerprint-storage-full.patch
+Patch1011:      0012-aurora-report-fingerprint-storage-full.patch
 
 BuildRequires:  meson
 BuildRequires:  gcc
@@ -211,8 +211,8 @@ python3 %{SOURCE1004} libfprint/drivers/aurora/aurora.c
 %{_datadir}/installed-tests/libfprint-2/
 
 %changelog
-* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 1:1.94.100-1.aurora13
-- Report full fingerprint storage as FP_DEVICE_ERROR_DATA_FULL (0011), with
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 1:1.94.100-1.aurora14
+- Report full fingerprint storage as FP_DEVICE_ERROR_DATA_FULL (0012), with
   the paired fprintd no-GC guard
 
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1:1.94.100-1.aurora12

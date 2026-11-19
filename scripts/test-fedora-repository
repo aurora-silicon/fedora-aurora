@@ -2,20 +2,27 @@
 # Inside a disposable Fedora container: verify/sign the complete CI-built F45
 # inventory, serve it over loopback, install its repository policy and resolve
 # the fleet's normal upgrade. Never uses a release signing credential.
+# A heavy recipe the run did not build comes from CARRIED, the signed snapshot
+# RPMs scripts/carry-heavy-f45.py fetched after checking that their build
+# receipt matches the current recipe.
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 source "$root/scripts/testlib.sh"
 candidates=${1:?CI artifact directory}
 proof=${2:?proof directory}
+carried=${3:-}
 mkdir -p "$proof"
 dnf install -y python3 rpm-build rpm-sign gnupg2 createrepo_c dnf5-plugins
 [[ $(rpm --eval '%{fedora}') == 45 ]]
-python3 - "$root" "$candidates" "$proof" <<'PY'
+python3 - "$root" "$candidates" "$proof" "$carried" <<'PY'
 import hashlib, json, pathlib, shutil, subprocess, sys
-root, candidates, proof = map(pathlib.Path, sys.argv[1:])
+root, candidates, proof = map(pathlib.Path, sys.argv[1:4])
+carried_dir = pathlib.Path(sys.argv[4]) if sys.argv[4] else None
 sys.path.insert(0, str(root / 'scripts'))
 import fedoralib
 wanted = set(fedoralib.package_names(root))
+heavy = {n for n in wanted
+         if '# aurora-builder: heavy' in fedoralib.recipe_files(root, n, 45)[n + '.spec'].read_text().splitlines()}
 seen = set()
 rpms = proof / 'rpms'
 rpms.mkdir()
@@ -46,10 +53,34 @@ for receipt in sorted(candidates.glob('rpm-f45-*/out/manifests/*.json')):
             shutil.copyfile(path, rpms / filename)
     assert recorded == {p.name for kind in ('rpms', 'srpms') for p in (receipt.parents[1] / kind).glob('*.rpm')}
     seen.add(name)
-assert seen == wanted, f'Missing CI builds: {sorted(wanted - seen)}'
+carried = {}
+if carried_dir:
+    record = json.loads((carried_dir / 'carried.json').read_text())
+    carried = record['packages']
+    for name, item in carried.items():
+        # Only heavy recipes are left out of a full run; the rest must be built.
+        assert name in heavy and name not in seen, name
+        assert item['recipe_inputs'] == fedoralib.recipe_inputs(root, name, 45), f'Stale carried build: {name}'
+        for row in item['files']:
+            path = carried_dir / row['filename']
+            assert not path.is_symlink() and path.stat().st_size == row['bytes']
+            with path.open('rb') as stream:
+                assert hashlib.file_digest(stream, 'sha256').hexdigest() == row['sha256']
+    (proof / 'carried.json').write_text(json.dumps(record, indent=2) + '\n')
+assert seen | set(carried) == wanted, f'Missing CI builds: {sorted(wanted - seen - set(carried))}'
 (proof / 'fc45-packages.txt').write_text('\n'.join(sorted(p.name for p in rpms.glob('*.rpm'))) + '\n')
 PY
-python3 "$root/scripts/assemble-repository.py" --fedora-release 45 --candidates "$proof/rpms" --output "$proof/complete"
+base=()
+[[ -z $carried ]] || base=(--base "$carried")
+# With --base, the carried RPMs must carry the release signature and the
+# current spec's exact source NVR.
+python3 "$root/scripts/assemble-repository.py" --fedora-release 45 "${base[@]}" --candidates "$proof/rpms" --output "$proof/complete"
+if [[ -n $carried ]]; then
+  # The local repository is signed with a throwaway key only.
+  for rpm in "$carried"/*.rpm; do
+    rpmsign --delsign "$proof/complete/${rpm##*/}"
+  done
+fi
 export GNUPGHOME=$proof/gnupg
 mkdir -m 0700 "$GNUPGHOME"
 gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key 'CI repository <ci@example.invalid>' rsa2048 sign 1d

@@ -1,0 +1,57 @@
+#!/bin/sh
+# aurora-kdump-setup enable|disable
+#
+# kdump saves Linux's own crashes to /var/crash (vmcore plus the crashed
+# kernel's log); aurora-panic-log lists them. iBoot keeps no record of a
+# Linux panic, so this is how one survives the restart. It is opt-in:
+# installing aurora-platform-kdump runs "enable", removing it runs "disable".
+#
+# enable: enable kdump.service and, when the kernel command line has no
+# crashkernel= yet, add crashkernel=512M to every boot entry (grubby) and to
+# /etc/kernel/cmdline. The memory is reserved from the next boot. 512 MiB,
+# not kdump-utils' 320 MiB default: the crash kernel unpacks its whole
+# initramfs (no squashfs, see 99-zz-aurora.conf) and ran out of memory at
+# 320 MiB on a MacBook Pro (M1 Pro).
+# disable: disable kdump.service and remove crashkernel= again, but only if
+# "enable" added it; a size the owner set stays.
+set -u
+state=${AURORA_KDUMP_STATE:-/var/lib/aurora/kdump-crashkernel-added}
+cmdline=${AURORA_KERNEL_CMDLINE:-/etc/kernel/cmdline}
+size=512M
+
+has_crashkernel() {
+    [ -f "$cmdline" ] && grep -Eq '(^|[[:space:]])crashkernel=' "$cmdline"
+}
+
+case ${1:-} in
+enable)
+    systemctl enable kdump.service > /dev/null 2>&1 || :
+    has_crashkernel && exit 0
+    if grubby --update-kernel=ALL --args="crashkernel=$size" > /dev/null 2>&1; then
+        if [ -f "$cmdline" ] && ! has_crashkernel; then
+            new=$(sed -E "1s/[[:space:]]*\$/ crashkernel=$size/" "$cmdline") &&
+                printf '%s\n' "$new" > "$cmdline"
+        fi
+        mkdir -p "${state%/*}"
+        touch "$state"
+        echo "aurora-kdump-setup: crashkernel=$size is reserved from the next boot"
+    else
+        echo "aurora-kdump-setup: grubby failed; add crashkernel=$size to the kernel command line" >&2
+    fi
+    ;;
+disable)
+    systemctl disable kdump.service > /dev/null 2>&1 || :
+    [ -e "$state" ] || exit 0
+    grubby --update-kernel=ALL --remove-args=crashkernel > /dev/null 2>&1 || :
+    if has_crashkernel; then
+        new=$(sed -E 's/(^|[[:space:]])crashkernel=[^[:space:]]*//g' "$cmdline") &&
+            printf '%s\n' "$new" > "$cmdline"
+    fi
+    rm -f "$state"
+    ;;
+*)
+    echo "usage: aurora-kdump-setup enable|disable" >&2
+    exit 2
+    ;;
+esac
+exit 0

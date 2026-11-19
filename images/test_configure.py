@@ -9,6 +9,7 @@ import re
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 import xml.etree.ElementTree as ET
 
 spec = importlib.util.spec_from_file_location("configure", Path(__file__).with_name("configure.py"))
@@ -548,6 +549,31 @@ class ConfigureTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "outside"):
             self.prepare(self.source / "generated")
         self.assertFalse((self.source / "generated").exists())
+
+
+
+class LockTests(unittest.TestCase):
+    def test_each_release_pins_its_own_forge_description(self):
+        for release, branch in (("44", "f44"), ("45", "f45")):
+            lock = configure.lock(release)
+            self.assertEqual(lock["fedora_release"], release)
+            self.assertEqual(lock["branch"], branch)
+            self.assertEqual(lock["repository"], "https://forge.fedoraproject.org/asahi/kiwi-descriptions.git")
+            self.assertRegex(lock["commit"], r"^[0-9a-f]{40}$")
+        self.assertNotEqual(configure.lock("44")["commit"], configure.lock("45")["commit"])
+
+    def test_a_lock_for_another_release_is_refused(self):
+        with mock.patch.dict(configure.LOCKS, {"45": "upstream.json"}):
+            with self.assertRaises(ValueError):
+                configure.lock("45")
+
+    def test_image_builder_selects_the_lock_by_its_fedora_release(self):
+        script = (Path(__file__).resolve().parents[1] / "scripts/build-image").read_text()
+        for release, name in (("44", "upstream.json"), ("45", "upstream-f45.json")):
+            self.assertIn(f"{release}) lock=$root/images/{name} ;;", script)
+            self.assertIn(name, configure.LOCKS[release])
+        self.assertIn('--fedora-release "$release"', script)
+        self.assertNotIn("pagure.io", script)
 
 
 if __name__ == "__main__":

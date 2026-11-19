@@ -1,0 +1,66 @@
+From: Aurora Silicon <ryan@aurorasilicon.org>
+Subject: [PATCH] libnetwork: skip absent chains during startup cleanup under firewalld
+
+--- a/daemon/libnetwork/iptables/iptables.go
++++ b/daemon/libnetwork/iptables/iptables.go
+@@ -248,15 +248,39 @@ func (c *ChainInfo) Output(action Action, args ...string) error {
+ 
+ // Remove removes the chain.
+ func (c *ChainInfo) Remove() error {
++	iptable := GetIptable(c.IPVersion)
++	// Through firewalld's passthrough, firewalld logs every failing command
++	// as a COMMAND_FAILED warning. With firewalld, check with the iptables
++	// binary first and only issue the commands that can succeed: a chain that
++	// was never set up has no rules or jump rules to remove.
++	fw := UsingFirewalld()
++	if fw && iptable.chainAbsentNative(c.Table, c.Name) {
++		return nil
++	}
+ 	// Ignore errors - This could mean the chains were never set up
+ 	if c.Table == Nat {
+-		_ = c.Prerouting(Delete, "-m", "addrtype", "--dst-type", "LOCAL", "-j", c.Name)
+-		_ = c.Output(Delete, "-m", "addrtype", "--dst-type", "LOCAL", "!", "--dst", loopbackAddress(c.IPVersion), "-j", c.Name)
+-		_ = c.Output(Delete, "-m", "addrtype", "--dst-type", "LOCAL", "-j", c.Name) // Created in versions <= 0.1.6
+-		_ = c.Prerouting(Delete)
+-		_ = c.Output(Delete)
++		for _, r := range []struct {
++			chain string
++			args  []string
++		}{
++			{"PREROUTING", []string{"-m", "addrtype", "--dst-type", "LOCAL", "-j", c.Name}},
++			{"OUTPUT", []string{"-m", "addrtype", "--dst-type", "LOCAL", "!", "--dst", loopbackAddress(c.IPVersion), "-j", c.Name}},
++			{"OUTPUT", []string{"-m", "addrtype", "--dst-type", "LOCAL", "-j", c.Name}}, // Created in versions <= 0.1.6
++		} {
++			if fw && !iptable.ExistsNative(Nat, r.chain, r.args...) {
++				continue
++			}
++			if r.chain == "PREROUTING" {
++				_ = c.Prerouting(Delete, r.args...)
++			} else {
++				_ = c.Output(Delete, r.args...)
++			}
++		}
++		if !fw {
++			_ = c.Prerouting(Delete)
++			_ = c.Output(Delete)
++		}
+ 	}
+-	iptable := GetIptable(c.IPVersion)
+ 	_, _ = iptable.Raw("-t", string(c.Table), "-F", c.Name)
+ 	_, _ = iptable.Raw("-t", string(c.Table), "-X", c.Name)
+ 	return nil
+@@ -385,6 +409,14 @@ func (iptable IPTable) ExistChain(chain string, table Table) bool {
+ 	return err == nil
+ }
+ 
++// chainAbsentNative reports whether the iptables binary ran and found no
++// chain with this name. It returns false if the binary could not be run, so
++// callers fall back to their unconditional behaviour.
++func (iptable IPTable) chainAbsentNative(table Table, chain string) bool {
++	_, err := iptable.raw("-t", string(table), "-nL", chain)
++	return err != nil && strings.HasPrefix(err.Error(), "iptables failed:")
++}
++
+ // FlushChain flush chain if it exists
+ func (iptable IPTable) FlushChain(table Table, chain string) error {
+ 	if !iptable.ExistChain(chain, table) {

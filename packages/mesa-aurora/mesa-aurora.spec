@@ -1,8 +1,8 @@
-%global commit 10161a78e60e4057257e116d404a92bd9b78bb3c
+%global commit d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 21%{?dist}.aurora
+Release: 30%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -200,6 +200,148 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Sun Nov 15 2026 Diljit Singh <hey@djdev.me> - 26.3.0-30
+- Pin aurora-silicon/mesa cts/b11-rc30 d4ad4a4dce6 (3 first-parent commits since 3b511dc1592):
+  - st/mesa: reject links mixing GLSL and SPIR-V shaders in either order
+    (d4ad4a4dce6)
+  - mesa: a SPIR-V shader given GLSL source is no longer compiled
+    (70018200ff9)
+  - mesa: don't let a compile free shader state another context is linking
+    (737fc35f257)
+
+* Sat Nov 14 2026 Diljit Singh <hey@djdev.me> - 26.3.0-29
+- Pin aurora-silicon/mesa cts/b10-rc29 3b511dc1592 (17 first-parent commits since bbad52187b6):
+  - hk: G17P: place large unlinked vertex shaders' varyings when linking
+    (3b511dc1592)
+  - Neo b9 candidate = Mesa -29 release tree: aurora-wip 5fe9c10c6f9 +
+    pr346 pr351 (3b3e6a2e082)
+  - mesa#342 agx: G17P ray queries: skip the sweep for threads that
+    launched nothing, store launch state once per thread
+  - mesa#349 asahi: select native RT capabilities without an environment
+    switch
+  - mesa#348 asahi: enable implemented GPU paths without feature opt-ins
+  - mesa#340 hk: alternate the G17P buffer fill's sweep direction
+  - mesa#339 hk: upload plain G17P tiled images in memory order
+  - mesa#300 hk: VK_EXT_attachment_feedback_loop_dynamic_state
+  - mesa#319 agx, hk: M4 Pro compute fixes (pack_64_4x16, f32 rsqrt
+    widening, cooperative matrix default on G17P)
+  - mesa#338 hk: advertise VK_EXT_nested_command_buffer on G17S
+  - mesa#341 hk: encode only the leaf jobs in AGX3 AS updates
+  - mesa#335 hk: G17P: skip the mesh row decode for grids that fit one
+    launch
+  - mesa#336 Reapply #327 and #328 (the AS CTS crash is pre-existing)
+  - mesa#334 Revert #328 and #327 pending an AS CTS crash attribution
+  - mesa#320 hk: fix stores to one-layer array views of compressed images
+    on M5
+  - mesa#328 vulkan, hk: use the shuffle neighbour search for small H-PLOC
+    builds
+  - mesa#327 hk: unroll the AGX3 envelope's descriptor loops
+
+* Sat Nov 14 2026 Diljit Singh <hey@djdev.me> - 26.3.0-28
+- Pin aurora-silicon/mesa aurora-wip bbad52187b6 (20 first-parent commits since f54acc022c8):
+  - mesa#315 hk: mesh and task shaders by default on G17P
+  - mesa#325 hk: advertise VK_EXT_nested_command_buffer on G17P
+  - mesa#324 hk: VK_EXT_descriptor_buffer on G17P
+  - mesa#323 hk: test that the vertex texture-heap shift keeps ray-query
+    state in place
+  - mesa#321 hk: dispatch ray tracing continuations through balanced
+    searches
+  - mesa#314 agx: end G17P ray-query compute kernels with the SCS sweep
+  - mesa#310 hk: spread independent G17P compute submissions over sibling
+    kernel queues
+  - mesa#329 hk: restore the runtime's pipeline stage record after meta
+  - mesa#322 hk: keep G17P ray-query state out of the vertex texture-heap
+    shift
+  - mesa#317 asahi: keep M5 tessellation on the CPU path when it can
+    tessellate
+  - mesa#318 asahi,hk: M5: one coverage update for per-sample kills
+  - mesa#309 agx: flatten small uniform ifs that load, and issue M5 compute
+    loads ahead of their uses
+  - mesa#308 agx: retire pending loads at M5 workgroup barriers
+  - mesa#316 agx: admit the M5 cube-array comparison with a per-lane level
+  - mesa#301 hk: VK_EXT_primitives_generated_query on G17P
+  - mesa#251 hk: raise the G18G compute batch default from 8 to 64
+  - mesa#296 G17P: per-sample kills go into the one coverage update (killed
+    samples keep their contents)
+  - mesa#313 asahi: neutral wording for the AGX3 encoding-table comments
+  - mesa#312 hk, agx: remove the M5 captured-runtime ray query route
+  - mesa#297 agx: keep G18G per-lane levels and biases as 16-bit scalars
+    (mpv scalers render solid blue on the M6)
+
+* Fri Nov 13 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-27
+- Track aurora-silicon/mesa aurora-wip at f54acc02: G17P no longer
+  compresses storage images, which read back wrong texels when bound to
+  reused memory (mesa#311), VK_NV_cooperative_matrix2 is advertised only
+  on the M5 (mesa#304), the M5 programs custom primitive restart indices
+  (mesa#307), stores through a linear window past its 3D store slice
+  limit (mesa#303), page-aligns the layers of mipmapped writeable arrays
+  (mesa#302) and keeps the VDM stream link context-relative, fixing a GPU
+  fault with many small draws (mesa#276), the 8x8 cooperative matrix on
+  AGX3B behind ASAHI_AGX3B_COOPERATIVE_MATRIX (mesa#275), and G18G CDM
+  barriers (mesa#295).
+
+* Fri Nov 13 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-26
+- Track aurora-silicon/mesa aurora-wip at 5ccdc3f8: G17P tests a
+  per-sample fragment's coverage once, fixing GPU stalls beside a
+  second client (mesa#294), G17P admits queues before consuming
+  submission payloads (mesa#293), the M5 draws GL tessellation natively
+  (mesa#292), tiny positive LOD clamps stay above zero (mesa#289),
+  VK_NV_cooperative_matrix2 on the M5 (mesa#244, mesa#246, mesa#291),
+  VK_EXT_memory_priority and VK_EXT_pageable_device_local_memory
+  (mesa#243), the hk_compute_timeout_ms option (mesa#259), G17P ray
+  tracing with recursion depth 31, pipeline caching, more vertex
+  formats, subgroups and faster opaque ray queries (mesa#270-mesa#274,
+  mesa#278, mesa#286, mesa#288), batched and overlapped acceleration
+  structure builds (mesa#283), M5 fixes for bfloat16 rounding,
+  device-scope barriers, barrier memory scope, layered storage images,
+  occlusion queries, empty compute work and command-memory reaping
+  (mesa#264, mesa#266-mesa#269, mesa#277, mesa#284), a second compute
+  queue on the M5 Max (mesa#260), earlier G13/G14 tiling overlap
+  (mesa#265), fused fp32 ffma under DenormPreserve (mesa#280), shader
+  object binaries independent of depthClipControl (mesa#279), the 10-bit
+  X2 formats (mesa#282) and G17P staged renders (mesa#281).
+
+* Fri Nov 13 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-25
+- Track aurora-silicon/mesa aurora-wip at 8f013bf9: the M5 family caches
+  its native graphics programs per linked shader (mesa#257), AGX3 keeps
+  the move after a projective multiply, fixing G17S mediump varyings
+  (mesa#258), G17P software tessellation stages batched per render
+  (mesa#228), G17P depth clip control, restart state and storage image
+  compression (mesa#225, mesa#227, mesa#253), single-level depth array
+  compression on the M4 Pro (mesa#229), M5 compute: matrix multiply
+  operands, instruction selection and dispatch overlap (mesa#238,
+  mesa#239, mesa#240, mesa#241), VK_EXT_external_memory_host with
+  GEM_USERPTR (mesa#242), cheaper signed-zero fmin/fmax (mesa#231), an
+  i386 struct layout fix (mesa#214) and the Honeykrisp driver ID for ggml-
+  vulkan (mesa#252).
+
+* Thu Nov 12 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-24
+- Track aurora-silicon/mesa aurora-wip at 33cf8cfc: GL stages writes to
+  busy buffers and copies them on the GPU instead of waiting for the GPU
+  (mesa#254, the Minecraft GL stutter), M5-family uniform ranges laid out
+  in dwords so the native fragment program builder takes every GL draw
+  (mesa#256), M5 G17G submission and CPU-path fixes (mesa#207, mesa#219),
+  G17P stage uniforms, layered RGBA8 renders, state-0 images and mesh
+  shaders (mesa#215, mesa#210, mesa#224, mesa#223), AGX3 packer fixes
+  (mesa#230, mesa#216), Honeykrisp fragment shader interlock (mesa#226),
+  coherent images on multi-cluster G13/G14 (mesa#247), resumed render pass
+  ordering (mesa#249) and kills with subgroup ops (mesa#245).
+
+* Thu Nov 12 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-23
+- Track aurora-silicon/mesa aurora-wip at be147e36: transform feedback
+  keeps a captured point size (mesa#211), revert of the varying
+  optimisation that broke fast-linked pipeline libraries with viewport
+  arrays (mesa#212), no signext optimisation over an abs source in the
+  AGX compiler (mesa#232, OpenCL 64-bit multiplies).
+
+* Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-22
+- Track aurora-silicon/mesa aurora-wip at 7f7a7ffa: G13/G14 buffer device
+  address capture/replay (mesa#222), G13/G14 sparse texel buffer residency
+  and strict residency for vkd3d-proton only (mesa#235), divergent subgroup
+  shuffles in vertex shaders (mesa#234), G17 occlusion query results with
+  wait and no colour attachments (mesa#233), AGX3 uniform TCS image atomics
+  (mesa#213), ray tracing hit-object parser tests (mesa#220).
+
 * Wed Nov 11 2026 Aurora Silicon <ryan@aurorasilicon.org> - 26.3.0-21
 - Track aurora-silicon/mesa aurora-wip at 10161a78: shader constant order
   independent of the build host and 32-bit unit tests fixed (mesa#209),

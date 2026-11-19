@@ -1,6 +1,12 @@
-%global commit 15f88e1cf81a6b6a91a1856ca06822a093aedeac
+%global commit 9125b31475836ce0a6634df45b539c6d604f36a5
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
+# modules_install signs every module (CONFIG_MODULE_SIG_ALL) after
+# INSTALL_MOD_STRIP has stripped it. rpm's strip passes would rewrite each .ko
+# and drop the appended signature, so they are off; %%check verifies them.
+%global __brp_strip %{nil}
+%global __brp_strip_comment_note %{nil}
+%global __brp_strip_lto %{nil}
 # 1 with a kernel pin whose configuration resolves CONFIG_ARM64_CTXR_EXECMEM=y
 # (aurora-silicon/linux#985), which keeps every kernel code page inside the CTXR
 # window an aura without the monitor moves the kernel into. kernel-aurora-core
@@ -8,7 +14,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 31%{?dist}.aurora
+Release: 41%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -19,7 +25,7 @@ Source5: validate-config.py
 Source6: dtb-abi
 ExclusiveArch: aarch64
 BuildRequires: make gcc gcc-c++ clang llvm lld rust rust-src rustfmt cargo bindgen-cli
-BuildRequires: bc bison flex dtc openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
+BuildRequires: bc bison flex dtc openssl openssl-devel elfutils-libelf-devel dwarves cpio perl python3 patch
 Requires: kernel-aurora-core = %{version}-%{release}
 Requires: kernel-aurora-modules-extra = %{version}-%{release}
 # Not versioned: older installed kernels must not hold back its updates.
@@ -38,11 +44,18 @@ Requires: coreutils kmod dracut grubby
 Requires: aurora-audio >= 4.1-12
 Requires: (aurora-platform-core >= 44-23 if aurora-platform-core)
 Requires: update-m1n1 >= 20261107
+# sep-key interfaces 3 and 4 (linux#1506, #1544): aurora-fido before 0.2.0-2
+# speaks only 1 and 2 and crash-loops against this kernel.
+Conflicts: aurora-fido < 0.2.0-2
 # SN012776 amp settings come from the DT that aura 1.0.0b5 fills in
 # (https://github.com/aurora-silicon/linux/pull/981,
 # https://github.com/aurora-silicon/aura/pull/75); under an older Stage 2
 # the speakers stay off.
-Requires: aura >= 1.0.0~b5
+Requires: aura >= 1.0.0~b12
+# apple-avd loads apple/avd-fw-v*.bin from /usr/lib/firmware. Its queued
+# transport needs queue ABI 2 with per-image codec VP pools (avd-fw 6756ca99,
+# packaged as 0.1-3); without the images the decoder does not probe.
+Requires: avd-fw >= 0.1-3
 Provides: kernel-uname-r = %{krel}
 %if %{ctxr_execmem}
 Provides: aurora-ctxr-execmem
@@ -115,7 +128,16 @@ sed -i 's@%{buildroot}@@' modules.files
 find %{buildroot}/usr/lib/modules/%{krel} -maxdepth 1 -type f ! -name vmlinuz ! -name config ! -name System.map ! -name dtb-abi >> metadata.files
 sed -i 's@%{buildroot}@@' metadata.files
 install -Dm755 tools/aurora-userpages/userpages %{buildroot}%{_bindir}/userpages
+%{__strip} %{buildroot}%{_bindir}/userpages
 install -Dm644 tools/aurora-userpages/README.rst %{buildroot}%{_docdir}/aurora-userpages/README.rst
+
+%check
+# Every installed module must still carry its signature.
+unsigned=$(find %{buildroot}/usr/lib/modules/%{krel} -name '*.ko' -exec sh -c 'tail -c 28 "$1" | grep -q "~Module signature appended~" || echo "$1"' _ {} \; | head -5)
+if [ -n "$unsigned" ]; then
+  echo "kernel-aurora.spec: unsigned modules: $unsigned" >&2
+  exit 1
+fi
 
 %posttrans core
 if [ -x /usr/bin/kernel-install ]; then
@@ -154,6 +176,275 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-41
+- Require avd-fw 0.1-3 or later, so a kernel installed or upgraded on its
+  own always has the video decoder firmware it loads (queue ABI 2 with
+  per-image codec VP pools). Without it the decoder fails to probe with
+  -ENOENT and its power domains never reach sync_state.
+
+* Sat Nov 14 2026 Diljit Singh <hey@djdev.me> - 7.3.0-40
+- Pin cand/7.3.0-40 9125b314, the MacBook Neo (J700) rig's release
+  candidate kernel (qualified on hardware first); 2 first-parent commits
+  after be8d4cd1:
+  - drm/asahi: g17: give back the pool pages of kept render graphs
+  - drm/asahi: g17: let a refused render take back idle render pools
+
+* Sat Nov 14 2026 Diljit Singh <hey@djdev.me> - 7.3.0-39
+- Pin integration/aurora be8d4cd1, the MacBook Neo (J700) rig's release
+  candidate kernel (qualified on hardware first); 5 first-parent commits
+  after d89d8c0c:
+  - linux#1892 drm/asahi: g17: G17P cross-queue sync fast paths and compute
+    MCache tables
+  - linux#1896 dt-bindings: phy: ti,cd2e22: give apple,tunable the type its
+    other users have
+  - linux#1901 tools/asahi: stop a timed-out host test's whole process group
+  - linux#1926 drm/asahi: g17: say why the watchdog gave up on a command
+  - linux#1925 drm/asahi: g17: do not report a closed client's unfinished
+    work as a lost device
+
+* Sat Nov 14 2026 Diljit Singh <hey@djdev.me> - 7.3.0-38
+- Pin integration/aurora d89d8c0c, the MacBook Neo (J700) rig's release
+  candidate kernel (qualified on hardware first); 43 first-parent commits
+  after 2129f551:
+  - linux#1842 drm/asahi: rate-limit the GPU fault, timeout and
+    channel-error reports
+  - linux#1828 drm/asahi: g13: defer freeing a completed command until its
+    stamps land
+  - linux#1817 drm/apple: fabric: no DP-alt PHY power-on for a Thunderbolt
+    tunnel
+  - linux#1841 [Joshua's agent] arm64: dts: apple: t6050-k114c: describe
+    the USB4/Thunderbolt router on the right USB-C port
+  - linux#1804 perf: apple_m1: T8142 (M5) core PMU, enabled on J815
+  - linux#1854 arm64: dts: apple: t6050: make die0's range cover the ISP
+    watchdog
+  - linux#1819 drm/apple: don't report a tunneled display without usable
+    modes
+  - linux#1838 drm/asahi: drain deferred BO cleanup after immediate GEM
+    close
+  - linux#1818 drm/apple: dptxep: record the tile hint of a tunneled sink
+    on 26.6
+  - linux#1857 arm64: dts: apple: t6041-j575c: cite the ADT instead of
+    guesses
+  - linux#1803 media: apple: ave: T8142 (M5) hardware encoder, enabled on
+    J815
+  - linux#1823 drm/asahi: g17: release pairs, queues and contexts held by
+    stamps that never arrive
+  - linux#1864 thermal: apple: Poll the J713 PMP sensors slowly while cool
+  - linux#1836 drm/asahi: g17: accept staged renders on the A18 Pro
+  - linux#1837 drm/asahi: mark an exiting client's G17 VMs closed before
+    its handles close
+  - linux#1858 arm64: dts: apple: t6041-j575c: add the Stockholm NFC
+    controller
+  - linux#1852 drm/asahi: g17: wait for render backing as long as for a
+    compute queue
+  - linux#1860 drm/asahi: mmu: translate an IOVA under the VM reservation
+    alone
+  - linux#1875 drm/apple: allocate DCP property-dictionary chunks with
+    kvzalloc
+  - linux#1853 drm/asahi: g17: A18 Pro: report the performance state, its
+    frequency and busy time
+  - linux#1869 drm/asahi: g17: count a queue's overlapping stages once in
+    fdinfo
+  - linux#1830 HID: K116s trackpad: clamp the oversized report size, parse
+    the Trackpad26 frames
+  - linux#1801 centauri: scan all 38 channels, free function 1's IRQs
+    before its devres does
+  - linux#1802 soc: apple: T8142: echo RTKit OSLOG counters, never stack an
+    unanswered AP idle notice
+  - linux#1868 drm/apple: offer only the 120 Hz mode on the firmware 27
+    internal panel
+  - linux#1856 arm64: dts: apple: t6050-k116s: Enable the video decoder
+  - linux#1867 drm/asahi: g18: cut the per-job submit overhead (batched
+    audits, cached command encoding)
+  - linux#1859 arm64: dts: apple: t6050-k116s: leave the DCP clocks and
+    scratch to the loader
+  - linux#1866 drm/asahi: g17: report compute admission timeouts; M5:
+    configure a queue's host port before installing it
+  - linux#1885 Revert "drm/asahi: drain deferred BO cleanup after immediate
+    GEM close"
+  - linux#1887 drm/apple: fix AFK compact-service slot leak and spurious
+    brightness-pending warning at suspend
+  - linux#1891 drm/apple: send update_notify_clients as client flags on
+    request
+  - linux#1890 arm64: dts: apple: t6041: describe the ISP DART's address
+    filter
+  - linux#1886 arm64: dts: apple: t8132-j604: describe the trackpad actuator
+  - linux#1872 power: apple: describe T8132 PMP report children
+  - linux#1865 thermal: apple-pmp: fix J773g thermal zone registration
+  - linux#1871 t6041-j575c: USB-C displays on all four back ports
+  - linux#1884 ASoC: apple: macaudio: add a fixed speaker ceiling for
+    machines without sense
+  - linux#1883 accel/ane: T8142 (M5) Neural Engine, enabled on J815
+  - linux#1882 accel/ane: accept H17 programs from Apple's zin_ane_compiler
+    10.205 (on #1790)
+  - linux#1874 T8142: power the ISP down while the camera is idle
+  - linux#1888 arm64: dts: apple: t8132-j604: enable the speakers
+  - linux#1893 drm/asahi: g17: admit A18 Pro ray-traversal commands one
+    client at a time
+
+* Sat Nov 14 2026 Diljit Singh <hey@djdev.me> - 7.3.0-37
+- Pin integration/aurora 2129f551, the kernel the MacBook Neo (J700) rig's
+  default runs on since 2026-11-13 (qualified on hardware first); 125
+  first-parent commits after 92195659:
+  - MacBook Neo (T8140): resume trims (#1715, #1717), the G17 GPU refuses a
+    sleep its commit cannot stop instead of staying stopped (#1839), crash
+    logs from the firmware data segment when the boot loader describes it
+    (#1731), the TG0 local-TLB flush for 4K user pages (#1509).
+  - M4 Air (J713): suspend-to-RAM (#1314) with the CIO default (#1855).
+  - Other: K116s AOP endpoints (#1645), J575c Type-C re-init (#1671).
+- config and fedora.config are unchanged.
+
+* Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-36
+- Pin integration/aurora 92195659 (linux#1663), 29 merges (111 commits)
+  after 2b05915f:
+  - MacBook Neo (T8140): the AVE complex is now the parent power domain of
+    the video encoders and the PMC VENC cluster vote (#1663). With encoder 0
+    enabled by aura, the first wake from suspend-to-RAM no longer resets the
+    Mac. Also a faster DRAM-kept wake with the PHY set up again
+    after a deep sleep (#1658), the internal panel lit from the resume
+    (#1631), SoC fabric power states (#1298), the second encoder described
+    (#1626) and SIO AES revision 5 (#1622).
+  - Display: firmware-27 HDR brightness hints, PQ with DSC, default RGB for
+    SDR and VRR pairing on externals (#1614, #1641, #1640, #1613); A500 and
+    500 thunk build fixes (#1629, #1630).
+  - GPU and media: G17 25G83 channel-error and tiling fixes (#1662, #1644),
+    ProRes on T6050 and T6041 (#1586, #1260), JPEG and scaler engines on more
+    SoCs (#1617, #1616), J613 ISP preview (#974), T600x ANE hang recovery
+    (#1660).
+  - Boot chain: the lockdown LSM is built and started early, so secure-path
+    boots raise lockdown to integrity by themselves; other boots stay at none
+    (#1636).
+  - Other: J716c USB4 display routing and GPU handoff (#1273, #1276), J616s
+    panel bus and TMP103 read-only (#1642), J316s NFC (#1621), J614c/J616c
+    ANE and JPEG (#1467), quieter boot warnings (#1623, #1635).
+- config and fedora.config are unchanged. asahi.config now sets
+  CONFIG_I2C_DP855=m, CONFIG_SENSORS_TMP103=m and the lockdown LSM
+  (CONFIG_SECURITY_LOCKDOWN_LSM=y, _EARLY=y, LOCK_DOWN_KERNEL_FORCE_NONE=y,
+  CONFIG_APPLE_AURORA_BOOT_SECURITY_LOCKDOWN=y), which selects
+  CONFIG_MODULE_SIG=y: modules are signed with a per-build key, so the
+  build needs the openssl tool. rpm's strip passes are off so the
+  signatures survive, and %%check verifies every module is signed.
+- Require aura 1.0.0~b12 or later: with #1298's fabric power states, 1.0.0~b11
+  cannot enable the MacBook Neo's encoder 0 (aura#190).
+  vmlinuz stays the raw Image, and dtb-abi is unchanged (generation 1).
+
+* Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-35
+- Require aura 1.0.0~b11 or later. On the MacBook Neo this kernel's DT
+  leaves the video encoder for aura to enable from the ADT (aura#167), and
+  its DisplayPort audio needs the T8140 SIO tables (aura#122).
+
+* Thu Nov 12 2026 Diljit Singh <hey@djdev.me> - 7.3.0-34
+- Pin integration/aurora 2b05915f (linux#1445), 68 merges (341 commits)
+  after 84d091f7:
+  - MacBook Neo (T8140): suspend-to-RAM at EL2 with the DRAM-kept wake
+    (#1445, which carries #1208-#1443), the ISP powered only while the
+    camera streams (#1580), DisplayPort audio (#1280), UART0 (#1574) and
+    the MTP transmit lock (#1010).
+  - M5 Pro/Max (T6050): Neural Engine (#1595), video encoder and decoder
+    (#1597, #1577), Touch ID (#1587), speakers and microphones (#1554,
+    #1557), AOP sensors (#1521, #1542, #1548), the SD reader (#1570), the
+    haptic actuator (#1576) and firmware-27 HDR on external displays
+    (#1600).
+  - M5 MacBook Air (T8142): GPU on firmware 27 (#1413), sound (#1423,
+    #1533), Bluetooth (#1529), and panel, CPU and SEP fixes (#1528, #1531,
+    #1535, #1536, #1537).
+  - Shared: ISP IPC containment (#1560), SEP request-path log rate limits
+    (#1578, #1590), the SIO AES skcipher (#1572), the PIODMA dmaengine
+    (#1562), T6041 USB3 and DP audio (#1472, #1473, #1476) and the PMP's
+    idle accounting without cpufreq (#1594).
+- config and fedora.config are unchanged. asahi.config now sets
+  CONFIG_APPLE_SOC_SLEEP=y and CONFIG_RTC_DRV_APPLE_PMU=y (was m); olddefconfig
+  adds CONFIG_APPLE_PIODMA=m, CONFIG_APPLE_CLUSTER_PWRGATE=y,
+  CONFIG_SND_SOC_APPLE_T8152_AOP_AUDIO=m and CONFIG_CRYPTO_DEV_APPLE_SIO_AES=m.
+  vmlinuz stays the raw Image, and dtb-abi is unchanged (generation 1).
+
+* Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-33
+- Pin integration/aurora 84d091f7 (linux#1519), 21 merges (109 commits)
+  after 451dc709:
+  - SEP and Touch ID: password-keyed per-user key bags (#921), and
+    /dev/sep-key gains CANCEL and releases sealed secrets only after a
+    touch (#1506).
+  - Boot chain: the boot chain record is reported in
+    /sys/firmware/aurora/boot_security, with integrity lockdown when the
+    firmware reports an enforced chain (#1344,
+    CONFIG_APPLE_AURORA_BOOT_SECURITY=y by default).
+  - Media: the AVE temporal filter (MCTF) node with its T8140 DART stream
+    and lossless output straight to the capture buffer (#1513, #1516,
+    #1522), and Apple lossless 4:2:0 pictures on the scaler (#1520).
+  - Display: a compact DP audio endpoint query sized for the catalog
+    (#1523), which stops the J616s DCP crash on a gdm restart with an
+    external display.
+  - M4 Pro/Max: the T6040 DWI read-only view (#1512) and the read-only
+    boot NOR firmware partition (#1514).
+  - M5 Pro/Max (T6050): USB4 DisplayPort tunnels, display clocks and the
+    J714s external displays (#1268, #1270, #1271, #1515), with host tests
+    (#1524).
+  - SEP, continued: one Touch ID match releases one key operation, with
+    reply-wait, SCRD and ioctl hardening (#1541); disk-encryption secrets
+    sealed to a user's key bag per OS install and unlockable from the
+    initrd (#1339); sep-key interface 4 with keys under a user's key bag
+    and the password checked by the enclave (#1544).
+  - GPU: bounded large G17 pins can release clean page cache (#1526).
+  - Wi-Fi: MT7932 probes asynchronously (#1545).
+  - Boot log: three per-boot info/debug floods are quieter (hwmon thermal
+    zones, DCP audio, asahi IO map; #1519).
+- kernel-aurora-core conflicts with aurora-fido before 0.2.0-2, which
+  does not speak sep-key interfaces 3 and 4 and crash-loops here.
+- config and fedora.config are unchanged; olddefconfig adds
+  CONFIG_APPLE_AURORA_BOOT_SECURITY=y and leaves the new
+  CONFIG_APPLE_SEP_KEY_RESEARCH off. vmlinuz stays the raw Image, and the
+  DT ABI generation stays 1.
+
+* Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-32
+- Pin integration/aurora 451dc709 (linux#1507), 85 merges (645 commits)
+  after 15f88e1c:
+  - GPU: M5 GPU and firmware-27 display support (#1012) with its G17 and
+    M5 fixes (#1503, #1504, #1508, #1229, #1177); lower host latency and
+    CPU capacity hints for G13/G14 submission and syncobj waits (#1500,
+    #1481); quiet teardown of a closing client (#1427); a single
+    reservation lock in gpuvm exec (#1392); the M3 MacBook Air GPU runtime
+    (CONFIG_DRM_ASAHI_M3_T8122, from asahi.config; #964).
+  - SEP and Touch ID: the aurora-sep tool takes the distribution packages'
+    changes (#1036); the SEP chardevs are published without holding their
+    slot locks (#1449); the xART guard list is opened per access (#1264);
+    unreadable identity state is kept (#962).
+  - Media: AVE H.264 encode with B pictures on the M1 Pro and M2 6070
+    firmware (#1387, #1440, #1484); media PMP performance requests from
+    the boot loader (#1485); PMP performance for the M1 Pro scaler and
+    ProRes (#1507).
+  - ANE: H16 starts its firmware once the PMP runs and restarts a stopped
+    startup at once (#1502, #1412); T8112 sets the firmware perf mode at
+    power-on (#1450); an engine that a power cycle cannot restore stays
+    wedged (#1446).
+  - Display: the DP audio endpoint probes again when the EDID is not read
+    yet (#1482); EDR switches on without a mode set (#1424); the loader's
+    panel mode is adopted at takeover (#1439); the firmware-27 FORTIFY
+    build fix (#1457); AFK endpoint initialisation (#1444).
+  - M4 Pro/Max (T6041): J614c SD reader, keyboard backlight, front camera,
+    SEP, boot NOR and NVRAM, PMP, cpuidle and GPU temperatures (#1465,
+    #1464, #1463, #1461, #1458, #1459, #1453, #1447); CPU energy model and
+    die zone (#1452); the J616c ISP (#1368); 40-core M4 Max GPU work and
+    the 25G83 profile (#1442, #1373); the J616s AOP audio IOMMU (#1505);
+    boot NOR supply (#1330).
+  - M5 Pro/Max (T6050): J714s device trees (#1428-#1434), PMP (#1376), CPU
+    capacities (#1399), CLPC floors (#1405), WFI idle (#1152), a root port
+    the boot loader left down (#1182).
+  - Power and sensors: SMC PMU rails on the J413 and T6000 (#1462, #1448,
+    #1390), J413 CPU temperatures (#1371), the M2 Pro/Max CPU energy model
+    (#932), charge hold with CHLS (#1474), no manufacture date on the J700
+    (#1478), lid-open reports during sleep (#1160), PCIe power domains kept
+    in s2idle (#1311).
+  - Also: kdump crash kernels (#1200), experimental MT7932 AWDL (#1346,
+    #1469; off by default), SPI HID reply checks and keyboard/trackpad
+    wake (#842, #1347), T6040 ATC PHY hard recovery (#1350),
+    thunderbolt-net across partner restarts (#1338), TIPD power-role swap
+    settle (#1402), GL9755 SD power sequencing (#1327), Centauri sibling
+    probing (#1421), J604 device tree and firmware fixes (#1329, #1389,
+    #1367), and APIF removal (#1363).
+- config and fedora.config are unchanged. olddefconfig resolves the one line
+  asahi.config gained (CONFIG_DRM_ASAHI_M3_T8122=y).
+- vmlinuz stays the raw Image, and the DT ABI generation stays 1.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-31
 - Install the raw Image as vmlinuz again (back out the EFI zboot image of
   7.3.0-29). On a J700 the zboot image never reaches the kernel: GRUB

@@ -1,0 +1,6 @@
+{
+  "repository": "https://forge.fedoraproject.org/asahi/kiwi-descriptions.git",
+  "branch": "f45",
+  "commit": "cfca689774f52563c6c3ce992b10a09d48e7663d",
+  "fedora_release": "45"
+}

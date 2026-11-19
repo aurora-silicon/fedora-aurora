@@ -5,7 +5,7 @@
 %global lib %{_libexecdir}/aurora-steam-native
 Name: aurora-steam-native
 Version: 0
-Release: 1.gitc06f610%{?dist}
+Release: 2.gitc06f610%{?dist}
 Summary: Valve's native ARM64 Steam client in a 4 KiB page process tree
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-steam-native
@@ -18,6 +18,11 @@ Requires: aurora-userpages
 Requires: python3
 # Steam's UI modules link against GTK 2.
 Requires: gtk2
+# Valve's runtime carries libibus and lsof for x86 only; the ARM64 client takes
+# them from the host (steamwebhelper links libibus-1.0.so.5, the client runs
+# lsof for its web UI transport).
+Requires: ibus-libs
+Requires: lsof
 # x86 Linux titles run through FEX; their GPU driver is the guest Mesa.
 Requires: fex-emu
 Recommends: fex-emu-thunks
@@ -91,6 +96,11 @@ done
 %{_datadir}/applications/steam.desktop
 
 %changelog
+* Thu Nov 19 2026 Ryan Murray <ryan@aurorasilicon.org> - 0-2.gitc06f610
+- Require ibus-libs and lsof: the native client needs libibus-1.0.so.5 for
+  steamwebhelper and lsof for its web UI transport, and Valve's runtime
+  carries them for x86 only (aurora-silicon/aurora-steam-native#13).
+
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 0-1.gitc06f610
 - Package aurora-steam-native at c06f610 and ship `steam`, which installs
   Valve's native ARM64 client per user and starts it in a 4 KiB page tree.

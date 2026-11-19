@@ -17,3 +17,18 @@ Wake for network access follows the power adapter, as on macOS laptops:
 magic-packet wake is armed on wired interfaces and Wi-Fi phys that support it
 while on AC and disarmed on battery (63-aurora-wake-for-network.rules). Put
 "always" or "never" in /etc/aurora/wake-for-network to override.
+
+Trackpad clicks are played from the host, as macOS does, on Macs whose MTP
+trackpad has a haptic actuator (64-aurora-trackpad-clicks.rules sets
+hid_magicmouse haptic_press). Other trackpads keep the firmware's click. An
+empty /etc/udev/rules.d/64-aurora-trackpad-clicks.rules keeps the firmware's
+click everywhere.
+
+On the M4 Max MacBook Pros (J614c, J616c) the kernel reports trackpad palms
+itself, so 60-aurora-t6041-trackpad.quirks turns libinput's size-based palm
+detection off there, as aurora-neo-platform-config does for the J700.
+
+On the M4 Max (T6041), aurora-t6041-power.service sets the PCIe ASPM policy
+to powersupersave and kernel.sched_util_clamp_min_rt_default to 0 at boot.
+Other Macs skip it. "systemctl mask aurora-t6041-power.service" keeps the
+kernel's defaults.

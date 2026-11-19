@@ -1,4 +1,4 @@
-policy_module(aurora_sep, 1.4.3)
+policy_module(aurora_sep, 1.5.0)
 
 ########################################
 #
@@ -42,6 +42,13 @@ init_nnp_daemon_domain(aurora_touchid_rearm_t)
 # Its socket, which every PAM stack that accepted a password connects to.
 type aurora_touchid_rearm_var_run_t;
 files_pid_file(aurora_touchid_rearm_var_run_t)
+
+# aurora-sep-fde-passwd (aurora-sep-luks): after passwd or GNOME Settings
+# changed a password, pam_aurora_sep_fde runs it to re-wrap the user's key bag
+# in the enclave and write it into the user's LUKS2 volume headers.
+type aurora_sep_fde_t;
+type aurora_sep_fde_exec_t;
+application_domain(aurora_sep_fde_t, aurora_sep_fde_exec_t)
 
 # aurora-sep-load, which loads the driver and checks that the enclave seals
 # and unseals a trusted key. It needs what the unconfined service domain gave
@@ -242,3 +249,68 @@ aurora_touchid_rearm_client(xdm_t)
 aurora_touchid_rearm_client(policykit_auth_t)
 aurora_touchid_rearm_client(local_login_t)
 aurora_touchid_rearm_client(sshd_t)
+
+########################################
+#
+# aurora-sep-fde-passwd: the disk password follows a password change
+#
+
+# passwd (and the PAM stacks GNOME Settings runs passwd from) start it with
+# the old and new password on a pipe.
+optional_policy(`
+	gen_require(`
+		type passwd_t;
+	')
+
+	domtrans_pattern(passwd_t, aurora_sep_fde_exec_t, aurora_sep_fde_t)
+	allow aurora_sep_fde_t passwd_t:fd use;
+	allow aurora_sep_fde_t passwd_t:fifo_file rw_fifo_file_perms;
+	allow aurora_sep_fde_t passwd_t:process sigchld;
+')
+
+# The key-bag ioctls are on the root-only re-arm node; the driver reads and
+# updates its state files on this task's behalf.
+allow aurora_sep_fde_t self:capability { sys_admin dac_read_search ipc_lock };
+dev_list_all_dev_nodes(aurora_sep_fde_t)
+allow aurora_sep_fde_t aurora_sep_rearm_device_t:chr_file { getattr open read write ioctl };
+allow aurora_sep_fde_t aurora_sep_state_t:file rw_file_perms;
+files_search_var_lib(aurora_sep_fde_t)
+
+# libcryptsetup: read and write the LUKS2 header of the volume, check the
+# keyslot through the kernel crypto API, take its metadata lock.
+storage_raw_rw_fixed_disk(aurora_sep_fde_t)
+allow aurora_sep_fde_t self:alg_socket create_stream_socket_perms;
+dev_read_sysfs(aurora_sep_fde_t)
+dev_read_urand(aurora_sep_fde_t)
+dev_read_rand(aurora_sep_fde_t)
+kernel_read_system_state(aurora_sep_fde_t)
+kernel_read_kernel_sysctls(aurora_sep_fde_t)
+fs_getattr_all_fs(aurora_sep_fde_t)
+optional_policy(`
+	gen_require(`
+		type lvm_lock_t;
+	')
+
+	files_search_pids(aurora_sep_fde_t)
+	manage_dirs_pattern(aurora_sep_fde_t, lvm_lock_t, lvm_lock_t)
+	manage_files_pattern(aurora_sep_fde_t, lvm_lock_t, lvm_lock_t)
+')
+
+# /etc/aurora-sep (fde.conf, the volume list) and the user database.
+files_read_etc_files(aurora_sep_fde_t)
+auth_use_nsswitch(aurora_sep_fde_t)
+miscfiles_read_localization(aurora_sep_fde_t)
+logging_send_syslog_msg(aurora_sep_fde_t)
+
+# systemd-cryptsetup opens password-sealed volumes after the switch to the
+# real root (crypttab entries other than the root): it asks the enclave
+# through the token plugin, like aurora-sep-fde.
+optional_policy(`
+	gen_require(`
+		type lvm_t;
+	')
+
+	dev_list_all_dev_nodes(lvm_t)
+	allow lvm_t aurora_sep_rearm_device_t:chr_file { getattr open read write ioctl };
+	allow lvm_t aurora_sep_state_t:file rw_file_perms;
+')
