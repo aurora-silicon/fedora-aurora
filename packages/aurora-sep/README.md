@@ -111,7 +111,9 @@ Enrol a finger in GNOME Settings > Users or in KDE System Settings > Users
 The login screen asks for the password because a session started with a
 fingerprint cannot unlock the keyring or KWallet. GNOME can offer fingerprint
 there as well: `sudo systemctl enable aurora-sep-greeter-fingerprint.service`
-does it from the next boot (it needs `gresource` from glib2-devel).
+does it from the next boot (it needs `gresource` from glib2-devel). The login
+screen does not wait for Touch ID: the one right after boot takes the password
+anyway (as on macOS); later login screens find the reader.
 
 authselect's `with-fingerprint` feature turns fingerprint on.
 `aurora-sep-ready` turns it on once on a Mac with a sensor, so that GNOME
