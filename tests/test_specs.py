@@ -555,9 +555,25 @@ class SpecTests(unittest.TestCase):
     def test_irqbalance_runs_only_where_the_aic_can_steer(self):
         d = ROOT / 'packages' / 'aurora-platform'
         conf = (d / '50-aurora-irqbalance.conf').read_text()
-        lines = [l for l in conf.splitlines() if l.startswith('Condition')]
-        self.assertEqual(lines, ['ConditionFirmware=|!device-tree-compatible(apple,arm-platform)',
-                                 'ConditionFirmware=|device-tree-compatible(apple,t8103)'])
+        # Keyed on the interrupt controller's compatible, not on a SoC.
+        self.assertEqual([l for l in conf.splitlines() if l and not l.startswith('#')],
+                         ['[Service]', 'ExecCondition=/usr/libexec/aurora/aurora-irq-steerable'])
+        script = d / 'aurora-irq-steerable'
+        subprocess.run(['sh', '-n', str(script)], check=True)
+        def run(root_compat, aic_compat):
+            with tempfile.TemporaryDirectory() as tmp:
+                dt = Path(tmp)
+                (dt / 'compatible').write_bytes(root_compat)
+                if aic_compat is not None:
+                    node = dt / 'soc' / 'interrupt-controller@23b100000'
+                    node.mkdir(parents=True)
+                    (node / 'compatible').write_bytes(aic_compat)
+                text = script.read_text().replace('dt=/proc/device-tree', f'dt={tmp}')
+                return subprocess.run(['sh', '-c', text]).returncode
+        self.assertEqual(run(b'apple,j293\0apple,t8103\0apple,arm-platform\0', b'apple,t8103-aic\0apple,aic\0'), 0)
+        self.assertEqual(run(b'apple,j316s\0apple,t6000\0apple,arm-platform\0', b'apple,t6000-aic\0apple,aic2\0'), 1)
+        self.assertEqual(run(b'apple,j700\0apple,t8140\0apple,arm-platform\0', b'apple,t8140-aic3\0apple,t8122-aic3\0'), 1)
+        self.assertEqual(run(b'radxa,rock-5b\0rockchip,rk3588\0', None), 0)
         text = (d / 'aurora-platform.spec').read_text()
         core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
         self.assertIn('%{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf', core_files)
