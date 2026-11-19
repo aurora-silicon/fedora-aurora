@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 41%{?dist}
+Release: 42%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -46,6 +46,7 @@ Source124: aurora-kdump-clock-module-setup.sh
 Source125: aurora-kdump-clock.sh
 Source126: 60-aurora-t6041-trackpad.quirks
 Source127: aurora-t6041-power.service
+Source128: aurora-mte-cmdline
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -158,6 +159,7 @@ install -Dm755 %{SOURCE119} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora
 install -Dpm0644 %{SOURCE114} %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-ane.conf
 install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-console
 install -Dm755 %{SOURCE117} %{buildroot}%{_libexecdir}/aurora/aurora-grub-uuid
+install -Dm755 %{SOURCE128} %{buildroot}%{_libexecdir}/aurora/aurora-mte-cmdline
 install -Dm644 %{SOURCE112} %{buildroot}%{_prefix}/lib/tuned/profiles/aurora-performance/tuned.conf
 install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 install -Dm755 %{SOURCE115} %{buildroot}%{_libexecdir}/aurora/aurora-wake-for-network
@@ -182,11 +184,8 @@ install -Dm755 %{SOURCE125} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora
 # A grub.cfg whose only stale lines are partition UUID searches; see the script.
 %{_libexecdir}/aurora/aurora-grub-uuid || :
 %{_libexecdir}/aurora/aurora-ppd-config || :
-# MTE stays off on chips whose tag storage no boot loader reserves yet.
-if tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -qxE 'apple,(t6050|t8142)' &&
-    ! grep -qE '(^|[[:space:]])arm64\.nomte([[:space:]]|$)' /etc/kernel/cmdline 2>/dev/null; then
-  grubby --update-kernel=ALL --args=arm64.nomte || :
-fi
+# The arm64.nomte that 44-37 to 44-41 added, once per system; see the script.
+%{_libexecdir}/aurora/aurora-mte-cmdline || :
 
 # Also cover tuned-ppd installed/upgraded without an aurora-platform update.
 # The file remains owned by tuned-ppd as %%config(noreplace).
@@ -239,6 +238,7 @@ fi
 %{_prefix}/lib/dracut/dracut.conf.d/90-aurora-ane.conf
 %{_libexecdir}/aurora/aurora-grub-console
 %{_libexecdir}/aurora/aurora-grub-uuid
+%{_libexecdir}/aurora/aurora-mte-cmdline
 %{_libexecdir}/aurora/aurora-ppd-config
 %{_libexecdir}/aurora/aurora-wake-for-network
 %dir %{_prefix}/lib/tuned/profiles/aurora-performance
@@ -256,6 +256,15 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Thu Nov 19 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-42
+- Stop adding arm64.nomte on M5 (T8142) and M5 Pro/Max (T6050) Macs, and
+  take back the one 44-37 to 44-41 added (aurora-mte-cmdline, once per
+  system, only on those chips). aura reserves the MTE tag store
+  (/reserved-memory node compatible with "apple,mte-tag-storage"), and
+  kernel-aurora 7.3.0-37 and later keep MTE off by themselves on an Apple
+  SoC with MTE2 when that node is missing. Boot entries whose kernel lacks
+  that check keep arm64.nomte.
+
 * Sun Nov 15 2026 AxxzyWasTaken <axxzytte@gmail.com> - 44-41
 - M4 Max (T6041) power defaults (aurora-t6041-power.service): PCIe ASPM
   policy powersupersave, so the Wi-Fi/Bluetooth and SD reader links use the

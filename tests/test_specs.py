@@ -367,6 +367,58 @@ class SpecTests(unittest.TestCase):
             run()
             self.assertEqual(cfg.read_text(), fresh)
 
+    def test_mte_cmdline_cleanup_runs_once_on_the_chips_it_was_added_on(self):
+        script = ROOT / 'packages' / 'aurora-platform' / 'aurora-mte-cmdline'
+        spec = (ROOT / 'packages' / 'aurora-platform' / 'aurora-platform.spec').read_text()
+        posttrans = spec.split('%posttrans core', 1)[1].split('%files', 1)[0]
+        self.assertIn('%{_libexecdir}/aurora/aurora-mte-cmdline || :', posttrans)
+        self.assertNotIn('--args=arm64.nomte', posttrans)
+        self.assertIn('%{_libexecdir}/aurora/aurora-mte-cmdline\n', spec.split('%files core', 1)[1])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            log = root / 'log'
+            guarded, unguarded, missing = root / 'vmlinuz-new', root / 'vmlinuz-old', root / 'vmlinuz-gone'
+            guarded.write_bytes(b'\0Image\0apple,mte-tag-storage\0')
+            unguarded.write_bytes(b'\0Image\0')
+            (bindir / 'grubby').write_text(
+                f'#!/bin/sh\necho "grubby $*" >> {log}\n'
+                f'[ "$1" = --info=ALL ] && printf \'index=0\\nkernel="%s"\\nindex=1\\nkernel="%s"\\n'
+                f'index=2\\nkernel="%s"\\n\' {guarded} {unguarded} {missing}\nexit 0\n')
+            (bindir / 'grubby').chmod(0o755)
+            compatible, state = root / 'compatible', root / 'state' / 'removed'
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", AURORA_DT_COMPATIBLE=str(compatible),
+                       AURORA_MTE_STATE=str(state))
+            run = lambda: subprocess.run(['sh', str(script)], env=env, check=True, capture_output=True, text=True)
+            calls = lambda: log.read_text().splitlines() if log.exists() else []
+            # No device tree (an image build): nothing happens, and it stays pending.
+            run()
+            self.assertEqual(calls(), [])
+            self.assertFalse(state.exists())
+            # Another Mac: an owner's arm64.nomte is not ours to take.
+            compatible.write_bytes(b'apple,j616s\0apple,t6040\0apple,arm-platform\0')
+            run()
+            self.assertEqual(calls(), [])
+            self.assertTrue(state.exists())
+            # T6050 and T8142: drop it everywhere, then keep it for kernels without the check.
+            for chip in (b'apple,t6050', b'apple,t8142'):
+                state.unlink()
+                log.unlink(missing_ok=True)
+                compatible.write_bytes(b'apple,j714s\0' + chip + b'\0apple,arm-platform\0')
+                run()
+                self.assertEqual(calls(), [
+                    'grubby --update-kernel=ALL --remove-args=arm64.nomte',
+                    'grubby --info=ALL',
+                    f'grubby --update-kernel={unguarded} --args=arm64.nomte',
+                    f'grubby --update-kernel={missing} --args=arm64.nomte',
+                ])
+                self.assertTrue(state.exists())
+                # Once per system: an owner who adds it again keeps it.
+                log.unlink()
+                run()
+                self.assertEqual(calls(), [])
+
     def test_grub_console_migration_runs_once_and_keeps_hand_made_configs(self):
         script = ROOT / 'packages' / 'aurora-platform' / 'aurora-grub-console'
         spec = (ROOT / 'packages' / 'aurora-platform' / 'aurora-platform.spec').read_text()

@@ -1,0 +1,46 @@
+#!/bin/sh
+# Take back the arm64.nomte that aurora-platform-core 44-37 to 44-41 added,
+# once per system.
+#
+# Those versions ran `grubby --update-kernel=ALL --args=arm64.nomte` on every
+# update of a Mac whose device tree names apple,t6050 or apple,t8142, because
+# no boot loader reserved the MTE tag store then. The argument is not needed
+# any more: aura reserves the store (/reserved-memory node compatible with
+# "apple,mte-tag-storage", /memory ending at its base), and the kernel keeps
+# MTE off by itself on an Apple SoC with MTE2 when that node is missing.
+#
+# This runs from aurora-platform-core's %posttrans. It acts only on the chips
+# the old scriptlet added the argument on, so an arm64.nomte an owner set on
+# any other Mac stays. The grubby defaults (/etc/kernel/cmdline and
+# GRUB_CMDLINE_LINUX) and every entry lose it, except entries whose kernel
+# image lacks that check (kernels before kernel-aurora 7.3.0-37, or a
+# compressed image the check cannot be read from): those keep arm64.nomte.
+# An owner who adds arm64.nomte again afterwards keeps it.
+set -u
+state=${AURORA_MTE_STATE:-/var/lib/aurora/mte-nomte-removed}
+compatible=${AURORA_DT_COMPATIBLE:-/proc/device-tree/compatible}
+
+[ -e "$state" ] && exit 0
+# An image build has no device tree: decide on the Mac itself.
+[ -r "$compatible" ] || exit 0
+command -v grubby > /dev/null || exit 0
+mkdir -p "${state%/*}"
+if ! tr '\0' '\n' < "$compatible" | grep -qxE 'apple,(t6050|t8142)'; then
+    touch "$state"
+    exit 0
+fi
+
+if ! grubby --update-kernel=ALL --remove-args=arm64.nomte; then
+    echo "aurora-mte-cmdline: grubby failed; the next update tries again" >&2
+    exit 0
+fi
+# The check is the "apple,mte-tag-storage" string in the kernel's early
+# ID-register code; a kernel without it would turn MTE on over an unreserved
+# store if the boot loader could not reserve it.
+grubby --info=ALL | sed -n 's/^kernel="\(.*\)"$/\1/p' | while read -r kernel; do
+    [ -f "$kernel" ] && grep -qaF 'apple,mte-tag-storage' "$kernel" && continue
+    grubby --update-kernel="$kernel" --args=arm64.nomte ||
+        echo "aurora-mte-cmdline: could not keep arm64.nomte for $kernel" >&2
+done
+touch "$state"
+exit 0
