@@ -1,4 +1,4 @@
-%global commit 9125b31475836ce0a6634df45b539c6d604f36a5
+%global commit 629aef1d56f699c391729f3443800216d2842345
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # modules_install signs every module (CONFIG_MODULE_SIG_ALL) after
@@ -14,7 +14,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 41%{?dist}.aurora
+Release: 41.99.j713k1%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -176,6 +176,11 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-41.99.j713k1
+- Lab bring-up build for the 13-inch M4 MacBook Air (J713) on the macOS 27.2 stub, not for
+  release: integration/aurora 0abc2f38 plus linux#2189 and #2205 (branch
+  lab/j713-bringup-20261119).
+
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-41
 - Require avd-fw 0.1-3 or later, so a kernel installed or upgraded on its
   own always has the video decoder firmware it loads (queue ABI 2 with

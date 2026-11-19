@@ -1,11 +1,11 @@
 {
   "kernel-aurora": {
     "repository": "https://github.com/aurora-silicon/linux",
-    "commit": "9125b31475836ce0a6634df45b539c6d604f36a5",
+    "commit": "629aef1d56f699c391729f3443800216d2842345",
     "version": "7.3.0",
-    "source_url": "https://codeload.github.com/aurora-silicon/linux/tar.gz/9125b31475836ce0a6634df45b539c6d604f36a5",
-    "archive_root": "linux-9125b31475836ce0a6634df45b539c6d604f36a5",
-    "sha256": "9a3969b52c6f41017b36e8bc805b63b0215fddf31b91fc5d45dd7854ab3c4f7b"
+    "source_url": "https://codeload.github.com/aurora-silicon/linux/tar.gz/629aef1d56f699c391729f3443800216d2842345",
+    "archive_root": "linux-629aef1d56f699c391729f3443800216d2842345",
+    "sha256": "de2df2c1f7d718b7141e8ecdfb4e8eace6bdbf65583c674a9967c0bd9fec4ff5"
   },
   "aura": {
     "repository": "https://github.com/aurora-silicon/aura",
