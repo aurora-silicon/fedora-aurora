@@ -1,0 +1,293 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 17:39:57 +1100
+Subject: [PATCH] wayland/layer-shell: Stack layer surfaces with the shell's
+ chrome
+
+Under gnome-shell, a top anchored layer surface was placed at the top of
+the monitor, under the shell's top panel, and its exclusive zone merged
+with the panel's strut (max(panel, zone)) instead of adding to it. The
+overlay layer was drawn under the shell's chrome too.
+
+- Treat the builtin struts of the workspace (the chrome struts a shell
+  sets with meta_workspace_set_builtin_struts()) as exclusive zones that
+  come before every layer surface, so the area layer surfaces are
+  arranged in starts inside them. A top bar is then placed right below
+  the panel, and its strut covers panel and bar, so the work area loses
+  both. Surfaces with an exclusive zone of -1 still use the whole
+  output. Arrange again when the work areas change, which is how
+  builtin strut changes show up.
+- Put window actors in the top window group whenever their window is
+  in the override redirect layer, not only when they are added. Layer
+  surfaces get their stack layer after their actor is created, and can
+  move between layers, so the overlay layer ended up in the normal
+  window group. gnome-shell keeps the top window group above its
+  chrome (panel, message tray) and hides it with the window group in
+  the overview and on the lock screen, so overlay surfaces are drawn
+  above the panel and banners, while the other layers stay below them.
+---
+ src/compositor/compositor.c            |  53 +++++++++-
+ src/wayland/meta-wayland-layer-shell.c | 130 +++++++++++++++++++++++++
+ 2 files changed, 178 insertions(+), 5 deletions(-)
+
+diff --git a/src/compositor/compositor.c b/src/compositor/compositor.c
+index 4c7cc17..d1520ce 100644
+--- a/src/compositor/compositor.c
++++ b/src/compositor/compositor.c
+@@ -360,6 +360,52 @@ meta_compositor_unmanage (MetaCompositor *compositor)
+   META_COMPOSITOR_GET_CLASS (compositor)->unmanage (compositor);
+ }
+ 
++static ClutterActor *
++get_window_group_for_layer (MetaCompositor *compositor,
++                            MetaStackLayer  layer)
++{
++  MetaCompositorPrivate *priv =
++    meta_compositor_get_instance_private (compositor);
++
++  if (layer == META_LAYER_OVERRIDE_REDIRECT)
++    return priv->top_window_group;
++  else
++    return priv->window_group;
++}
++
++/* A window's layer can change after its actor was added, e.g. a layer shell
++ * surface set to or from the overlay layer, so move the actor to the group
++ * of its current layer. Actors that are not in either window group, for
++ * example while an effect reparented them, are left alone.
++ */
++static void
++sync_window_group (MetaCompositor  *compositor,
++                   MetaWindowActor *window_actor)
++{
++  MetaCompositorPrivate *priv =
++    meta_compositor_get_instance_private (compositor);
++  MetaWindow *window = meta_window_actor_get_meta_window (window_actor);
++  ClutterActor *actor = CLUTTER_ACTOR (window_actor);
++  ClutterActor *parent = clutter_actor_get_parent (actor);
++  ClutterActor *window_group;
++
++  if (parent != priv->window_group && parent != priv->top_window_group)
++    return;
++
++  window_group = get_window_group_for_layer (compositor, window->layer);
++  if (parent == window_group)
++    return;
++
++  meta_topic (META_DEBUG_STACK, "Moving window %s to the %s window group",
++              window->desc,
++              window_group == priv->top_window_group ? "top" : "normal");
++
++  g_object_ref (actor);
++  clutter_actor_remove_child (parent, actor);
++  clutter_actor_add_child (window_group, actor);
++  g_object_unref (actor);
++}
++
+ static void
+ meta_compositor_real_add_window (MetaCompositor    *compositor,
+                                  MetaWindow        *window)
+@@ -395,11 +441,7 @@ meta_compositor_real_add_window (MetaCompositor    *compositor,
+                                "show-on-set-parent", FALSE,
+                                NULL);
+ 
+-  if (window->layer == META_LAYER_OVERRIDE_REDIRECT)
+-    window_group = priv->top_window_group;
+-  else
+-    window_group = priv->window_group;
+-
++  window_group = get_window_group_for_layer (compositor, window->layer);
+   clutter_actor_add_child (window_group, CLUTTER_ACTOR (window_actor));
+ 
+   /* Initial position in the stack is arbitrary; stacking will be synced
+@@ -822,6 +864,7 @@ meta_compositor_sync_stack (MetaCompositor  *compositor,
+        * near the front of the other.)
+        */
+       priv->windows = g_list_prepend (priv->windows, actor);
++      sync_window_group (compositor, actor);
+ 
+       stack = g_list_remove (stack, window);
+       old_stack = g_list_remove (old_stack, actor);
+diff --git a/src/wayland/meta-wayland-layer-shell.c b/src/wayland/meta-wayland-layer-shell.c
+index 6bd94f5..089506a 100644
+--- a/src/wayland/meta-wayland-layer-shell.c
++++ b/src/wayland/meta-wayland-layer-shell.c
+@@ -32,6 +32,13 @@
+  *    top/overlay go above them.
+  *  - Exclusive zones become window struts, so the work area that maximized,
+  *    tiled and newly placed windows use shrinks around them.
++ *  - The builtin struts of the compositor's own chrome (e.g. the gnome-shell
++ *    top panel, see meta_workspace_set_builtin_struts()) count as exclusive
++ *    zones that come before every layer surface, so a top anchored bar is
++ *    placed below the panel and its zone stacks on top of the panel's.
++ *  - Overlay layer surfaces are in META_LAYER_OVERRIDE_REDIRECT, so their
++ *    actors go to the compositor's top window group, which shells keep above
++ *    their chrome; the other layers stay in the window group, below it.
+  *  - Size and position are computed here from anchor, size, margin and the
+  *    exclusive zones of the other layer surfaces on the same output, and are
+  *    pushed through meta_window_move_resize(), which sends the configure
+@@ -74,6 +81,11 @@ typedef struct _MetaWaylandLayerShell
+   MetaWaylandCompositor *compositor;
+   GList *layer_surfaces;
+   gulong monitors_changed_handler_id;
++  gulong started_handler_id;
++
++  MetaDisplay *display;
++  gulong workareas_changed_handler_id;
++  gulong display_closing_handler_id;
+ } MetaWaylandLayerShell;
+ 
+ typedef struct _MetaWaylandLayerSurfaceState
+@@ -446,6 +458,71 @@ is_arrangeable (MetaWaylandLayerSurface *layer_surface)
+           window_from_layer_surface (layer_surface));
+ }
+ 
++/* Shrink 'usable' by the builtin struts on the edges of the logical monitor,
++ * as if they were the exclusive zones of earlier layer surfaces. They are the
++ * same on every workspace, and layer surfaces are on all of them, so use the
++ * active one. */
++static void
++apply_builtin_struts (MetaWaylandLayerShell *layer_shell,
++                      const MtkRectangle    *output_rect,
++                      MtkRectangle          *usable)
++{
++  MetaWorkspace *workspace;
++  GSList *l;
++  int x1, y1, x2, y2;
++
++  if (!layer_shell->display || !layer_shell->display->workspace_manager)
++    return;
++
++  workspace = layer_shell->display->workspace_manager->active_workspace;
++  if (!workspace)
++    return;
++
++  x1 = usable->x;
++  y1 = usable->y;
++  x2 = usable->x + usable->width;
++  y2 = usable->y + usable->height;
++
++  for (l = workspace->builtin_struts; l; l = l->next)
++    {
++      MetaStrut *strut = l->data;
++      MtkRectangle *rect = &strut->rect;
++
++      if (!mtk_rectangle_overlap (rect, output_rect))
++        continue;
++
++      switch (strut->side)
++        {
++        case META_SIDE_TOP:
++          if (rect->y <= output_rect->y)
++            y1 = MAX (y1, rect->y + rect->height);
++          break;
++        case META_SIDE_BOTTOM:
++          if (rect->y + rect->height >= output_rect->y + output_rect->height)
++            y2 = MIN (y2, rect->y);
++          break;
++        case META_SIDE_LEFT:
++          if (rect->x <= output_rect->x)
++            x1 = MAX (x1, rect->x + rect->width);
++          break;
++        case META_SIDE_RIGHT:
++          if (rect->x + rect->width >= output_rect->x + output_rect->width)
++            x2 = MIN (x2, rect->x);
++          break;
++        }
++    }
++
++  if (x2 <= x1 || y2 <= y1)
++    return;
++
++  *usable = (MtkRectangle) {
++    .x = x1,
++    .y = y1,
++    .width = x2 - x1,
++    .height = y2 - y1,
++  };
++}
++
+ static void
+ arrange_logical_monitor (MetaWaylandLayerShell *layer_shell,
+                          MetaLogicalMonitor    *logical_monitor)
+@@ -463,6 +540,7 @@ arrange_logical_monitor (MetaWaylandLayerShell *layer_shell,
+ 
+   output_rect = meta_logical_monitor_get_layout (logical_monitor);
+   usable = output_rect;
++  apply_builtin_struts (layer_shell, &output_rect, &usable);
+ 
+   /* Surfaces with an exclusive zone first, from the top layer down, each
+    * shrinking the area left for the next ones. */
+@@ -577,6 +655,52 @@ on_monitors_changed (MetaMonitorManager    *monitor_manager,
+   meta_wayland_layer_shell_arrange (layer_shell);
+ }
+ 
++static void
++on_workareas_changed (MetaDisplay           *display,
++                      MetaWaylandLayerShell *layer_shell)
++{
++  /* The builtin struts may have changed. Our own strut updates come back
++   * here too, but arranging again with the same struts changes nothing. */
++  meta_wayland_layer_shell_arrange (layer_shell);
++}
++
++static void
++disconnect_display (MetaWaylandLayerShell *layer_shell)
++{
++  if (!layer_shell->display)
++    return;
++
++  g_clear_signal_handler (&layer_shell->workareas_changed_handler_id,
++                          layer_shell->display);
++  g_clear_signal_handler (&layer_shell->display_closing_handler_id,
++                          layer_shell->display);
++  layer_shell->display = NULL;
++}
++
++static void
++on_display_closing (MetaDisplay           *display,
++                    MetaWaylandLayerShell *layer_shell)
++{
++  disconnect_display (layer_shell);
++}
++
++static void
++on_started (MetaContext           *context,
++            MetaWaylandLayerShell *layer_shell)
++{
++  MetaDisplay *display = meta_context_get_display (context);
++
++  layer_shell->display = display;
++  layer_shell->workareas_changed_handler_id =
++    g_signal_connect (display, "workareas-changed",
++                      G_CALLBACK (on_workareas_changed),
++                      layer_shell);
++  layer_shell->display_closing_handler_id =
++    g_signal_connect (display, "closing",
++                      G_CALLBACK (on_display_closing),
++                      layer_shell);
++}
++
+ static void
+ update_window_type (MetaWaylandLayerSurface *layer_surface)
+ {
+@@ -1294,6 +1418,8 @@ layer_shell_free (MetaWaylandLayerShell *layer_shell)
+ 
+   g_clear_signal_handler (&layer_shell->monitors_changed_handler_id,
+                           monitor_manager);
++  g_clear_signal_handler (&layer_shell->started_handler_id, context);
++  disconnect_display (layer_shell);
+   g_free (layer_shell);
+ }
+ 
+@@ -1319,6 +1445,10 @@ meta_wayland_layer_shell_init (MetaWaylandCompositor *compositor)
+     g_signal_connect (monitor_manager, "monitors-changed-internal",
+                       G_CALLBACK (on_monitors_changed),
+                       layer_shell);
++  layer_shell->started_handler_id =
++    g_signal_connect (context, "started",
++                      G_CALLBACK (on_started),
++                      layer_shell);
+ 
+   g_object_set_data_full (G_OBJECT (compositor), "-meta-wayland-layer-shell",
+                           layer_shell,

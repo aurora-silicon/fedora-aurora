@@ -6,6 +6,7 @@ Kernel packages declare the DT ABI generation their trees use and require.
 An older retained generation cannot boot with a newer shared tree generation.
 """
 import argparse
+import functools
 import glob
 import fnmatch
 import gzip
@@ -36,6 +37,37 @@ class Tree(dict):
         return {name: data for name, data in self.items() if board in self.boards[name]}
 
 
+# FDT structure block tokens
+FDT_BEGIN_NODE, FDT_END_NODE, FDT_PROP, FDT_NOP, FDT_END = 1, 2, 3, 4, 9
+
+
+def dtb_nodes(blob):
+    """Every node path in a validated FDT, spelled exactly.
+
+    fdtget resolves a component without a unit address, such as /soc, to the
+    first soc@... sibling. T6050 trees have soc@200000000, soc@2308000000 and
+    soc, so a node under the plain soc looked missing.
+    """
+    offset = int.from_bytes(blob[8:12], 'big')
+    nodes, stack = set(), []
+    while True:
+        token = int.from_bytes(blob[offset:offset + 4], 'big')
+        offset += 4
+        if token == FDT_BEGIN_NODE:
+            end = blob.index(b'\0', offset)
+            stack.append(blob[offset:end].decode())
+            nodes.add('/' + '/'.join(stack[1:]))
+            offset = (end + 4) & ~3
+        elif token == FDT_END_NODE:
+            stack.pop()
+        elif token == FDT_PROP:
+            offset = (offset + 8 + int.from_bytes(blob[offset:offset + 4], 'big') + 3) & ~3
+        elif token == FDT_END:
+            return nodes
+        elif token != FDT_NOP:
+            raise Refused('invalid Stage 2 DTB structure')
+
+
 def sync_dir(path):
     fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
     try:
@@ -60,6 +92,81 @@ def replace_file(path, data):
         sync_dir(path.parent)
     finally:
         staged.unlink(missing_ok=True)
+
+
+def grub_vercmp(a, b):
+    """GRUB blscfg's copy of rpm's version comparison: 1 when a is newer, -1 when b is."""
+    def kind(c, test):
+        return c.isascii() and test(c)
+    if a == b:
+        return 0
+    i = j = 0
+    while i < len(a) or j < len(b):
+        while i < len(a) and not kind(a[i], str.isalnum) and a[i] not in '~+':
+            i += 1
+        while j < len(b) and not kind(b[j], str.isalnum) and b[j] not in '~+':
+            j += 1
+        one, two = a[i:i + 1], b[j:j + 1]
+        if '~' in (one, two):
+            if one != '~':
+                return 1
+            if two != '~':
+                return -1
+            i, j = i + 1, j + 1
+            continue
+        if '+' in (one, two):
+            if not one:
+                return -1
+            if not two:
+                return 1
+            if one != '+':
+                return 1
+            if two != '+':
+                return -1
+            i, j = i + 1, j + 1
+            continue
+        if not (one and two):
+            break
+        numeric = kind(one, str.isdigit)
+        test = str.isdigit if numeric else str.isalpha
+        end1, end2 = i, j
+        while end1 < len(a) and kind(a[end1], test):
+            end1 += 1
+        while end2 < len(b) and kind(b[end2], test):
+            end2 += 1
+        first, second = a[i:end1], b[j:end2]
+        if not second:
+            # Numeric segments are newer than alphabetic ones.
+            return 1 if numeric else -1
+        if numeric:
+            first, second = first.lstrip('0'), second.lstrip('0')
+            if len(first) != len(second):
+                return 1 if len(first) > len(second) else -1
+        if first != second:
+            return 1 if first > second else -1
+        i, j = end1, end2
+    if i >= len(a) and j >= len(b):
+        return 0
+    return -1 if i >= len(a) else 1
+
+
+def grub_entry_cmp(a, b):
+    """GRUB's order of two BLS entry ids: name, version and release, split at the last two dashes."""
+    def split(value):
+        rest, dash, release = value.rpartition('-')
+        if not dash:
+            rest, release = value, None
+        name, dash, version = rest.rpartition('-')
+        if not dash:
+            name, version = rest, None
+        if version is None:
+            version, release = release, None
+        return name, version or '', release or ''
+    for first, second in zip(split(a), split(b)):
+        result = grub_vercmp(first, second)
+        if result:
+            return result
+    return 0
 
 
 class Update:
@@ -119,8 +226,7 @@ class Update:
         # BLS entries can retain kernels which no longer have modules. Those
         # must not silently disappear from the compatibility check.
         for p in self.path('/boot/loader/entries').glob('*.conf'):
-            fields = dict(line.split(None, 1) for line in p.read_text().splitlines()
-                          if len(line.split(None, 1)) == 2 and not line.startswith('#'))
+            fields = self.bls_fields(p)
             version = fields.get('version')
             if version:
                 self.validate_version(version)
@@ -137,6 +243,41 @@ class Update:
         if self.action == 'remove':
             images.pop(self.version, None)
         return images
+
+    @staticmethod
+    def bls_fields(path):
+        return dict(line.split(None, 1) for line in path.read_text().splitlines()
+                    if len(line.split(None, 1)) == 2 and not line.startswith('#'))
+
+    def machine_id(self):
+        machine = self.env.get('KERNEL_INSTALL_MACHINE_ID', '')
+        path = self.path('/etc/machine-id')
+        if not machine and path.is_file():
+            machine = path.read_text().strip()
+        return machine
+
+    def boot_menu(self, images):
+        """GRUB's BLS menu as (id, version, title), in the order GRUB lists it.
+
+        blscfg sorts entries by id, newest first, comparing as rpm does.
+        kernel-install writes an added kernel's entry after this hook. With
+        no entries at all, every kernel counts as one.
+        """
+        menu = {}
+        for p in self.path('/boot/loader/entries').glob('*.conf'):
+            fields = self.bls_fields(p)
+            version = fields.get('version', '').strip()
+            if version in images and fields.get('linux', '').strip():
+                menu[p.name.removesuffix('.conf')] = (version, fields.get('title', '').strip())
+        machine = self.machine_id()
+        def entry(version):
+            return f'{machine}-{version}' if machine else version
+        if not menu:
+            menu = {entry(version): (version, '') for version in images}
+        elif self.action == 'add' and self.version not in (v for v, _ in menu.values()):
+            menu[entry(self.version)] = (self.version, '')
+        order = sorted(menu, key=functools.cmp_to_key(grub_entry_cmp), reverse=True)
+        return [(name, *menu[name]) for name in order]
 
     def entry_image_gone(self, fields):
         """True when a BLS entry names a kernel that exists nowhere GRUB looks.
@@ -239,34 +380,30 @@ class Update:
                 return entry, 'saved_entry'
         return None
 
-    def default_kernel(self, images, versions):
-        """The installed kernel GRUB boots by default, or None if unknown."""
+    def default_kernel(self, images, menu):
+        """The installed kernel GRUB boots by default, or None if it boots its first entry."""
         default = self.grub_default()
         if not default:
             return None
         entry, origin = default
         if re.fullmatch(r'\d+', entry):
-            # BLS entries are listed newest first.
             index = int(entry)
-            return versions[-1 - index] if index < len(versions) else None
-        bls = self.path(f'/boot/loader/entries/{entry}.conf')
-        if '/' not in entry and bls.is_file():
-            for line in bls.read_text().splitlines():
-                key, _, value = line.partition(' ')
-                if key == 'version' and value.strip() in images:
-                    return value.strip()
+            return menu[index][1] if index < len(menu) else None
+        for name, version, title in menu:
+            if entry == name or (title and entry == title):
+                return version
         # BLS ids are <machine-id>-<version>; hand-written menu entries in
         # custom.cfg commonly end in the version too.
         matches = [v for v in images if entry == v or entry.endswith('-' + v)]
         if matches:
             return max(matches, key=len)
         print(f'update-m1n1: GRUB default {entry!r} ({origin}) is not an installed kernel; '
-              'using the newest kernel, as GRUB does', file=sys.stderr)
+              f'GRUB boots its first entry, kernel {menu[0][1]}', file=sys.stderr)
         return None
 
-    def select_kernel(self, images, versions):
-        newest = versions[-1]
-        default = self.default_kernel(images, versions)
+    def select_kernel(self, images, menu):
+        newest = menu[0][1]
+        default = self.default_kernel(images, menu)
         if self.action == 'add':
             pinned = self.grub_default()
             kernel = self.shell_assignments(self.path('/etc/sysconfig/kernel'))
@@ -288,9 +425,7 @@ class Update:
         images = self.kernel_images()
         if not images:
             raise Refused('no remaining installed kernels; preserving Stage 2 and /boot/dtb')
-        # Match Fedora's version ordering, including its release suffixes.
-        versions = subprocess.check_output(['sort', '-V'], input='\n'.join(images), text=True).splitlines()
-        selected = self.select_kernel(images, versions)
+        selected = self.select_kernel(images, self.boot_menu(images))
         source = self.dtb_dir(selected)
         configured = self.env.get('DTBS', '/boot/dtb')
         if not configured.strip():
@@ -484,14 +619,14 @@ class Update:
                 compatible = subprocess.check_output(
                     ['fdtget', '-t', 's', stream.name, '/', 'compatible'], text=True).split()
                 if board in compatible:
+                    nodes = dtb_nodes(blob)
                     for alias in required:
                         found = subprocess.run(['fdtget', '-t', 's', stream.name, '/aliases', alias],
                                                capture_output=True, text=True)
                         node = found.stdout.strip()
                         if found.returncode or not node.startswith('/'):
                             raise Refused(f'{board} DTB lacks display alias {alias}')
-                        exists = subprocess.run(['fdtget', '-p', stream.name, node], capture_output=True)
-                        if exists.returncode:
+                        if node not in nodes:
                             raise Refused(f'{board} DTB display alias {alias} has no node')
                     matched = True
             offset += size
@@ -499,14 +634,76 @@ class Update:
         if not matched or not count or payload[offset:offset + 2] != b'\x1f\x8b':
             raise Refused(f'Stage 2 lacks complete DTBs for {board} or compressed U-Boot')
 
+    def armed_trial(self, candidate, receipt, relative):
+        """The receipt of an armed trial when this updater armed it, else None."""
+        try:
+            details = json.loads(receipt.read_text())
+            digest = hashlib.sha256(candidate.read_bytes()).hexdigest()
+        except (OSError, ValueError):
+            return None
+        if (not isinstance(details, dict) or details.get('path') != relative
+                or details.get('sha256') != digest):
+            return None
+        _, recorded = self.attempt(digest)
+        return details if recorded == details else None
+
+    def withdraw_trial(self, paths, details, reason):
+        """Disarm a trial that was never booted. Its candidate may be armed again."""
+        _, candidate, receipt, marker, _ = paths
+        # Removing the marker disarms it; an interruption after that only
+        # leaves an attempt record, which keeps the candidate from rearming.
+        marker.unlink()
+        sync_dir(marker.parent)
+        self.flush_esp()
+        attempt, recorded = self.attempt(details['sha256'])
+        if recorded == details:
+            attempt.unlink()
+            sync_dir(attempt.parent)
+        receipt.unlink(missing_ok=True)
+        candidate.unlink(missing_ok=True)
+        sync_dir(candidate.parent)
+        self.flush_esp()
+        print(f'Stage 2 trial for kernel {details.get("kernel")} withdrawn before it was booted: '
+              f'{reason}; live image kept')
+
+    def withdraw_stale_trial(self, selected):
+        """The selected Stage 2 is live already, so an armed trial would only replace it."""
+        esp = self.env.get('ESP_ROOT')
+        if not esp or not (self.path(esp) / 'aura-try').exists():
+            return
+        try:
+            paths = self.trial_paths()
+        except Refused as error:
+            print(f'update-m1n1: not checking the armed trial: {error}', file=sys.stderr)
+            return
+        _, candidate, receipt, marker, relative = paths
+        if self.marker(marker) != ('armed', relative):
+            return
+        armed = self.armed_trial(candidate, receipt, relative)
+        if armed is None:
+            print(f'update-m1n1: leaving the armed trial at {relative}: this updater did not arm it',
+                  file=sys.stderr)
+            return
+        self.withdraw_trial(paths, armed, f'the Stage 2 for kernel {selected} is already live')
+
     def stage_trial(self, selected, payload):
-        target, candidate, receipt, marker, relative = self.trial_paths()
+        paths = self.trial_paths()
+        target, candidate, receipt, marker, relative = paths
         current = self.marker(marker)
         if self.trial_running(current):
             raise Refused('a trial is running; preserve its candidate until the next boot')
         if current and current[1] != relative:
             raise Refused('another aura-try owns the ESP marker')
         digest = hashlib.sha256(payload).hexdigest()
+        if current and current[0] == 'armed':
+            armed = self.armed_trial(candidate, receipt, relative)
+            if armed and armed.get('kernel') != selected:
+                # It pairs another kernel's trees with the kernel GRUB boots.
+                self.withdraw_trial(paths, armed, f'GRUB boots kernel {selected}')
+                current = None
+            elif armed and armed['sha256'] == digest:
+                print(f'Stage 2 trial for kernel {selected} already armed at {relative}, sha256 {digest}')
+                return
         attempt, recorded = self.attempt(digest)
         # Only a committed candidate may be tried again, e.g. after a package
         # revert. One that fell back or was interrupted is never rearmed.
@@ -703,8 +900,11 @@ class Update:
                 if staged.exists():
                     shutil.rmtree(staged)
         previous = target.read_bytes() if target.exists() else None
-        if previous is not None and previous != payload and self.supports_trial():
-            self.stage_trial(selected, payload)
+        if previous is not None and self.supports_trial():
+            if previous != payload:
+                self.stage_trial(selected, payload)
+            else:
+                self.withdraw_stale_trial(selected)
         elif previous != payload:
             # Finish and sync the candidate before changing even the backup.
             fd, name = tempfile.mkstemp(prefix='.boot.bin.', dir=target.parent)
@@ -745,15 +945,92 @@ class Update:
                 temporary.unlink(missing_ok=True)
         print(f'Stage 2 verified at {target}; /boot/dtb -> {destination.name}')
 
-    def cleanup_remove(self):
-        if self.action != 'remove':
-            raise Refused('erase cleanup requires a remove action')
+    def drop_removed_link(self):
         link = self.path('/boot/dtb')
         if link.is_symlink() and os.readlink(link) in (
                 f'dtb-{self.version}', f'/boot/dtb-{self.version}'):
             link.unlink()
             sync_dir(link.parent)
+
+    def cleanup_remove(self):
+        if self.action != 'remove':
+            raise Refused('erase cleanup requires a remove action')
+        self.drop_removed_link()
         print('Stage 2 refresh deferred; continuing removal of the erased kernel boot files')
+
+    # A removal inside a package transaction cannot tell what GRUB boots next:
+    # the transaction may add kernels after it, the removed one too when it is
+    # reinstalled. It leaves Stage 2 to their add phases and to a refresh once
+    # the transaction ends, both run from RPM file triggers.
+
+    def transaction_record(self):
+        return self.path('/run/update-m1n1/transaction')
+
+    def process_start(self, pid):
+        """A running process's start time, which tells it from a later one with its pid."""
+        try:
+            fields = self.path(f'/proc/{int(pid)}/stat').read_text().rpartition(')')[2].split()
+        except (OSError, ValueError):
+            return None
+        return fields[19] if len(fields) > 19 else None
+
+    def begin_transaction(self):
+        """Record the package transaction that is about to remove kernels."""
+        pid = self.env.get('AURORA_RPM_TRANSACTION_PID', '')
+        start = self.process_start(pid) if re.fullmatch(r'[1-9][0-9]*', pid) and pid != '1' else None
+        if start is None:
+            print('update-m1n1: no package transaction process; kernel removals update Stage 2 at once',
+                  file=sys.stderr)
+            return
+        record = self.transaction_record()
+        record.parent.mkdir(parents=True, exist_ok=True)
+        replace_file(record, (json.dumps({'pid': int(pid), 'start': start, 'deferred': []}) + '\n').encode())
+
+    def transaction(self):
+        """The running package transaction's record, or None. A stale one is dropped."""
+        path = self.transaction_record()
+        try:
+            record = json.loads(path.read_text())
+            live = (isinstance(record, dict) and isinstance(record.get('deferred'), list)
+                    and record.get('start') is not None
+                    and self.process_start(record.get('pid')) == record['start'])
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError, TypeError):
+            live = False
+        if not live:
+            path.unlink(missing_ok=True)
+            return None
+        return record
+
+    def defer_remove(self):
+        """Inside a package transaction, leave this removal's Stage 2 to the transaction."""
+        if self.action != 'remove':
+            raise Refused('deferring requires a remove action')
+        record = self.transaction()
+        if record is None:
+            return False
+        # kernel-install removes /boot/dtb-<version> next.
+        self.drop_removed_link()
+        if self.version not in record['deferred']:
+            record['deferred'].append(self.version)
+        replace_file(self.transaction_record(), (json.dumps(record) + '\n').encode())
+        print(f'update-m1n1: kernel {self.version} removed inside a package transaction; '
+              'Stage 2 follows the kernels it adds and what GRUB boots after it')
+        return True
+
+    def end_transaction(self):
+        """Drop the transaction record. True when its removals left Stage 2 to now."""
+        path = self.transaction_record()
+        try:
+            record = json.loads(path.read_text())
+            due = bool(record['deferred'])
+        except FileNotFoundError:
+            return False
+        except (OSError, ValueError, TypeError, KeyError):
+            due = True  # Unreadable: a refresh is always safe.
+        path.unlink(missing_ok=True)
+        return due
 
 
 def main():
@@ -762,6 +1039,11 @@ def main():
     parser.add_argument('--commit', action='store_true')
     parser.add_argument('--guard', action='store_true')
     parser.add_argument('--cleanup-remove', action='store_true')
+    # Exit 0 when the removal was left to the running package transaction.
+    parser.add_argument('--defer-remove', action='store_true')
+    parser.add_argument('--transaction-begin', action='store_true')
+    # Exit 0 when removals in the finished transaction left Stage 2 to a refresh.
+    parser.add_argument('--transaction-end', action='store_true')
     args = parser.parse_args()
     try:
         update = Update()
@@ -771,6 +1053,12 @@ def main():
             update.commit()
         elif args.cleanup_remove:
             update.cleanup_remove()
+        elif args.defer_remove:
+            return 0 if update.defer_remove() else 1
+        elif args.transaction_begin:
+            update.begin_transaction()
+        elif args.transaction_end:
+            return 0 if update.end_transaction() else 1
         elif args.check:
             update.plan()
         else:

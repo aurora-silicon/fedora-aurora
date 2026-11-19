@@ -19,19 +19,37 @@ export DTBS=${DTBS-/boot/dtb}
 export AURORA_DEVICE_TREE_COMPATIBLE=${AURORA_DEVICE_TREE_COMPATIBLE:-/proc/device-tree/compatible}
 export AURORA_MONITOR_FREE_MARKER=${AURORA_MONITOR_FREE_MARKER:-/usr/share/aura/monitor-free}
 mode=${1:-}
-if [[ $mode == --commit || $mode == --guard ]]; then
-    export AURORA_KERNEL_ACTION=refresh AURORA_KERNEL_VERSION=
-    export TARGET=${TARGET:-}
-else
-    [[ -z $mode || $mode != --* ]] || { echo "unknown update-m1n1 option" >&2; exit 2; }
-    export TARGET=${TARGET:-$mode}
-fi
+case $mode in
+    --commit|--guard|--transaction-begin|--transaction-end)
+        export AURORA_KERNEL_ACTION=refresh AURORA_KERNEL_VERSION=
+        export TARGET=${TARGET:-}
+        ;;
+    *)
+        [[ -z $mode || $mode != --* ]] || { echo "unknown update-m1n1 option" >&2; exit 2; }
+        export TARGET=${TARGET:-$mode}
+        ;;
+esac
 
 # One lock covers discovery, mounting, staging and link replacement, including
 # callers from both RPM file triggers and kernel-install.
 mkdir -p /run/lock
 exec 9>/run/lock/update-m1n1.lock
 flock -x 9
+
+# A package transaction that removes kernels is recorded before it starts.
+# Its removals leave Stage 2 to the kernels it adds and to a refresh at its end.
+case $mode in
+    --transaction-begin)
+        exec python3 /usr/libexec/aurora/bootchain.py --transaction-begin
+        ;;
+    --transaction-end)
+        python3 /usr/libexec/aurora/bootchain.py --transaction-end || exit 0
+        mode=
+        ;;
+esac
+if [[ ${AURORA_KERNEL_ACTION:-} == remove ]] && python3 /usr/libexec/aurora/bootchain.py --defer-remove; then
+    exit 0
+fi
 mounted=false
 cleanup() {
     if $mounted; then umount /run/.system-efi; fi

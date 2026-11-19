@@ -340,7 +340,8 @@ def board_image(board, chip):
 
 
 class PrepareCtxrStage2(unittest.TestCase):
-    BOARDS = {'j274': 't8103', 'j700': 't8140', 'j616s': 't6040', 'j614s': 't6040', 'j713': 't8132', 'j873g': 't8152'}
+    BOARDS = {'j274': 't8103', 'j700': 't8140', 'j616s': 't6040', 'j614s': 't6040', 'j616c': 't6041',
+              'j614c': 't6041', 'j713': 't8132', 'j873g': 't8152'}
 
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
@@ -354,8 +355,9 @@ class PrepareCtxrStage2(unittest.TestCase):
     def test_image_esp_carries_both_files_and_each_macho_boards_own(self):
         before = {path.name: path.read_bytes() for path in self.m1n1.iterdir()}
         written = prepare_ctxr.prepare(self.m1n1, self.m1n1)
-        self.assertEqual(sorted(written), ['boot-ctxr-j614s.bin', 'boot-ctxr-j616s.bin', 'boot-ctxr-j700.bin',
-                                           'boot-ctxr-j713.bin', 'boot-ctxr-j873g.bin', 'boot-ctxr.bin'])
+        self.assertEqual(sorted(written), ['boot-ctxr-j614c.bin', 'boot-ctxr-j614s.bin', 'boot-ctxr-j616c.bin',
+                                           'boot-ctxr-j616s.bin', 'boot-ctxr-j700.bin', 'boot-ctxr-j713.bin',
+                                           'boot-ctxr-j873g.bin', 'boot-ctxr.bin'])
         self.assertEqual((self.m1n1 / 'boot-ctxr.bin').read_bytes(), b'combined')
         self.assertEqual((self.m1n1 / 'boot-ctxr-j700.bin').read_bytes(), before['boot-j700.bin'])
         self.assertFalse((self.m1n1 / 'boot-ctxr-j274.bin').exists())
@@ -377,6 +379,7 @@ class PrepareCtxrStage2(unittest.TestCase):
     def test_an_image_build_refuses_any_problem(self):
         cases = {
             'missing required board': lambda: (self.m1n1 / 'boot-j614s.bin').unlink(),
+            'missing M4 Max board': lambda: (self.m1n1 / 'boot-j614c.bin').unlink(),
             'board file without its tree': lambda: (self.m1n1 / 'boot-j700.bin').write_bytes(b'no tree'),
             'oversized board file': lambda: (self.m1n1 / 'boot-j700.bin').write_bytes(
                 board_image('j700', 't8140') + b'\0' * prepare_ctxr.MAX_STAGE2_BYTES),
@@ -398,7 +401,8 @@ class PrepareCtxrStage2(unittest.TestCase):
         (self.m1n1 / 'boot-j614s.bin').unlink()
         (self.m1n1 / 'boot-j700.bin').write_bytes(board_image('j700', 't8140') + b'\0' * prepare_ctxr.MAX_STAGE2_BYTES)
         written = prepare_ctxr.prepare(self.m1n1, self.m1n1, keep_going=True)
-        self.assertEqual(sorted(written), ['boot-ctxr-j616s.bin', 'boot-ctxr-j713.bin', 'boot-ctxr-j873g.bin', 'boot-ctxr.bin'])
+        self.assertEqual(sorted(written), ['boot-ctxr-j614c.bin', 'boot-ctxr-j616c.bin', 'boot-ctxr-j616s.bin',
+                                           'boot-ctxr-j713.bin', 'boot-ctxr-j873g.bin', 'boot-ctxr.bin'])
 
     def test_chip_list_matches_the_update_tool(self):
         for chip in MACHO_CHIPS:
@@ -416,6 +420,14 @@ class Recipes(unittest.TestCase):
         self.assertIn('%config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1', spec)
         self.assertIn('%{_kernel_install_dir}/15-update-m1n1.install', spec)
         self.assertIn('%transfiletriggerin -- /usr/lib/m1n1 /usr/lib64/m1n1 /usr/share/uboot/apple_m1 /etc/m1n1.conf', spec)
+
+    def test_kernel_transactions_are_recorded_before_and_closed_after(self):
+        spec = SPEC.read_text()
+        # Before the transaction, with the rpm process that runs it.
+        self.assertIn('%transfiletriggerun -- /usr/lib/modules\n'
+                      'AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-m1n1 --transaction-begin || :\n', spec)
+        for trigger in ('%transfiletriggerpostun', '%transfiletriggerin'):
+            self.assertIn(f'{trigger} -- /usr/lib/modules\n%{{_sbindir}}/update-m1n1 --transaction-end || :\n', spec)
 
     def test_aura_needs_the_capability_only_this_package_provides(self):
         self.assertRegex(SPEC.read_text(), r'(?m)^Provides: aurora-stage2-ctxr-slot = 1$')
@@ -486,7 +498,7 @@ class Recipes(unittest.TestCase):
         self.assertIn('[Install]\nWantedBy=multi-user.target\n', unit)
         self.assertIn('enable aurora-kernel-install-repair.service\n',
                       (ROOT / 'packages/update-m1n1/90-aurora-stage2.preset').read_text())
-        self.assertIn('%triggerpostun -- update-m1n1 < 20261107-8\n'
+        self.assertIn('%triggerpostun -- update-m1n1 < 20261107-10\n'
                       '/usr/bin/systemctl --no-reload preset aurora-kernel-install-repair.service || :\n', spec)
         posttrans = self.step('update-m1n1', '%posttrans', 'fi')
         for booted, call in ((True, 'systemctl --no-block start aurora-kernel-install-repair.service'),
@@ -546,6 +558,59 @@ class Recipes(unittest.TestCase):
                                         capture_output=True, text=True)
                 self.assertEqual('MOUNTED' in result.stdout, mount, result.stdout + result.stderr)
                 self.assertEqual(result.returncode, 1 if mount else 0, result.stderr)
+
+    def run_entry_point(self, *args, defer=1, end=1, **env):
+        """The shell entry point with a stubbed helper: its result and the helper modes it ran."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'bin').mkdir()
+            calls = root / 'calls'
+            (root / 'bin/python3').write_text(
+                f'#!/bin/sh\necho "${{2:-apply}}" >> {calls}\n'
+                f'case "$2" in --defer-remove) exit {defer};; --transaction-end) exit {end};; esac\nexit 0\n')
+            (root / 'bin/flock').write_text('#!/bin/sh\nexit 0\n')
+            for tool in ('python3', 'flock'):
+                (root / 'bin' / tool).chmod(0o755)
+            (root / 'functions.sh').write_text('mount_sys_esp() { echo MOUNTED; return 1; }\n')
+            (root / 'present').write_bytes(compatible_file('j700', 't8140'))
+            script = SCRIPT.read_text().replace('/run/lock', str(root / 'lock')).replace(
+                '/etc/sysconfig/update-m1n1', str(root / 'none')).replace(
+                '/etc/u-boot.conf', str(root / 'none')).replace(
+                '/usr/share/asahi-scripts/functions.sh', str(root / 'functions.sh'))
+            (root / 'update-m1n1').write_text(script)
+            settings = dict(os.environ, PATH=f'{root / "bin"}:{os.environ["PATH"]}',
+                            AURORA_DEVICE_TREE_COMPATIBLE=str(root / 'present'), **env)
+            settings.pop('TARGET', None)
+            result = subprocess.run(['bash', str(root / 'update-m1n1'), *args], env=settings,
+                                    capture_output=True, text=True)
+            return result, calls.read_text().split() if calls.exists() else []
+
+    def test_a_removal_inside_a_package_transaction_stops_before_the_esp(self):
+        result, calls = self.run_entry_point(defer=0, AURORA_KERNEL_ACTION='remove',
+                                             AURORA_KERNEL_VERSION='7.3.0-40.fc44.aurora.aarch64')
+        self.assertEqual((result.returncode, calls), (0, ['--defer-remove']), result.stderr)
+        self.assertNotIn('MOUNTED', result.stdout)
+
+    def test_a_removal_outside_one_updates_stage2_as_before(self):
+        result, calls = self.run_entry_point(AURORA_KERNEL_ACTION='remove', AURORA_KERNEL_VERSION='7.3')
+        self.assertEqual(calls[:2], ['--defer-remove', '--check'])
+        self.assertIn('MOUNTED', result.stdout)
+
+    def test_an_add_never_defers(self):
+        result, calls = self.run_entry_point(defer=0, AURORA_KERNEL_ACTION='add', AURORA_KERNEL_VERSION='7.3')
+        self.assertEqual(calls[:1], ['--check'])
+        self.assertIn('MOUNTED', result.stdout)
+
+    def test_transaction_triggers_touch_the_esp_only_for_a_deferred_removal(self):
+        result, calls = self.run_entry_point('--transaction-begin', AURORA_RPM_TRANSACTION_PID='4242')
+        self.assertEqual((result.returncode, calls), (0, ['--transaction-begin']), result.stderr)
+        result, calls = self.run_entry_point('--transaction-end')
+        self.assertEqual((result.returncode, calls), (0, ['--transaction-end']), result.stderr)
+        self.assertNotIn('MOUNTED', result.stdout)
+        # A removal left Stage 2 to the end: refresh as a plain update-m1n1 does.
+        result, calls = self.run_entry_point('--transaction-end', end=0)
+        self.assertEqual(calls[:2], ['--transaction-end', '--check'])
+        self.assertIn('MOUNTED', result.stdout)
 
     def test_image_build_ignores_the_builders_device_tree(self):
         text = (ROOT / 'scripts/build-image').read_text()

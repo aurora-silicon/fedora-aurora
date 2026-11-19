@@ -1,0 +1,517 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 01:09:23 +1100
+Subject: [PATCH] tests: Add tearing-control tests
+
+A test client binds wp_tearing_control_manager_v1 and the test checks
+that the view's frame clock tears only while a fullscreen surface asks
+for async presentation: not after switching back to vsync, not while
+windowed, not with the async-tearing setting off, and not after the
+tearing object is destroyed; "always" and "fullscreen-only" both tear
+the fullscreen surface. A second tearing object for the same surface is
+the tearing_control_exists protocol error.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/tests/meson.build                         |  11 +
+ src/tests/wayland-tearing-control-tests.c     | 211 ++++++++++++++++
+ src/tests/wayland-test-clients/meson.build    |   3 +
+ .../wayland-test-clients/tearing-control.c    | 235 ++++++++++++++++++
+ 4 files changed, 460 insertions(+)
+ create mode 100644 src/tests/wayland-tearing-control-tests.c
+ create mode 100644 src/tests/wayland-test-clients/tearing-control.c
+
+diff --git a/src/tests/meson.build b/src/tests/meson.build
+index 7676fb4..1fd8bc2 100644
+--- a/src/tests/meson.build
++++ b/src/tests/meson.build
+@@ -1130,6 +1130,17 @@ wayland_test_cases = [
+       test_client_executables.get('output-management'),
+     ],
+   },
++  {
++    'name': 'wayland-tearing-control',
++    'suite': 'wayland',
++    'sources': [
++      'wayland-tearing-control-tests.c',
++      wayland_test_utils,
++    ],
++    'depends': [
++      test_client_executables.get('tearing-control'),
++    ],
++  },
+   {
+     'name': 'wayland-idle-inhibit',
+     'suite': 'wayland',
+diff --git a/src/tests/wayland-tearing-control-tests.c b/src/tests/wayland-tearing-control-tests.c
+new file mode 100644
+index 0000000..e986c5c
+--- /dev/null
++++ b/src/tests/wayland-tearing-control-tests.c
+@@ -0,0 +1,211 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include "config.h"
++
++#include <gio/gio.h>
++
++#include "backends/meta-backend-private.h"
++#include "clutter/clutter.h"
++#include "meta-test/meta-context-test.h"
++#include "tests/meta-test-utils.h"
++#include "tests/meta-wayland-test-driver.h"
++#include "tests/meta-wayland-test-utils.h"
++
++static MetaContext *test_context;
++static MetaWaylandTestDriver *test_driver;
++
++static ClutterStage *
++get_stage (void)
++{
++  MetaBackend *backend = meta_context_get_backend (test_context);
++
++  return CLUTTER_STAGE (meta_backend_get_stage (backend));
++}
++
++static ClutterFrameClock *
++get_frame_clock (void)
++{
++  GList *views = clutter_stage_peek_stage_views (get_stage ());
++
++  g_assert_cmpuint (g_list_length (views), ==, 1);
++  return clutter_stage_view_get_frame_clock (views->data);
++}
++
++static void
++repaint (void)
++{
++  ClutterStage *stage = get_stage ();
++
++  clutter_actor_queue_redraw (CLUTTER_ACTOR (stage));
++  meta_wait_for_paint (stage);
++}
++
++static void
++assert_tearing (gboolean expected)
++{
++  MetaWindow *window;
++
++  window = meta_find_window_from_title (test_context, "tearing-control");
++  g_assert_nonnull (window);
++  meta_wait_for_window_shown (window);
++  meta_wait_for_effects (window);
++
++  repaint ();
++  repaint ();
++
++  g_assert_cmpint (clutter_frame_clock_is_tearing (get_frame_clock ()), ==,
++                   expected);
++}
++
++static void
++set_policy (const char *policy)
++{
++  g_autoptr (GSettings) settings = g_settings_new ("org.gnome.mutter");
++
++  g_assert_true (g_settings_set_string (settings, "async-tearing", policy));
++}
++
++static void
++wait_for_client (int sequence)
++{
++  meta_wayland_test_driver_wait_for_sync_point (test_driver, sequence);
++}
++
++static void
++release (int sequence)
++{
++  meta_wayland_test_driver_emit_sync_event (test_driver, sequence);
++}
++
++static void
++tearing_control_basic (void)
++{
++  MetaWaylandTestClient *client;
++
++  set_policy ("fullscreen-only");
++  g_assert_false (clutter_frame_clock_is_tearing (get_frame_clock ()));
++
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "tearing-control",
++                                                   "basic",
++                                                   NULL);
++
++  /* fullscreen + async */
++  wait_for_client (0);
++  assert_tearing (TRUE);
++  release (0);
++
++  /* fullscreen + vsync */
++  wait_for_client (1);
++  assert_tearing (FALSE);
++  release (1);
++
++  /* fullscreen + async, policy off, always, back to fullscreen-only */
++  wait_for_client (2);
++  assert_tearing (TRUE);
++  set_policy ("off");
++  assert_tearing (FALSE);
++  set_policy ("always");
++  assert_tearing (TRUE);
++  set_policy ("fullscreen-only");
++  assert_tearing (TRUE);
++  release (2);
++
++  /* windowed + async */
++  wait_for_client (3);
++  assert_tearing (FALSE);
++  release (3);
++
++  /* fullscreen again + async */
++  wait_for_client (4);
++  assert_tearing (TRUE);
++  release (4);
++
++  /* object destroyed */
++  wait_for_client (5);
++  assert_tearing (FALSE);
++  release (5);
++
++  meta_wayland_test_client_finish (client);
++
++  repaint ();
++  g_assert_false (clutter_frame_clock_is_tearing (get_frame_clock ()));
++}
++
++static void
++tearing_control_duplicate (void)
++{
++  MetaWaylandTestClient *client;
++
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "tearing-control",
++                                                   "duplicate",
++                                                   NULL);
++  g_test_expect_message ("libmutter", G_LOG_LEVEL_WARNING,
++                         "WL: error in client communication*");
++  meta_wayland_test_client_finish (client);
++  g_test_assert_expected_messages ();
++}
++
++static void
++on_before_tests (MetaContext *context)
++{
++  MetaWaylandCompositor *compositor =
++    meta_context_get_wayland_compositor (context);
++
++  test_driver = meta_wayland_test_driver_new (compositor);
++}
++
++static void
++on_after_tests (MetaContext *context)
++{
++  g_clear_object (&test_driver);
++}
++
++static void
++init_tests (void)
++{
++  g_test_add_func ("/wayland/tearing-control/basic",
++                   tearing_control_basic);
++  g_test_add_func ("/wayland/tearing-control/duplicate",
++                   tearing_control_duplicate);
++}
++
++int
++main (int    argc,
++      char **argv)
++{
++  g_autoptr (MetaContext) context = NULL;
++
++  context = meta_create_test_context (META_CONTEXT_TEST_TYPE_TEST,
++                                      META_CONTEXT_TEST_FLAG_NO_X11 |
++                                      META_CONTEXT_TEST_FLAG_TEST_CLIENT);
++  g_assert_true (meta_context_configure (context, &argc, &argv, NULL));
++
++  test_context = context;
++
++  init_tests ();
++
++  g_signal_connect (context, "before-tests",
++                    G_CALLBACK (on_before_tests), NULL);
++  g_signal_connect (context, "after-tests",
++                    G_CALLBACK (on_after_tests), NULL);
++
++  return meta_context_test_run_tests (META_CONTEXT_TEST (context),
++                                      META_TEST_RUN_FLAG_NONE);
++}
+diff --git a/src/tests/wayland-test-clients/meson.build b/src/tests/wayland-test-clients/meson.build
+index fd60e77..2b558d5 100644
+--- a/src/tests/wayland-test-clients/meson.build
++++ b/src/tests/wayland-test-clients/meson.build
+@@ -59,6 +59,9 @@ wayland_test_clients = [
+   {
+     'name': 'idle-inhibit',
+   },
++  {
++    'name': 'tearing-control',
++  },
+   {
+     'name': 'invalid-subsurfaces',
+   },
+diff --git a/src/tests/wayland-test-clients/tearing-control.c b/src/tests/wayland-test-clients/tearing-control.c
+new file mode 100644
+index 0000000..f8d4aaf
+--- /dev/null
++++ b/src/tests/wayland-test-clients/tearing-control.c
+@@ -0,0 +1,235 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include "config.h"
++
++#include <errno.h>
++#include <glib.h>
++#include <wayland-client.h>
++
++#include "wayland-test-client-utils.h"
++
++#include "tearing-control-v1-client-protocol.h"
++
++static struct wp_tearing_control_manager_v1 *tearing_control_manager;
++static struct wl_surface *surface;
++static struct xdg_surface *xdg_surface;
++static struct xdg_toplevel *xdg_toplevel;
++static int toplevel_width, toplevel_height;
++static gboolean waiting_for_configure;
++
++static void
++handle_registry_global (void               *user_data,
++                        struct wl_registry *registry,
++                        uint32_t            id,
++                        const char         *interface,
++                        uint32_t            version)
++{
++  if (strcmp (interface, wp_tearing_control_manager_v1_interface.name) == 0)
++    {
++      tearing_control_manager =
++        wl_registry_bind (registry, id,
++                          &wp_tearing_control_manager_v1_interface, 1);
++    }
++}
++
++static void
++handle_registry_global_remove (void               *user_data,
++                               struct wl_registry *registry,
++                               uint32_t            name)
++{
++}
++
++static const struct wl_registry_listener registry_listener = {
++  handle_registry_global,
++  handle_registry_global_remove
++};
++
++static void
++handle_xdg_toplevel_configure (void                *data,
++                               struct xdg_toplevel *toplevel,
++                               int32_t              width,
++                               int32_t              height,
++                               struct wl_array     *states)
++{
++  toplevel_width = width > 0 ? width : 300;
++  toplevel_height = height > 0 ? height : 200;
++}
++
++static void
++handle_xdg_toplevel_close (void                *data,
++                           struct xdg_toplevel *toplevel)
++{
++  g_assert_not_reached ();
++}
++
++static const struct xdg_toplevel_listener xdg_toplevel_listener = {
++  handle_xdg_toplevel_configure,
++  handle_xdg_toplevel_close,
++};
++
++static void
++handle_xdg_surface_configure (void               *data,
++                              struct xdg_surface *surface_xdg,
++                              uint32_t            serial)
++{
++  xdg_surface_ack_configure (surface_xdg, serial);
++  waiting_for_configure = FALSE;
++}
++
++static const struct xdg_surface_listener xdg_surface_listener = {
++  handle_xdg_surface_configure,
++};
++
++static void
++wait_for_configure (WaylandDisplay *display)
++{
++  waiting_for_configure = TRUE;
++  while (waiting_for_configure)
++    wayland_display_dispatch (display);
++}
++
++static void
++draw_and_commit (WaylandDisplay *display)
++{
++  draw_surface (display, surface, toplevel_width, toplevel_height, 0xff2050a0);
++  wl_surface_commit (surface);
++}
++
++static void
++sync_point (WaylandDisplay *display,
++            int             sequence)
++{
++  wl_display_roundtrip (display->display);
++  test_driver_sync_point (display->test_driver, sequence, NULL);
++  wait_for_sync_event (display, sequence);
++}
++
++static void
++create_toplevel (WaylandDisplay *display)
++{
++  surface = wl_compositor_create_surface (display->compositor);
++  xdg_surface = xdg_wm_base_get_xdg_surface (display->xdg_wm_base, surface);
++  xdg_surface_add_listener (xdg_surface, &xdg_surface_listener, NULL);
++  xdg_toplevel = xdg_surface_get_toplevel (xdg_surface);
++  xdg_toplevel_add_listener (xdg_toplevel, &xdg_toplevel_listener, NULL);
++  xdg_toplevel_set_title (xdg_toplevel, "tearing-control");
++  xdg_toplevel_set_fullscreen (xdg_toplevel, NULL);
++  wl_surface_commit (surface);
++  wait_for_configure (display);
++  draw_and_commit (display);
++}
++
++static void
++test_basic (WaylandDisplay *display)
++{
++  struct wp_tearing_control_v1 *tearing_control;
++
++  create_toplevel (display);
++
++  /* A fullscreen surface asking for async presentation tears. */
++  tearing_control =
++    wp_tearing_control_manager_v1_get_tearing_control (tearing_control_manager,
++                                                       surface);
++  wp_tearing_control_v1_set_presentation_hint (tearing_control,
++                                               WP_TEARING_CONTROL_V1_PRESENTATION_HINT_ASYNC);
++  draw_and_commit (display);
++  sync_point (display, 0);
++
++  /* Back to vsync. */
++  wp_tearing_control_v1_set_presentation_hint (tearing_control,
++                                               WP_TEARING_CONTROL_V1_PRESENTATION_HINT_VSYNC);
++  draw_and_commit (display);
++  sync_point (display, 1);
++
++  /* Async again; the compositor turns the policy off and on meanwhile. */
++  wp_tearing_control_v1_set_presentation_hint (tearing_control,
++                                               WP_TEARING_CONTROL_V1_PRESENTATION_HINT_ASYNC);
++  draw_and_commit (display);
++  sync_point (display, 2);
++
++  /* A windowed surface does not tear. */
++  xdg_toplevel_unset_fullscreen (xdg_toplevel);
++  wl_surface_commit (surface);
++  wait_for_configure (display);
++  draw_and_commit (display);
++  sync_point (display, 3);
++
++  xdg_toplevel_set_fullscreen (xdg_toplevel, NULL);
++  wl_surface_commit (surface);
++  wait_for_configure (display);
++  draw_and_commit (display);
++  sync_point (display, 4);
++
++  /* Destroying the object reverts to vsync on the next commit. */
++  wp_tearing_control_v1_destroy (tearing_control);
++  draw_and_commit (display);
++  sync_point (display, 5);
++
++  g_clear_pointer (&xdg_toplevel, xdg_toplevel_destroy);
++  g_clear_pointer (&xdg_surface, xdg_surface_destroy);
++  g_clear_pointer (&surface, wl_surface_destroy);
++}
++
++static void
++test_duplicate (WaylandDisplay *display)
++{
++  const struct wl_interface *interface = NULL;
++  uint32_t id;
++
++  surface = wl_compositor_create_surface (display->compositor);
++  wp_tearing_control_manager_v1_get_tearing_control (tearing_control_manager,
++                                                     surface);
++  wp_tearing_control_manager_v1_get_tearing_control (tearing_control_manager,
++                                                     surface);
++
++  g_assert_cmpint (wl_display_flush (display->display), >=, 0);
++
++  /* Only read from here on, so the error event is seen before a write to
++   * the closed connection could fail with EPIPE. */
++  while (wl_display_dispatch (display->display) != -1)
++    ;
++  g_assert_cmpint (wl_display_get_error (display->display), ==, EPROTO);
++  g_assert_cmpuint (wl_display_get_protocol_error (display->display,
++                                                   &interface, &id),
++                    ==,
++                    WP_TEARING_CONTROL_MANAGER_V1_ERROR_TEARING_CONTROL_EXISTS);
++  g_assert_true (interface == &wp_tearing_control_manager_v1_interface);
++}
++
++int
++main (int    argc,
++      char **argv)
++{
++  g_autoptr (WaylandDisplay) display = NULL;
++  struct wl_registry *registry;
++
++  display = wayland_display_new (WAYLAND_DISPLAY_CAPABILITY_TEST_DRIVER);
++  registry = wl_display_get_registry (display->display);
++  wl_registry_add_listener (registry, &registry_listener, NULL);
++  wl_display_roundtrip (display->display);
++  g_assert_nonnull (tearing_control_manager);
++
++  if (g_strcmp0 (argv[1], "basic") == 0)
++    test_basic (display);
++  else if (g_strcmp0 (argv[1], "duplicate") == 0)
++    test_duplicate (display);
++  else
++    g_assert_not_reached ();
++
++  return EXIT_SUCCESS;
++}

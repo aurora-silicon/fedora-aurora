@@ -1,0 +1,43 @@
+From 228e0447ce5855967a0f2457ee62c94647d55415 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 08:42:05 +1100
+Subject: [PATCH 53/57] wayland/input: Keep the pinned handler's focus under
+ other stage grabs
+
+While the session is locked, a stage grab taken by something else (a
+shell modal dialog, the overview, a compositor grab) revoked the
+session lock's input grab, and the focus of the pinned handler was
+reset to no surface: the lock surface lost the keyboard and the
+pointer, so the password could not be typed until the grab ended.
+
+The pinned handler is the session lock; let it keep focusing its
+surfaces whatever else grabs the stage. Events are still routed to it
+by the event filter, so the grabbing actor gets none of them.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/wayland/meta-wayland-input.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/wayland/meta-wayland-input.c b/src/wayland/meta-wayland-input.c
+index 4aba730..4667245 100644
+--- a/src/wayland/meta-wayland-input.c
++++ b/src/wayland/meta-wayland-input.c
+@@ -125,8 +125,12 @@ meta_wayland_event_handler_invalidate_focus (MetaWaylandEventHandler *handler,
+   if (handler->iface->get_focus_surface &&
+       /* Only the first handler can focus other than a NULL surface */
+       meta_wayland_input_is_current_handler (input, handler) &&
+-      /* Stage should either be ungrabbed, or grabbed to self */
+-      (!clutter_stage_get_grab_actor (input->stage) ||
++      /* Stage should either be ungrabbed, or grabbed to self. The pinned
++       * handler (the session lock) keeps its focus under any other stage
++       * grab: a shell grab taken while locked must not take the keyboard
++       * or the pointer away from the lock surfaces. */
++      (handler == input->pinned_handler ||
++       !clutter_stage_get_grab_actor (input->stage) ||
+        (input->grab && !clutter_grab_is_revoked (input->grab))))
+     {
+       surface = handler->iface->get_focus_surface (handler, focus,
+-- 
+2.54.0
+

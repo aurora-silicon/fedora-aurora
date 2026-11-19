@@ -1,0 +1,20 @@
+# MacBook Pro 14-inch and 16-inch (M4 Max, J614c and J616c) trackpad.
+#
+# The kernel reports palms as MT_TOOL_PALM on the T6041, from the trackpad
+# controller's own contact class and the contact's tool area (hid-magicmouse,
+# linux#636). A palm resting on the trackpad has a touch size of about 1060,
+# under the Apple MTP palm size threshold (1600), so that threshold never
+# caught it: turn size-based palm detection off, as for the J700.
+[Apple MacBook Pro J614c Touchpad]
+MatchUdevType=touchpad
+MatchName=Apple*MTP*
+MatchVendor=0x05AC
+MatchDeviceTree=*j614c*
+AttrPalmSizeThreshold=0
+
+[Apple MacBook Pro J616c Touchpad]
+MatchUdevType=touchpad
+MatchName=Apple*MTP*
+MatchVendor=0x05AC
+MatchDeviceTree=*j616c*
+AttrPalmSizeThreshold=0

@@ -1,10 +1,10 @@
 %global toolchain clang
-%global commit 927013f5480768b07c8e62a866e1514c41aba778
+%global commit b7008384be29e61404be510dbe8128bf3cd50903
 %global debug_package %{nil}
 %global __provides_exclude_from ^%{_prefix}/lib/mil-hwx-compiler/.*$
 %global __requires_exclude ^(libobjc|libgnustep-base)\.so.*$
 Name: mil-hwx-compiler
-Version: 0.3.1
+Version: 0.3.3
 Release: 1%{?dist}
 Summary: Open MIL to ANE HWX and ANEC compiler
 License: MIT AND LGPL-2.1-or-later
@@ -28,7 +28,7 @@ Provides: bundled(libobjc2)
 Provides: bundled(gnustep-base)
 
 %description
-MIT-licensed mil-hwxc from upstream v0.3.1, with a private ARC-capable
+MIT-licensed mil-hwxc from upstream v0.3.3, with a private ARC-capable
 GNUstep runtime (MIT / LGPL-2.1-or-later). Compiles open MIL input without
 Apple frameworks, firmware, models or a device. Does not install a driver.
 
@@ -57,5 +57,8 @@ bash %{SOURCE5} %{buildroot}%{_prefix} ..
 %license %{_datadir}/licenses/mil-hwx-compiler/
 
 %changelog
+* Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.3.3-1
+- Update to upstream v0.3.3 (H17/H18 surface slot numbering fix).
+
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.3.1-1
 - Package upstream v0.3.1 with pinned private ARC dependencies.

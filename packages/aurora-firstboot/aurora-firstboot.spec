@@ -1,8 +1,8 @@
-%global commit 71772a08305a512d2a93191e6a72c1d3e8f2d068
+%global commit ddf5285e116b3551ed2b025112f86effaadf299d
 %global selinuxtype targeted
 Name: aurora-firstboot
 Version: 0.1.13
-Release: 4%{?dist}
+Release: 6%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-platform
@@ -32,6 +32,19 @@ Mode: every 100 ms a budget from the device tree energy model is spent on
 the frequency steps that buy the most CPU capacity per milliwatt, and each
 cluster is capped to its share.
 Balanced and Performance are untouched.
+
+%package -n aurora-gamemode
+Summary: GameMode defaults for Apple silicon: games on the P cores, schedutil kept
+Requires: gamemode
+Supplements: (gamemode and aurora-platform-core)
+
+%description -n aurora-gamemode
+Installs /etc/gamemode.ini so that games started with GameMode
+(gamemoderun, or the GameMode switch in Steam, Lutris or Heroic) run on
+the performance cores instead of being placed on the efficiency cores,
+while the CPU governor stays schedutil rather than GameMode's default
+performance governor. Macs with fewer than four performance cores are
+left unpinned.
 
 %package -n aurora-secboot
 Summary: Signed unified kernel images for the Aurora secure boot path
@@ -67,6 +80,7 @@ make install-power DESTDIR=%{buildroot} PREFIX=%{_prefix}
 install -Dm644 /dev/stdin %{buildroot}/usr/lib/systemd/system-preset/90-aurora-power-budget.preset <<'EOF'
 enable aurora-power-budget.service
 EOF
+make install-gamemode DESTDIR=%{buildroot} PREFIX=%{_prefix} SYSCONFDIR=%{_sysconfdir}
 make install-secboot install-selinux-secboot DESTDIR=%{buildroot} PREFIX=%{_prefix} SYSCONFDIR=%{_sysconfdir} LOCALSTATEDIR=%{_localstatedir}
 install -Dm644 /dev/stdin %{buildroot}/usr/lib/systemd/system-preset/90-aurora-secboot.preset <<'EOF'
 enable aurora-secboot-adopt.service
@@ -145,6 +159,11 @@ fi
 /usr/lib/systemd/system-preset/90-aurora-power-budget.preset
 %{_datadir}/doc/aurora-power-budget/
 
+%files -n aurora-gamemode
+%license LICENSE
+%config(noreplace) %{_sysconfdir}/gamemode.ini
+%{_datadir}/doc/aurora-gamemode/
+
 %files -n aurora-secboot
 %license LICENSE
 %{_bindir}/aurora-secboot
@@ -158,6 +177,23 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/aurora_secboot.pp
 
 %changelog
+* Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-6
+- New subpackage aurora-gamemode: /etc/gamemode.ini pins games started
+  with GameMode to the P cores and keeps schedutil (aurora-platform
+  ddf5285). On a MacBook Pro M4 Pro, two frames in flight: geom -9.3 %,
+  fill -11.0 % at the same energy per frame. Pulled in automatically
+  when gamemode is installed.
+
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-5
+- aurora-secboot gains the "stage2 hook" command that update-m1n1
+  20261107-7 calls for every Stage 2 update. With 0.1.13-4 that call failed
+  ("invalid choice: stage2"), so update-m1n1 refused every kernel and aura
+  update on a system with aurora-secboot installed. The hook returns the
+  image unchanged unless the owner's Stage 2 key exists (STAGE2_SIGN=auto).
+  Also stage1 build for an owner-key Stage 1 on an existing install, and
+  aurora-power-budget stands aside when the kernel budgets power-saver
+  itself (aurora-platform ad0411c).
+
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-4
 - New subpackage aurora-secboot: kernel-install builds a unified kernel
   image for each kernel with ukify and signs it with sbsign when the owner's

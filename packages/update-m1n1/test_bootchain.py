@@ -1,6 +1,9 @@
+import contextlib
+import functools
 import gzip
 import hashlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -296,6 +299,8 @@ class BootchainTests(unittest.TestCase):
 
     def test_bls_entry_whose_kernel_is_elsewhere_still_refuses(self):
         self.kernel('7.3')
+        self.put('/boot/loader/entries/abc-7.3.conf', b'version 7.3\nlinux /vmlinuz-7.3\n')
+        self.put('/boot/grub2/grubenv', b'saved_entry=abc-7.3\n')
         self.put('/boot/images/vmlinuz-7.1', b'7.1')
         self.put('/boot/loader/entries/old.conf', b'version 7.1\nlinux /images/vmlinuz-7.1\n')
         with self.assertRaisesRegex(bootchain.Refused, 'image missing'):
@@ -904,6 +909,29 @@ soc { dcp {}; display {}; }; };''')
         self.apply()
         self.assertTrue(self.marker.exists())
 
+    def soc_siblings(self, first_soc, plain_soc):
+        # T6050 has soc@200000000, soc@2308000000 and soc; fdtget -p resolves
+        # /soc to the first soc@... sibling.
+        self.trial_setup()
+        self.put('/proc/device-tree/aliases/dcp', b'/soc/dcp@48ae00000\0')
+        dts = f'''/dts-v1/; / {{ compatible = "apple,j413", "apple,t8112";
+aliases {{ dcp = "/soc/dcp@48ae00000"; }};
+soc@200000000 {{ {first_soc} }}; soc@2308000000 {{}}; soc {{ {plain_soc} }}; }};'''
+        blob = subprocess.check_output(['dtc', '-q', '-I', 'dts', '-O', 'dtb'], input=dts.encode())
+        self.put('/usr/lib/modules/7.3/dtb/apple/t8112-j413.dtb', blob)
+
+    def test_display_alias_node_under_unit_less_soc(self):
+        self.soc_siblings(first_soc='', plain_soc='dcp@48ae00000 { reg = <1>; };')
+        self.apply()
+        self.assertTrue(self.marker.exists())
+
+    def test_display_alias_node_under_other_soc(self):
+        self.soc_siblings(first_soc='dcp@48ae00000 { reg = <1>; };', plain_soc='')
+        with self.assertRaisesRegex(bootchain.Refused, 'display alias dcp has no node'):
+            self.apply()
+        self.assertFalse(self.marker.exists())
+        self.assertEqual(self.target.read_bytes(), b'GOOD-STAGE2')
+
     def test_corrupt_candidate_cannot_commit(self):
         self.trial_setup()
         self.apply()
@@ -1060,6 +1088,390 @@ soc { dcp {}; display {}; }; };''')
             original(source, destination)
         with patch.object(bootchain.os, 'replace', side_effect=replace):
             self.apply()
+
+
+class DtbNodesTests(unittest.TestCase):
+    @staticmethod
+    def blob(*tokens):
+        struct = b''.join(tokens)
+        # Only off_dt_struct (bytes 8-12) is read; the structure follows the header.
+        return b'\xd0\x0d\xfe\xed' + bytes(4) + (40).to_bytes(4, 'big') + bytes(28) + struct
+
+    @staticmethod
+    def token(value, data=b''):
+        data += bytes(-len(data) % 4)
+        return value.to_bytes(4, 'big') + data
+
+    def test_nodes_skip_nop_and_properties(self):
+        begin, end, prop, nop = (bootchain.FDT_BEGIN_NODE, bootchain.FDT_END_NODE,
+                                 bootchain.FDT_PROP, bootchain.FDT_NOP)
+        blob = self.blob(self.token(begin, b'\0'), self.token(nop),
+                         self.token(begin, b'soc@200000000\0'), self.token(end),
+                         self.token(begin, b'soc\0'),
+                         self.token(prop, (5).to_bytes(4, 'big') + bytes(4) + b'abcde'),
+                         self.token(nop), self.token(begin, b'dcp@48ae00000\0'),
+                         self.token(end), self.token(end), self.token(end),
+                         self.token(bootchain.FDT_END))
+        self.assertEqual(bootchain.dtb_nodes(blob),
+                         {'/', '/soc@200000000', '/soc', '/soc/dcp@48ae00000'})
+
+    def test_unknown_token_refused(self):
+        blob = self.blob(self.token(bootchain.FDT_BEGIN_NODE, b'\0'), self.token(7),
+                         self.token(bootchain.FDT_END_NODE), self.token(bootchain.FDT_END))
+        with self.assertRaisesRegex(bootchain.Refused, 'invalid Stage 2 DTB structure'):
+            bootchain.dtb_nodes(blob)
+
+
+class GrubOrderTests(unittest.TestCase):
+    def test_version_comparison_is_rpms(self):
+        for a, b, expected in [('1.0', '1.0', 0), ('1.0', '2.0', -1), ('2.0.1', '2.0', 1),
+                               ('5.5p1', '5.5p2', -1), ('5.5p10', '5.5p1', 1), ('10xyz', '10.1xyz', -1),
+                               ('1.0aa', '1.0a', 1), ('010', '10', 0), ('1.0~rc1', '1.0', -1),
+                               ('1.0~rc1', '1.0~rc2', -1), ('1.0+git1', '1.0', 1), ('1.0', '1.0+git1', -1),
+                               ('40.fc44.aurora.aarch64', 'neo.test1', 1)]:
+            with self.subTest(a=a, b=b):
+                self.assertEqual(bootchain.grub_vercmp(a, b), expected)
+                self.assertEqual(bootchain.grub_vercmp(b, a), -expected)
+
+    def test_grub_lists_releases_above_the_local_kernels_sort_v_put_first(self):
+        versions = ['7.3.0-neo.final', '7.3.0-39.fc44.aurora.aarch64', '7.3.0-40.fc44.aurora.aarch64',
+                    '7.3.0-neo.test1', '7.3.0-26.fc44.aurora.aarch64']
+        ids = sorted((f'abc-{v}' for v in versions), key=functools.cmp_to_key(bootchain.grub_entry_cmp),
+                     reverse=True)
+        self.assertEqual(ids, ['abc-7.3.0-40.fc44.aurora.aarch64', 'abc-7.3.0-39.fc44.aurora.aarch64',
+                               'abc-7.3.0-26.fc44.aurora.aarch64', 'abc-7.3.0-neo.test1', 'abc-7.3.0-neo.final'])
+        newest = subprocess.check_output(['sort', '-V'], input='\n'.join(versions), text=True).split()[-1]
+        self.assertEqual(newest, '7.3.0-neo.test1')
+
+    def test_entry_ids_compare_name_then_version_then_release(self):
+        order = functools.cmp_to_key(bootchain.grub_entry_cmp)
+        self.assertGreater(order('abc-7.3.0-aurora-tb3c'), order('abc-7.3.0-aurora-fleet37'))
+        self.assertGreater(order('abc-7.3'), order('abc-7.1'))
+        self.assertGreater(order('7.3'), order('7.1'))
+        self.assertEqual(bootchain.grub_entry_cmp('abc-7.3', 'abc-7.3'), 0)
+
+    def test_process_start_reads_a_live_process(self):
+        update = bootchain.Update(Path('/'), {})
+        start = update.process_start(os.getpid())
+        self.assertRegex(start, r'^[0-9]+$')
+        self.assertEqual(update.process_start(os.getpid()), start)
+        self.assertIsNone(update.process_start('not a pid'))
+
+
+@unittest.skipUnless(shutil.which('dtc') and shutil.which('fdtget'), 'requires dtc')
+class KernelTransactionTests(unittest.TestCase):
+    """Reinstalls, removals and upgrades, with kernel-install's phases in dnf's order."""
+    setUp = BootchainTests.setUp
+    put = BootchainTests.put
+    dtb = BootchainTests.dtb
+    kernel = BootchainTests.kernel
+
+    MACHINE = '0123456789abcdef0123456789abcdef'
+    OLDER = '7.3.0-39.fc44.aurora.aarch64'
+    DEFAULT = '7.3.0-40.fc44.aurora.aarch64'
+    NEW = '7.3.0-41.fc44.aurora.aarch64'
+    LOCAL = '7.3.0-neo.test1'  # A hand-installed kernel: sort -V puts it above every release.
+
+    def boot_setup(self, default=DEFAULT):
+        self.env.update(ESP_ROOT='/esp', ESP_DEVICE='/dev/test-esp', ESP_FSTYPE='vfat')
+        self.put('/proc/device-tree/compatible', b'apple,j413\0apple,t8112\0')
+        self.put('/proc/device-tree/chosen/asahi,m1n1-stage1-version', b'1.0.0b4\0')
+        self.put('/etc/machine-id', f'{self.MACHINE}\n'.encode())
+        self.addCleanup(patch.stopall)
+        patch.object(bootchain.Update, 'check_esp').start()
+        patch.object(bootchain.Update, 'flush_esp').start()
+        self.marker = self.root / 'esp/aura-try'
+        self.candidate = self.target.with_name('boot.bin.next')
+        self.receipt = self.target.with_name('boot.bin.next.json')
+        self.attempts = self.root / 'var/lib/aurora-stage2/attempts'
+        self.record = self.root / 'run/update-m1n1/transaction'
+        self.trees = {}
+        for cells, version in enumerate((self.OLDER, self.DEFAULT, self.LOCAL), start=2):
+            self.install(version, cells)
+            self.entry(version)
+        self.set_default(default)
+        # The default kernel's Stage 2 is live, as after its committed trial.
+        self.target.write_bytes(self.update().plan()[3])
+        self.update().apply()
+        self.live = self.target.read_bytes()
+        self.assertEqual(os.readlink(self.link), f'dtb-{default}')
+        self.assert_no_trial()
+
+    def install(self, version, cells):
+        self.trees[version] = self.kernel(version, cells).read_bytes()
+
+    def erase(self, version):
+        shutil.rmtree(self.root / f'usr/lib/modules/{version}')
+
+    def entry_id(self, version):
+        return f'{self.MACHINE}-{version}'
+
+    def entry(self, version):
+        self.put(f'/boot/loader/entries/{self.entry_id(version)}.conf',
+                 f'title Aurora ({version})\nversion {version}\nlinux /vmlinuz-{version}\n'.encode())
+
+    def set_default(self, version):
+        self.put('/boot/grub2/grubenv', f'# GRUB Environment Block\nsaved_entry={self.entry_id(version)}\n'.encode())
+
+    def update(self, action='refresh', version='', **env):
+        settings = dict(self.env, **env)
+        if action != 'refresh':
+            settings.update(AURORA_KERNEL_ACTION=action, AURORA_KERNEL_VERSION=version)
+        return bootchain.Update(self.root, settings)
+
+    def kernel_install(self, command, version):
+        """One kernel-install call: this hook, then GRUB's plugins (UPDATEDEFAULT=yes)."""
+        update = self.update(command, version)
+        if command == 'remove':
+            if not update.defer_remove():
+                update.apply()
+            (self.root / f'boot/loader/entries/{self.entry_id(version)}.conf').unlink()
+            shutil.rmtree(self.root / f'boot/dtb-{version}', ignore_errors=True)
+        else:
+            update.apply()
+            self.entry(version)
+            self.set_default(version)
+
+    def begin(self, start=b'987654'):
+        """The transaction's pre-transaction file trigger; dnf5 runs as pid 4242."""
+        self.put('/proc/4242/stat', b'4242 (dnf5) S 1 4242 4242 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 '
+                 + start + b' 0 0\n')
+        self.update(AURORA_RPM_TRANSACTION_PID='4242').begin_transaction()
+        self.assertTrue(self.record.exists())
+
+    def end(self):
+        """The transaction's closing file triggers."""
+        if self.update().end_transaction():
+            self.update().apply()
+        self.assertFalse(self.record.exists())
+        self.assertFalse(self.update().end_transaction())
+
+    def assert_no_trial(self):
+        self.assertFalse(self.marker.exists())
+        self.assertFalse(self.candidate.exists())
+        self.assertFalse(self.receipt.exists())
+        self.assertEqual(self.target.read_bytes(), self.live)
+
+    def assert_trial_for(self, version):
+        """Armed for this kernel with its own trees and no other kernel's; the live image kept."""
+        self.assertEqual(self.marker.read_bytes(), b'armed\nm1n1/boot.bin.next\n')
+        self.assertEqual(json.loads(self.receipt.read_text())['kernel'], version)
+        candidate = self.candidate.read_bytes()
+        for other, tree in self.trees.items():
+            (self.assertIn if other == version else self.assertNotIn)(tree, candidate)
+        self.assertEqual(os.readlink(self.link), f'dtb-{version}')
+        self.assertEqual(self.target.read_bytes(), self.live)
+
+    def test_reinstall_of_the_default_kernel_arms_nothing(self):
+        self.boot_setup()
+        self.begin()
+        # dnf has put the new instance's files in place; the old instance's
+        # %preun removes the kernel, then the new one's %posttrans adds it.
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.kernel_install('remove', self.DEFAULT)
+        self.assertIn(f'kernel {self.DEFAULT} removed inside a package transaction', out.getvalue())
+        self.assert_no_trial()
+        self.assertFalse(self.link.is_symlink())
+        self.kernel_install('add', self.DEFAULT)
+        self.end()
+        self.assert_no_trial()
+        self.assertEqual(os.readlink(self.link), f'dtb-{self.DEFAULT}')
+        self.assertFalse(self.attempts.exists())
+
+    def test_reinstall_without_a_transaction_record_withdraws_the_wrong_trial(self):
+        # As in the transaction that installs this updater: no record, so the
+        # removal acts at once, on GRUB's next entry rather than the local kernel.
+        self.boot_setup()
+        self.kernel_install('remove', self.DEFAULT)
+        self.assert_trial_for(self.OLDER)
+        wrong = hashlib.sha256(self.candidate.read_bytes()).hexdigest()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.kernel_install('add', self.DEFAULT)
+        self.assertIn(f'Stage 2 trial for kernel {self.OLDER} withdrawn before it was booted', out.getvalue())
+        self.assert_no_trial()
+        self.assertEqual(os.readlink(self.link), f'dtb-{self.DEFAULT}')
+        self.assertFalse((self.attempts / wrong).exists())
+
+    def remove_default_for_good(self):
+        self.kernel_install('remove', self.DEFAULT)
+        self.erase(self.DEFAULT)
+
+    def test_removing_the_default_in_a_transaction_arms_grubs_next_kernel_after_it(self):
+        self.boot_setup()
+        self.begin()
+        self.remove_default_for_good()
+        self.assert_no_trial()
+        self.end()
+        # GRUB boots its first entry when saved_entry names a removed one.
+        self.assert_trial_for(self.OLDER)
+
+    def test_removing_the_default_outside_a_transaction_arms_grubs_next_kernel(self):
+        self.boot_setup()
+        self.remove_default_for_good()
+        self.assert_trial_for(self.OLDER)
+
+    def check_non_default_removal(self, transaction):
+        self.boot_setup()
+        if transaction:
+            self.begin()
+        self.kernel_install('remove', self.OLDER)
+        self.erase(self.OLDER)
+        if transaction:
+            self.end()
+        self.assert_no_trial()
+        self.assertEqual(os.readlink(self.link), f'dtb-{self.DEFAULT}')
+
+    def test_removing_a_non_default_kernel_in_a_transaction_changes_nothing(self):
+        self.check_non_default_removal(True)
+
+    def test_removing_a_non_default_kernel_outside_a_transaction_changes_nothing(self):
+        self.check_non_default_removal(False)
+
+    def test_fresh_install_arms_the_new_kernel(self):
+        self.boot_setup()
+        # A transaction that only installs kernels records none; its end refreshes nothing.
+        self.install(self.NEW, 9)
+        self.kernel_install('add', self.NEW)
+        self.end()
+        self.assert_trial_for(self.NEW)
+
+    def test_upgrade_that_prunes_an_old_kernel_arms_the_new_one_once(self):
+        self.boot_setup()
+        self.begin()
+        self.install(self.NEW, 9)
+        self.kernel_install('remove', self.OLDER)
+        self.erase(self.OLDER)
+        self.kernel_install('add', self.NEW)
+        armed = self.candidate.read_bytes()
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.end()
+        self.assertIn(f'Stage 2 trial for kernel {self.NEW} already armed', out.getvalue())
+        self.assert_trial_for(self.NEW)
+        self.assertEqual(self.candidate.read_bytes(), armed)
+        self.assertEqual([p.name for p in self.attempts.iterdir()], [hashlib.sha256(armed).hexdigest()])
+
+    def check_upgrade_that_prunes_the_default(self, transaction):
+        self.boot_setup(default=self.OLDER)
+        if transaction:
+            self.begin()
+        self.install(self.NEW, 9)
+        self.kernel_install('remove', self.OLDER)
+        self.erase(self.OLDER)
+        self.kernel_install('add', self.NEW)
+        if transaction:
+            self.end()
+        self.assert_trial_for(self.NEW)
+        self.assertEqual(len(list(self.attempts.iterdir())), 1)
+
+    def test_upgrade_that_prunes_the_default_in_a_transaction(self):
+        self.check_upgrade_that_prunes_the_default(True)
+
+    def test_upgrade_that_prunes_the_default_outside_a_transaction_replaces_the_removals_trial(self):
+        # The removal arms GRUB's next entry; the add withdraws it for the new
+        # kernel instead of refusing because a trial is armed.
+        self.check_upgrade_that_prunes_the_default(False)
+
+    def test_a_withdrawn_candidate_may_be_armed_again(self):
+        self.boot_setup()
+        self.kernel_install('remove', self.DEFAULT)
+        first = self.candidate.read_bytes()
+        self.kernel_install('add', self.DEFAULT)
+        self.assert_no_trial()
+        self.remove_default_for_good()
+        self.assert_trial_for(self.OLDER)
+        self.assertEqual(self.candidate.read_bytes(), first)
+
+    def test_a_trial_that_fell_back_is_still_never_rearmed(self):
+        self.boot_setup()
+        self.remove_default_for_good()
+        self.assert_trial_for(self.OLDER)
+        self.marker.write_bytes(b'spent\nm1n1/boot.bin.next\n')  # Stage 1 tried it and fell back.
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.update().apply()
+        self.assertIn('already attempted', out.getvalue())
+        self.assertEqual(self.marker.read_bytes(), b'spent\nm1n1/boot.bin.next\n')
+        self.assertEqual(self.target.read_bytes(), self.live)
+
+    def test_a_record_of_a_finished_transaction_is_ignored(self):
+        self.boot_setup()
+        for change in ('exited', 'pid reused'):
+            with self.subTest(change=change):
+                self.begin()
+                if change == 'exited':
+                    (self.root / 'proc/4242/stat').unlink()
+                else:
+                    self.put('/proc/4242/stat', b'4242 (bash) S 1 4242 4242 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 '
+                             b'111 0 0\n')
+                self.assertFalse(self.update('remove', self.DEFAULT).defer_remove())
+                self.assertFalse(self.record.exists())
+
+    def leave_record_of_a_downgrade(self):
+        # Erasing this updater runs its pre-transaction trigger but not its
+        # closing ones, so the record outlives the dnf process that wrote it.
+        self.begin()
+        (self.root / 'proc/4242/stat').unlink()
+        self.assertEqual(json.loads(self.record.read_text())['deferred'], [])
+
+    def test_a_record_left_by_a_downgrade_never_defers_a_later_kernel_install(self):
+        self.boot_setup()
+        self.leave_record_of_a_downgrade()
+        self.install(self.NEW, 9)
+        self.kernel_install('add', self.NEW)  # By hand: as a fresh install.
+        self.assert_trial_for(self.NEW)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.kernel_install('remove', self.NEW)  # By hand: acts at once.
+        self.assertNotIn('removed inside a package transaction', out.getvalue())
+        self.assertFalse(self.record.exists())
+        # GRUB's first entry is the previous default again, whose Stage 2 is live.
+        self.assert_no_trial()
+        self.assertEqual(os.readlink(self.link), f'dtb-{self.DEFAULT}')
+
+    def test_a_record_left_by_a_downgrade_is_cleared_without_a_refresh(self):
+        self.boot_setup()
+        self.leave_record_of_a_downgrade()
+        # The closing trigger of the updater installed again.
+        self.assertFalse(self.update().end_transaction())
+        self.assertFalse(self.record.exists())
+
+    def test_without_a_transaction_process_nothing_is_recorded(self):
+        self.boot_setup()
+        for pid in ('', '1', '4242', 'x'):
+            with self.subTest(pid=pid):
+                self.update(AURORA_RPM_TRANSACTION_PID=pid).begin_transaction()
+                self.assertFalse(self.record.exists())
+
+    def test_an_armed_trial_this_updater_did_not_arm_is_left_alone(self):
+        self.boot_setup()
+        self.candidate.write_bytes(b'armed by hand')
+        self.marker.write_bytes(b'armed\nm1n1/boot.bin.next\n')
+        self.update().apply()
+        self.assertEqual(self.marker.read_bytes(), b'armed\nm1n1/boot.bin.next\n')
+        self.assertEqual(self.candidate.read_bytes(), b'armed by hand')
+
+    def test_numeric_and_title_defaults_follow_grubs_menu(self):
+        self.boot_setup()
+        update = self.update()
+        images = update.kernel_images()
+        menu = update.boot_menu(images)
+        self.assertEqual([version for _, version, _ in menu], [self.DEFAULT, self.OLDER, self.LOCAL])
+        for saved, expected in (('1', self.OLDER), ('2', self.LOCAL), ('3', None),
+                                (f'Aurora ({self.LOCAL})', self.LOCAL)):
+            with self.subTest(saved=saved):
+                self.put('/boot/grub2/grubenv', f'saved_entry={saved}\n'.encode())
+                with contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(update.default_kernel(images, menu), expected)
+
+    def test_the_added_kernels_entry_counts_before_kernel_install_writes_it(self):
+        self.boot_setup()
+        self.install(self.NEW, 9)
+        update = self.update('add', self.NEW)
+        menu = update.boot_menu(update.kernel_images())
+        self.assertEqual(menu[0], (self.entry_id(self.NEW), self.NEW, ''))
 
 
 if __name__ == '__main__':

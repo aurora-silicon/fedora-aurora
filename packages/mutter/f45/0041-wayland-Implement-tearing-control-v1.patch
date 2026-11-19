@@ -1,0 +1,571 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 00:41:42 +1100
+Subject: [PATCH] wayland: Implement tearing-control-v1
+
+Add the wp_tearing_control_manager_v1 global. get_tearing_control
+creates a wp_tearing_control_v1 for a wl_surface (a second one is the
+tearing_control_exists protocol error), set_presentation_hint records
+vsync or async as double-buffered surface state applied on commit, and
+destroying the object reverts the hint to vsync on the next commit. The
+object goes inert when its surface is destroyed.
+
+The hint is only recorded here. A new org.gnome.mutter "async-tearing"
+setting (fullscreen-only by default, always, off) decides which surfaces
+that ask for tearing get it; meta_wayland_tearing_control_get_policy()
+exposes it to the compositor.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ data/org.gnome.mutter.gschema.xml.in       |  25 ++
+ src/meson.build                            |   2 +
+ src/wayland/meta-wayland-surface-private.h |  10 +
+ src/wayland/meta-wayland-surface.c         |  17 ++
+ src/wayland/meta-wayland-tearing-control.c | 318 +++++++++++++++++++++
+ src/wayland/meta-wayland-tearing-control.h |  44 +++
+ src/wayland/meta-wayland-versions.h        |   1 +
+ src/wayland/meta-wayland.c                 |   2 +
+ 8 files changed, 419 insertions(+)
+ create mode 100644 src/wayland/meta-wayland-tearing-control.c
+ create mode 100644 src/wayland/meta-wayland-tearing-control.h
+
+diff --git a/data/org.gnome.mutter.gschema.xml.in b/data/org.gnome.mutter.gschema.xml.in
+index 40f6c2e..4fd66f4 100644
+--- a/data/org.gnome.mutter.gschema.xml.in
++++ b/data/org.gnome.mutter.gschema.xml.in
+@@ -132,6 +132,31 @@
+       </description>
+     </key>
+ 
++    <key name="async-tearing" type="s">
++      <choices>
++        <choice value="fullscreen-only"/>
++        <choice value="always"/>
++        <choice value="off"/>
++      </choices>
++      <default>"fullscreen-only"</default>
++      <summary>Present with tearing when a client asks for it</summary>
++      <description>
++        Wayland clients can mark a surface as fit for presentation with
++        tearing (wp_tearing_control_v1, used by Vulkan’s immediate present
++        mode). Such frames are then shown with asynchronous page flips as
++        soon as they are ready, instead of at the next vertical blank, which
++        removes the latency vertical sync adds.
++
++        “fullscreen-only” tears only fullscreen windows that cover a whole
++        monitor, are not obscured and are scanned out directly. “always”
++        tears any such surface that covers a whole monitor, also when it has
++        to be composited. “off” never tears.
++
++        Surfaces that do not ask for tearing are never affected, and monitors
++        whose display driver cannot flip asynchronously keep vertical sync.
++      </description>
++    </key>
++
+     <child name="keybindings" schema="org.gnome.mutter.keybindings"/>
+ 
+   </schema>
+diff --git a/src/meson.build b/src/meson.build
+index b302b10..82c7250 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -621,6 +621,8 @@ mutter_sources += [
+   'wayland/meta-wayland-tablet-seat.h',
+   'wayland/meta-wayland-tablet-tool.c',
+   'wayland/meta-wayland-tablet-tool.h',
++  'wayland/meta-wayland-tearing-control.c',
++  'wayland/meta-wayland-tearing-control.h',
+   'wayland/meta-wayland-text-input.c',
+   'wayland/meta-wayland-text-input.h',
+   'wayland/meta-wayland-toplevel-drag.c',
+diff --git a/src/wayland/meta-wayland-surface-private.h b/src/wayland/meta-wayland-surface-private.h
+index e08cca7..e17741c 100644
+--- a/src/wayland/meta-wayland-surface-private.h
++++ b/src/wayland/meta-wayland-surface-private.h
+@@ -31,6 +31,7 @@
+ #include "wayland/meta-wayland-pointer-constraints.h"
+ #include "wayland/meta-wayland-types.h"
+ #include "wayland/meta-wayland-linux-drm-syncobj.h"
++#include "wayland/meta-wayland-tearing-control.h"
+ 
+ #define META_TYPE_WAYLAND_SURFACE_ROLE (meta_wayland_surface_role_get_type ())
+ G_DECLARE_DERIVABLE_TYPE (MetaWaylandSurfaceRole, meta_wayland_surface_role,
+@@ -156,6 +157,10 @@ struct _MetaWaylandSurfaceState
+   MetaMultiTextureCoefficients coeffs;
+   gboolean has_new_chroma_loc;
+   MetaMultiTextureChromaLoc chroma_loc;
++
++  /* tearing-control */
++  gboolean has_new_presentation_hint;
++  MetaWaylandPresentationHint presentation_hint;
+ };
+ 
+ struct _MetaWaylandDragDestFuncs
+@@ -308,6 +313,9 @@ struct _MetaWaylandSurface
+   gboolean fifo_barrier;
+ 
+   gboolean flush_frame_callbacks;
++
++  /* tearing-control */
++  MetaWaylandPresentationHint presentation_hint;
+ };
+ 
+ void                meta_wayland_shell_init     (MetaWaylandCompositor *compositor);
+@@ -367,6 +375,8 @@ gboolean            meta_wayland_surface_is_synchronized (MetaWaylandSurface *su
+ 
+ MetaWindow *        meta_wayland_surface_get_toplevel_window (MetaWaylandSurface *surface);
+ 
++MetaWaylandPresentationHint meta_wayland_surface_get_presentation_hint (MetaWaylandSurface *surface);
++
+ void                meta_wayland_surface_get_relative_coordinates (MetaWaylandSurface *surface,
+                                                                    float               abs_x,
+                                                                    float               abs_y,
+diff --git a/src/wayland/meta-wayland-surface.c b/src/wayland/meta-wayland-surface.c
+index be79c77..003c948 100644
+--- a/src/wayland/meta-wayland-surface.c
++++ b/src/wayland/meta-wayland-surface.c
+@@ -471,6 +471,8 @@ meta_wayland_surface_state_set_default (MetaWaylandSurfaceState *state)
+ 
+   state->fifo_wait = FALSE;
+   state->fifo_barrier = FALSE;
++
++  state->has_new_presentation_hint = FALSE;
+ }
+ 
+ static void
+@@ -654,6 +656,12 @@ meta_wayland_surface_state_merge_into (MetaWaylandSurfaceState *from,
+   if (from->fifo_barrier)
+     to->fifo_barrier = TRUE;
+ 
++  if (from->has_new_presentation_hint)
++    {
++      to->presentation_hint = from->presentation_hint;
++      to->has_new_presentation_hint = TRUE;
++    }
++
+   if (from->has_new_premult)
+     {
+       to->premult = from->premult;
+@@ -946,6 +954,9 @@ meta_wayland_surface_apply_state (MetaWaylandSurface      *surface,
+                                                    surface);
+     }
+ 
++  if (state->has_new_presentation_hint)
++    surface->presentation_hint = state->presentation_hint;
++
+   if (state->has_new_premult)
+     surface->applied_state.premult = state->premult;
+ 
+@@ -2888,3 +2899,9 @@ meta_wayland_surface_flush_frame_callbacks (MetaWaylandSurface *surface)
+ 
+   return flush_frame_callbacks;
+ }
++
++MetaWaylandPresentationHint
++meta_wayland_surface_get_presentation_hint (MetaWaylandSurface *surface)
++{
++  return surface->presentation_hint;
++}
+diff --git a/src/wayland/meta-wayland-tearing-control.c b/src/wayland/meta-wayland-tearing-control.c
+new file mode 100644
+index 0000000..fa32cdb
+--- /dev/null
++++ b/src/wayland/meta-wayland-tearing-control.c
+@@ -0,0 +1,318 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++/*
++ * wp_tearing_control_v1: lets a client mark the content of a surface as
++ * suitable for presentation with tearing (asynchronous page flips). The
++ * hint is double-buffered surface state; whether it is honoured is up to
++ * the compositor view the surface ends up on (see
++ * meta-compositor-view-native.c) and the "async-tearing" setting.
++ */
++
++#include "config.h"
++
++#include "wayland/meta-wayland-tearing-control.h"
++
++#include <gio/gio.h>
++#include <wayland-server.h>
++
++#include "core/util-private.h"
++#include "wayland/meta-wayland-private.h"
++#include "wayland/meta-wayland-surface-private.h"
++#include "wayland/meta-wayland-versions.h"
++
++#include "tearing-control-v1-server-protocol.h"
++
++#define TEARING_SCHEMA "org.gnome.mutter"
++#define TEARING_POLICY_KEY "async-tearing"
++
++typedef struct _MetaWaylandTearingControlManager
++{
++  MetaWaylandCompositor *compositor;
++  GSettings *settings;
++  MetaTearingPolicy policy;
++} MetaWaylandTearingControlManager;
++
++typedef struct _MetaWaylandTearingControl
++{
++  struct wl_resource *resource;
++  MetaWaylandSurface *surface;
++  gulong destroy_handler_id;
++} MetaWaylandTearingControl;
++
++static GQuark quark_tearing_control_manager = 0;
++static GQuark quark_tearing_control = 0;
++
++const char *
++meta_tearing_policy_to_string (MetaTearingPolicy policy)
++{
++  switch (policy)
++    {
++    case META_TEARING_POLICY_OFF:
++      return "off";
++    case META_TEARING_POLICY_FULLSCREEN_ONLY:
++      return "fullscreen-only";
++    case META_TEARING_POLICY_ALWAYS:
++      return "always";
++    }
++
++  g_assert_not_reached ();
++}
++
++static void
++set_pending_hint (MetaWaylandSurface          *surface,
++                  MetaWaylandPresentationHint  hint)
++{
++  MetaWaylandSurfaceState *pending;
++
++  pending = meta_wayland_surface_get_pending_state (surface);
++  if (!pending)
++    return;
++
++  pending->has_new_presentation_hint = TRUE;
++  pending->presentation_hint = hint;
++}
++
++static void
++detach_surface (MetaWaylandTearingControl *tearing_control)
++{
++  MetaWaylandSurface *surface = tearing_control->surface;
++
++  if (!surface)
++    return;
++
++  g_clear_signal_handler (&tearing_control->destroy_handler_id, surface);
++  g_object_set_qdata (G_OBJECT (surface), quark_tearing_control, NULL);
++  tearing_control->surface = NULL;
++}
++
++static void
++tearing_control_destructor (struct wl_resource *resource)
++{
++  MetaWaylandTearingControl *tearing_control =
++    wl_resource_get_user_data (resource);
++
++  /* Destroying the object reverts the hint to vsync on the next commit. */
++  if (tearing_control->surface)
++    set_pending_hint (tearing_control->surface,
++                      META_WAYLAND_PRESENTATION_HINT_VSYNC);
++
++  detach_surface (tearing_control);
++  g_free (tearing_control);
++}
++
++static void
++tearing_control_set_presentation_hint (struct wl_client   *client,
++                                       struct wl_resource *resource,
++                                       uint32_t            hint)
++{
++  MetaWaylandTearingControl *tearing_control =
++    wl_resource_get_user_data (resource);
++  MetaWaylandPresentationHint presentation_hint;
++
++  /* Inert once the surface is gone. */
++  if (!tearing_control->surface)
++    return;
++
++  switch (hint)
++    {
++    case WP_TEARING_CONTROL_V1_PRESENTATION_HINT_VSYNC:
++      presentation_hint = META_WAYLAND_PRESENTATION_HINT_VSYNC;
++      break;
++    case WP_TEARING_CONTROL_V1_PRESENTATION_HINT_ASYNC:
++      presentation_hint = META_WAYLAND_PRESENTATION_HINT_ASYNC;
++      break;
++    default:
++      wl_resource_post_error (resource, WL_DISPLAY_ERROR_INVALID_METHOD,
++                              "Unknown presentation hint %u", hint);
++      return;
++    }
++
++  set_pending_hint (tearing_control->surface, presentation_hint);
++}
++
++static void
++tearing_control_destroy (struct wl_client   *client,
++                         struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static const struct wp_tearing_control_v1_interface tearing_control_interface =
++{
++  tearing_control_set_presentation_hint,
++  tearing_control_destroy,
++};
++
++static void
++on_surface_destroyed (MetaWaylandSurface        *surface,
++                      MetaWaylandTearingControl *tearing_control)
++{
++  detach_surface (tearing_control);
++}
++
++static void
++tearing_control_manager_destroy (struct wl_client   *client,
++                                 struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static void
++tearing_control_manager_get_tearing_control (struct wl_client   *client,
++                                             struct wl_resource *resource,
++                                             uint32_t            id,
++                                             struct wl_resource *surface_resource)
++{
++  MetaWaylandSurface *surface = wl_resource_get_user_data (surface_resource);
++  MetaWaylandTearingControl *tearing_control;
++
++  if (g_object_get_qdata (G_OBJECT (surface), quark_tearing_control))
++    {
++      wl_resource_post_error (resource,
++                              WP_TEARING_CONTROL_MANAGER_V1_ERROR_TEARING_CONTROL_EXISTS,
++                              "The surface already has a tearing control object");
++      return;
++    }
++
++  tearing_control = g_new0 (MetaWaylandTearingControl, 1);
++  tearing_control->resource =
++    wl_resource_create (client,
++                        &wp_tearing_control_v1_interface,
++                        wl_resource_get_version (resource),
++                        id);
++  tearing_control->surface = surface;
++  tearing_control->destroy_handler_id =
++    g_signal_connect (surface, "destroy",
++                      G_CALLBACK (on_surface_destroyed),
++                      tearing_control);
++  g_object_set_qdata (G_OBJECT (surface), quark_tearing_control,
++                      tearing_control);
++
++  wl_resource_set_implementation (tearing_control->resource,
++                                  &tearing_control_interface,
++                                  tearing_control,
++                                  tearing_control_destructor);
++}
++
++static const struct wp_tearing_control_manager_v1_interface tearing_control_manager_interface =
++{
++  tearing_control_manager_destroy,
++  tearing_control_manager_get_tearing_control,
++};
++
++static void
++bind_tearing_control_manager (struct wl_client *client,
++                              void             *data,
++                              uint32_t          version,
++                              uint32_t          id)
++{
++  struct wl_resource *resource;
++
++  resource = wl_resource_create (client,
++                                 &wp_tearing_control_manager_v1_interface,
++                                 version, id);
++  wl_resource_set_implementation (resource,
++                                  &tearing_control_manager_interface,
++                                  data, NULL);
++}
++
++static void
++update_policy (MetaWaylandTearingControlManager *manager)
++{
++  g_autofree char *policy = NULL;
++
++  manager->policy = META_TEARING_POLICY_FULLSCREEN_ONLY;
++  if (manager->settings)
++    {
++      policy = g_settings_get_string (manager->settings, TEARING_POLICY_KEY);
++      if (g_strcmp0 (policy, "always") == 0)
++        manager->policy = META_TEARING_POLICY_ALWAYS;
++      else if (g_strcmp0 (policy, "off") == 0)
++        manager->policy = META_TEARING_POLICY_OFF;
++    }
++
++  meta_topic (META_DEBUG_RENDER, "Tearing policy: %s",
++              meta_tearing_policy_to_string (manager->policy));
++}
++
++static void
++on_policy_changed (GSettings                        *settings,
++                   const char                       *key,
++                   MetaWaylandTearingControlManager *manager)
++{
++  update_policy (manager);
++}
++
++static void
++tearing_control_manager_free (MetaWaylandTearingControlManager *manager)
++{
++  g_clear_object (&manager->settings);
++  g_free (manager);
++}
++
++MetaTearingPolicy
++meta_wayland_tearing_control_get_policy (MetaWaylandCompositor *compositor)
++{
++  MetaWaylandTearingControlManager *manager;
++
++  manager = g_object_get_qdata (G_OBJECT (compositor),
++                                quark_tearing_control_manager);
++  if (!manager)
++    return META_TEARING_POLICY_OFF;
++
++  return manager->policy;
++}
++
++void
++meta_wayland_tearing_control_init (MetaWaylandCompositor *compositor)
++{
++  MetaWaylandTearingControlManager *manager;
++  GSettingsSchemaSource *schema_source;
++  g_autoptr (GSettingsSchema) schema = NULL;
++
++  quark_tearing_control_manager =
++    g_quark_from_static_string ("-meta-wayland-tearing-control-manager");
++  quark_tearing_control =
++    g_quark_from_static_string ("-meta-wayland-tearing-control");
++
++  manager = g_new0 (MetaWaylandTearingControlManager, 1);
++  manager->compositor = compositor;
++
++  schema_source = g_settings_schema_source_get_default ();
++  if (schema_source)
++    schema = g_settings_schema_source_lookup (schema_source,
++                                              TEARING_SCHEMA, TRUE);
++  if (schema && g_settings_schema_has_key (schema, TEARING_POLICY_KEY))
++    {
++      manager->settings = g_settings_new (TEARING_SCHEMA);
++      g_signal_connect (manager->settings, "changed::" TEARING_POLICY_KEY,
++                        G_CALLBACK (on_policy_changed), manager);
++    }
++  update_policy (manager);
++
++  if (wl_global_create (compositor->wayland_display,
++                        &wp_tearing_control_manager_v1_interface,
++                        META_WP_TEARING_CONTROL_V1_VERSION,
++                        manager, bind_tearing_control_manager) == NULL)
++    g_error ("Failed to register a global tearing-control object");
++
++  g_object_set_qdata_full (G_OBJECT (compositor),
++                           quark_tearing_control_manager,
++                           manager,
++                           (GDestroyNotify) tearing_control_manager_free);
++}
+diff --git a/src/wayland/meta-wayland-tearing-control.h b/src/wayland/meta-wayland-tearing-control.h
+new file mode 100644
+index 0000000..724a6ab
+--- /dev/null
++++ b/src/wayland/meta-wayland-tearing-control.h
+@@ -0,0 +1,44 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#pragma once
++
++#include <glib.h>
++
++#include "wayland/meta-wayland-types.h"
++
++typedef enum _MetaWaylandPresentationHint
++{
++  META_WAYLAND_PRESENTATION_HINT_VSYNC,
++  META_WAYLAND_PRESENTATION_HINT_ASYNC,
++} MetaWaylandPresentationHint;
++
++typedef enum _MetaTearingPolicy
++{
++  /* Never present with tearing. */
++  META_TEARING_POLICY_OFF,
++  /* Tear fullscreen windows whose surface is scanned out directly. */
++  META_TEARING_POLICY_FULLSCREEN_ONLY,
++  /* Tear any surface that covers a whole monitor, scanned out or not. */
++  META_TEARING_POLICY_ALWAYS,
++} MetaTearingPolicy;
++
++void meta_wayland_tearing_control_init (MetaWaylandCompositor *compositor);
++
++MetaTearingPolicy meta_wayland_tearing_control_get_policy (MetaWaylandCompositor *compositor);
++
++const char * meta_tearing_policy_to_string (MetaTearingPolicy policy);
+diff --git a/src/wayland/meta-wayland-versions.h b/src/wayland/meta-wayland-versions.h
+index eec8bec..facf87e 100644
+--- a/src/wayland/meta-wayland-versions.h
++++ b/src/wayland/meta-wayland-versions.h
+@@ -78,3 +78,4 @@
+ #define META_ZWLR_OUTPUT_MANAGER_V1_VERSION 4
+ #define META_ZWLR_SCREENCOPY_MANAGER_V1_VERSION 3
+ #define META_ZXDG_DECORATION_MANAGER_V1_VERSION 2
++#define META_WP_TEARING_CONTROL_V1_VERSION 1
+diff --git a/src/wayland/meta-wayland.c b/src/wayland/meta-wayland.c
+index 616ee07..59933dc 100644
+--- a/src/wayland/meta-wayland.c
++++ b/src/wayland/meta-wayland.c
+@@ -47,6 +47,7 @@
+ #include "wayland/meta-wayland-commit-timing.h"
+ #include "wayland/meta-wayland-cursor-shape.h"
+ #include "wayland/meta-wayland-fifo.h"
++#include "wayland/meta-wayland-tearing-control.h"
+ #include "wayland/meta-wayland-gamma-control.h"
+ #include "wayland/meta-wayland-screencopy.h"
+ #include "wayland/meta-wayland-data-control.h"
+@@ -1029,6 +1030,7 @@ meta_wayland_compositor_new (MetaContext *context)
+   meta_wayland_screencopy_init (compositor);
+   meta_wayland_commit_timing_init (compositor);
+   meta_wayland_fifo_init (compositor);
++  meta_wayland_tearing_control_init (compositor);
+   meta_wayland_init_cursor_shape (compositor);
+   meta_wayland_init_color_representation (compositor);
+   meta_wayland_init_background_effect (compositor);

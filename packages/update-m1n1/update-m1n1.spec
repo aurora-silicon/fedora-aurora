@@ -1,6 +1,6 @@
 Name: update-m1n1
 Version: 20261107
-Release: 8%{?dist}.aurora
+Release: 10%{?dist}.aurora
 Summary: Transactional Aurora Stage 2 updates with retained-kernel DTB checks
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -73,7 +73,7 @@ install -Dm644 /dev/null %{buildroot}%{_datadir}/aurora/stage2-sign-hook
 # administrator's preset policy exactly once during the vendor transition.
 %triggerun -- update-m1n1 < 20261107
 /usr/bin/systemctl --no-reload preset aurora-stage2-commit.service aurora-stage2-guard.timer || :
-%triggerpostun -- update-m1n1 < 20261107-8
+%triggerpostun -- update-m1n1 < 20261107-10
 /usr/bin/systemctl --no-reload preset aurora-kernel-install-repair.service || :
 
 # A kernel added while an older updater refused it has no boot entry yet. The
@@ -91,6 +91,19 @@ fi
 
 %transfiletriggerin -- /usr/lib/m1n1 /usr/lib64/m1n1 /usr/share/uboot/apple_m1 /etc/m1n1.conf
 %{_sbindir}/update-m1n1 || :
+
+# A transaction runs kernel-install remove for every kernel it erases, also
+# for one it reinstalls, before the kernels it installs are added. Record the
+# transaction before it starts: its removals then leave Stage 2 to the kernels
+# it adds and to a refresh after it, which follows what GRUB boots next.
+%transfiletriggerun -- /usr/lib/modules
+AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-m1n1 --transaction-begin || :
+
+%transfiletriggerpostun -- /usr/lib/modules
+%{_sbindir}/update-m1n1 --transaction-end || :
+
+%transfiletriggerin -- /usr/lib/modules
+%{_sbindir}/update-m1n1 --transaction-end || :
 
 %files
 %license LICENSE
@@ -111,7 +124,7 @@ fi
 %config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1
 
 %changelog
-* Fri Nov 13 2026 Diljit Singh <hey@djdev.me> - 20261107-8
+* Thu Nov 19 2026 Diljit Singh <hey@djdev.me> - 20261107-10
 - Run kernel-install-repair after the transaction, not inside it. In
   %%posttrans it queried rpm while dnf still held the database lock ("can't
   create transaction lock on .rpm.lock"), so its first query failed and it
@@ -123,6 +136,28 @@ fi
   /var/lib/update-m1n1/repair-pending, a successful run removes it, and the
   service, enabled by preset, runs at boot while it's there. A repair that an
   offline upgrade's reboot cut short, or that failed, runs on the next boot.
+
+* Sun Nov 15 2026 Isaac Duarte <31712685+Isaac-Duarte@users.noreply.github.com> - 20261107-9
+- Find the node a display alias names by its exact path. fdtget resolves
+  a component without a unit address, such as /soc, to the first soc@...
+  sibling, so on T6050 trees (soc@200000000, soc@2308000000 and soc) a
+  DCP under the plain soc looked missing and Stage 2 trials were refused.
+
+* Sun Nov 15 2026 Diljit Singh <hey@djdev.me> - 20261107-8
+- A reinstall of the GRUB default kernel no longer arms a Stage 2 trial
+  with another kernel's device trees. dnf runs kernel-install remove for
+  the old instance before it adds the kernel again, and that removal
+  armed a trial for the newest remaining kernel, which the add left
+  armed. Kernel removals inside a package transaction now leave Stage 2
+  to the kernels the transaction adds and to a refresh after it, which
+  RPM file triggers on /usr/lib/modules run.
+- Withdraw an armed trial that was never booted when the Stage 2 for the
+  kernel GRUB boots is already live, or when the trial was armed for
+  another kernel. Its candidate may be armed again later; one that fell
+  back is still never rearmed.
+- When GRUB's default is unknown or removed, compose from GRUB's first
+  boot entry in GRUB's own order, not from the version-sorted newest
+  kernel. Local kernels such as 7.3.0-neo.1 sorted above every release.
 
 * Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261107-7
 - Hand each composed Stage 2 to aurora-secboot's stage2 hook when it is
