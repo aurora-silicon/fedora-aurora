@@ -84,8 +84,8 @@ Requires: grubby
 The userpages launcher runs a program and its descendants with another
 userspace page size, such as 4K pages on the 16K Aurora kernel:
 userpages 4k COMMAND. It is built from the kernel source, whose private
-prctl interface it uses. Installing it adds user4k=on to the kernel command
-line; an owner's user4k=off is kept.
+prctl interface it uses. The kernel offers 4K userspace pages by default;
+user4k=off on the kernel command line turns them off.
 
 %prep
 %autosetup -p1 -n linux-%{commit}
@@ -150,10 +150,16 @@ if [ -x /usr/bin/kernel-install ]; then
 fi
 
 %posttrans -n aurora-userpages
-# Images are built with user4k=on; add it to an installed system's boot
-# entries and future kernels. Any user4k= the owner has set stays.
-if [ -f /etc/kernel/cmdline ] && ! grep -qE '(^|[[:space:]])user4k=' /etc/kernel/cmdline; then
-  grubby --update-kernel=ALL --args=user4k=on || :
+# The kernel offers 4K userspace pages without an argument now. Earlier
+# packages added user4k=on to every boot entry; take it out once. An owner's
+# user4k=off stays.
+removed=/var/lib/aurora/user4k-arg-removed
+if [ ! -e $removed ]; then
+  if { [ -f /etc/kernel/cmdline ] && grep -qE '(^|[[:space:]])user4k=on([[:space:]]|$)' /etc/kernel/cmdline; } ||
+     grubby --info=ALL 2>/dev/null | grep -E '^args=' | grep -qE '[[:space:]"]user4k=on([[:space:]"]|$)'; then
+    grubby --update-kernel=ALL --remove-args=user4k=on || :
+  fi
+  mkdir -p "$(dirname $removed)" && touch $removed || :
 fi
 
 %files

@@ -5,7 +5,7 @@
 %global lib %{_libexecdir}/aurora-steam-native
 Name: aurora-steam-native
 Version: 0
-Release: 1.gitc06f610%{?dist}
+Release: 2.gitc06f610%{?dist}
 Summary: Valve's native ARM64 Steam client in a 4 KiB page process tree
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-steam-native
@@ -41,13 +41,13 @@ Requires: %{name} = %{version}-%{release}
 `steam` for Aurora on Apple Silicon. The first start installs Valve's native
 ARM64 Linux client for the current user from Valve's CDN, checked against
 Valve's manifest, then starts it in a 4 KiB page process tree. The kernel
-must be booted with user4k=on (the default on Aurora images).
+must not be booted with user4k=off.
 
 %prep
 %autosetup -n aurora-steam-native-%{commit}
 find . -name __pycache__ -prune -exec rm -rf {} +
 sed -e 's,@LIBDIR@,%{lib},' -e 's,@USERPAGES@,%{_bindir}/userpages,' \
-    -e 's|@USER4K_HINT@|turn it on with sudo grubby --update-kernel=ALL --args=user4k=on and reboot|' %{SOURCE1} > steam
+    -e 's|@USER4K_HINT@|remove user4k=off with sudo grubby --update-kernel=ALL --remove-args=user4k=off and reboot|' %{SOURCE1} > steam
 
 %build
 
@@ -91,6 +91,10 @@ done
 %{_datadir}/applications/steam.desktop
 
 %changelog
+* Thu Nov 19 2026 Ryan Murray <ryan@aurorasilicon.org> - 0-2.gitc06f610
+- The kernel offers 4 KiB process pages by default; the hint now names
+  user4k=off as the thing to remove.
+
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 0-1.gitc06f610
 - Package aurora-steam-native at c06f610 and ship `steam`, which installs
   Valve's native ARM64 client per user and starts it in a 4 KiB page tree.

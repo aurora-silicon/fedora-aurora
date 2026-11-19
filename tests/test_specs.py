@@ -822,29 +822,43 @@ class SpecTests(unittest.TestCase):
         self.assertIn('%{_bindir}/userpages\n', files)
         self.assertIn('%{_docdir}/aurora-userpages/\n', files)
 
-    def test_page_size_launcher_turns_user4k_on_and_keeps_an_owner_choice(self):
+    def test_page_size_launcher_removes_the_old_user4k_argument_once(self):
         spec = (ROOT / 'packages' / 'kernel-aurora' / 'kernel-aurora.spec').read_text()
         scriptlet = spec.split('%posttrans -n aurora-userpages\n', 1)[1].split('\n%', 1)[0]
+        self.assertNotIn('--args=user4k', scriptlet)
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             bindir = root / 'bin'
             bindir.mkdir()
-            (bindir / 'grubby').write_text('#!/bin/sh\necho "$*" >> "$GRUBBY_LOG"\n')
+            (bindir / 'grubby').write_text('#!/bin/sh\nif [ "$1" = --info=ALL ]; then cat "$ENTRIES" 2>/dev/null; exit 0; fi\n'
+                                           'echo "$*" >> "$GRUBBY_LOG"\n')
             (bindir / 'grubby').chmod(0o755)
-            cmdline, log = root / 'cmdline', root / 'grubby.log'
-            script = scriptlet.replace('/etc/kernel/cmdline', str(cmdline))
-            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", GRUBBY_LOG=str(log))
-            for content, called in ((None, False), ('root=UUID=r ro quiet\n', True),
-                                    ('root=UUID=r ro user4k=off quiet\n', False),
-                                    ('root=UUID=r ro quiet user4k=on\n', False)):
-                with self.subTest(cmdline=content):
+            cmdline, log, entries, state = root / 'cmdline', root / 'grubby.log', root / 'entries', root / 'state/done'
+            script = scriptlet.replace('/etc/kernel/cmdline', str(cmdline)).replace('/var/lib/aurora/user4k-arg-removed', str(state))
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", GRUBBY_LOG=str(log), ENTRIES=str(entries))
+            fix = '--update-kernel=ALL --remove-args=user4k=on\n'
+            for content, listed, called in ((None, None, False), ('root=UUID=r ro quiet\n', None, False),
+                                            ('root=UUID=r ro user4k=off quiet\n', 'args="ro user4k=off"\n', False),
+                                            ('root=UUID=r ro quiet user4k=on\n', None, True),
+                                            ('root=UUID=r ro quiet\n', 'args="ro quiet user4k=on"\n', True)):
+                with self.subTest(cmdline=content, entries=listed):
                     log.write_text('')
+                    state.unlink(missing_ok=True)
+                    entries.unlink(missing_ok=True)
+                    if listed is not None:
+                        entries.write_text(listed)
                     if content is None:
                         cmdline.unlink(missing_ok=True)
                     else:
                         cmdline.write_text(content)
                     subprocess.run(['sh', '-ec', script], env=env, check=True)
-                    self.assertEqual(log.read_text(), '--update-kernel=ALL --args=user4k=on\n' if called else '')
+                    self.assertEqual(log.read_text(), fix if called else '')
+                    self.assertTrue(state.exists())
+                    # Only once: an owner who adds it back keeps it.
+                    log.write_text('')
+                    subprocess.run(['sh', '-ec', script], env=env, check=True)
+                    self.assertEqual(log.read_text(), '')
+
     def test_fex_replaces_fedoras_under_its_names(self):
         # dnf resolves `fex-emu` by name; the Aurora repository's priority then
         # picks these over Fedora's. `fex` stays Fedora's unrelated tool.
@@ -1002,7 +1016,7 @@ class SpecTests(unittest.TestCase):
             self.assertEqual(lines[1:], [f'start {userpages} -silent'] * 2)
             result = subprocess.run([str(wrapper)], env={**env, 'NO_USER4K': '1'}, capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
-            self.assertIn('user4k=on', result.stderr)
+            self.assertIn('user4k=on hint', result.stderr)
     def test_touch_id_security_key_is_installed_off(self):
         text = (ROOT / 'packages/aurora-fido/aurora-fido.spec').read_text()
         files = text.split('%files', 1)[1]
