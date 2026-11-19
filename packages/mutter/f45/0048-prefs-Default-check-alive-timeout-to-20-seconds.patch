@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 01:31:29 +1100
+Subject: [PATCH] prefs: Default check-alive-timeout to 20 seconds
+
+A window that does not answer a ping within check-alive-timeout gets the
+"not responding" dialog (Wait / Force Quit). At 5 seconds it pops up
+over games and apps that block their main thread while compiling
+shaders or loading a level, and the user has to dismiss it every time.
+
+Raise the default to 20000 ms. The key keeps working as before: any
+value in milliseconds, and 0 disables the check and the dialog.
+---
+ data/org.gnome.mutter.gschema.xml.in | 8 +++++---
+ src/core/prefs.c                     | 2 +-
+ 2 files changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/data/org.gnome.mutter.gschema.xml.in b/data/org.gnome.mutter.gschema.xml.in
+index 2b97f94..cbde4d2 100644
+--- a/data/org.gnome.mutter.gschema.xml.in
++++ b/data/org.gnome.mutter.gschema.xml.in
+@@ -125,12 +125,14 @@
+     </key>
+ 
+     <key name="check-alive-timeout" type="u">
+-      <default>5000</default>
++      <default>20000</default>
+       <summary>Timeout for check-alive ping</summary>
+       <description>
+         Number of milliseconds a client has to respond to a ping request in
+-        order to not be detected as frozen. Using 0 will disable the alive check
+-        completely.
++        order to not be detected as frozen. When it expires the "not
++        responding" dialog (Wait / Force Quit) is shown. Using 0 will disable
++        the alive check and the dialog completely. The default is long enough
++        for shader compilation and game loading screens.
+       </description>
+     </key>
+ 
+diff --git a/src/core/prefs.c b/src/core/prefs.c
+index 163402d..0ba3705 100644
+--- a/src/core/prefs.c
++++ b/src/core/prefs.c
+@@ -99,7 +99,7 @@ static gboolean bell_is_audible = TRUE;
+ static gboolean gnome_accessibility = FALSE;
+ static gboolean gnome_animations = TRUE;
+ static gboolean locate_pointer_is_enabled = FALSE;
+-static unsigned int check_alive_timeout = 5000;
++static unsigned int check_alive_timeout = 20000;
+ static char *cursor_theme = NULL;
+ /* cursor_size will, when running as an X11 compositing window manager, be the
+  * actual cursor size, multiplied with the global window scaling factor. On

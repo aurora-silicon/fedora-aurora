@@ -1,0 +1,384 @@
+From c23b076530132a59a0a29ecbffaa39c8166cfb03 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 08:52:14 +1100
+Subject: [PATCH 56/57] wayland/session-lock: Keep captures from showing what
+ is behind the lock
+
+The lock is painted above everything on the stage, but some ways of
+getting at the screen contents went around it:
+
+- Window screen casts (PipeWire window streams) and
+  meta_window_actor_paint_to_content()/_paint_to_bitmap() paint the
+  window actor on its own, so a window cast started before the lock
+  kept streaming the window, and a window screenshot showed it.
+  While locked they now get transparent images of the window's size,
+  damage of the window is not announced to its streams, and on lock
+  and unlock every streamed window records a frame right away (blank,
+  then the window again).
+- wlr-screencopy captures held only the lock, but copy_with_damage
+  reported the damage of the windows painted behind it, which tells a
+  recording client when and where a hidden window changes. While
+  locked the stage damage is ignored; locking, unlocking and commits
+  of lock surfaces and their subsurfaces damage the whole output.
+- The foreign toplevel list is frozen while locked.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/compositor/meta-window-actor-private.h |  2 +
+ src/compositor/meta-window-actor.c         | 54 ++++++++++++++++++++-
+ src/wayland/meta-wayland-screencopy.c      | 55 ++++++++++++++++++++++
+ src/wayland/meta-wayland-screencopy.h      |  2 +
+ src/wayland/meta-wayland-session-lock.c    | 39 +++++++++++++++
+ src/wayland/meta-wayland-session-lock.h    |  2 +
+ src/wayland/meta-wayland-subsurface.c      | 12 +++--
+ 7 files changed, 162 insertions(+), 4 deletions(-)
+
+diff --git a/src/compositor/meta-window-actor-private.h b/src/compositor/meta-window-actor-private.h
+index 89c8e71..3232666 100644
+--- a/src/compositor/meta-window-actor-private.h
++++ b/src/compositor/meta-window-actor-private.h
+@@ -105,6 +105,8 @@ gboolean meta_window_actor_is_streaming (MetaWindowActor *window_actor);
+ 
+ void meta_window_actor_notify_damaged (MetaWindowActor *window_actor);
+ 
++void meta_window_actor_notify_capture_changed (MetaWindowActor *window_actor);
++
+ gboolean meta_window_actor_is_frozen (MetaWindowActor *self);
+ 
+ gboolean meta_window_actor_is_opaque (MetaWindowActor *self);
+diff --git a/src/compositor/meta-window-actor.c b/src/compositor/meta-window-actor.c
+index ee1ac46..42750e2 100644
+--- a/src/compositor/meta-window-actor.c
++++ b/src/compositor/meta-window-actor.c
+@@ -32,6 +32,8 @@
+ #include "core/boxes-private.h"
+ #include "core/window-private.h"
+ #include "meta/window.h"
++#include "wayland/meta-wayland-private.h"
++#include "wayland/meta-wayland-session-lock.h"
+ #include "wayland/meta-wayland-surface-private.h"
+ 
+ typedef enum
+@@ -1432,6 +1434,22 @@ meta_window_actor_transform_cursor_position (MetaScreenCastWindow *screen_cast_w
+   return TRUE;
+ }
+ 
++/* While an ext-session-lock-v1 lock holds the session, nothing behind the
++ * lock may be captured: window screen casts get blank frames and the
++ * paint_to_* functions return transparent images. */
++static gboolean
++is_capture_blocked (MetaWindowActor *self)
++{
++  MetaWindowActorPrivate *priv = meta_window_actor_get_instance_private (self);
++  MetaDisplay *display = meta_compositor_get_display (priv->compositor);
++  MetaContext *context = meta_display_get_context (display);
++  MetaWaylandCompositor *wayland_compositor =
++    meta_context_get_wayland_compositor (context);
++
++  return wayland_compositor &&
++         meta_wayland_compositor_is_session_locked (wayland_compositor);
++}
++
+ static void
+ meta_window_actor_capture_into (MetaScreenCastWindow *screen_cast_window,
+                                 MtkRectangle         *bounds,
+@@ -1446,6 +1464,12 @@ meta_window_actor_capture_into (MetaScreenCastWindow *screen_cast_window,
+   if (meta_window_actor_is_destroyed (window_actor))
+     return;
+ 
++  if (is_capture_blocked (window_actor))
++    {
++      memset (data, 0, (size_t) bounds->width * bounds->height * bpp);
++      return;
++    }
++
+   bitmap = meta_window_actor_paint_to_bitmap (window_actor, bounds,
+                                               COGL_PIXEL_FORMAT_ARGB32_NATIVE);
+   if (!bitmap)
+@@ -1517,6 +1541,13 @@ meta_window_actor_blit_to_framebuffer (MetaScreenCastWindow *screen_cast_window,
+   if (!priv->surface)
+     return FALSE;
+ 
++  if (is_capture_blocked (window_actor))
++    {
++      cogl_color_init_from_4f (&clear_color, 0.0, 0.0, 0.0, 0.0);
++      cogl_framebuffer_clear (framebuffer, COGL_BUFFER_BIT_COLOR, &clear_color);
++      return TRUE;
++    }
++
+   stex = meta_surface_actor_get_texture (priv->surface);
+ 
+   width = meta_shaped_texture_get_width (stex);
+@@ -1652,9 +1683,23 @@ meta_window_actor_from_actor (ClutterActor *actor)
+ void
+ meta_window_actor_notify_damaged (MetaWindowActor *window_actor)
+ {
++  /* What changes behind the lock is not announced to screen casts either;
++   * meta_window_actor_notify_capture_changed() sends one blank frame. */
++  if (is_capture_blocked (window_actor))
++    return;
++
+   g_signal_emit (window_actor, signals[DAMAGED], 0);
+ }
+ 
++/* The session got locked or unlocked: streams of this window record a
++ * frame now (blank while locked). */
++void
++meta_window_actor_notify_capture_changed (MetaWindowActor *window_actor)
++{
++  if (meta_window_actor_is_streaming (window_actor))
++    g_signal_emit (window_actor, signals[DAMAGED], 0);
++}
++
+ static CoglFramebuffer *
+ create_framebuffer_from_window_actor (MetaWindowActor    *self,
+                                       MtkRectangle       *clip,
+@@ -1716,6 +1761,10 @@ create_framebuffer_from_window_actor (MetaWindowActor    *self,
+                                  0, 1.0);
+   cogl_framebuffer_translate (framebuffer, -clip->x, -clip->y, 0);
+ 
++  /* Behind the session lock: a transparent image of the same size. */
++  if (is_capture_blocked (self))
++    return framebuffer;
++
+   if (!color_state)
+     color_state = clutter_actor_get_color_state (actor);
+ 
+@@ -1770,7 +1819,10 @@ meta_window_actor_paint_to_bitmap (MetaWindowActor *self,
+   clutter_actor_inhibit_culling (actor);
+ 
+   stex = meta_surface_actor_get_texture (priv->surface);
+-  if (!meta_shaped_texture_should_get_via_offscreen (stex) &&
++  /* Behind the session lock, the offscreen path gives a transparent
++   * image. */
++  if (!is_capture_blocked (self) &&
++      !meta_shaped_texture_should_get_via_offscreen (stex) &&
+       meta_window_actor_is_single_surface_actor (self))
+     {
+       MtkRectangle *surface_clip = NULL;
+diff --git a/src/wayland/meta-wayland-screencopy.c b/src/wayland/meta-wayland-screencopy.c
+index 4ef7269..4894418 100644
+--- a/src/wayland/meta-wayland-screencopy.c
++++ b/src/wayland/meta-wayland-screencopy.c
+@@ -36,6 +36,14 @@
+  * same manager object for that output; the first one completes at once with
+  * full damage.
+  *
++ * While an ext-session-lock-v1 lock holds the session, the stage paints the
++ * lock above everything else, so a capture holds what the outputs show: the
++ * blank and the lock surfaces. The stage damage is not used for
++ * copy_with_damage then, as it is mostly damage of the windows painted
++ * behind the lock and would tell the client when and where they change;
++ * instead the session lock reports changes of its own content (locking,
++ * unlocking, lock surface commits), which damage the whole output.
++ *
+  * The protocol hands every client the screen contents without asking the
+  * user, so it is gated by the org.gnome.mutter.wayland allow-screen-capture
+  * setting: when it is off the global is hidden from new clients and every
+@@ -61,6 +69,7 @@
+ #include "wayland/meta-wayland-filter-manager.h"
+ #include "wayland/meta-wayland-outputs.h"
+ #include "wayland/meta-wayland-private.h"
++#include "wayland/meta-wayland-session-lock.h"
+ #include "wayland/meta-wayland-versions.h"
+ 
+ #include "wlr-screencopy-unstable-v1-server-protocol.h"
+@@ -586,6 +595,10 @@ accumulate_damage (MetaWaylandScreencopy *screencopy,
+   gboolean have_pending = FALSE;
+   GList *l;
+ 
++  /* See meta_wayland_screencopy_damage_all (). */
++  if (meta_wayland_compositor_is_session_locked (screencopy->compositor))
++    return;
++
+   if (redraw_clip)
+     {
+       view_damage = mtk_region_copy ((MtkRegion *) redraw_clip);
+@@ -1178,6 +1191,48 @@ screencopy_free (MetaWaylandScreencopy *screencopy)
+   g_free (screencopy);
+ }
+ 
++/* The session lock's content changed (it locked, unlocked, or a lock
++ * surface was committed): every output counts as damaged. */
++void
++meta_wayland_screencopy_damage_all (MetaWaylandCompositor *compositor)
++{
++  MetaWaylandScreencopy *screencopy =
++    g_object_get_data (G_OBJECT (compositor), "-meta-wayland-screencopy");
++  gboolean have_pending = FALSE;
++  GList *l;
++
++  if (!screencopy)
++    return;
++
++  for (l = screencopy->clients; l; l = l->next)
++    {
++      MetaWaylandScreencopyClient *client = l->data;
++      GHashTableIter iter;
++      gpointer key, value;
++
++      g_hash_table_iter_init (&iter, client->damage);
++      while (g_hash_table_iter_next (&iter, &key, &value))
++        {
++          MetaLogicalMonitor *logical_monitor = get_logical_monitor (key);
++          MtkRegion *history = value;
++
++          if (logical_monitor)
++            mtk_region_union_rectangle (history, &logical_monitor->rect);
++        }
++    }
++
++  for (l = screencopy->frames; l; l = l->next)
++    {
++      MetaWaylandScreencopyFrame *frame = l->data;
++
++      if (frame->state == FRAME_STATE_PENDING)
++        have_pending = TRUE;
++    }
++
++  if (have_pending)
++    queue_process_frames (screencopy);
++}
++
+ void
+ meta_wayland_screencopy_init (MetaWaylandCompositor *compositor)
+ {
+diff --git a/src/wayland/meta-wayland-screencopy.h b/src/wayland/meta-wayland-screencopy.h
+index e637f96..fa5169e 100644
+--- a/src/wayland/meta-wayland-screencopy.h
++++ b/src/wayland/meta-wayland-screencopy.h
+@@ -20,3 +20,5 @@
+ #include "wayland/meta-wayland-types.h"
+ 
+ void meta_wayland_screencopy_init (MetaWaylandCompositor *compositor);
++
++void meta_wayland_screencopy_damage_all (MetaWaylandCompositor *compositor);
+diff --git a/src/wayland/meta-wayland-session-lock.c b/src/wayland/meta-wayland-session-lock.c
+index 21b2a3c..0d9a71d 100644
+--- a/src/wayland/meta-wayland-session-lock.c
++++ b/src/wayland/meta-wayland-session-lock.c
+@@ -51,12 +51,15 @@
+ #include "clutter/clutter.h"
+ #include "compositor/compositor-private.h"
+ #include "compositor/meta-surface-actor-wayland.h"
++#include "compositor/meta-window-actor-private.h"
+ #include "core/display-private.h"
+ #include "wayland/meta-wayland-filter-manager.h"
++#include "wayland/meta-wayland-foreign-toplevel.h"
+ #include "wayland/meta-wayland-input.h"
+ #include "wayland/meta-wayland-outputs.h"
+ #include "wayland/meta-wayland-pointer.h"
+ #include "wayland/meta-wayland-private.h"
++#include "wayland/meta-wayland-screencopy.h"
+ #include "wayland/meta-wayland-seat.h"
+ #include "wayland/meta-wayland-surface-private.h"
+ #include "wayland/meta-wayland-versions.h"
+@@ -572,6 +575,27 @@ on_stage_last_child_changed (ClutterActor                  *stage,
+  * Locking and unlocking
+  */
+ 
++/* The other ways to get at what is behind the lock follow the lock state:
++ * the foreign toplevel list is frozen while locked, screencopy reports
++ * the change as full damage, and window screen casts record a (blank, or
++ * after unlocking real) frame now. */
++static void
++notify_lock_state_changed (MetaWaylandSessionLockManager *manager)
++{
++  MetaCompositor *compositor = get_compositor (manager);
++  GList *l;
++
++  meta_wayland_foreign_toplevel_set_session_locked (manager->compositor,
++                                                    manager->locked);
++  meta_wayland_screencopy_damage_all (manager->compositor);
++
++  if (!compositor)
++    return;
++
++  for (l = meta_compositor_get_window_actors (compositor); l; l = l->next)
++    meta_window_actor_notify_capture_changed (l->data);
++}
++
+ static void
+ lock_session (MetaWaylandSessionLockManager *manager)
+ {
+@@ -597,6 +621,8 @@ lock_session (MetaWaylandSessionLockManager *manager)
+   g_hash_table_remove_all (manager->pending_views);
+   track_pending_views (manager);
+   queue_redraw_all_views (manager);
++
++  notify_lock_state_changed (manager);
+ }
+ 
+ static void
+@@ -623,6 +649,8 @@ unlock_session (MetaWaylandSessionLockManager *manager)
+ 
+   queue_redraw_all_views (manager);
+ 
++  notify_lock_state_changed (manager);
++
+   g_message ("ext-session-lock: session unlocked");
+ }
+ 
+@@ -1285,6 +1313,14 @@ meta_wayland_surface_is_in_session_lock_surface (MetaWaylandSurface *surface)
+   return toplevel && META_IS_WAYLAND_SESSION_LOCK_SURFACE (toplevel->role);
+ }
+ 
++/* A lock surface or one of its subsurfaces changed what it shows. */
++void
++meta_wayland_session_lock_notify_content_changed (MetaWaylandSurface *surface)
++{
++  if (meta_wayland_compositor_is_session_locked (surface->compositor))
++    meta_wayland_screencopy_damage_all (surface->compositor);
++}
++
+ gboolean
+ meta_wayland_compositor_is_session_locked (MetaWaylandCompositor *compositor)
+ {
+@@ -1496,6 +1532,9 @@ lock_surface_sync_actor_state (MetaWaylandActorSurface *actor_surface)
+ 
+   actor_surface_class->sync_actor_state (actor_surface);
+   update_lock_surface (META_WAYLAND_SESSION_LOCK_SURFACE (actor_surface));
++  meta_wayland_session_lock_notify_content_changed (
++    meta_wayland_surface_role_get_surface (
++      META_WAYLAND_SURFACE_ROLE (actor_surface)));
+ }
+ 
+ static void
+diff --git a/src/wayland/meta-wayland-session-lock.h b/src/wayland/meta-wayland-session-lock.h
+index f284a4c..bf80e2a 100644
+--- a/src/wayland/meta-wayland-session-lock.h
++++ b/src/wayland/meta-wayland-session-lock.h
+@@ -32,5 +32,7 @@ void meta_wayland_session_lock_init (MetaWaylandCompositor *compositor);
+ 
+ gboolean meta_wayland_surface_is_in_session_lock_surface (MetaWaylandSurface *surface);
+ 
++void meta_wayland_session_lock_notify_content_changed (MetaWaylandSurface *surface);
++
+ META_EXPORT_TEST
+ gboolean meta_wayland_compositor_is_session_locked (MetaWaylandCompositor *compositor);
+diff --git a/src/wayland/meta-wayland-subsurface.c b/src/wayland/meta-wayland-subsurface.c
+index 0b5c83c..ee8f211 100644
+--- a/src/wayland/meta-wayland-subsurface.c
++++ b/src/wayland/meta-wayland-subsurface.c
+@@ -262,9 +262,15 @@ meta_wayland_subsurface_sync_actor_state (MetaWaylandActorSurface *actor_surface
+   MetaWaylandActorSurfaceClass *actor_surface_class =
+     META_WAYLAND_ACTOR_SURFACE_CLASS (meta_wayland_subsurface_parent_class);
+ 
+-  if (meta_wayland_surface_get_window (surface) ||
+-      meta_wayland_surface_is_in_session_lock_surface (surface))
+-    actor_surface_class->sync_actor_state (actor_surface);
++  if (meta_wayland_surface_get_window (surface))
++    {
++      actor_surface_class->sync_actor_state (actor_surface);
++    }
++  else if (meta_wayland_surface_is_in_session_lock_surface (surface))
++    {
++      actor_surface_class->sync_actor_state (actor_surface);
++      meta_wayland_session_lock_notify_content_changed (surface);
++    }
+ 
+   sync_actor_subsurface_state (surface);
+ }
+-- 
+2.54.0
+

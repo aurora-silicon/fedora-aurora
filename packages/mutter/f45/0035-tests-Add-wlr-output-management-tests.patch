@@ -1,0 +1,1180 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 00:53:35 +1100
+Subject: [PATCH] tests: Add wlr-output-management tests
+
+Two test monitors, the first with 1920x1080@60 in a fixed and a
+variable refresh rate variant, 1280x720 and 1024x768, the second with
+1024x768. A test client lists the heads, then tests and applies
+configurations while the compositor side checks the monitor manager's
+state after each step:
+
+- the listing folds the two 1920x1080 variants into one mode;
+- test changes nothing, apply changes both monitors at once;
+- adaptive sync picks the variable refresh rate mode, and is refused for
+  a mode without one;
+- one bad head, or a gap between the heads, fails the configuration and
+  changes nothing;
+- transform and position, mirroring (one logical monitor), disabling and
+  re-enabling with defaults (preferred mode, placed to the right);
+- a configuration made before a hotplug is cancelled, and the unplugged
+  head and its modes are finished.
+
+Two more cases check that the already_set and unconfigured_head protocol
+errors leave the monitors alone.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/tests/meson.build                         |  11 +
+ src/tests/wayland-output-management-tests.c   | 374 +++++++++
+ src/tests/wayland-test-clients/meson.build    |   3 +
+ .../wayland-test-clients/output-management.c  | 723 ++++++++++++++++++
+ 4 files changed, 1111 insertions(+)
+ create mode 100644 src/tests/wayland-output-management-tests.c
+ create mode 100644 src/tests/wayland-test-clients/output-management.c
+
+diff --git a/src/tests/meson.build b/src/tests/meson.build
+index 9d3c77b..9e3b2cb 100644
+--- a/src/tests/meson.build
++++ b/src/tests/meson.build
+@@ -1108,6 +1108,17 @@ wayland_test_cases = [
+       test_client_executables.get('gamma-control'),
+     ],
+   },
++  {
++    'name': 'wayland-output-management',
++    'suite': 'wayland',
++    'sources': [
++      'wayland-output-management-tests.c',
++      wayland_test_utils,
++    ],
++    'depends': [
++      test_client_executables.get('output-management'),
++    ],
++  },
+   {
+     'name': 'wayland-idle-inhibit',
+     'suite': 'wayland',
+diff --git a/src/tests/wayland-output-management-tests.c b/src/tests/wayland-output-management-tests.c
+new file mode 100644
+index 0000000..816bfb3
+--- /dev/null
++++ b/src/tests/wayland-output-management-tests.c
+@@ -0,0 +1,374 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include "config.h"
++
++#include <string.h>
++
++#include "backends/meta-logical-monitor-private.h"
++#include "backends/meta-monitor-manager-private.h"
++#include "backends/meta-monitor-private.h"
++#include "meta-test/meta-context-test.h"
++#include "tests/meta-monitor-manager-test.h"
++#include "tests/meta-monitor-test-utils.h"
++#include "tests/meta-wayland-test-driver.h"
++#include "tests/meta-wayland-test-utils.h"
++
++static MetaContext *test_context;
++static MetaWaylandTestDriver *test_driver;
++
++/* Output 0 has 1920x1080@60 with a fixed and a variable refresh rate,
++ * 1280x720@60 and 1024x768@60; output 1 has 1024x768@60. */
++static MonitorTestCaseSetup base_monitor_setup = {
++  .modes = {
++    {
++      .width = 1920,
++      .height = 1080,
++      .refresh_rate = 60.0,
++      .refresh_rate_mode = META_CRTC_REFRESH_RATE_MODE_FIXED,
++    },
++    {
++      .width = 1920,
++      .height = 1080,
++      .refresh_rate = 60.0,
++      .refresh_rate_mode = META_CRTC_REFRESH_RATE_MODE_VARIABLE,
++    },
++    {
++      .width = 1280,
++      .height = 720,
++      .refresh_rate = 60.0,
++    },
++    {
++      .width = 1024,
++      .height = 768,
++      .refresh_rate = 60.0,
++    },
++  },
++  .n_modes = 4,
++  .outputs = {
++     {
++      .crtc = 0,
++      .modes = { 0, 1, 2, 3 },
++      .n_modes = 4,
++      .preferred_mode = 0,
++      .possible_crtcs = { 0, 1 },
++      .n_possible_crtcs = 2,
++      .width_mm = 344,
++      .height_mm = 194,
++      .serial = "output-management-0",
++    },
++     {
++      .crtc = 1,
++      .modes = { 3 },
++      .n_modes = 1,
++      .preferred_mode = 3,
++      .possible_crtcs = { 0, 1 },
++      .n_possible_crtcs = 2,
++      .width_mm = 220,
++      .height_mm = 124,
++      .serial = "output-management-1",
++    },
++  },
++  .n_outputs = 2,
++  .crtcs = {
++    {
++      .current_mode = 0
++    },
++    {
++      .current_mode = 3
++    },
++  },
++  .n_crtcs = 2
++};
++
++static MetaMonitorManager *
++get_monitor_manager (void)
++{
++  MetaBackend *backend = meta_context_get_backend (test_context);
++
++  return meta_backend_get_monitor_manager (backend);
++}
++
++static void
++setup_monitors (int n_outputs)
++{
++  MetaBackend *backend = meta_context_get_backend (test_context);
++  MonitorTestCaseSetup test_case_setup = base_monitor_setup;
++  MetaMonitorTestSetup *test_setup;
++
++  test_case_setup.n_outputs = n_outputs;
++  test_setup = meta_create_monitor_test_setup (backend, &test_case_setup,
++                                               MONITOR_TEST_FLAG_NO_STORED);
++  meta_monitor_manager_test_emulate_hotplug (
++    META_MONITOR_MANAGER_TEST (get_monitor_manager ()), test_setup);
++}
++
++static MetaMonitor *
++get_monitor (int i)
++{
++  GList *monitors = meta_monitor_manager_get_monitors (get_monitor_manager ());
++
++  g_assert_cmpuint (g_list_length (monitors), >, i);
++  return g_list_nth_data (monitors, i);
++}
++
++static void
++assert_monitor (int                     i,
++                int                     width,
++                int                     height,
++                MetaCrtcRefreshRateMode refresh_rate_mode,
++                int                     x,
++                int                     y,
++                MtkMonitorTransform     transform)
++{
++  MetaMonitor *monitor = get_monitor (i);
++  MetaLogicalMonitor *logical_monitor;
++  MetaMonitorMode *mode;
++  const MetaMonitorModeSpec *spec;
++  MtkRectangle layout;
++
++  logical_monitor = meta_monitor_get_logical_monitor (monitor);
++  g_assert_nonnull (logical_monitor);
++  mode = meta_monitor_get_current_mode (monitor);
++  g_assert_nonnull (mode);
++  spec = meta_monitor_mode_get_spec (mode);
++  g_assert_cmpint (spec->width, ==, width);
++  g_assert_cmpint (spec->height, ==, height);
++  g_assert_cmpint (spec->refresh_rate_mode, ==, refresh_rate_mode);
++
++  layout = meta_logical_monitor_get_layout (logical_monitor);
++  g_assert_cmpint (layout.x, ==, x);
++  g_assert_cmpint (layout.y, ==, y);
++  g_assert_cmpint (logical_monitor->transform, ==, transform);
++}
++
++static void
++wait_for_client (int sequence)
++{
++  meta_wayland_test_driver_wait_for_sync_point (test_driver, sequence);
++}
++
++static void
++release (int sequence)
++{
++  meta_wayland_test_driver_emit_sync_event (test_driver, sequence);
++}
++
++static void
++output_management_apply (void)
++{
++  MetaMonitorManager *monitor_manager = get_monitor_manager ();
++  MetaWaylandTestClient *client;
++
++  setup_monitors (2);
++  assert_monitor (0, 1920, 1080, META_CRTC_REFRESH_RATE_MODE_FIXED, 0, 0,
++                  MTK_MONITOR_TRANSFORM_NORMAL);
++  assert_monitor (1, 1024, 768, META_CRTC_REFRESH_RATE_MODE_FIXED, 1920, 0,
++                  MTK_MONITOR_TRANSFORM_NORMAL);
++
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "output-management",
++                                                   "apply",
++                                                   NULL);
++  wait_for_client (0);
++  release (0);
++
++  /* test: verified only */
++  wait_for_client (1);
++  assert_monitor (0, 1920, 1080, META_CRTC_REFRESH_RATE_MODE_FIXED, 0, 0,
++                  MTK_MONITOR_TRANSFORM_NORMAL);
++  assert_monitor (1, 1024, 768, META_CRTC_REFRESH_RATE_MODE_FIXED, 1920, 0,
++                  MTK_MONITOR_TRANSFORM_NORMAL);
++  release (1);
++
++  /* apply: mode of the first monitor and position of the second */
++  wait_for_client (2);
++  assert_monitor (0, 1280, 720, META_CRTC_REFRESH_RATE_MODE_FIXED, 0, 0,
++                  MTK_MONITOR_TRANSFORM_NORMAL);
++  assert_monitor (1, 1024, 768, META_CRTC_REFRESH_RATE_MODE_FIXED, 1280, 0,
++                  MTK_MONITOR_TRANSFORM_NORMAL);
++  release (2);
++
++  /* adaptive sync: the variable refresh rate mode */
++  wait_for_client (3);
++  assert_monitor (0, 1920, 1080, META_CRTC_REFRESH_RATE_MODE_VARIABLE, 0, 0,
++                  MTK_MONITOR_TRANSFORM_NORMAL);
++  assert_monitor (1, 1024, 768, META_CRTC_REFRESH_RATE_MODE_FIXED, 1920, 0,
++                  MTK_MONITOR_TRANSFORM_NORMAL);
++  release (3);
++
++  /* three refused configurations changed nothing */
++  wait_for_client (4);
++  assert_monitor (0, 1920, 1080, META_CRTC_REFRESH_RATE_MODE_VARIABLE, 0, 0,
++                  MTK_MONITOR_TRANSFORM_NORMAL);
++  assert_monitor (1, 1024, 768, META_CRTC_REFRESH_RATE_MODE_FIXED, 1920, 0,
++                  MTK_MONITOR_TRANSFORM_NORMAL);
++  release (4);
++
++  /* rotated second monitor below the first, adaptive sync off */
++  wait_for_client (5);
++  assert_monitor (0, 1920, 1080, META_CRTC_REFRESH_RATE_MODE_FIXED, 0, 0,
++                  MTK_MONITOR_TRANSFORM_NORMAL);
++  assert_monitor (1, 1024, 768, META_CRTC_REFRESH_RATE_MODE_FIXED, 0, 1080,
++                  MTK_MONITOR_TRANSFORM_90);
++  release (5);
++
++  /* mirrored: one logical monitor with both monitors */
++  wait_for_client (6);
++  assert_monitor (0, 1024, 768, META_CRTC_REFRESH_RATE_MODE_FIXED, 0, 0,
++                  MTK_MONITOR_TRANSFORM_NORMAL);
++  assert_monitor (1, 1024, 768, META_CRTC_REFRESH_RATE_MODE_FIXED, 0, 0,
++                  MTK_MONITOR_TRANSFORM_NORMAL);
++  g_assert_cmpuint (g_list_length (monitor_manager->logical_monitors), ==, 1);
++  g_assert_true (meta_monitor_get_logical_monitor (get_monitor (0)) ==
++                 meta_monitor_get_logical_monitor (get_monitor (1)));
++  release (6);
++
++  /* disabled second monitor */
++  wait_for_client (7);
++  g_assert_null (meta_monitor_get_logical_monitor (get_monitor (1)));
++  g_assert_false (meta_monitor_is_active (get_monitor (1)));
++  g_assert_cmpuint (g_list_length (monitor_manager->logical_monitors), ==, 1);
++  release (7);
++
++  /* re-enabled; then unplug it under a pending configuration */
++  wait_for_client (8);
++  assert_monitor (1, 1024, 768, META_CRTC_REFRESH_RATE_MODE_FIXED, 1024, 0,
++                  MTK_MONITOR_TRANSFORM_NORMAL);
++  setup_monitors (1);
++  release (8);
++
++  wait_for_client (9);
++  g_assert_cmpuint (g_list_length (meta_monitor_manager_get_monitors (monitor_manager)),
++                    ==, 1);
++  release (9);
++
++  meta_wayland_test_client_finish (client);
++}
++
++typedef struct _MonitorState
++{
++  MetaMonitorModeSpec spec;
++  MtkRectangle layout;
++  MtkMonitorTransform transform;
++} MonitorState;
++
++static void
++get_monitor_state (int           i,
++                   MonitorState *state)
++{
++  MetaMonitor *monitor = get_monitor (i);
++  MetaLogicalMonitor *logical_monitor =
++    meta_monitor_get_logical_monitor (monitor);
++
++  g_assert_nonnull (logical_monitor);
++  memset (state, 0, sizeof (*state));
++  state->spec = *meta_monitor_mode_get_spec (meta_monitor_get_current_mode (monitor));
++  state->layout = meta_logical_monitor_get_layout (logical_monitor);
++  state->transform = logical_monitor->transform;
++}
++
++static void
++run_protocol_error_client (const char *name)
++{
++  MetaWaylandTestClient *client;
++  MonitorState before[2], after[2];
++  int i;
++
++  setup_monitors (2);
++  for (i = 0; i < 2; i++)
++    get_monitor_state (i, &before[i]);
++
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "output-management",
++                                                   name,
++                                                   NULL);
++  g_test_expect_message ("libmutter", G_LOG_LEVEL_WARNING,
++                         "WL: error in client communication*");
++  meta_wayland_test_client_finish (client);
++  g_test_assert_expected_messages ();
++
++  /* Nothing was applied. */
++  for (i = 0; i < 2; i++)
++    {
++      get_monitor_state (i, &after[i]);
++      g_assert_cmpmem (&before[i], sizeof (MonitorState),
++                       &after[i], sizeof (MonitorState));
++    }
++}
++
++static void
++output_management_already_set (void)
++{
++  run_protocol_error_client ("already-set");
++}
++
++static void
++output_management_unconfigured_head (void)
++{
++  run_protocol_error_client ("unconfigured-head");
++}
++
++static void
++on_before_tests (MetaContext *context)
++{
++  MetaWaylandCompositor *compositor =
++    meta_context_get_wayland_compositor (context);
++
++  test_driver = meta_wayland_test_driver_new (compositor);
++}
++
++static void
++on_after_tests (MetaContext *context)
++{
++  g_clear_object (&test_driver);
++}
++
++static void
++init_tests (void)
++{
++  g_test_add_func ("/wayland/output-management/apply",
++                   output_management_apply);
++  g_test_add_func ("/wayland/output-management/already-set",
++                   output_management_already_set);
++  g_test_add_func ("/wayland/output-management/unconfigured-head",
++                   output_management_unconfigured_head);
++}
++
++int
++main (int    argc,
++      char **argv)
++{
++  g_autoptr (MetaContext) context = NULL;
++
++  context = meta_create_test_context (META_CONTEXT_TEST_TYPE_TEST,
++                                      META_CONTEXT_TEST_FLAG_NO_X11 |
++                                      META_CONTEXT_TEST_FLAG_TEST_CLIENT);
++  g_assert_true (meta_context_configure (context, &argc, &argv, NULL));
++
++  test_context = context;
++
++  init_tests ();
++
++  g_signal_connect (context, "before-tests",
++                    G_CALLBACK (on_before_tests), NULL);
++  g_signal_connect (context, "after-tests",
++                    G_CALLBACK (on_after_tests), NULL);
++
++  return meta_context_test_run_tests (META_CONTEXT_TEST (context),
++                                      META_TEST_RUN_FLAG_NONE);
++}
+diff --git a/src/tests/wayland-test-clients/meson.build b/src/tests/wayland-test-clients/meson.build
+index c8a16a8..88ee698 100644
+--- a/src/tests/wayland-test-clients/meson.build
++++ b/src/tests/wayland-test-clients/meson.build
+@@ -71,6 +71,9 @@ wayland_test_clients = [
+       wayland_cursor_dep,
+     ],
+   },
++  {
++    'name': 'output-management',
++  },
+   {
+     'name': 'repeated-preferred-scale',
+   },
+diff --git a/src/tests/wayland-test-clients/output-management.c b/src/tests/wayland-test-clients/output-management.c
+new file mode 100644
+index 0000000..6dfdc1e
+--- /dev/null
++++ b/src/tests/wayland-test-clients/output-management.c
+@@ -0,0 +1,723 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include "config.h"
++
++#include <glib.h>
++#include <string.h>
++
++#include "wayland-test-client-utils.h"
++
++#include "wlr-output-management-unstable-v1-client-protocol.h"
++
++#define MAX_MODES 8
++
++typedef struct _Mode
++{
++  struct zwlr_output_mode_v1 *mode;
++  int width;
++  int height;
++  int refresh;
++  gboolean preferred;
++  gboolean finished;
++} Mode;
++
++typedef struct _Head
++{
++  struct zwlr_output_head_v1 *head;
++  char *name;
++  Mode modes[MAX_MODES];
++  int n_modes;
++  gboolean enabled;
++  int current_mode;
++  int x, y;
++  int transform;
++  wl_fixed_t scale;
++  gboolean adaptive_sync;
++  gboolean finished;
++} Head;
++
++typedef enum _Result
++{
++  RESULT_NONE,
++  RESULT_SUCCEEDED,
++  RESULT_FAILED,
++  RESULT_CANCELLED,
++} Result;
++
++typedef struct _HeadConfig
++{
++  gboolean enable;
++  int mode;
++  int x, y;
++  int transform;
++  int adaptive_sync;
++  double scale;
++} HeadConfig;
++
++static struct zwlr_output_manager_v1 *output_manager;
++static Head heads[2];
++static int n_heads;
++static uint32_t serial;
++static int n_done;
++static int n_head_events;
++
++static Head *
++find_head (struct zwlr_output_head_v1 *head)
++{
++  int i;
++
++  for (i = 0; i < n_heads; i++)
++    {
++      if (heads[i].head == head)
++        return &heads[i];
++    }
++
++  g_assert_not_reached ();
++}
++
++static Mode *
++find_mode (struct zwlr_output_mode_v1 *mode)
++{
++  int i, j;
++
++  for (i = 0; i < n_heads; i++)
++    {
++      for (j = 0; j < heads[i].n_modes; j++)
++        {
++          if (heads[i].modes[j].mode == mode)
++            return &heads[i].modes[j];
++        }
++    }
++
++  g_assert_not_reached ();
++}
++
++static void
++handle_mode_size (void                       *user_data,
++                  struct zwlr_output_mode_v1 *mode,
++                  int32_t                     width,
++                  int32_t                     height)
++{
++  find_mode (mode)->width = width;
++  find_mode (mode)->height = height;
++}
++
++static void
++handle_mode_refresh (void                       *user_data,
++                     struct zwlr_output_mode_v1 *mode,
++                     int32_t                     refresh)
++{
++  find_mode (mode)->refresh = refresh;
++}
++
++static void
++handle_mode_preferred (void                       *user_data,
++                       struct zwlr_output_mode_v1 *mode)
++{
++  find_mode (mode)->preferred = TRUE;
++}
++
++static void
++handle_mode_finished (void                       *user_data,
++                      struct zwlr_output_mode_v1 *mode)
++{
++  find_mode (mode)->finished = TRUE;
++}
++
++static const struct zwlr_output_mode_v1_listener mode_listener = {
++  handle_mode_size,
++  handle_mode_refresh,
++  handle_mode_preferred,
++  handle_mode_finished,
++};
++
++static void
++handle_head_name (void                       *user_data,
++                  struct zwlr_output_head_v1 *head,
++                  const char                 *name)
++{
++  find_head (head)->name = g_strdup (name);
++  n_head_events++;
++}
++
++static void
++handle_head_description (void                       *user_data,
++                         struct zwlr_output_head_v1 *head,
++                         const char                 *description)
++{
++  n_head_events++;
++}
++
++static void
++handle_head_physical_size (void                       *user_data,
++                           struct zwlr_output_head_v1 *head,
++                           int32_t                     width,
++                           int32_t                     height)
++{
++  n_head_events++;
++}
++
++static void
++handle_head_mode (void                       *user_data,
++                  struct zwlr_output_head_v1 *head,
++                  struct zwlr_output_mode_v1 *mode)
++{
++  Head *h = find_head (head);
++
++  g_assert_cmpint (h->n_modes, <, MAX_MODES);
++  h->modes[h->n_modes++] = (Mode) { .mode = mode };
++  zwlr_output_mode_v1_add_listener (mode, &mode_listener, NULL);
++  n_head_events++;
++}
++
++static void
++handle_head_enabled (void                       *user_data,
++                     struct zwlr_output_head_v1 *head,
++                     int32_t                     enabled)
++{
++  Head *h = find_head (head);
++
++  h->enabled = enabled;
++  if (!enabled)
++    h->current_mode = -1;
++  n_head_events++;
++}
++
++static void
++handle_head_current_mode (void                       *user_data,
++                          struct zwlr_output_head_v1 *head,
++                          struct zwlr_output_mode_v1 *mode)
++{
++  Head *h = find_head (head);
++  int i;
++
++  for (i = 0; i < h->n_modes; i++)
++    {
++      if (h->modes[i].mode == mode)
++        h->current_mode = i;
++    }
++  n_head_events++;
++}
++
++static void
++handle_head_position (void                       *user_data,
++                      struct zwlr_output_head_v1 *head,
++                      int32_t                     x,
++                      int32_t                     y)
++{
++  find_head (head)->x = x;
++  find_head (head)->y = y;
++  n_head_events++;
++}
++
++static void
++handle_head_transform (void                       *user_data,
++                       struct zwlr_output_head_v1 *head,
++                       int32_t                     transform)
++{
++  find_head (head)->transform = transform;
++  n_head_events++;
++}
++
++static void
++handle_head_scale (void                       *user_data,
++                   struct zwlr_output_head_v1 *head,
++                   wl_fixed_t                  scale)
++{
++  find_head (head)->scale = scale;
++  n_head_events++;
++}
++
++static void
++handle_head_finished (void                       *user_data,
++                      struct zwlr_output_head_v1 *head)
++{
++  find_head (head)->finished = TRUE;
++  n_head_events++;
++}
++
++static void
++handle_head_string (void                       *user_data,
++                    struct zwlr_output_head_v1 *head,
++                    const char                 *string)
++{
++  n_head_events++;
++}
++
++static void
++handle_head_adaptive_sync (void                       *user_data,
++                           struct zwlr_output_head_v1 *head,
++                           uint32_t                    state)
++{
++  find_head (head)->adaptive_sync =
++    state == ZWLR_OUTPUT_HEAD_V1_ADAPTIVE_SYNC_STATE_ENABLED;
++  n_head_events++;
++}
++
++static const struct zwlr_output_head_v1_listener head_listener = {
++  handle_head_name,
++  handle_head_description,
++  handle_head_physical_size,
++  handle_head_mode,
++  handle_head_enabled,
++  handle_head_current_mode,
++  handle_head_position,
++  handle_head_transform,
++  handle_head_scale,
++  handle_head_finished,
++  handle_head_string,
++  handle_head_string,
++  handle_head_string,
++  handle_head_adaptive_sync,
++};
++
++static void
++handle_manager_head (void                          *user_data,
++                     struct zwlr_output_manager_v1 *manager,
++                     struct zwlr_output_head_v1    *head)
++{
++  g_assert_cmpint (n_heads, <, (int) G_N_ELEMENTS (heads));
++  heads[n_heads++] = (Head) { .head = head, .current_mode = -1 };
++  zwlr_output_head_v1_add_listener (head, &head_listener, NULL);
++}
++
++static void
++handle_manager_done (void                          *user_data,
++                     struct zwlr_output_manager_v1 *manager,
++                     uint32_t                       done_serial)
++{
++  serial = done_serial;
++  n_done++;
++}
++
++static void
++handle_manager_finished (void                          *user_data,
++                         struct zwlr_output_manager_v1 *manager)
++{
++}
++
++static const struct zwlr_output_manager_v1_listener manager_listener = {
++  handle_manager_head,
++  handle_manager_done,
++  handle_manager_finished,
++};
++
++static void
++handle_registry_global (void               *user_data,
++                        struct wl_registry *registry,
++                        uint32_t            id,
++                        const char         *interface,
++                        uint32_t            version)
++{
++  if (strcmp (interface, zwlr_output_manager_v1_interface.name) == 0)
++    {
++      g_assert_cmpuint (version, >=, 4);
++      output_manager = wl_registry_bind (registry, id,
++                                         &zwlr_output_manager_v1_interface, 4);
++      zwlr_output_manager_v1_add_listener (output_manager, &manager_listener,
++                                           NULL);
++    }
++}
++
++static void
++handle_registry_global_remove (void               *user_data,
++                               struct wl_registry *registry,
++                               uint32_t            name)
++{
++}
++
++static const struct wl_registry_listener registry_listener = {
++  handle_registry_global,
++  handle_registry_global_remove
++};
++
++static void
++handle_config_succeeded (void                                *user_data,
++                         struct zwlr_output_configuration_v1 *config)
++{
++  Result *result = user_data;
++
++  *result = RESULT_SUCCEEDED;
++  /* Changes caused by the apply must come after the result. */
++  n_head_events = 0;
++}
++
++static void
++handle_config_failed (void                                *user_data,
++                      struct zwlr_output_configuration_v1 *config)
++{
++  Result *result = user_data;
++
++  *result = RESULT_FAILED;
++  n_head_events = 0;
++}
++
++static void
++handle_config_cancelled (void                                *user_data,
++                         struct zwlr_output_configuration_v1 *config)
++{
++  Result *result = user_data;
++
++  *result = RESULT_CANCELLED;
++  n_head_events = 0;
++}
++
++static const struct zwlr_output_configuration_v1_listener config_listener = {
++  handle_config_succeeded,
++  handle_config_failed,
++  handle_config_cancelled,
++};
++
++static void
++sync_point (WaylandDisplay *display,
++            int             sequence)
++{
++  wl_display_roundtrip (display->display);
++  test_driver_sync_point (display->test_driver, sequence, NULL);
++  wait_for_sync_event (display, sequence);
++}
++
++static HeadConfig
++current_config (int i)
++{
++  return (HeadConfig) {
++    .enable = heads[i].enabled,
++    .mode = heads[i].current_mode,
++    .x = heads[i].x,
++    .y = heads[i].y,
++    .transform = -1,
++    .adaptive_sync = -1,
++  };
++}
++
++static struct zwlr_output_configuration_v1 *
++create_config (uint32_t    config_serial,
++               HeadConfig *config,
++               Result     *result)
++{
++  struct zwlr_output_configuration_v1 *output_config;
++  int i;
++
++  output_config =
++    zwlr_output_manager_v1_create_configuration (output_manager, config_serial);
++  *result = RESULT_NONE;
++  zwlr_output_configuration_v1_add_listener (output_config, &config_listener,
++                                             result);
++
++  for (i = 0; i < n_heads; i++)
++    {
++      struct zwlr_output_configuration_head_v1 *config_head;
++
++      if (!config[i].enable)
++        {
++          zwlr_output_configuration_v1_disable_head (output_config,
++                                                     heads[i].head);
++          continue;
++        }
++
++      config_head =
++        zwlr_output_configuration_v1_enable_head (output_config,
++                                                  heads[i].head);
++      if (config[i].mode >= 0)
++        {
++          zwlr_output_configuration_head_v1_set_mode (config_head,
++                                                      heads[i].modes[config[i].mode].mode);
++        }
++      zwlr_output_configuration_head_v1_set_position (config_head,
++                                                      config[i].x,
++                                                      config[i].y);
++      if (config[i].transform >= 0)
++        {
++          zwlr_output_configuration_head_v1_set_transform (config_head,
++                                                           config[i].transform);
++        }
++      if (config[i].scale > 0)
++        {
++          zwlr_output_configuration_head_v1_set_scale (config_head,
++                                                       wl_fixed_from_double (config[i].scale));
++        }
++      if (config[i].adaptive_sync >= 0)
++        {
++          zwlr_output_configuration_head_v1_set_adaptive_sync (config_head,
++                                                               config[i].adaptive_sync);
++        }
++    }
++
++  return output_config;
++}
++
++static Result
++finish_config (WaylandDisplay                      *display,
++               struct zwlr_output_configuration_v1 *output_config,
++               Result                              *result,
++               gboolean                             test_only)
++{
++  int n_done_before = n_done;
++
++  if (test_only)
++    zwlr_output_configuration_v1_test (output_config);
++  else
++    zwlr_output_configuration_v1_apply (output_config);
++
++  while (*result == RESULT_NONE)
++    {
++      if (wl_display_dispatch (display->display) == -1)
++        g_error ("Lost the connection to the compositor");
++    }
++
++  /* An applied change is announced with a new done. */
++  if (*result == RESULT_SUCCEEDED && !test_only)
++    {
++      while (n_done == n_done_before)
++        {
++          if (wl_display_dispatch (display->display) == -1)
++            g_error ("Lost the connection to the compositor");
++        }
++    }
++
++  zwlr_output_configuration_v1_destroy (output_config);
++  wl_display_roundtrip (display->display);
++
++  return *result;
++}
++
++static Result
++run_config (WaylandDisplay *display,
++            HeadConfig     *config,
++            gboolean        test_only)
++{
++  Result result;
++
++  return finish_config (display, create_config (serial, config, &result),
++                        &result, test_only);
++}
++
++static int
++find_mode_index (Head *head,
++                 int   width,
++                 int   height)
++{
++  int i;
++
++  for (i = 0; i < head->n_modes; i++)
++    {
++      if (head->modes[i].width == width && head->modes[i].height == height)
++        return i;
++    }
++
++  g_assert_not_reached ();
++}
++
++static void
++test_apply (WaylandDisplay *display)
++{
++  struct zwlr_output_configuration_v1 *stale_config;
++  Result stale_result;
++  HeadConfig config[2];
++  int mode_1080p, mode_720p, mode_768;
++
++  /* Initial state: both heads enabled side by side; the fixed and the
++   * variable 1920x1080@60 modes are one mode. */
++  g_assert_cmpint (n_heads, ==, 2);
++  g_assert_cmpint (heads[0].n_modes, ==, 3);
++  g_assert_cmpint (heads[1].n_modes, ==, 1);
++  mode_1080p = find_mode_index (&heads[0], 1920, 1080);
++  mode_720p = find_mode_index (&heads[0], 1280, 720);
++  mode_768 = find_mode_index (&heads[0], 1024, 768);
++  g_assert_cmpint (heads[0].modes[mode_1080p].refresh, ==, 60000);
++  g_assert_true (heads[0].modes[mode_1080p].preferred);
++  g_assert_true (heads[0].enabled && heads[1].enabled);
++  g_assert_cmpint (heads[0].current_mode, ==, mode_1080p);
++  g_assert_false (heads[0].adaptive_sync);
++  g_assert_cmpint (heads[0].x, ==, 0);
++  g_assert_cmpint (heads[1].x, ==, 1920);
++  g_assert_cmpint (heads[0].scale, ==, wl_fixed_from_int (1));
++  sync_point (display, 0);
++
++  /* Test only: nothing changes. */
++  config[0] = current_config (0);
++  config[1] = current_config (1);
++  config[0].mode = mode_720p;
++  config[1].x = 1280;
++  g_assert_cmpint (run_config (display, config, TRUE), ==, RESULT_SUCCEEDED);
++  g_assert_cmpint (n_head_events, ==, 0);
++  g_assert_cmpint (heads[0].current_mode, ==, mode_1080p);
++  sync_point (display, 1);
++
++  /* Apply both heads at once. */
++  g_assert_cmpint (run_config (display, config, FALSE), ==, RESULT_SUCCEEDED);
++  g_assert_cmpint (heads[0].current_mode, ==, mode_720p);
++  g_assert_cmpint (heads[1].x, ==, 1280);
++  sync_point (display, 2);
++
++  /* Adaptive sync selects the variable refresh rate variant. */
++  config[0] = current_config (0);
++  config[1] = current_config (1);
++  config[0].mode = mode_1080p;
++  config[0].adaptive_sync = ZWLR_OUTPUT_HEAD_V1_ADAPTIVE_SYNC_STATE_ENABLED;
++  config[1].x = 1920;
++  g_assert_cmpint (run_config (display, config, FALSE), ==, RESULT_SUCCEEDED);
++  g_assert_true (heads[0].adaptive_sync);
++  g_assert_cmpint (heads[0].current_mode, ==, mode_1080p);
++  sync_point (display, 3);
++
++  /* No variable refresh rate at 1280x720: refused, nothing changes. */
++  config[0] = current_config (0);
++  config[1] = current_config (1);
++  config[0].mode = mode_720p;
++  config[0].adaptive_sync = ZWLR_OUTPUT_HEAD_V1_ADAPTIVE_SYNC_STATE_ENABLED;
++  config[1].x = 1280;
++  g_assert_cmpint (run_config (display, config, FALSE), ==, RESULT_FAILED);
++  g_assert_true (heads[0].adaptive_sync);
++  g_assert_cmpint (heads[0].current_mode, ==, mode_1080p);
++
++  /* One bad head fails the whole configuration. */
++  config[0].adaptive_sync = ZWLR_OUTPUT_HEAD_V1_ADAPTIVE_SYNC_STATE_DISABLED;
++  config[1].scale = 0.3;
++  g_assert_cmpint (run_config (display, config, FALSE), ==, RESULT_FAILED);
++
++  /* A gap between the heads is refused. */
++  config[0] = current_config (0);
++  config[1] = current_config (1);
++  config[1].x = 2000;
++  g_assert_cmpint (run_config (display, config, FALSE), ==, RESULT_FAILED);
++  g_assert_cmpint (heads[0].current_mode, ==, mode_1080p);
++  g_assert_cmpint (heads[1].x, ==, 1920);
++  sync_point (display, 4);
++
++  /* Rotate and move the second head; turn adaptive sync off. */
++  config[0] = current_config (0);
++  config[1] = current_config (1);
++  config[0].adaptive_sync = ZWLR_OUTPUT_HEAD_V1_ADAPTIVE_SYNC_STATE_DISABLED;
++  config[1].x = 0;
++  config[1].y = 1080;
++  config[1].transform = WL_OUTPUT_TRANSFORM_90;
++  g_assert_cmpint (run_config (display, config, FALSE), ==, RESULT_SUCCEEDED);
++  g_assert_false (heads[0].adaptive_sync);
++  g_assert_cmpint (heads[1].transform, ==, WL_OUTPUT_TRANSFORM_90);
++  g_assert_cmpint (heads[1].y, ==, 1080);
++  sync_point (display, 5);
++
++  /* Mirror: both heads at 1024x768 at 0,0. */
++  config[0] = current_config (0);
++  config[1] = current_config (1);
++  config[0].mode = mode_768;
++  config[1].x = 0;
++  config[1].y = 0;
++  config[1].transform = WL_OUTPUT_TRANSFORM_NORMAL;
++  g_assert_cmpint (run_config (display, config, FALSE), ==, RESULT_SUCCEEDED);
++  g_assert_cmpint (heads[0].x, ==, 0);
++  g_assert_cmpint (heads[1].x, ==, 0);
++  sync_point (display, 6);
++
++  /* Disable the second head. */
++  config[0] = current_config (0);
++  config[1] = current_config (1);
++  config[1].enable = FALSE;
++  g_assert_cmpint (run_config (display, config, FALSE), ==, RESULT_SUCCEEDED);
++  g_assert_false (heads[1].enabled);
++  sync_point (display, 7);
++
++  /* Re-enable it with nothing set: preferred mode, right of the first. */
++  config[0] = current_config (0);
++  config[1] = (HeadConfig) { .enable = TRUE, .mode = -1, .x = 1024, .y = 0,
++                             .transform = -1, .adaptive_sync = -1 };
++  g_assert_cmpint (run_config (display, config, FALSE), ==, RESULT_SUCCEEDED);
++  g_assert_true (heads[1].enabled);
++  g_assert_true (heads[1].modes[heads[1].current_mode].preferred);
++  g_assert_cmpint (heads[1].x, ==, 1024);
++
++  /* A configuration made before a hotplug is cancelled. */
++  config[0] = current_config (0);
++  config[1] = current_config (1);
++  stale_config = create_config (serial, config, &stale_result);
++  sync_point (display, 8);
++  /* The compositor unplugged the second monitor. */
++  wl_display_roundtrip (display->display);
++  g_assert_true (heads[1].finished);
++  g_assert_true (heads[1].modes[0].finished);
++  g_assert_false (heads[0].finished);
++  g_assert_cmpint (finish_config (display, stale_config, &stale_result, FALSE),
++                   ==, RESULT_CANCELLED);
++  sync_point (display, 9);
++}
++
++static void
++test_already_set (WaylandDisplay *display)
++{
++  struct zwlr_output_configuration_v1 *output_config;
++  struct zwlr_output_configuration_head_v1 *config_head;
++
++  output_config = zwlr_output_manager_v1_create_configuration (output_manager,
++                                                               serial);
++  config_head = zwlr_output_configuration_v1_enable_head (output_config,
++                                                          heads[0].head);
++  zwlr_output_configuration_head_v1_set_position (config_head, 0, 0);
++  zwlr_output_configuration_head_v1_set_position (config_head, 0, 0);
++
++  g_assert_cmpint (wl_display_roundtrip (display->display), ==, -1);
++  g_assert_cmpint (wl_display_get_protocol_error (display->display, NULL, NULL),
++                   ==, ZWLR_OUTPUT_CONFIGURATION_HEAD_V1_ERROR_ALREADY_SET);
++}
++
++static void
++test_unconfigured_head (WaylandDisplay *display)
++{
++  struct zwlr_output_configuration_v1 *output_config;
++
++  output_config = zwlr_output_manager_v1_create_configuration (output_manager,
++                                                               serial);
++  zwlr_output_configuration_v1_enable_head (output_config, heads[0].head);
++  zwlr_output_configuration_v1_apply (output_config);
++
++  g_assert_cmpint (wl_display_roundtrip (display->display), ==, -1);
++  g_assert_cmpint (wl_display_get_protocol_error (display->display, NULL, NULL),
++                   ==, ZWLR_OUTPUT_CONFIGURATION_V1_ERROR_UNCONFIGURED_HEAD);
++}
++
++int
++main (int    argc,
++      char **argv)
++{
++  g_autoptr (WaylandDisplay) display = NULL;
++  struct wl_registry *registry;
++
++  g_assert_cmpint (argc, ==, 2);
++
++  display = wayland_display_new (WAYLAND_DISPLAY_CAPABILITY_TEST_DRIVER);
++  registry = wl_display_get_registry (display->display);
++  wl_registry_add_listener (registry, &registry_listener, NULL);
++  wl_display_roundtrip (display->display);
++  g_assert_nonnull (output_manager);
++  while (n_done == 0)
++    {
++      if (wl_display_dispatch (display->display) == -1)
++        g_error ("Lost the connection to the compositor");
++    }
++
++  if (g_strcmp0 (argv[1], "apply") == 0)
++    test_apply (display);
++  else if (g_strcmp0 (argv[1], "already-set") == 0)
++    test_already_set (display);
++  else if (g_strcmp0 (argv[1], "unconfigured-head") == 0)
++    test_unconfigured_head (display);
++  else
++    g_error ("Unknown test '%s'", argv[1]);
++
++  return EXIT_SUCCESS;
++}

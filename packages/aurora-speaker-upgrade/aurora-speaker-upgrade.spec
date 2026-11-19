@@ -1,11 +1,11 @@
-%global commit 836a0efa19fc733f870651316ed04ff243667e39
+%global commit bbd9ed30ac43ff4fee3a8b279ff994180d8148cb
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261112
+%global snapdate 20261117
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.13.%{snapdate}git%{shortcommit}%{?dist}
-Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning (preview)
+Release: 0.16.%{snapdate}git%{shortcommit}%{?dist}
+Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
 License: MIT
@@ -20,10 +20,6 @@ Recommends: speakerguardd-v2
 %{?systemd_requires}
 
 %description
-speakerguardd v2 is a preview. It does not fully match macOS yet. The legacy
-protection (speakersafetyd, speakerguardd 0.1) is the supported default and
-stays installed. To go back at any time: sudo aurora-speaker-upgrade --revert.
-
 aurora-speaker-upgrade moves an existing install's speakers from the legacy
 protection (speakersafetyd, speakerguardd 0.1) to speakerguardd v2 with the
 Mac's own tuning, and back (--revert). It collects the installer's tuning
@@ -64,6 +60,20 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
+* Tue Nov 17 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.16.20261117gitbbd9ed30ac43
+- Release candidate 9 (speakerguardd#144): switch without the preview
+  confirmation; --i-understand-preview is still accepted and has no effect.
+- speakerguardd#186: directories this tool creates are 0755 whatever its
+  umask, so /etc/speakerguardd stays readable for the seat user.
+
+* Fri Nov 13 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.15.20261113git04169c447065
+- Rebuilt from speakerguardd 04169c44 (no change to this tool).
+
+* Fri Nov 13 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.14.20261113git26b88eac71bf
+- speakerguardd#159: when the boot chain gives no speaker ID for an AID
+  that selects its tuning by speaker ID, go on to the macOS collection
+  (route 3), which records the ID, instead of stopping.
+
 * Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.13.20261112git836a0efa19fc
 - Rebuilt from speakerguardd#167 (no change to this tool).
 

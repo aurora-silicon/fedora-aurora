@@ -1,0 +1,1150 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 23:12:56 +1100
+Subject: [PATCH] tests: Read back gamma ramps applied in the compositor
+
+Add meta-gamma-test-utils: a test pattern (gray, red, green, blue and a
+mixed band, one column per 8 bit level), and a check that repaints the
+view and compares its onscreen framebuffer with the pattern mapped
+through the expected ramp, with the interpolation a KMS gamma LUT uses.
+
+gamma-control: a CRTC with neither gamma LUT nor CTM now gets the ramp
+in the compositor (shader); a curved ramp on such a CRTC and on a
+CTM-only one reads back exactly, and the default path stays pixel
+identical before and after; a curved ramp on a CTM-only CRTC no longer
+goes to the CTM (ctm, ctm-night-light), a linear one still does
+(ctm-linear); night light without a CTM reads back exactly, yields to a
+client ramp and comes back at its new temperature (shader-night-light).
+
+color-management: an ICC profile with a VCGT on a CTM-only CRTC gets the
+same ramps a gamma LUT would, with and without night light, and they
+read back exactly (calibrated-shader); night light is supported on a
+CRTC with neither property.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/backends/meta-color-profile.h             |   1 +
+ src/tests/color-management-tests.c            | 146 +++++++-
+ src/tests/meson.build                         |   2 +
+ src/tests/meta-gamma-test-utils.c             | 314 ++++++++++++++++++
+ src/tests/meta-gamma-test-utils.h             |  57 ++++
+ src/tests/wayland-gamma-control-tests.c       | 299 +++++++++++++++--
+ .../wayland-test-clients/gamma-control.c      |  81 ++++-
+ 7 files changed, 869 insertions(+), 31 deletions(-)
+ create mode 100644 src/tests/meta-gamma-test-utils.c
+ create mode 100644 src/tests/meta-gamma-test-utils.h
+
+diff --git a/src/backends/meta-color-profile.h b/src/backends/meta-color-profile.h
+index cd68b2f..31ea570 100644
+--- a/src/backends/meta-color-profile.h
++++ b/src/backends/meta-color-profile.h
+@@ -67,6 +67,7 @@ const char * meta_color_profile_get_file_path (MetaColorProfile *color_profile);
+ 
+ const char * meta_color_profile_get_brightness_profile (MetaColorProfile *color_profile);
+ 
++META_EXPORT_TEST
+ MetaGammaLut * meta_color_profile_generate_gamma_lut (MetaColorProfile *color_profile,
+                                                       unsigned int      temperature,
+                                                       size_t            lut_size);
+diff --git a/src/tests/color-management-tests.c b/src/tests/color-management-tests.c
+index 7968302..01329cb 100644
+--- a/src/tests/color-management-tests.c
++++ b/src/tests/color-management-tests.c
+@@ -29,6 +29,7 @@
+ #include "backends/meta-monitor-private.h"
+ #include "meta-test/meta-context-test.h"
+ #include "tests/meta-crtc-test.h"
++#include "tests/meta-gamma-test-utils.h"
+ #include "tests/meta-monitor-test-utils.h"
+ 
+ static MetaContext *test_context;
+@@ -1812,13 +1813,13 @@ meta_test_color_management_night_light_supported (void)
+   test_case_setup.n_outputs = 1;
+   test_case_setup.n_crtcs = 1;
+ 
+-  /* Neither property: Night Light cannot be applied at all. */
++  /* Neither property: supported, the compositor applies the ramp. */
+   test_case_setup.crtcs[0].disable_gamma_lut = TRUE;
+   test_case_setup.crtcs[0].enable_ctm = FALSE;
+   test_setup = meta_create_monitor_test_setup (backend, &test_case_setup,
+                                                MONITOR_TEST_FLAG_NO_STORED);
+   meta_monitor_manager_test_emulate_hotplug (monitor_manager_test, test_setup);
+-  g_assert_false (get_night_light_supported (monitor_manager));
++  g_assert_true (get_night_light_supported (monitor_manager));
+ 
+   /* CTM only: still supported, via the fallback. */
+   test_case_setup.crtcs[0].enable_ctm = TRUE;
+@@ -1836,6 +1837,145 @@ meta_test_color_management_night_light_supported (void)
+   g_assert_true (get_night_light_supported (monitor_manager));
+ }
+ 
++static MetaColorDevice *
++setup_vx239_calibrated (gboolean disable_gamma_lut,
++                        gboolean enable_ctm)
++{
++  MetaBackend *backend = meta_context_get_backend (test_context);
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++  MetaColorManager *color_manager =
++    meta_backend_get_color_manager (backend);
++  MonitorTestCaseSetup test_case_setup = base_monitor_setup;
++  MetaMonitorTestSetup *test_setup;
++  MetaColorDevice *color_device;
++  MetaMonitor *monitor;
++  const char *profile_id = VX239_ICC_PROFILE_ID;
++  const char *color_profiles[1];
++
++  test_case_setup.outputs[0].edid_info = ANCOR_VX239_EDID;
++  test_case_setup.outputs[0].has_edid_info = TRUE;
++  test_case_setup.crtcs[0].disable_gamma_lut = disable_gamma_lut;
++  test_case_setup.crtcs[0].enable_ctm = enable_ctm;
++  test_setup = meta_create_monitor_test_setup (backend, &test_case_setup,
++                                               MONITOR_TEST_FLAG_NO_STORED);
++  meta_monitor_manager_test_emulate_hotplug (
++    META_MONITOR_MANAGER_TEST (monitor_manager), test_setup);
++
++  monitor = meta_monitor_manager_get_monitors (monitor_manager)->data;
++  color_device = meta_color_manager_get_color_device (color_manager, monitor);
++  g_assert_nonnull (color_device);
++  while (!meta_color_device_is_ready (color_device))
++    g_main_context_iteration (NULL, TRUE);
++
++  color_profiles[0] = profile_id;
++  set_colord_device_profiles (meta_color_device_get_id (color_device),
++                              color_profiles, G_N_ELEMENTS (color_profiles));
++  wait_for_profile_assigned (color_device, profile_id);
++
++  return color_device;
++}
++
++static MetaGammaLut *
++copy_crtc_gamma (MetaColorDevice *color_device)
++{
++  MetaMonitor *monitor = meta_color_device_get_monitor (color_device);
++  MetaOutput *output = meta_monitor_get_main_output (monitor);
++  MetaCrtcTest *crtc_test =
++    META_CRTC_TEST (meta_output_get_assigned_crtc (output));
++
++  return meta_gamma_lut_new (crtc_test->gamma.size,
++                             crtc_test->gamma.red,
++                             crtc_test->gamma.green,
++                             crtc_test->gamma.blue);
++}
++
++static void
++wait_for_shader_gamma (MetaColorDevice    *color_device,
++                       const MetaGammaLut *expected)
++{
++  while (TRUE)
++    {
++      const MetaGammaLut *lut =
++        meta_color_device_get_shader_gamma_lut (color_device);
++
++      if (lut && meta_gamma_lut_equal (lut, expected))
++        break;
++
++      g_main_context_iteration (NULL, TRUE);
++    }
++}
++
++static void
++assert_ctm_identity_or_unset (MetaColorDevice *color_device)
++{
++  MetaMonitor *monitor = meta_color_device_get_monitor (color_device);
++  MetaOutput *output = meta_monitor_get_main_output (monitor);
++  MetaCrtcTest *crtc_test =
++    META_CRTC_TEST (meta_output_get_assigned_crtc (output));
++  g_autoptr (MetaCtm) identity = NULL;
++
++  if (!crtc_test->ctm)
++    return;
++
++  identity = meta_ctm_new_from_rgb_scales (1.0f, 1.0f, 1.0f);
++  g_assert_cmpmem (crtc_test->ctm->matrix, sizeof (crtc_test->ctm->matrix),
++                   identity->matrix, sizeof (identity->matrix));
++}
++
++/*
++ * An ICC profile with a VCGT on a CRTC without a gamma LUT (only a CTM, like
++ * the Apple DCP): the calibration curves, with night light on top, reach the
++ * screen exactly as a gamma LUT would have applied them.
++ */
++static void
++meta_test_color_management_night_light_calibrated_shader (void)
++{
++  MetaBackend *backend = meta_context_get_backend (test_context);
++  MetaColorDevice *color_device;
++  g_autoptr (MetaGammaLut) gamma_lut_off = NULL;
++  g_autoptr (MetaGammaLut) gamma_lut_on = NULL;
++  ClutterActor *pattern;
++  const char *profile_id = VX239_ICC_PROFILE_ID;
++  const char *path;
++
++  path = g_test_get_filename (G_TEST_DIST,
++                              "icc-profiles", "vx239-calibrated.icc",
++                              NULL);
++  add_colord_system_profile (profile_id, path);
++
++  /* Reference: what a CRTC gamma LUT gets, night light off and at 3305K. */
++  set_night_light_temperature (6500);
++  set_night_light_active (FALSE);
++  color_device = setup_vx239_calibrated (FALSE, FALSE);
++  gamma_lut_off = copy_crtc_gamma (color_device);
++  g_assert_cmpuint (gamma_lut_off->size, ==, 256);
++
++  set_night_light_temperature (3305);
++  set_night_light_active (TRUE);
++  wait_for_device_calibration_changed (color_device);
++  gamma_lut_on = copy_crtc_gamma (color_device);
++  g_assert_false (meta_gamma_lut_equal (gamma_lut_on, gamma_lut_off));
++
++  /* The same monitor on a CRTC with only a CTM. */
++  color_device = setup_vx239_calibrated (TRUE, TRUE);
++  pattern = meta_gamma_test_add_pattern (backend);
++
++  wait_for_shader_gamma (color_device, gamma_lut_on);
++  assert_ctm_identity_or_unset (color_device);
++  g_assert_true (clutter_stage_view_has_gamma_lut (
++    meta_gamma_test_get_view (backend)));
++  meta_gamma_test_assert_view (backend, gamma_lut_on, "vcgt-night-light-3305");
++
++  set_night_light_temperature (6500);
++  set_night_light_active (FALSE);
++  wait_for_shader_gamma (color_device, gamma_lut_off);
++  assert_ctm_identity_or_unset (color_device);
++  meta_gamma_test_assert_view (backend, gamma_lut_off, "vcgt-calibration");
++
++  clutter_actor_destroy (pattern);
++}
++
+ static MetaMonitorTestSetup *
+ create_stage_view_test_setup (MetaBackend *backend)
+ {
+@@ -1908,6 +2048,8 @@ init_tests (void)
+                   meta_test_color_management_ctm_scale_clamping);
+   add_color_test ("/color-management/night-light/supported",
+                   meta_test_color_management_night_light_supported);
++  add_color_test ("/color-management/night-light/calibrated-shader",
++                  meta_test_color_management_night_light_calibrated_shader);
+ }
+ 
+ int
+diff --git a/src/tests/meson.build b/src/tests/meson.build
+index c47f394..9d3c77b 100644
+--- a/src/tests/meson.build
++++ b/src/tests/meson.build
+@@ -6,6 +6,8 @@ mutter_test_sources = [
+   'meta-context-test.c',
+   'meta-crtc-test.c',
+   'meta-crtc-test.h',
++  'meta-gamma-test-utils.c',
++  'meta-gamma-test-utils.h',
+   'meta-gpu-test.c',
+   'meta-gpu-test.h',
+   'meta-monitor-manager-test.c',
+diff --git a/src/tests/meta-gamma-test-utils.c b/src/tests/meta-gamma-test-utils.c
+new file mode 100644
+index 0000000..f580aab
+--- /dev/null
++++ b/src/tests/meta-gamma-test-utils.c
+@@ -0,0 +1,314 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include "config.h"
++
++#include "tests/meta-gamma-test-utils.h"
++
++#include <cairo.h>
++#include <math.h>
++#include <stdio.h>
++
++#include "backends/meta-backend-private.h"
++#include "backends/meta-monitor-private.h"
++#include "backends/meta-renderer.h"
++#include "clutter/clutter-mutter.h"
++
++#define N_LEVELS 256
++
++static void
++pattern_input (int      band,
++               int      v,
++               uint8_t  rgb[3])
++{
++  switch (band)
++    {
++    case 0:
++      rgb[0] = rgb[1] = rgb[2] = (uint8_t) v;
++      break;
++    case 1:
++      rgb[0] = (uint8_t) v; rgb[1] = 0; rgb[2] = 0;
++      break;
++    case 2:
++      rgb[0] = 0; rgb[1] = (uint8_t) v; rgb[2] = 0;
++      break;
++    case 3:
++      rgb[0] = 0; rgb[1] = 0; rgb[2] = (uint8_t) v;
++      break;
++    default:
++      rgb[0] = (uint8_t) v;
++      rgb[1] = (uint8_t) (255 - v);
++      rgb[2] = (uint8_t) ((v * 3) % 256);
++      break;
++    }
++}
++
++ClutterStageView *
++meta_gamma_test_get_view (MetaBackend *backend)
++{
++  MetaRenderer *renderer = meta_backend_get_renderer (backend);
++  GList *views = meta_renderer_get_views (renderer);
++
++  g_assert_cmpuint (g_list_length (views), ==, 1);
++  return CLUTTER_STAGE_VIEW (views->data);
++}
++
++ClutterActor *
++meta_gamma_test_add_pattern (MetaBackend *backend)
++{
++  ClutterActor *stage = meta_backend_get_stage (backend);
++  ClutterStageView *view = meta_gamma_test_get_view (backend);
++  ClutterActor *pattern;
++  MtkRectangle layout;
++  float column_width, band_height;
++  int band, v;
++
++  clutter_stage_view_get_layout (view, &layout);
++  column_width = layout.width / (float) N_LEVELS;
++  band_height = layout.height / (float) META_GAMMA_TEST_N_BANDS;
++  g_assert_cmpfloat (column_width, ==, floorf (column_width));
++  g_assert_cmpfloat (column_width, >=, 1.0f);
++
++  pattern = clutter_actor_new ();
++  clutter_actor_set_position (pattern, layout.x, layout.y);
++  clutter_actor_set_size (pattern, layout.width, layout.height);
++
++  for (band = 0; band < META_GAMMA_TEST_N_BANDS; band++)
++    {
++      for (v = 0; v < N_LEVELS; v++)
++        {
++          ClutterActor *column = clutter_actor_new ();
++          uint8_t rgb[3];
++          CoglColor color;
++
++          pattern_input (band, v, rgb);
++          cogl_color_init_from_4f (&color,
++                                   rgb[0] / 255.0f,
++                                   rgb[1] / 255.0f,
++                                   rgb[2] / 255.0f,
++                                   1.0f);
++          clutter_actor_set_background_color (column, &color);
++          clutter_actor_set_position (column,
++                                      v * column_width,
++                                      floorf (band * band_height));
++          clutter_actor_set_size (column, column_width,
++                                  floorf ((band + 1) * band_height) -
++                                  floorf (band * band_height));
++          clutter_actor_add_child (pattern, column);
++        }
++    }
++
++  clutter_actor_add_child (stage, pattern);
++  return pattern;
++}
++
++static uint8_t
++expected_value (const MetaGammaLut *lut,
++                int                 channel,
++                uint8_t             input)
++{
++  const uint16_t *ramp;
++  double pos, frac, value;
++  size_t index0, index1;
++
++  if (!lut)
++    return input;
++
++  ramp = channel == 0 ? lut->red : channel == 1 ? lut->green : lut->blue;
++  pos = input / 255.0 * (double) (lut->size - 1);
++  index0 = (size_t) floor (pos);
++  index1 = MIN (index0 + 1, lut->size - 1);
++  frac = pos - (double) index0;
++  value = (ramp[index0] * (1.0 - frac) + ramp[index1] * frac) / 65535.0;
++
++  return (uint8_t) lround (CLAMP (value, 0.0, 1.0) * 255.0);
++}
++
++typedef struct
++{
++  ClutterStageView *view;
++  gboolean painted;
++} PaintData;
++
++static void
++on_after_paint (ClutterStage     *stage,
++                ClutterStageView *view,
++                ClutterFrame     *frame,
++                PaintData        *data)
++{
++  if (view == data->view)
++    data->painted = TRUE;
++}
++
++/* The final blit runs after the stage paint watchers, so read the onscreen
++ * framebuffer once the whole frame is done. */
++static uint8_t *
++read_onscreen (MetaBackend      *backend,
++               ClutterStageView *view,
++               int              *width,
++               int              *height)
++{
++  ClutterActor *stage = meta_backend_get_stage (backend);
++  CoglFramebuffer *onscreen = clutter_stage_view_get_onscreen (view);
++  PaintData data = { .view = view };
++  uint8_t *pixels;
++  gulong handler_id;
++
++  handler_id = g_signal_connect (stage, "after-paint",
++                                 G_CALLBACK (on_after_paint), &data);
++  clutter_stage_view_add_redraw_clip (view, NULL);
++  clutter_stage_view_schedule_update (view);
++  while (!data.painted)
++    g_main_context_iteration (NULL, TRUE);
++  g_signal_handler_disconnect (stage, handler_id);
++
++  *width = cogl_framebuffer_get_width (onscreen);
++  *height = cogl_framebuffer_get_height (onscreen);
++  pixels = g_malloc0 ((size_t) *width * *height * 4);
++  g_assert_true (cogl_framebuffer_read_pixels (onscreen, 0, 0,
++                                               *width, *height,
++                                               COGL_PIXEL_FORMAT_RGBA_8888,
++                                               pixels));
++  return pixels;
++}
++
++static void
++write_png (const char    *path,
++           const uint8_t *pixels,
++           int            width,
++           int            height)
++{
++  cairo_surface_t *surface;
++  uint8_t *data;
++  int stride, x, y;
++
++  surface = cairo_image_surface_create (CAIRO_FORMAT_RGB24, width, height);
++  data = cairo_image_surface_get_data (surface);
++  stride = cairo_image_surface_get_stride (surface);
++  for (y = 0; y < height; y++)
++    {
++      for (x = 0; x < width; x++)
++        {
++          const uint8_t *src = &pixels[(y * width + x) * 4];
++          uint32_t *dst = (uint32_t *) (data + y * stride) + x;
++
++          *dst = 0xff000000u | (src[0] << 16) | (src[1] << 8) | src[2];
++        }
++    }
++  cairo_surface_mark_dirty (surface);
++  g_assert_cmpint (cairo_surface_write_to_png (surface, path), ==,
++                   CAIRO_STATUS_SUCCESS);
++  cairo_surface_destroy (surface);
++}
++
++MetaGammaTestResult
++meta_gamma_test_check_view (MetaBackend        *backend,
++                            const MetaGammaLut *lut,
++                            const char         *name)
++{
++  ClutterStageView *view = meta_gamma_test_get_view (backend);
++  MetaGammaTestResult result = { 0 };
++  const char *dump_dir = g_getenv ("MUTTER_GAMMA_TEST_DUMP_DIR");
++  g_autofree uint8_t *pixels = NULL;
++  g_autoptr (GString) table = NULL;
++  int width, height, column_width, band_height;
++  int band, v, c;
++
++  pixels = read_onscreen (backend, view, &width, &height);
++  column_width = width / N_LEVELS;
++  band_height = height / META_GAMMA_TEST_N_BANDS;
++
++  if (dump_dir)
++    table = g_string_new ("# band input_rgb expected_rgb readback_rgb\n");
++
++  for (band = 0; band < META_GAMMA_TEST_N_BANDS; band++)
++    {
++      for (v = 0; v < N_LEVELS; v++)
++        {
++          /* Sample the middle of the column and of the band. */
++          int x = v * column_width + column_width / 2;
++          int y = band * band_height + band_height / 2;
++          const uint8_t *pixel = &pixels[(y * width + x) * 4];
++          uint8_t input[3], expected[3];
++          gboolean mismatched = FALSE;
++
++          pattern_input (band, v, input);
++          for (c = 0; c < 3; c++)
++            {
++              int diff;
++
++              expected[c] = expected_value (lut, c, input[c]);
++              diff = abs ((int) pixel[c] - (int) expected[c]);
++              result.max_diff = MAX (result.max_diff, diff);
++              if (diff)
++                mismatched = TRUE;
++            }
++
++          result.n_pixels++;
++          if (mismatched)
++            result.n_mismatched++;
++
++          if (table)
++            {
++              g_string_append_printf (table,
++                                      "%d %3d,%3d,%3d %3d,%3d,%3d %3d,%3d,%3d%s\n",
++                                      band,
++                                      input[0], input[1], input[2],
++                                      expected[0], expected[1], expected[2],
++                                      pixel[0], pixel[1], pixel[2],
++                                      mismatched ? " MISMATCH" : "");
++            }
++        }
++    }
++
++  g_test_message ("%s: %d/%d samples exact, max diff %d (%s)",
++                  name, result.n_pixels - result.n_mismatched,
++                  result.n_pixels, result.max_diff,
++                  lut ? "ramp" : "identity");
++
++  if (dump_dir)
++    {
++      g_autofree char *png_path = NULL;
++      g_autofree char *txt_path = NULL;
++      g_autofree char *base = NULL;
++
++      g_mkdir_with_parents (dump_dir, 0755);
++      base = g_build_filename (dump_dir, name, NULL);
++      png_path = g_strdup_printf ("%s.png", base);
++      txt_path = g_strdup_printf ("%s.txt", base);
++      write_png (png_path, pixels, width, height);
++      g_string_append_printf (table,
++                              "# %s: %d/%d samples exact, max diff %d\n",
++                              name, result.n_pixels - result.n_mismatched,
++                              result.n_pixels, result.max_diff);
++      g_assert_true (g_file_set_contents (txt_path, table->str, -1, NULL));
++    }
++
++  return result;
++}
++
++void
++meta_gamma_test_assert_view (MetaBackend        *backend,
++                             const MetaGammaLut *lut,
++                             const char         *name)
++{
++  MetaGammaTestResult result;
++
++  result = meta_gamma_test_check_view (backend, lut, name);
++  g_assert_cmpint (result.n_pixels, ==, 256 * META_GAMMA_TEST_N_BANDS);
++  g_assert_cmpint (result.n_mismatched, ==, 0);
++}
+diff --git a/src/tests/meta-gamma-test-utils.h b/src/tests/meta-gamma-test-utils.h
+new file mode 100644
+index 0000000..f19b9fd
+--- /dev/null
++++ b/src/tests/meta-gamma-test-utils.h
+@@ -0,0 +1,57 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#pragma once
++
++#include <glib.h>
++
++#include "backends/meta-backend-types.h"
++#include "clutter/clutter/clutter.h"
++#include "meta/common.h"
++
++/* Bands of 256 columns, each column one 8 bit input level:
++ * gray (v, v, v), red (v, 0, 0), green (0, v, 0), blue (0, 0, v) and a
++ * mixed band (v, 255 - v, 3v mod 256). */
++#define META_GAMMA_TEST_N_BANDS 5
++
++typedef struct _MetaGammaTestResult
++{
++  int n_pixels;
++  int n_mismatched;
++  int max_diff;
++} MetaGammaTestResult;
++
++META_EXPORT
++ClutterActor * meta_gamma_test_add_pattern (MetaBackend *backend);
++
++META_EXPORT
++ClutterStageView * meta_gamma_test_get_view (MetaBackend *backend);
++
++/* Repaints @view completely and compares what reached its onscreen
++ * framebuffer with the pattern mapped through @lut (or unchanged, if @lut
++ * is %NULL), using the interpolation a KMS gamma LUT uses. With
++ * MUTTER_GAMMA_TEST_DUMP_DIR set, also writes <name>.png and <name>.txt
++ * (one line per input level and band: input, expected, read back). */
++META_EXPORT
++MetaGammaTestResult meta_gamma_test_check_view (MetaBackend        *backend,
++                                                const MetaGammaLut *lut,
++                                                const char         *name);
++
++META_EXPORT
++void meta_gamma_test_assert_view (MetaBackend        *backend,
++                                  const MetaGammaLut *lut,
++                                  const char         *name);
+diff --git a/src/tests/wayland-gamma-control-tests.c b/src/tests/wayland-gamma-control-tests.c
+index 67b6bef..d017342 100644
+--- a/src/tests/wayland-gamma-control-tests.c
++++ b/src/tests/wayland-gamma-control-tests.c
+@@ -19,12 +19,14 @@
+ 
+ #include "backends/meta-color-device.h"
+ #include "backends/meta-color-manager-private.h"
++#include "backends/meta-color-profile.h"
+ #include "backends/meta-crtc.h"
+ #include "backends/meta-monitor-manager-private.h"
+ #include "backends/meta-monitor-private.h"
+ #include "backends/meta-output.h"
+ #include "meta-test/meta-context-test.h"
+ #include "tests/meta-crtc-test.h"
++#include "tests/meta-gamma-test-utils.h"
+ #include "tests/meta-monitor-manager-test.h"
+ #include "tests/meta-monitor-test-utils.h"
+ #include "tests/meta-wayland-test-driver.h"
+@@ -167,6 +169,88 @@ create_client_ramp (int seed)
+   return lut;
+ }
+ 
++/* Must match curve_value() in wayland-test-clients/gamma-control.c */
++static MetaGammaLut *
++create_curve_ramp (void)
++{
++  MetaGammaLut *lut = meta_gamma_lut_new_sized (GAMMA_SIZE);
++  int64_t n = GAMMA_SIZE - 1;
++  int i;
++
++  for (i = 0; i < GAMMA_SIZE; i++)
++    {
++      int64_t j = n - i;
++
++      lut->red[i] = (uint16_t) ((i * (int64_t) i * 65535) / (n * n));
++      lut->green[i] = (uint16_t) (65535 - (j * j * 65535) / (n * n));
++      lut->blue[i] = (uint16_t) (6554 + (i * (int64_t) 45874) / n);
++    }
++
++  return lut;
++}
++
++/* White point of linear_value() in wayland-test-clients/gamma-control.c */
++#define LINEAR_RED 65535
++#define LINEAR_GREEN 54297
++#define LINEAR_BLUE 42479
++
++static MetaBackend *
++get_backend (void)
++{
++  return meta_context_get_backend (test_context);
++}
++
++static const MetaGammaLut *
++get_shader_lut (void)
++{
++  return meta_color_device_get_shader_gamma_lut (get_color_device ());
++}
++
++static void
++assert_shader_lut_equals (const MetaGammaLut *expected)
++{
++  const MetaGammaLut *lut = get_shader_lut ();
++
++  g_assert_nonnull (lut);
++  g_assert_cmpuint (lut->size, ==, expected->size);
++  g_assert_true (meta_gamma_lut_equal (lut, expected));
++  g_assert_true (clutter_stage_view_has_gamma_lut (
++    meta_gamma_test_get_view (get_backend ())));
++}
++
++static void
++assert_no_shader_lut (void)
++{
++  g_assert_null (get_shader_lut ());
++  g_assert_false (clutter_stage_view_has_gamma_lut (
++    meta_gamma_test_get_view (get_backend ())));
++}
++
++/* The CTM was never programmed, or is back to identity. */
++static void
++assert_crtc_ctm_identity (void)
++{
++  MetaCrtcTest *crtc_test = META_CRTC_TEST (get_crtc ());
++  g_autoptr (MetaCtm) identity = NULL;
++
++  if (!crtc_test->ctm)
++    return;
++
++  identity = meta_ctm_new_from_rgb_scales (1.0f, 1.0f, 1.0f);
++  g_assert_cmpmem (crtc_test->ctm->matrix, sizeof (crtc_test->ctm->matrix),
++                   identity->matrix, sizeof (identity->matrix));
++}
++
++static MetaGammaLut *
++generate_night_light_lut (unsigned int temperature)
++{
++  MetaColorDevice *color_device = get_color_device ();
++
++  return meta_color_profile_generate_gamma_lut (
++    meta_color_device_get_assigned_profile (color_device),
++    temperature, GAMMA_SIZE);
++}
++
+ static void
+ assert_crtc_lut_equals (const MetaGammaLut *expected)
+ {
+@@ -207,16 +291,6 @@ assert_crtc_ctm_scales (float red,
+                    expected->matrix, sizeof (expected->matrix));
+ }
+ 
+-static void
+-assert_crtc_ctm_ramp (int seed)
+-{
+-  g_autoptr (MetaGammaLut) ramp = create_client_ramp (seed);
+-
+-  assert_crtc_ctm_scales (ramp->red[GAMMA_SIZE - 1] / (float) UINT16_MAX,
+-                          ramp->green[GAMMA_SIZE - 1] / (float) UINT16_MAX,
+-                          ramp->blue[GAMMA_SIZE - 1] / (float) UINT16_MAX);
+-}
+-
+ static void
+ setup_monitor_full (gboolean disable_gamma_lut,
+                     gboolean enable_ctm)
+@@ -400,20 +474,149 @@ gamma_control_bad_size (void)
+ }
+ 
+ static void
+-gamma_control_no_gamma (void)
++gamma_control_shader (void)
+ {
+   MetaWaylandTestClient *client;
++  g_autoptr (MetaGammaLut) ramp0 = create_client_ramp (0);
++  g_autoptr (MetaGammaLut) ramp7 = create_client_ramp (7);
+ 
+-  setup_monitor (TRUE);
++  /* Neither a gamma LUT nor a CTM (like the T8132 display controller):
++   * the ramp is applied by the compositor's final blit. */
++  setup_monitor_full (TRUE, FALSE);
+   g_assert_cmpuint (meta_monitor_get_gamma_lut_size (get_monitor ()), ==, 0);
++  g_assert_false (meta_monitor_is_ctm_supported (get_monitor ()));
++  assert_no_shader_lut ();
+ 
+   client = meta_wayland_test_client_new_with_args (test_context,
+                                                    "gamma-control",
+-                                                   "no-gamma",
++                                                   "basic",
+                                                    NULL);
+-  meta_wayland_test_client_finish (client);
++  wait_for_client (0);
++  assert_shader_lut_equals (ramp0);
++  g_assert_true (meta_color_device_has_gamma_override (get_color_device ()));
++  release (0);
+ 
++  wait_for_client (1);
++  assert_shader_lut_equals (ramp7);
++  release (1);
++
++  wait_for_client (2);
++  assert_no_shader_lut ();
+   g_assert_false (meta_color_device_has_gamma_override (get_color_device ()));
++  release (2);
++
++  meta_wayland_test_client_finish (client);
++}
++
++static void
++check_curve_readback (gboolean    enable_ctm,
++                      const char *prefix)
++{
++  MetaBackend *backend = get_backend ();
++  MetaWaylandTestClient *client;
++  g_autoptr (MetaGammaLut) curve = create_curve_ramp ();
++  g_autofree char *baseline = g_strdup_printf ("%s-baseline", prefix);
++  g_autofree char *applied = g_strdup_printf ("%s-curve", prefix);
++  g_autofree char *restored = g_strdup_printf ("%s-restored", prefix);
++  ClutterActor *pattern;
++
++  setup_monitor_full (TRUE, enable_ctm);
++  pattern = meta_gamma_test_add_pattern (backend);
++
++  /* Without a ramp, nothing changes on the default path: no blit, and the
++   * pixels are the ones painted. */
++  assert_no_shader_lut ();
++  meta_gamma_test_assert_view (backend, NULL, baseline);
++
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "gamma-control",
++                                                   "curve",
++                                                   NULL);
++  wait_for_client (0);
++  assert_shader_lut_equals (curve);
++  assert_crtc_ctm_identity ();
++  meta_gamma_test_assert_view (backend, curve, applied);
++  release (0);
++
++  wait_for_client (1);
++  release (1);
++
++  wait_for_client (2);
++  assert_no_shader_lut ();
++  assert_crtc_ctm_identity ();
++  meta_gamma_test_assert_view (backend, NULL, restored);
++  release (2);
++
++  meta_wayland_test_client_finish (client);
++  clutter_actor_destroy (pattern);
++}
++
++static void
++gamma_control_shader_readback (void)
++{
++  check_curve_readback (FALSE, "no-ctm");
++}
++
++static void
++gamma_control_ctm_curve_readback (void)
++{
++  /* A CTM cannot represent a curve: the compositor applies it, exactly. */
++  check_curve_readback (TRUE, "ctm-only");
++}
++
++static void
++gamma_control_shader_night_light (void)
++{
++  MetaBackend *backend = get_backend ();
++  MetaWaylandTestClient *client;
++  g_autoptr (MetaGammaLut) curve = create_curve_ramp ();
++  g_autoptr (MetaGammaLut) night_light_3305 = NULL;
++  g_autoptr (MetaGammaLut) night_light_4000 = NULL;
++  ClutterActor *pattern;
++
++  /* Night light on a panel with neither a gamma LUT nor a CTM. */
++  setup_monitor_full (TRUE, FALSE);
++  pattern = meta_gamma_test_add_pattern (backend);
++  assert_no_shader_lut ();
++  meta_gamma_test_assert_view (backend, NULL, "night-light-6500-off");
++
++  set_night_light_temperature (3305);
++  night_light_3305 = generate_night_light_lut (3305);
++  assert_shader_lut_equals (night_light_3305);
++  meta_gamma_test_assert_view (backend, night_light_3305,
++                               "night-light-3305");
++
++  /* A client ramp replaces night light while it is set. */
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "gamma-control",
++                                                   "curve",
++                                                   NULL);
++  wait_for_client (0);
++  assert_shader_lut_equals (curve);
++  meta_gamma_test_assert_view (backend, curve, "night-light-client-curve");
++  release (0);
++
++  wait_for_client (1);
++  set_night_light_temperature (4000);
++  assert_shader_lut_equals (curve);
++  release (1);
++
++  /* The client let go: night light is back, at its new temperature. */
++  wait_for_client (2);
++  night_light_4000 = generate_night_light_lut (4000);
++  assert_shader_lut_equals (night_light_4000);
++  meta_gamma_test_assert_view (backend, night_light_4000,
++                               "night-light-4000");
++  release (2);
++
++  meta_wayland_test_client_finish (client);
++
++  /* Back at the default temperature the blit goes away again. */
++  set_night_light_temperature (6500);
++  assert_no_shader_lut ();
++  meta_gamma_test_assert_view (backend, NULL, "night-light-6500-restored");
++
++  clutter_actor_destroy (pattern);
+ }
+ 
+ static void
+@@ -495,8 +698,12 @@ gamma_control_ctm (void)
+ {
+   MetaWaylandTestClient *client;
+ 
+-  /* No gamma LUT, only a CTM: the client still gets a 256 entry ramp, and
+-   * its white point is programmed as the CTM. */
++  g_autoptr (MetaGammaLut) ramp0 = create_client_ramp (0);
++  g_autoptr (MetaGammaLut) ramp7 = create_client_ramp (7);
++
++  /* No gamma LUT, only a CTM. The test ramps are not a per channel scale
++   * (blue falls), so the CTM cannot represent them; the compositor
++   * applies them and the CTM stays identity. */
+   setup_monitor_full (TRUE, TRUE);
+   g_assert_cmpuint (meta_monitor_get_gamma_lut_size (get_monitor ()), ==, 0);
+ 
+@@ -505,27 +712,62 @@ gamma_control_ctm (void)
+                                                    "basic",
+                                                    NULL);
+   wait_for_client (0);
+-  assert_crtc_ctm_ramp (0);
++  assert_shader_lut_equals (ramp0);
++  assert_crtc_ctm_identity ();
+   g_assert_true (meta_color_device_has_gamma_override (get_color_device ()));
+   release (0);
+ 
+   wait_for_client (1);
+-  assert_crtc_ctm_ramp (7);
++  assert_shader_lut_equals (ramp7);
++  assert_crtc_ctm_identity ();
+   release (1);
+ 
+   wait_for_client (2);
+-  assert_crtc_ctm_scales (1.0f, 1.0f, 1.0f);
++  assert_no_shader_lut ();
++  assert_crtc_ctm_identity ();
+   g_assert_false (meta_color_device_has_gamma_override (get_color_device ()));
+   release (2);
+ 
+   meta_wayland_test_client_finish (client);
+ }
+ 
++static void
++gamma_control_ctm_linear (void)
++{
++  MetaWaylandTestClient *client;
++
++  /* A per channel scale (temperature, brightness) is exactly a diagonal
++   * CTM: no blit. */
++  setup_monitor_full (TRUE, TRUE);
++
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "gamma-control",
++                                                   "linear",
++                                                   NULL);
++  wait_for_client (0);
++  assert_crtc_ctm_scales (LINEAR_RED / (float) UINT16_MAX,
++                          LINEAR_GREEN / (float) UINT16_MAX,
++                          LINEAR_BLUE / (float) UINT16_MAX);
++  assert_no_shader_lut ();
++  release (0);
++
++  wait_for_client (1);
++  release (1);
++
++  wait_for_client (2);
++  assert_crtc_ctm_scales (1.0f, 1.0f, 1.0f);
++  assert_no_shader_lut ();
++  release (2);
++
++  meta_wayland_test_client_finish (client);
++}
++
+ static void
+ gamma_control_ctm_night_light (void)
+ {
+   MetaWaylandTestClient *client;
+   g_autoptr (MetaCtm) night_light = NULL;
++  g_autoptr (MetaGammaLut) ramp0 = create_client_ramp (0);
+   MetaCrtcTest *crtc_test;
+ 
+   setup_monitor_full (TRUE, TRUE);
+@@ -542,18 +784,21 @@ gamma_control_ctm_night_light (void)
+                                                    "night-light",
+                                                    NULL);
+   wait_for_client (0);
+-  assert_crtc_ctm_ramp (0);
++  assert_shader_lut_equals (ramp0);
++  assert_crtc_ctm_identity ();
+   release (0);
+ 
+   wait_for_client (1);
+   set_night_light_temperature (3305);
+-  assert_crtc_ctm_ramp (0);
++  assert_shader_lut_equals (ramp0);
++  assert_crtc_ctm_identity ();
+   release (1);
+ 
+   wait_for_client (2);
+   crtc_test = META_CRTC_TEST (get_crtc ());
+   g_assert_cmpmem (crtc_test->ctm->matrix, sizeof (crtc_test->ctm->matrix),
+                    night_light->matrix, sizeof (night_light->matrix));
++  assert_no_shader_lut ();
+   release (2);
+ 
+   meta_wayland_test_client_finish (client);
+@@ -592,8 +837,8 @@ init_tests (void)
+                    gamma_control_supersede);
+   g_test_add_func ("/wayland/gamma-control/bad-size",
+                    gamma_control_bad_size);
+-  g_test_add_func ("/wayland/gamma-control/no-gamma",
+-                   gamma_control_no_gamma);
++  g_test_add_func ("/wayland/gamma-control/shader",
++                   gamma_control_shader);
+   g_test_add_func ("/wayland/gamma-control/output-removed",
+                    gamma_control_output_removed);
+   g_test_add_func ("/wayland/gamma-control/night-light",
+@@ -602,6 +847,14 @@ init_tests (void)
+                    gamma_control_ctm);
+   g_test_add_func ("/wayland/gamma-control/ctm-night-light",
+                    gamma_control_ctm_night_light);
++  g_test_add_func ("/wayland/gamma-control/ctm-linear",
++                   gamma_control_ctm_linear);
++  g_test_add_func ("/wayland/gamma-control/shader-readback",
++                   gamma_control_shader_readback);
++  g_test_add_func ("/wayland/gamma-control/ctm-curve-readback",
++                   gamma_control_ctm_curve_readback);
++  g_test_add_func ("/wayland/gamma-control/shader-night-light",
++                   gamma_control_shader_night_light);
+ }
+ 
+ int
+diff --git a/src/tests/wayland-test-clients/gamma-control.c b/src/tests/wayland-test-clients/gamma-control.c
+index b83075c..490342d 100644
+--- a/src/tests/wayland-test-clients/gamma-control.c
++++ b/src/tests/wayland-test-clients/gamma-control.c
+@@ -131,6 +131,61 @@ ramp_value (int channel,
+     }
+ }
+ 
++/* Must match create_curve_ramp() and create_linear_ramp() in
++ * wayland-gamma-control-tests.c. A curved ramp (power 2 red, inverse
++ * power 2 green, offset blue) and a pure per channel scale. */
++static uint16_t
++curve_value (int channel,
++             int i,
++             int size)
++{
++  int64_t n = size - 1;
++  int64_t j = n - i;
++
++  switch (channel)
++    {
++    case 0:
++      return (uint16_t) ((i * (int64_t) i * 65535) / (n * n));
++    case 1:
++      return (uint16_t) (65535 - (j * j * 65535) / (n * n));
++    default:
++      return (uint16_t) (6554 + (i * (int64_t) 45874) / n);
++    }
++}
++
++static uint16_t
++linear_value (int channel,
++              int i,
++              int size)
++{
++  static const int64_t white[] = { 65535, 54297, 42479 };
++
++  return (uint16_t) ((i * white[channel] + (size - 1) / 2) / (size - 1));
++}
++
++static int
++create_table_fd (uint32_t   size,
++                 uint16_t (*value) (int channel, int i, int size))
++{
++  g_autofree uint16_t *table = NULL;
++  size_t table_size = size * 3 * sizeof (uint16_t);
++  uint32_t i;
++  int c;
++  int fd;
++
++  table = g_malloc0 (table_size);
++  for (c = 0; c < 3; c++)
++    {
++      for (i = 0; i < size; i++)
++        table[c * size + i] = value (c, (int) i, (int) size);
++    }
++
++  fd = create_anonymous_file (table_size);
++  g_assert_cmpint (fd, >=, 0);
++  g_assert_cmpint (write (fd, table, table_size), ==, (ssize_t) table_size);
++  return fd;
++}
++
+ static int
+ create_ramp_fd (uint32_t size,
+                 int      seed,
+@@ -283,17 +338,29 @@ test_bad_size (WaylandDisplay *display)
+ }
+ 
+ static void
+-test_no_gamma (WaylandDisplay *display)
++test_table (WaylandDisplay *display,
++            uint16_t      (*value) (int channel, int i, int size))
+ {
+   GammaControl *gamma_control;
++  int fd;
+ 
+   gamma_control = gamma_control_new (display);
+   wl_display_roundtrip (display->display);
+-  g_assert_true (gamma_control->failed);
+-  g_assert_cmpuint (gamma_control->gamma_size, ==, 0);
++  g_assert_false (gamma_control->failed);
++  g_assert_cmpuint (gamma_control->gamma_size, ==, EXPECTED_GAMMA_SIZE);
++
++  fd = create_table_fd (gamma_control->gamma_size, value);
++  zwlr_gamma_control_v1_set_gamma (gamma_control->control, fd);
++  close (fd);
++  sync_point (display, 0);
++  g_assert_false (gamma_control->failed);
++
++  /* The compositor may change the night light temperature here. */
++  sync_point (display, 1);
++  g_assert_false (gamma_control->failed);
+ 
+   gamma_control_free (gamma_control);
+-  wl_display_roundtrip (display->display);
++  sync_point (display, 2);
+ }
+ 
+ static void
+@@ -369,8 +436,10 @@ main (int    argc,
+     test_supersede (display);
+   else if (g_strcmp0 (argv[1], "bad-size") == 0)
+     test_bad_size (display);
+-  else if (g_strcmp0 (argv[1], "no-gamma") == 0)
+-    test_no_gamma (display);
++  else if (g_strcmp0 (argv[1], "curve") == 0)
++    test_table (display, curve_value);
++  else if (g_strcmp0 (argv[1], "linear") == 0)
++    test_table (display, linear_value);
+   else if (g_strcmp0 (argv[1], "output-removed") == 0)
+     test_output_removed (display);
+   else if (g_strcmp0 (argv[1], "night-light") == 0)

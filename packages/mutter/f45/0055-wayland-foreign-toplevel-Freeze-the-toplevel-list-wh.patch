@@ -1,0 +1,394 @@
+From d23603fafde9ea17b17d19ae3ce32689d0d2c3c2 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 08:52:07 +1100
+Subject: [PATCH 55/57] wayland/foreign-toplevel: Freeze the toplevel list
+ while the session is locked
+
+A task bar or any other wlr-foreign-toplevel-management client kept
+getting the windows mapped behind a session lock, their title changes
+(a chat or mail title, a browser tab) and closes, a client binding the
+manager while locked got the whole list, and activate, close and
+(un)minimize requests acted on the hidden windows.
+
+Add meta_wayland_foreign_toplevel_set_session_locked(). While locked,
+nothing is sent: clients keep the handles and properties they had
+before the lock, a manager bound while locked is told about no
+toplevel, handles of windows that go away become inert without a
+closed event yet, and requests are ignored. On unlock the state is
+brought up to date in one batch: parent resets, closes, the toplevels
+of the managers bound while locked, new and withdrawn toplevels, then
+the property changes.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/wayland/meta-wayland-foreign-toplevel.c | 211 ++++++++++++++++++--
+ src/wayland/meta-wayland-foreign-toplevel.h |   5 +
+ 2 files changed, 199 insertions(+), 17 deletions(-)
+
+diff --git a/src/wayland/meta-wayland-foreign-toplevel.c b/src/wayland/meta-wayland-foreign-toplevel.c
+index ce9bc67..3033a43 100644
+--- a/src/wayland/meta-wayland-foreign-toplevel.c
++++ b/src/wayland/meta-wayland-foreign-toplevel.c
+@@ -36,6 +36,15 @@
+  * Requests map onto the usual MetaWindow operations (activate, delete,
+  * (un)maximize, (un)minimize, (un)make_fullscreen); set_rectangle sets the
+  * window's icon geometry, which is what minimize animations use.
++ *
++ * While an ext-session-lock-v1 lock holds the session the list is frozen,
++ * so it tells nothing about what happens behind the lock: clients keep the
++ * handles and properties they had before the lock, windows mapped while
++ * locked are not announced, changes and closes are not sent, a manager
++ * bound while locked gets no toplevels, and requests are ignored. On
++ * unlock the state is brought up to date in one batch (parent resets,
++ * closes, the toplevels of managers bound while locked, new toplevels,
++ * then the changes).
+  */
+ 
+ #include "config.h"
+@@ -69,6 +78,13 @@ typedef struct _MetaWaylandForeignToplevelManager
+ 
+   guint flush_idle_id;
+ 
++  /* The session is locked: nothing is sent, requests are ignored. */
++  gboolean frozen;
++  /* Manager resources bound while frozen, not told about any toplevel. */
++  GList *unannounced_resources;
++  /* MetaForeignToplevelHandle withdrawn while frozen, closed not sent. */
++  GList *pending_closed;
++
+   MetaDisplay *display;
+   gulong started_handler_id;
+   gulong window_created_handler_id;
+@@ -87,6 +103,8 @@ struct _MetaForeignToplevel
+   gboolean shown;
+   gboolean advertised;
+   gboolean dirty;
++  /* The parent was withdrawn while frozen; parent (NULL) not sent. */
++  gboolean parent_reset_pending;
+ 
+   /* What was last sent to the handles. */
+   char *title;
+@@ -99,12 +117,15 @@ struct _MetaForeignToplevel
+ 
+ typedef struct _MetaForeignToplevelHandle
+ {
++  MetaWaylandForeignToplevelManager *manager;
+   struct wl_resource *resource;
+   /* The manager resource the handle was announced on, NULL once that is
+    * destroyed. Used to find the matching parent handle. */
+   struct wl_resource *manager_resource;
+   /* NULL once the toplevel is closed; the handle is inert then. */
+   MetaForeignToplevel *toplevel;
++  /* Closed while frozen, closed not sent yet. */
++  gboolean closed_pending;
+ } MetaForeignToplevelHandle;
+ 
+ #define STATE_MAXIMIZED (1 << ZWLR_FOREIGN_TOPLEVEL_HANDLE_V1_STATE_MAXIMIZED)
+@@ -128,7 +149,7 @@ window_from_handle_resource (struct wl_resource *resource)
+ {
+   MetaForeignToplevelHandle *handle = wl_resource_get_user_data (resource);
+ 
+-  if (!handle || !handle->toplevel)
++  if (!handle || !handle->toplevel || handle->manager->frozen)
+     return NULL;
+ 
+   return handle->toplevel->window;
+@@ -352,6 +373,9 @@ handle_resource_destroyed (struct wl_resource *resource)
+   if (handle->toplevel)
+     handle->toplevel->handles = g_list_remove (handle->toplevel->handles,
+                                                handle);
++  if (handle->closed_pending)
++    handle->manager->pending_closed =
++      g_list_remove (handle->manager->pending_closed, handle);
+   g_free (handle);
+ }
+ 
+@@ -596,6 +620,9 @@ foreign_toplevel_output_bound (MetaWaylandOutput   *wayland_output,
+   struct wl_client *client = wl_resource_get_client (output_resource);
+   GList *l;
+ 
++  if (toplevel->manager->frozen)
++    return;
++
+   for (l = toplevel->handles; l; l = l->next)
+     {
+       MetaForeignToplevelHandle *handle = l->data;
+@@ -667,6 +694,7 @@ create_handle (MetaForeignToplevel *toplevel,
+     }
+ 
+   handle = g_new0 (MetaForeignToplevelHandle, 1);
++  handle->manager = toplevel->manager;
+   handle->resource = resource;
+   handle->manager_resource = manager_resource;
+   handle->toplevel = toplevel;
+@@ -730,6 +758,35 @@ withdraw_toplevel (MetaForeignToplevel *toplevel)
+   toplevel->advertised = FALSE;
+   toplevel->dirty = FALSE;
+ 
++  if (manager->frozen)
++    {
++      /* The handles go inert now, the events are sent on unlock. */
++      for (l = manager->toplevel_list; l; l = l->next)
++        {
++          MetaForeignToplevel *other = l->data;
++
++          if (other->parent != toplevel)
++            continue;
++
++          other->parent = NULL;
++          if (other->handles)
++            other->parent_reset_pending = TRUE;
++        }
++
++      for (l = toplevel->handles; l; l = l->next)
++        {
++          MetaForeignToplevelHandle *handle = l->data;
++
++          handle->toplevel = NULL;
++          handle->closed_pending = TRUE;
++          manager->pending_closed = g_list_append (manager->pending_closed,
++                                                   handle);
++        }
++      g_clear_pointer (&toplevel->handles, g_list_free);
++      clear_outputs (toplevel);
++      return;
++    }
++
+   /* Children lose their parent before it is closed. */
+   for (l = manager->toplevel_list; l; l = l->next)
+     {
+@@ -865,6 +922,9 @@ flush_dirty (MetaWaylandForeignToplevelManager *manager)
+ 
+   g_clear_handle_id (&manager->flush_idle_id, g_source_remove);
+ 
++  if (manager->frozen)
++    return;
++
+   for (l = manager->toplevel_list; l; l = l->next)
+     {
+       MetaForeignToplevel *toplevel = l->data;
+@@ -888,7 +948,7 @@ flush_idle (gpointer user_data)
+ static void
+ schedule_flush (MetaWaylandForeignToplevelManager *manager)
+ {
+-  if (manager->flush_idle_id)
++  if (manager->flush_idle_id || manager->frozen)
+     return;
+ 
+   manager->flush_idle_id = g_idle_add (flush_idle, manager);
+@@ -897,7 +957,13 @@ schedule_flush (MetaWaylandForeignToplevelManager *manager)
+ static void
+ update_toplevel (MetaForeignToplevel *toplevel)
+ {
+-  gboolean is_toplevel = is_foreign_toplevel (toplevel);
++  gboolean is_toplevel;
++
++  /* Looked at again on unlock. */
++  if (toplevel->manager->frozen)
++    return;
++
++  is_toplevel = is_foreign_toplevel (toplevel);
+ 
+   if (is_toplevel && !toplevel->advertised)
+     {
+@@ -1101,6 +1167,8 @@ manager_resource_destroyed (struct wl_resource *resource)
+ 
+   manager->manager_resources = g_list_remove (manager->manager_resources,
+                                               resource);
++  manager->unannounced_resources =
++    g_list_remove (manager->unannounced_resources, resource);
+ 
+   for (l = manager->toplevel_list; l; l = l->next)
+     {
+@@ -1118,25 +1186,13 @@ manager_resource_destroyed (struct wl_resource *resource)
+ }
+ 
+ static void
+-bind_foreign_toplevel_manager (struct wl_client *client,
+-                               void             *data,
+-                               uint32_t          version,
+-                               uint32_t          id)
++announce_toplevels (MetaWaylandForeignToplevelManager *manager,
++                    struct wl_resource                *resource)
+ {
+-  MetaWaylandForeignToplevelManager *manager = data;
+   g_autoptr (GPtrArray) handles = NULL;
+-  struct wl_resource *resource;
+   GList *l;
+   unsigned int i;
+ 
+-  resource = wl_resource_create (client,
+-                                 &zwlr_foreign_toplevel_manager_v1_interface,
+-                                 version, id);
+-  wl_resource_set_implementation (resource, &manager_interface, manager,
+-                                  manager_resource_destroyed);
+-  manager->manager_resources = g_list_prepend (manager->manager_resources,
+-                                               resource);
+-
+   /* Announce every toplevel first, so that parent events can refer to any
+    * of them, then finish each with its parent and done. */
+   handles = g_ptr_array_new ();
+@@ -1166,6 +1222,35 @@ bind_foreign_toplevel_manager (struct wl_client *client,
+     }
+ }
+ 
++static void
++bind_foreign_toplevel_manager (struct wl_client *client,
++                               void             *data,
++                               uint32_t          version,
++                               uint32_t          id)
++{
++  MetaWaylandForeignToplevelManager *manager = data;
++  struct wl_resource *resource;
++
++  resource = wl_resource_create (client,
++                                 &zwlr_foreign_toplevel_manager_v1_interface,
++                                 version, id);
++  wl_resource_set_implementation (resource, &manager_interface, manager,
++                                  manager_resource_destroyed);
++  manager->manager_resources = g_list_prepend (manager->manager_resources,
++                                               resource);
++
++  /* What runs behind the lock is not listed to a client that binds while
++   * the session is locked; it gets the list on unlock. */
++  if (manager->frozen)
++    {
++      manager->unannounced_resources =
++        g_list_prepend (manager->unannounced_resources, resource);
++      return;
++    }
++
++  announce_toplevels (manager, resource);
++}
++
+ static void
+ manager_free (MetaWaylandForeignToplevelManager *manager)
+ {
+@@ -1175,16 +1260,108 @@ manager_free (MetaWaylandForeignToplevelManager *manager)
+   MetaMonitorManager *monitor_manager =
+     meta_backend_get_monitor_manager (backend);
+ 
++  /* Shutting down: no longer frozen, handles closed while locked stay
++   * without their closed event. */
++  manager->frozen = FALSE;
++  while (manager->pending_closed)
++    {
++      MetaForeignToplevelHandle *handle = manager->pending_closed->data;
++
++      handle->closed_pending = FALSE;
++      manager->pending_closed = g_list_delete_link (manager->pending_closed,
++                                                    manager->pending_closed);
++    }
++
+   remove_all_toplevels (manager);
+   disconnect_display (manager);
+   g_clear_signal_handler (&manager->started_handler_id, context);
+   g_clear_signal_handler (&manager->monitors_changed_handler_id,
+                           monitor_manager);
+   g_clear_handle_id (&manager->flush_idle_id, g_source_remove);
++  g_clear_pointer (&manager->unannounced_resources, g_list_free);
+   g_hash_table_destroy (manager->toplevels);
+   g_free (manager);
+ }
+ 
++static void
++thaw (MetaWaylandForeignToplevelManager *manager)
++{
++  g_autoptr (GList) toplevels = NULL;
++  GList *l;
++
++  manager->frozen = FALSE;
++
++  /* Children of toplevels closed while locked lose their parent first. */
++  for (l = manager->toplevel_list; l; l = l->next)
++    {
++      MetaForeignToplevel *toplevel = l->data;
++      GList *h;
++
++      if (!toplevel->parent_reset_pending)
++        continue;
++
++      toplevel->parent_reset_pending = FALSE;
++      for (h = toplevel->handles; h; h = h->next)
++        {
++          MetaForeignToplevelHandle *handle = h->data;
++
++          send_parent (handle, NULL);
++          zwlr_foreign_toplevel_handle_v1_send_done (handle->resource);
++        }
++    }
++
++  while (manager->pending_closed)
++    {
++      MetaForeignToplevelHandle *handle = manager->pending_closed->data;
++
++      manager->pending_closed = g_list_delete_link (manager->pending_closed,
++                                                    manager->pending_closed);
++      handle->closed_pending = FALSE;
++      zwlr_foreign_toplevel_handle_v1_send_closed (handle->resource);
++    }
++
++  /* Managers bound while locked get the toplevels that were listed. */
++  while (manager->unannounced_resources)
++    {
++      struct wl_resource *resource = manager->unannounced_resources->data;
++
++      manager->unannounced_resources =
++        g_list_delete_link (manager->unannounced_resources,
++                            manager->unannounced_resources);
++      announce_toplevels (manager, resource);
++    }
++
++  /* Then everything that changed: new and withdrawn toplevels, and the
++   * properties of the others. */
++  toplevels = g_list_copy (manager->toplevel_list);
++  for (l = toplevels; l; l = l->next)
++    update_toplevel (l->data);
++  flush_dirty (manager);
++}
++
++void
++meta_wayland_foreign_toplevel_set_session_locked (MetaWaylandCompositor *compositor,
++                                                  gboolean               locked)
++{
++  MetaWaylandForeignToplevelManager *manager =
++    g_object_get_data (G_OBJECT (compositor),
++                       "-meta-wayland-foreign-toplevel-manager");
++
++  if (!manager || manager->frozen == locked)
++    return;
++
++  if (locked)
++    {
++      /* What changed before the lock still goes out. */
++      flush_dirty (manager);
++      manager->frozen = TRUE;
++    }
++  else
++    {
++      thaw (manager);
++    }
++}
++
+ void
+ meta_wayland_foreign_toplevel_init (MetaWaylandCompositor *compositor)
+ {
+diff --git a/src/wayland/meta-wayland-foreign-toplevel.h b/src/wayland/meta-wayland-foreign-toplevel.h
+index bc444dc..d670cce 100644
+--- a/src/wayland/meta-wayland-foreign-toplevel.h
++++ b/src/wayland/meta-wayland-foreign-toplevel.h
+@@ -17,6 +17,11 @@
+ 
+ #pragma once
+ 
++#include <glib.h>
++
+ #include "wayland/meta-wayland-types.h"
+ 
+ void meta_wayland_foreign_toplevel_init (MetaWaylandCompositor *compositor);
++
++void meta_wayland_foreign_toplevel_set_session_locked (MetaWaylandCompositor *compositor,
++                                                       gboolean               locked);
+-- 
+2.54.0
+

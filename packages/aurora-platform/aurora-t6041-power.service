@@ -1,0 +1,23 @@
+# Power defaults for the M4 Max (T6041), measured on a J616c. Every other
+# Mac skips this unit. To keep the kernel's defaults, mask it:
+#   systemctl mask aurora-t6041-power.service
+[Unit]
+Description=M4 Max (T6041) power defaults
+ConditionFirmware=device-tree-compatible(apple,t6041)
+DefaultDependencies=no
+After=systemd-sysctl.service
+Before=sysinit.target shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# PCIe ASPM with the L1.1 and L1.2 substates on every link: the root ports,
+# the BCM4388 Wi-Fi and Bluetooth, and the GL9755 SD reader. Both ends of
+# each link support the substates with LTR; the default policy leaves them
+# off.
+ExecStart=/bin/sh -c 'echo powersupersave > /sys/module/pcie_aspm/parameters/policy'
+# Realtime threads (the trackpad, keyboard, Wi-Fi and speaker amp threaded
+# IRQs, PipeWire's data loop) get no utilization floor, so they no longer run
+# their CPU at its top clock whenever they run. The kernel's default is 1024.
+ExecStart=/usr/sbin/sysctl -q -w kernel.sched_util_clamp_min_rt_default=0

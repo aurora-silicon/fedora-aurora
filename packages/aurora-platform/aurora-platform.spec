@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 39%{?dist}
+Release: 41%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -44,6 +44,8 @@ Source122: aurora-kdump.service.conf
 Source123: aurora-kdump-setup
 Source124: aurora-kdump-clock-module-setup.sh
 Source125: aurora-kdump-clock.sh
+Source126: 60-aurora-t6041-trackpad.quirks
+Source127: aurora-t6041-power.service
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -68,6 +70,8 @@ Requires: alsa-ucm-conf-aurora
 # 5.87 includes the upstream empty-TLV fix; retain real error reporting.
 Requires: bluez >= 5.87
 Requires: aurora-camera-denoise
+# The Wi-Fi firmware follows the installed macOS, as on macOS.
+Requires: aurora-wifi-firmware
 # The VA-API driver for the video decoder, so players and browsers that
 # use VA-API decode in hardware (images install it; this brings it to Macs
 # that update with dnf).
@@ -159,6 +163,12 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 install -Dm755 %{SOURCE115} %{buildroot}%{_libexecdir}/aurora/aurora-wake-for-network
 install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-network.rules
 install -Dm644 %{SOURCE120} %{buildroot}%{_udevrulesdir}/64-aurora-trackpad-clicks.rules
+install -Dm644 %{SOURCE126} %{buildroot}%{_datadir}/libinput/60-aurora-t6041-trackpad.quirks
+install -Dm644 %{SOURCE127} %{buildroot}%{_unitdir}/aurora-t6041-power.service
+# Wanted by sysinit.target itself: a preset would not reach Macs that
+# already have aurora-platform-core. ConditionFirmware skips other Macs.
+install -d %{buildroot}%{_unitdir}/sysinit.target.wants
+ln -s ../aurora-t6041-power.service %{buildroot}%{_unitdir}/sysinit.target.wants/aurora-t6041-power.service
 install -Dm644 %{SOURCE118} %{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 install -Dm644 %{SOURCE121} %{buildroot}%{_prefix}/lib/kdump/dracut.conf.d/99-zz-aurora.conf
 install -Dm644 %{SOURCE122} %{buildroot}%{_unitdir}/kdump.service.d/50-aurora-kdump.conf
@@ -172,14 +182,10 @@ install -Dm755 %{SOURCE125} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora
 # A grub.cfg whose only stale lines are partition UUID searches; see the script.
 %{_libexecdir}/aurora/aurora-grub-uuid || :
 %{_libexecdir}/aurora/aurora-ppd-config || :
-# On these chips MTE needs its tag storage reserved: aura marks that with
-# /chosen/aurora,mte-tag-storage. Without the mark MTE stays off.
-if tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -qxE 'apple,(t6050|t8142)'; then
-  if [ -e /proc/device-tree/chosen/aurora,mte-tag-storage ]; then
-    grubby --update-kernel=ALL --remove-args=arm64.nomte || :
-  elif ! grep -qE '(^|[[:space:]])arm64\.nomte([[:space:]]|$)' /etc/kernel/cmdline 2>/dev/null; then
-    grubby --update-kernel=ALL --args=arm64.nomte || :
-  fi
+# MTE stays off on chips whose tag storage no boot loader reserves yet.
+if tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -qxE 'apple,(t6050|t8142)' &&
+    ! grep -qE '(^|[[:space:]])arm64\.nomte([[:space:]]|$)' /etc/kernel/cmdline 2>/dev/null; then
+  grubby --update-kernel=ALL --args=arm64.nomte || :
 fi
 
 # Also cover tuned-ppd installed/upgraded without an aurora-platform update.
@@ -219,10 +225,13 @@ fi
 %{_unitdir}/var-swap-swapfile2.swap.d/
 %dir %{_unitdir}/irqbalance.service.d
 %{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf
+%{_unitdir}/aurora-t6041-power.service
+%{_unitdir}/sysinit.target.wants/aurora-t6041-power.service
 %{_udevrulesdir}/61-aurora-dmi-id.rules
 %{_udevrulesdir}/62-aurora-gpu-render-only.rules
 %{_udevrulesdir}/63-aurora-wake-for-network.rules
 %{_udevrulesdir}/64-aurora-trackpad-clicks.rules
+%{_datadir}/libinput/60-aurora-t6041-trackpad.quirks
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 %{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
@@ -247,11 +256,27 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
-* Thu Nov 12 2026 DjDeveloperr <hey@djdev.me> - 44-39
-- Let M5 (T8142) and M5 Pro/Max (T6050) Macs use MTE once aura reserves its
-  tag storage: when the device tree carries /chosen/aurora,mte-tag-storage,
-  aurora-platform-core removes arm64.nomte from every boot entry. Without
-  it, arm64.nomte is added as in 44-37.
+* Sun Nov 15 2026 AxxzyWasTaken <axxzytte@gmail.com> - 44-41
+- M4 Max (T6041) power defaults (aurora-t6041-power.service): PCIe ASPM
+  policy powersupersave, so the Wi-Fi/Bluetooth and SD reader links use the
+  L1.1 and L1.2 substates both ends support, and no utilization floor for
+  realtime threads (kernel.sched_util_clamp_min_rt_default=0), so threaded
+  IRQs and PipeWire no longer run their CPU at its top clock. The unit is
+  skipped on every other Mac. Measured on a J616c running Arch; not tested
+  on a J614c or on Fedora.
+
+* Sun Nov 15 2026 AxxzyWasTaken <axxzytte@gmail.com> - 44-40
+- Turn libinput's size-based palm detection off for the M4 Max MacBook Pro
+  trackpads (J614c, J616c; 60-aurora-t6041-trackpad.quirks). The kernel
+  reports their palms as MT_TOOL_PALM (linux#636), and a resting palm's
+  touch size (about 1060) is under the Apple MTP threshold of 1600, so the
+  threshold never caught it. Same as the J700 quirk. Tested on a J616c
+  running Arch; not on a J614c or on Fedora.
+
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-39
+- aurora-platform-core requires aurora-wifi-firmware: the ESP's Wi-Fi
+  firmware follows the installed macOS's, read from the macOS system volume
+  at boot and used from the next boot.
 
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-38
 - New opt-in subpackage aurora-platform-kdump: save Linux's own crashes

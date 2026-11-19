@@ -1,0 +1,1994 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 07:07:17 +1100
+Subject: [PATCH] wayland: Implement ext-session-lock-v1
+
+Let a lock client (swaylock, hyprlock, gtklock, ...) lock the session
+with ext_session_lock_manager_v1:
+
+- On lock, an opaque black actor covering the whole stage, with the
+  lock surfaces on top, is kept above every other stage child, so no
+  window, shell actor or drag icon is painted on any output; outputs
+  added while locked are covered from their first frame. Direct
+  scanout is inhibited so a fullscreen client cannot end up on a plane
+  above it.
+- locked is sent only once a frame painted with the blank has been
+  presented on every output (or the outputs are powered off).
+- Each lock surface is configured with its output's size, placed on
+  that output and reconfigured when the output changes; subsurfaces of
+  lock surfaces are shown with them. The commit_before_first_ack,
+  null_buffer, dimensions_mismatch, invalid_serial, role,
+  already_constructed, duplicate_output, invalid_destroy and
+  invalid_unlock errors are enforced.
+- A pinned Wayland event handler stays at the head of the handler list
+  while locked, focuses only lock surfaces of the lock client (keyboard
+  on the first lock surface, moved by clicking another one) and
+  delivers events to them directly, bypassing popup grabs and drags
+  that started before the lock. Lock surfaces have no window, so the
+  pointer accepts them as focus. events.c skips window management and
+  every keybinding but VT and keyboard layout switching.
+- If the lock client goes away without unlock_and_destroy the session
+  stays locked and blank, and a new lock client can lock it again and
+  unlock it. A second lock while one is held gets finished.
+- Flatpak-sandboxed clients are not offered the global.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/core/events.c                       |   20 +
+ src/core/keybindings-private.h          |    3 +
+ src/core/keybindings.c                  |   43 +
+ src/meson.build                         |    2 +
+ src/wayland/meta-wayland-input.c        |   30 +-
+ src/wayland/meta-wayland-input.h        |    4 +
+ src/wayland/meta-wayland-pointer.c      |    7 +-
+ src/wayland/meta-wayland-seat.c         |   19 +
+ src/wayland/meta-wayland-seat.h         |    7 +
+ src/wayland/meta-wayland-session-lock.c | 1553 +++++++++++++++++++++++
+ src/wayland/meta-wayland-session-lock.h |   36 +
+ src/wayland/meta-wayland-subsurface.c   |   11 +-
+ src/wayland/meta-wayland-versions.h     |    1 +
+ src/wayland/meta-wayland.c              |    2 +
+ 14 files changed, 1732 insertions(+), 6 deletions(-)
+ create mode 100644 src/wayland/meta-wayland-session-lock.c
+ create mode 100644 src/wayland/meta-wayland-session-lock.h
+
+diff --git a/src/core/events.c b/src/core/events.c
+index d043193..4789616 100644
+--- a/src/core/events.c
++++ b/src/core/events.c
+@@ -35,6 +35,7 @@
+ #include "core/window-private.h"
+ #include "meta/meta-backend.h"
+ #include "wayland/meta-wayland-private.h"
++#include "wayland/meta-wayland-session-lock.h"
+ 
+ #include "backends/native/meta-backend-native.h"
+ 
+@@ -186,6 +187,25 @@ meta_display_handle_event (MetaDisplay        *display,
+       meta_wayland_text_input_update (wayland_text_input, event))
+     return CLUTTER_EVENT_STOP;
+ 
++  /* While an ext-session-lock-v1 client holds the session, input goes to
++   * the lock surfaces only: no window management, focus changes or
++   * keybindings (except VT switching and layout switching).
++   */
++  if (wayland_compositor &&
++      meta_wayland_compositor_is_session_locked (wayland_compositor) &&
++      event_type != CLUTTER_DEVICE_ADDED &&
++      event_type != CLUTTER_DEVICE_REMOVED)
++    {
++      meta_wayland_compositor_update (wayland_compositor, event);
++      handle_idletime_for_event (display, event);
++
++      if (meta_keybindings_process_locked_event (display, event))
++        return CLUTTER_EVENT_STOP;
++
++      meta_wayland_compositor_handle_event (wayland_compositor, event);
++      return CLUTTER_EVENT_STOP;
++    }
++
+   if (event_type == CLUTTER_MOTION &&
+       !clutter_event_get_device_tool (event))
+     meta_display_handle_sticky_mouse_focus_event (display, event);
+diff --git a/src/core/keybindings-private.h b/src/core/keybindings-private.h
+index 560c47e..24c38a7 100644
+--- a/src/core/keybindings-private.h
++++ b/src/core/keybindings-private.h
+@@ -133,6 +133,9 @@ typedef struct
+ 
+ void     meta_display_init_keys             (MetaDisplay *display);
+ void     meta_display_shutdown_keys         (MetaDisplay *display);
++gboolean meta_keybindings_process_locked_event (MetaDisplay        *display,
++                                                const ClutterEvent *event);
++
+ gboolean meta_keybindings_process_event     (MetaDisplay        *display,
+                                              MetaWindow         *window,
+                                              const ClutterEvent *event);
+diff --git a/src/core/keybindings.c b/src/core/keybindings.c
+index aa0ff5d..21574d3 100644
+--- a/src/core/keybindings.c
++++ b/src/core/keybindings.c
+@@ -1672,6 +1672,49 @@ process_key_event (MetaDisplay     *display,
+   return process_event (display, window, event);
+ }
+ 
++static void handle_switch_vt (MetaDisplay        *display,
++                              MetaWindow         *window,
++                              const ClutterEvent *event,
++                              MetaKeyBinding     *binding,
++                              gpointer            user_data);
++
++/* While the session is locked (ext-session-lock-v1) only keyboard layout
++ * switching and VT switching stay active; every other binding, the overlay
++ * key and locate-pointer are left to the lock client. VT switching keeps
++ * the other sessions (and a way to recover a session whose lock client
++ * died) reachable.
++ */
++gboolean
++meta_keybindings_process_locked_event (MetaDisplay        *display,
++                                       const ClutterEvent *event)
++{
++  MetaKeyBindingManager *keys = &display->key_binding_manager;
++  ClutterEvent *key_event = (ClutterEvent *) event;
++  xkb_keycode_t keycode;
++  MetaResolvedKeyCombo resolved_combo = { &keycode, 1 };
++  MetaKeyBinding *binding;
++
++  if (clutter_event_type (event) != CLUTTER_KEY_PRESS &&
++      clutter_event_type (event) != CLUTTER_KEY_RELEASE)
++    return FALSE;
++
++  keys->overlay_key_only_pressed = FALSE;
++  keys->locate_pointer_key_only_pressed = FALSE;
++
++  if (process_iso_next_group (display, key_event))
++    return TRUE;
++
++  keycode = (xkb_keycode_t) clutter_event_get_key_code (event);
++  resolved_combo.mask = mask_from_event_params (keys,
++                                                get_modifiers (key_event));
++  binding = get_keybinding (keys, &resolved_combo);
++  if (!binding || !binding->handler ||
++      binding->handler->func != handle_switch_vt)
++    return FALSE;
++
++  return process_event (display, NULL, key_event);
++}
++
+ /* Handle a key event. May be called recursively: some key events cause
+  * grabs to be ended and then need to be processed again in their own
+  * right. This cannot cause infinite recursion because we never call
+diff --git a/src/meson.build b/src/meson.build
+index 2b2660d..0068398 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -591,6 +591,8 @@ mutter_sources += [
+   'wayland/meta-wayland-screencopy.h',
+   'wayland/meta-wayland-seat.c',
+   'wayland/meta-wayland-seat.h',
++  'wayland/meta-wayland-session-lock.c',
++  'wayland/meta-wayland-session-lock.h',
+   'wayland/meta-wayland-shell-surface.c',
+   'wayland/meta-wayland-shell-surface.h',
+   'wayland/meta-wayland-single-pixel-buffer.c',
+diff --git a/src/wayland/meta-wayland-input.c b/src/wayland/meta-wayland-input.c
+index cd254ca..4aba730 100644
+--- a/src/wayland/meta-wayland-input.c
++++ b/src/wayland/meta-wayland-input.c
+@@ -46,6 +46,10 @@ struct _MetaWaylandInput
+   struct wl_list event_handler_list;
+   ClutterStage *stage;
+   ClutterGrab *grab;
++
++  /* Stays at the head of the list: handlers attached while it exists go
++   * below it (the session lock). */
++  MetaWaylandEventHandler *pinned_handler;
+ };
+ 
+ static void meta_wayland_input_sync_focus (MetaWaylandInput *input);
+@@ -292,7 +296,10 @@ meta_wayland_input_attach_event_handler (MetaWaylandInput                *input,
+   handler->grabbing = grab;
+   handler->user_data = user_data;
+   wl_list_init (&handler->link);
+-  wl_list_insert (&input->event_handler_list, &handler->link);
++  if (input->pinned_handler)
++    wl_list_insert (&input->pinned_handler->link, &handler->link);
++  else
++    wl_list_insert (&input->event_handler_list, &handler->link);
+ 
+   if (grab && !input->grab)
+     {
+@@ -318,6 +325,24 @@ meta_wayland_input_attach_event_handler (MetaWaylandInput                *input,
+   return handler;
+ }
+ 
++/* Attach a grabbing handler that stays the current handler until it is
++ * detached: handlers attached later (popup grabs, drags) go below it. */
++MetaWaylandEventHandler *
++meta_wayland_input_attach_pinned_event_handler (MetaWaylandInput                *input,
++                                                const MetaWaylandEventInterface *iface,
++                                                gpointer                         user_data)
++{
++  MetaWaylandEventHandler *handler;
++
++  g_return_val_if_fail (!input->pinned_handler, NULL);
++
++  handler = meta_wayland_input_attach_event_handler (input, iface, TRUE,
++                                                     user_data);
++  input->pinned_handler = handler;
++
++  return handler;
++}
++
+ static gboolean
+ should_be_grabbed (MetaWaylandInput *input)
+ {
+@@ -339,6 +364,9 @@ meta_wayland_input_detach_event_handler (MetaWaylandInput        *input,
+   handler_change = meta_wayland_input_is_current_handler (input, handler);
+   wl_list_remove (&handler->link);
+ 
++  if (input->pinned_handler == handler)
++    input->pinned_handler = NULL;
++
+   if (handler_change && !wl_list_empty (&input->event_handler_list))
+     meta_wayland_input_invalidate_all_focus (input);
+ 
+diff --git a/src/wayland/meta-wayland-input.h b/src/wayland/meta-wayland-input.h
+index 65754e6..b17b780 100644
+--- a/src/wayland/meta-wayland-input.h
++++ b/src/wayland/meta-wayland-input.h
+@@ -78,6 +78,10 @@ MetaWaylandEventHandler * meta_wayland_input_attach_event_handler (MetaWaylandIn
+                                                                    gboolean                         grab,
+                                                                    gpointer                         user_data);
+ 
++MetaWaylandEventHandler * meta_wayland_input_attach_pinned_event_handler (MetaWaylandInput                *input,
++                                                                          const MetaWaylandEventInterface *iface,
++                                                                          gpointer                         user_data);
++
+ gboolean meta_wayland_input_is_current_handler (MetaWaylandInput        *input,
+                                                 MetaWaylandEventHandler *handler);
+ 
+diff --git a/src/wayland/meta-wayland-pointer.c b/src/wayland/meta-wayland-pointer.c
+index 409d311..dec814d 100644
+--- a/src/wayland/meta-wayland-pointer.c
++++ b/src/wayland/meta-wayland-pointer.c
+@@ -63,6 +63,7 @@
+ #include "wayland/meta-wayland-popup.h"
+ #include "wayland/meta-wayland-private.h"
+ #include "wayland/meta-wayland-seat.h"
++#include "wayland/meta-wayland-session-lock.h"
+ #include "wayland/meta-wayland-surface-private.h"
+ 
+ #ifdef HAVE_XWAYLAND
+@@ -1184,8 +1185,10 @@ meta_wayland_pointer_focus_surface (MetaWaylandPointer *pointer,
+ 
+       window = surface_get_effective_window (surface);
+ 
+-      /* Avoid focusing a non-alive surface */
+-      if (!window || !meta_window_get_alive (window))
++      /* Avoid focusing a non-alive surface. Session lock surfaces have no
++       * window. */
++      if ((!window || !meta_window_get_alive (window)) &&
++          !meta_wayland_surface_is_in_session_lock_surface (surface))
+         surface = NULL;
+     }
+ 
+diff --git a/src/wayland/meta-wayland-seat.c b/src/wayland/meta-wayland-seat.c
+index 7b7dff8..94a5713 100644
+--- a/src/wayland/meta-wayland-seat.c
++++ b/src/wayland/meta-wayland-seat.c
+@@ -279,6 +279,25 @@ default_focus (MetaWaylandEventHandler *handler,
+     }
+ }
+ 
++/* Focus @surface for @focus the way the default handler does, bypassing
++ * the handlers in between (used by the session lock). */
++void
++meta_wayland_seat_set_focus (MetaWaylandSeat    *seat,
++                             ClutterFocus       *focus,
++                             MetaWaylandSurface *surface)
++{
++  default_focus (seat->default_handler, focus, surface, seat);
++}
++
++/* Deliver @event to the focused surfaces, bypassing the handlers in
++ * between (used by the session lock). */
++gboolean
++meta_wayland_seat_deliver_event (MetaWaylandSeat    *seat,
++                                 const ClutterEvent *event)
++{
++  return meta_wayland_seat_handle_event_internal (seat, event);
++}
++
+ static gboolean
+ default_handle_event (MetaWaylandEventHandler *handler,
+                       const ClutterEvent      *event,
+diff --git a/src/wayland/meta-wayland-seat.h b/src/wayland/meta-wayland-seat.h
+index 27bee9f..809b886 100644
+--- a/src/wayland/meta-wayland-seat.h
++++ b/src/wayland/meta-wayland-seat.h
+@@ -70,6 +70,13 @@ void meta_wayland_seat_free (MetaWaylandSeat *seat);
+ void meta_wayland_seat_update (MetaWaylandSeat    *seat,
+                                const ClutterEvent *event);
+ 
++void meta_wayland_seat_set_focus (MetaWaylandSeat    *seat,
++                                  ClutterFocus       *focus,
++                                  MetaWaylandSurface *surface);
++
++gboolean meta_wayland_seat_deliver_event (MetaWaylandSeat    *seat,
++                                          const ClutterEvent *event);
++
+ gboolean meta_wayland_seat_handle_event (MetaWaylandSeat *seat,
+                                          const ClutterEvent *event);
+ 
+diff --git a/src/wayland/meta-wayland-session-lock.c b/src/wayland/meta-wayland-session-lock.c
+new file mode 100644
+index 0000000..9d68d1e
+--- /dev/null
++++ b/src/wayland/meta-wayland-session-lock.c
+@@ -0,0 +1,1553 @@
++/*
++ * ext-session-lock-v1
++ *
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++/*
++ * A lock client (swaylock, hyprlock, gtklock, ...) locks the session with
++ * ext_session_lock_manager_v1.lock. From that moment on:
++ *
++ *  - an opaque black actor that covers the whole stage, with the lock
++ *    surfaces on top of it, is kept above every other stage child, so no
++ *    window, shell actor or drag icon is painted on any output, including
++ *    outputs added later: the blank covers them from their first frame;
++ *  - direct scanout is inhibited, so a fullscreen client can't be put on
++ *    a plane on top of it;
++ *  - a pinned Wayland event handler stays the current one and only ever
++ *    focuses lock surfaces of the lock client; events are delivered to the
++ *    focused lock surfaces directly, and events.c skips window management
++ *    and every keybinding except VT and layout switching;
++ *  - ext_session_lock_v1.locked is only sent once a frame painted with the
++ *    blank on top has been presented on every output (or the outputs are
++ *    powered off).
++ *
++ * If the lock client goes away without unlock_and_destroy (crash, protocol
++ * error), the session stays locked and blank; a new lock client can lock
++ * again and unlock it.
++ */
++
++#include "config.h"
++
++#include "wayland/meta-wayland-session-lock.h"
++
++#include "backends/meta-backend-private.h"
++#include "backends/meta-logical-monitor-private.h"
++#include "backends/meta-monitor-manager-private.h"
++#include "backends/meta-monitor-private.h"
++#include "clutter/clutter.h"
++#include "compositor/compositor-private.h"
++#include "compositor/meta-surface-actor-wayland.h"
++#include "core/display-private.h"
++#include "wayland/meta-wayland-filter-manager.h"
++#include "wayland/meta-wayland-input.h"
++#include "wayland/meta-wayland-outputs.h"
++#include "wayland/meta-wayland-pointer.h"
++#include "wayland/meta-wayland-private.h"
++#include "wayland/meta-wayland-seat.h"
++#include "wayland/meta-wayland-surface-private.h"
++#include "wayland/meta-wayland-versions.h"
++
++#include "ext-session-lock-v1-server-protocol.h"
++
++/* The blank covers this square around the stage origin, more than any
++ * monitor layout Mutter can configure. */
++#define BLANK_EXTENT 65536
++
++typedef struct _MetaWaylandSessionLockManager MetaWaylandSessionLockManager;
++typedef struct _MetaWaylandSessionLock MetaWaylandSessionLock;
++
++typedef enum _MetaWaylandSessionLockState
++{
++  LOCK_STATE_PENDING,
++  LOCK_STATE_LOCKED,
++  LOCK_STATE_FINISHED,
++} MetaWaylandSessionLockState;
++
++struct _MetaWaylandSessionLock
++{
++  MetaWaylandSessionLockManager *manager;
++  struct wl_resource *resource;
++  MetaWaylandSessionLockState state;
++
++  GList *surfaces; /* MetaWaylandSessionLockSurface */
++};
++
++typedef struct _MetaWaylandSessionLockConfigure
++{
++  uint32_t serial;
++  int width;
++  int height;
++} MetaWaylandSessionLockConfigure;
++
++struct _MetaWaylandSessionLockSurface
++{
++  MetaWaylandActorSurface parent;
++
++  MetaWaylandSessionLockManager *manager;
++  MetaWaylandSessionLock *lock;
++  struct wl_resource *resource;
++
++  MetaWaylandOutput *output;
++  gulong output_destroyed_handler_id;
++
++  /* Holds the surface actor and its subsurface actors, at the output's
++   * position, scaled by the geometry scale. */
++  ClutterActor *container;
++
++  /* Sent configures not acked yet, oldest first. */
++  GList *configures;
++  gboolean configured;
++  int configured_width;
++  int configured_height;
++
++  gboolean acked;
++  int acked_width;
++  int acked_height;
++};
++
++struct _MetaWaylandSessionLockManager
++{
++  MetaWaylandCompositor *compositor;
++  struct wl_global *global;
++
++  /* Outputs are blanked and input goes to lock surfaces only. */
++  gboolean locked;
++  /* A locked lock's client went away without unlocking. */
++  gboolean abandoned;
++  /* The lock responsible for the session, if any. */
++  MetaWaylandSessionLock *lock;
++
++  ClutterActor *stage;
++  ClutterActor *lock_group;
++  ClutterActor *blank;
++
++  MetaWaylandEventHandler *handler;
++  MetaWaylandSurface *focus_surface;
++
++  /* While a lock is pending: ClutterStageView -> frame count of the first
++   * frame painted with the blank (-1 until painted). A view is removed once
++   * that frame (or a later one) has been presented. */
++  GHashTable *pending_views;
++
++  gulong stage_after_paint_handler_id;
++  gulong stage_presented_handler_id;
++  gulong stage_child_added_handler_id;
++  gulong monitors_changed_handler_id;
++  gulong power_save_handler_id;
++};
++
++G_DEFINE_TYPE (MetaWaylandSessionLockSurface,
++               meta_wayland_session_lock_surface,
++               META_TYPE_WAYLAND_ACTOR_SURFACE)
++
++static void update_lock_surface (MetaWaylandSessionLockSurface *lock_surface);
++static void sync_focus (MetaWaylandSessionLockManager *manager);
++
++static MetaBackend *
++get_backend (MetaWaylandSessionLockManager *manager)
++{
++  MetaContext *context =
++    meta_wayland_compositor_get_context (manager->compositor);
++
++  return meta_context_get_backend (context);
++}
++
++static ClutterActor *
++get_stage (MetaWaylandSessionLockManager *manager)
++{
++  return manager->stage;
++}
++
++static MetaCompositor *
++get_compositor (MetaWaylandSessionLockManager *manager)
++{
++  MetaContext *context =
++    meta_wayland_compositor_get_context (manager->compositor);
++  MetaDisplay *display = meta_context_get_display (context);
++
++  return meta_display_get_compositor (display);
++}
++
++static void
++describe_client (struct wl_client  *client,
++                 char             **comm_out,
++                 pid_t             *pid_out)
++{
++  g_autofree char *comm_path = NULL;
++  char *comm = NULL;
++  pid_t pid = 0;
++
++  wl_client_get_credentials (client, &pid, NULL, NULL);
++  comm_path = g_strdup_printf ("/proc/%d/comm", pid);
++  if (pid > 0 && g_file_get_contents (comm_path, &comm, NULL, NULL))
++    g_strchomp (comm);
++
++  *comm_out = comm ? comm : g_strdup ("unknown client");
++  *pid_out = pid;
++}
++
++static gboolean
++is_sandboxed_client (const struct wl_client *wl_client)
++{
++  g_autofree char *flatpak_info = NULL;
++  pid_t pid;
++
++  wl_client_get_credentials ((struct wl_client *) wl_client, &pid, NULL, NULL);
++  if (pid <= 0)
++    return FALSE;
++
++  flatpak_info = g_strdup_printf ("/proc/%d/root/.flatpak-info", pid);
++  return g_file_test (flatpak_info, G_FILE_TEST_EXISTS);
++}
++
++static MetaLogicalMonitor *
++get_logical_monitor (MetaWaylandSessionLockSurface *lock_surface)
++{
++  MetaMonitor *monitor;
++
++  if (!lock_surface->output)
++    return NULL;
++
++  monitor = meta_wayland_output_get_monitor (lock_surface->output);
++  if (!monitor || !meta_monitor_is_active (monitor))
++    return NULL;
++
++  return meta_monitor_get_logical_monitor (monitor);
++}
++
++static gboolean
++is_active_lock_surface (MetaWaylandSessionLockManager *manager,
++                        MetaWaylandSurface            *surface)
++{
++  MetaWaylandSessionLockSurface *lock_surface;
++  MetaWaylandSurface *toplevel;
++
++  if (!surface || !surface->resource)
++    return FALSE;
++
++  /* Subsurfaces of a lock surface count as part of it. */
++  toplevel = meta_wayland_surface_get_toplevel (surface);
++  if (!toplevel || !toplevel->resource ||
++      !META_IS_WAYLAND_SESSION_LOCK_SURFACE (toplevel->role))
++    return FALSE;
++
++  surface = toplevel;
++
++  lock_surface = META_WAYLAND_SESSION_LOCK_SURFACE (surface->role);
++
++  return (lock_surface->resource &&
++          lock_surface->lock &&
++          lock_surface->lock == manager->lock);
++}
++
++/*
++ * Input
++ */
++
++static MetaWaylandSurface *
++lock_get_focus_surface (MetaWaylandEventHandler *handler,
++                        ClutterFocus            *focus,
++                        gpointer                 user_data)
++{
++  MetaWaylandSessionLockManager *manager = user_data;
++  MetaWaylandSeat *seat = manager->compositor->seat;
++  MetaWaylandSurface *surface;
++
++  if (CLUTTER_IS_KEY_FOCUS (focus))
++    {
++      if (is_active_lock_surface (manager, manager->focus_surface))
++        return manager->focus_surface;
++
++      return NULL;
++    }
++
++  if (CLUTTER_IS_SPRITE (focus) &&
++      clutter_sprite_get_role (CLUTTER_SPRITE (focus)) ==
++      CLUTTER_SPRITE_ROLE_POINTER)
++    {
++      surface = meta_wayland_pointer_get_implicit_grab_surface (seat->pointer);
++      if (is_active_lock_surface (manager, surface))
++        return surface;
++    }
++
++  surface = meta_wayland_seat_get_current_surface (seat, focus);
++  if (is_active_lock_surface (manager, surface))
++    return surface;
++
++  return NULL;
++}
++
++static void
++lock_focus (MetaWaylandEventHandler *handler,
++            ClutterFocus            *focus,
++            MetaWaylandSurface      *surface,
++            gpointer                 user_data)
++{
++  MetaWaylandSessionLockManager *manager = user_data;
++
++  meta_wayland_seat_set_focus (manager->compositor->seat, focus, surface);
++}
++
++static gboolean
++lock_handle_event (MetaWaylandEventHandler *handler,
++                   const ClutterEvent      *event,
++                   gpointer                 user_data)
++{
++  MetaWaylandSessionLockManager *manager = user_data;
++
++  meta_wayland_seat_deliver_event (manager->compositor->seat, event);
++
++  /* Nothing below the lock sees the event. */
++  return CLUTTER_EVENT_STOP;
++}
++
++static gboolean
++lock_handle_press (MetaWaylandEventHandler *handler,
++                   const ClutterEvent      *event,
++                   gpointer                 user_data)
++{
++  MetaWaylandSessionLockManager *manager = user_data;
++  MetaWaylandSeat *seat = manager->compositor->seat;
++  MetaBackend *backend = get_backend (manager);
++  ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
++  ClutterStage *stage = CLUTTER_STAGE (get_stage (manager));
++  ClutterSprite *sprite;
++  MetaWaylandSurface *surface;
++
++  /* Clicking or touching a lock surface gives it the keyboard. */
++  sprite = clutter_backend_get_sprite (clutter_backend, stage, event);
++  surface = sprite ?
++    meta_wayland_seat_get_current_surface (seat, CLUTTER_FOCUS (sprite)) :
++    NULL;
++  if (is_active_lock_surface (manager, surface) &&
++      surface != manager->focus_surface)
++    {
++      g_set_weak_pointer (&manager->focus_surface, surface);
++      sync_focus (manager);
++    }
++
++  return lock_handle_event (handler, event, user_data);
++}
++
++static const MetaWaylandEventInterface lock_event_interface = {
++  .get_focus_surface = lock_get_focus_surface,
++  .focus = lock_focus,
++  .motion = lock_handle_event,
++  .press = lock_handle_press,
++  .release = lock_handle_event,
++  .key = lock_handle_event,
++  .other = lock_handle_event,
++};
++
++static void
++sync_focus (MetaWaylandSessionLockManager *manager)
++{
++  MetaBackend *backend = get_backend (manager);
++  ClutterBackend *clutter_backend = meta_backend_get_clutter_backend (backend);
++  ClutterStage *stage = CLUTTER_STAGE (get_stage (manager));
++  MetaWaylandInput *input;
++
++  if (!manager->handler)
++    return;
++
++  input = meta_wayland_seat_get_input (manager->compositor->seat);
++  meta_wayland_input_invalidate_focus (
++    input,
++    CLUTTER_FOCUS (clutter_backend_get_key_focus (clutter_backend, stage)));
++}
++
++/* Keyboard focus goes to the first lock surface created, and moves to
++ * another lock surface when it is clicked. */
++static void
++ensure_focus_surface (MetaWaylandSessionLockManager *manager)
++{
++  GList *l;
++
++  if (is_active_lock_surface (manager, manager->focus_surface))
++    return;
++
++  g_clear_weak_pointer (&manager->focus_surface);
++
++  if (manager->lock)
++    {
++      for (l = g_list_last (manager->lock->surfaces); l; l = l->prev)
++        {
++          MetaWaylandSessionLockSurface *lock_surface = l->data;
++          MetaWaylandSurface *surface =
++            meta_wayland_surface_role_get_surface (
++              META_WAYLAND_SURFACE_ROLE (lock_surface));
++
++          if (is_active_lock_surface (manager, surface))
++            {
++              g_set_weak_pointer (&manager->focus_surface, surface);
++              break;
++            }
++        }
++    }
++
++  sync_focus (manager);
++}
++
++static void
++queue_redraw_all_views (MetaWaylandSessionLockManager *manager)
++{
++  MetaRenderer *renderer = meta_backend_get_renderer (get_backend (manager));
++  GList *l;
++
++  for (l = meta_renderer_get_views (renderer); l; l = l->next)
++    {
++      ClutterStageView *view = l->data;
++
++      clutter_stage_view_add_redraw_clip (view, NULL);
++      clutter_stage_view_schedule_update (view);
++    }
++}
++
++/*
++ * The locked event
++ */
++
++static gboolean
++outputs_are_off (MetaWaylandSessionLockManager *manager)
++{
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (get_backend (manager));
++
++  switch (meta_monitor_manager_get_power_save_mode (monitor_manager))
++    {
++    case META_POWER_SAVE_STANDBY:
++    case META_POWER_SAVE_SUSPEND:
++    case META_POWER_SAVE_OFF:
++      return TRUE;
++    case META_POWER_SAVE_UNSUPPORTED:
++    case META_POWER_SAVE_ON:
++      return FALSE;
++    }
++
++  return FALSE;
++}
++
++static void
++maybe_send_locked (MetaWaylandSessionLockManager *manager)
++{
++  MetaWaylandSessionLock *lock = manager->lock;
++
++  if (!lock || lock->state != LOCK_STATE_PENDING)
++    return;
++
++  if (g_hash_table_size (manager->pending_views) > 0 &&
++      !outputs_are_off (manager))
++    {
++      meta_topic (META_DEBUG_WAYLAND,
++                  "Session lock: waiting for a blanked frame on %u view(s)",
++                  g_hash_table_size (manager->pending_views));
++      return;
++    }
++
++  g_hash_table_remove_all (manager->pending_views);
++
++  lock->state = LOCK_STATE_LOCKED;
++  manager->abandoned = FALSE;
++  ext_session_lock_v1_send_locked (lock->resource);
++
++  meta_topic (META_DEBUG_WAYLAND,
++              "Session lock: locked (blanked frame presented on every view%s)",
++              outputs_are_off (manager) ? ", outputs off" : "");
++}
++
++static void
++track_pending_views (MetaWaylandSessionLockManager *manager)
++{
++  MetaRenderer *renderer = meta_backend_get_renderer (get_backend (manager));
++  g_autoptr (GHashTable) old_views = NULL;
++  GList *l;
++
++  /* Views still waiting keep their state; every other view (new ones, and
++   * ones that were done before the monitors changed) waits again. */
++  old_views = g_steal_pointer (&manager->pending_views);
++  manager->pending_views = g_hash_table_new_full (NULL, NULL, NULL, g_free);
++
++  for (l = meta_renderer_get_views (renderer); l; l = l->next)
++    {
++      ClutterStageView *view = l->data;
++      int64_t *frame_count = g_new (int64_t, 1);
++      int64_t *old_frame_count = NULL;
++
++      *frame_count = -1;
++      if (old_views &&
++          g_hash_table_lookup_extended (old_views, view, NULL,
++                                        (gpointer *) &old_frame_count))
++        *frame_count = *old_frame_count;
++
++      g_hash_table_insert (manager->pending_views, view, frame_count);
++    }
++}
++
++static void
++on_after_paint (ClutterStage                  *stage,
++                ClutterStageView              *view,
++                ClutterFrame                  *frame,
++                MetaWaylandSessionLockManager *manager)
++{
++  int64_t *frame_count;
++
++  if (!manager->locked)
++    return;
++
++  frame_count = g_hash_table_lookup (manager->pending_views, view);
++  if (frame_count && *frame_count < 0)
++    *frame_count = clutter_frame_get_count (frame);
++}
++
++static void
++on_presented (ClutterStage                  *stage,
++              ClutterStageView              *view,
++              ClutterFrameInfo              *frame_info,
++              MetaWaylandSessionLockManager *manager)
++{
++  int64_t *frame_count;
++
++  if (!manager->locked)
++    return;
++
++  frame_count = g_hash_table_lookup (manager->pending_views, view);
++  if (!frame_count || *frame_count < 0 ||
++      frame_info->view_frame_counter < *frame_count)
++    return;
++
++  meta_topic (META_DEBUG_WAYLAND,
++              "Session lock: view %p presented blanked frame %" G_GINT64_FORMAT
++              " (painted %" G_GINT64_FORMAT ")",
++              view, frame_info->view_frame_counter, *frame_count);
++  g_hash_table_remove (manager->pending_views, view);
++  maybe_send_locked (manager);
++}
++
++static void
++on_power_save_mode_changed (MetaMonitorManager            *monitor_manager,
++                            MetaPowerSaveChangeReason      reason,
++                            MetaWaylandSessionLockManager *manager)
++{
++  maybe_send_locked (manager);
++}
++
++static void
++on_stage_child_added (ClutterActor                  *stage,
++                      ClutterActor                  *child,
++                      MetaWaylandSessionLockManager *manager)
++{
++  if (child != manager->lock_group)
++    clutter_actor_set_child_above_sibling (stage, manager->lock_group, NULL);
++}
++
++/*
++ * Locking and unlocking
++ */
++
++static void
++lock_session (MetaWaylandSessionLockManager *manager)
++{
++  MetaWaylandInput *input =
++    meta_wayland_seat_get_input (manager->compositor->seat);
++  ClutterActor *stage = get_stage (manager);
++
++  g_assert (!manager->locked);
++
++  manager->locked = TRUE;
++  manager->abandoned = FALSE;
++
++  clutter_actor_set_child_above_sibling (stage, manager->lock_group, NULL);
++  clutter_actor_show (manager->lock_group);
++
++  meta_compositor_disable_unredirect (get_compositor (manager));
++
++  manager->handler =
++    meta_wayland_input_attach_pinned_event_handler (input,
++                                                    &lock_event_interface,
++                                                    manager);
++
++  g_hash_table_remove_all (manager->pending_views);
++  track_pending_views (manager);
++  queue_redraw_all_views (manager);
++}
++
++static void
++unlock_session (MetaWaylandSessionLockManager *manager)
++{
++  MetaWaylandInput *input =
++    meta_wayland_seat_get_input (manager->compositor->seat);
++
++  g_assert (manager->locked);
++
++  manager->locked = FALSE;
++  manager->abandoned = FALSE;
++  g_hash_table_remove_all (manager->pending_views);
++  g_clear_weak_pointer (&manager->focus_surface);
++
++  clutter_actor_hide (manager->lock_group);
++  meta_compositor_enable_unredirect (get_compositor (manager));
++
++  if (manager->handler)
++    {
++      meta_wayland_input_detach_event_handler (input, manager->handler);
++      manager->handler = NULL;
++    }
++
++  queue_redraw_all_views (manager);
++
++  g_message ("ext-session-lock: session unlocked");
++}
++
++static void
++detach_lock_surfaces (MetaWaylandSessionLock *lock)
++{
++  while (lock->surfaces)
++    {
++      MetaWaylandSessionLockSurface *lock_surface = lock->surfaces->data;
++
++      lock->surfaces = g_list_delete_link (lock->surfaces, lock->surfaces);
++      lock_surface->lock = NULL;
++      update_lock_surface (lock_surface);
++    }
++}
++
++/* The lock object is going away (destroy, unlock_and_destroy, or its
++ * client disconnected). */
++static void
++lock_release (MetaWaylandSessionLock *lock)
++{
++  MetaWaylandSessionLockManager *manager = lock->manager;
++
++  if (manager->lock != lock)
++    return;
++
++  manager->lock = NULL;
++
++  switch (lock->state)
++    {
++    case LOCK_STATE_LOCKED:
++      {
++        /* The session stays locked; a new lock client can take over. */
++        manager->abandoned = TRUE;
++        g_warning ("ext-session-lock: the lock client went away without "
++                   "unlocking; the session stays locked until a new lock "
++                   "client unlocks it");
++        break;
++      }
++    case LOCK_STATE_PENDING:
++      /* The session was never reported locked to this client: give up,
++       * unless a dead lock client had locked it before. */
++      if (manager->abandoned)
++        g_hash_table_remove_all (manager->pending_views);
++      else
++        unlock_session (manager);
++      break;
++    case LOCK_STATE_FINISHED:
++      break;
++    }
++
++  ensure_focus_surface (manager);
++}
++
++static void
++lock_resource_destroyed (struct wl_resource *resource)
++{
++  MetaWaylandSessionLock *lock = wl_resource_get_user_data (resource);
++
++  if (!lock)
++    return;
++
++  lock_release (lock);
++  detach_lock_surfaces (lock);
++  g_free (lock);
++}
++
++static void
++lock_destroy (struct wl_client   *client,
++              struct wl_resource *resource)
++{
++  MetaWaylandSessionLock *lock = wl_resource_get_user_data (resource);
++
++  if (lock && lock->state == LOCK_STATE_LOCKED)
++    {
++      wl_resource_post_error (resource,
++                              EXT_SESSION_LOCK_V1_ERROR_INVALID_DESTROY,
++                              "the session is locked, use unlock_and_destroy");
++      return;
++    }
++
++  wl_resource_destroy (resource);
++}
++
++static void
++lock_unlock_and_destroy (struct wl_client   *client,
++                         struct wl_resource *resource)
++{
++  MetaWaylandSessionLock *lock = wl_resource_get_user_data (resource);
++  MetaWaylandSessionLockManager *manager;
++
++  if (!lock || lock->state != LOCK_STATE_LOCKED)
++    {
++      wl_resource_post_error (resource,
++                              EXT_SESSION_LOCK_V1_ERROR_INVALID_UNLOCK,
++                              "the locked event was never sent");
++      return;
++    }
++
++  manager = lock->manager;
++  if (manager->lock == lock)
++    {
++      manager->lock = NULL;
++      detach_lock_surfaces (lock);
++      unlock_session (manager);
++    }
++
++  wl_resource_destroy (resource);
++}
++
++/*
++ * Lock surfaces
++ */
++
++static void
++compute_lock_surface_size (MetaWaylandSessionLockSurface *lock_surface,
++                           MetaLogicalMonitor            *logical_monitor,
++                           int                           *width,
++                           int                           *height)
++{
++  MetaBackend *backend = get_backend (lock_surface->manager);
++  MtkRectangle layout = meta_logical_monitor_get_layout (logical_monitor);
++
++  if (meta_backend_is_stage_views_scaled (backend))
++    {
++      *width = layout.width;
++      *height = layout.height;
++    }
++  else
++    {
++      float scale = meta_logical_monitor_get_scale (logical_monitor);
++
++      *width = (int) roundf (layout.width / scale);
++      *height = (int) roundf (layout.height / scale);
++    }
++}
++
++static void
++send_configure (MetaWaylandSessionLockSurface *lock_surface)
++{
++  MetaWaylandSessionLockConfigure *configure;
++  MetaLogicalMonitor *logical_monitor;
++  struct wl_display *display;
++  int width, height;
++
++  if (!lock_surface->resource || !lock_surface->lock)
++    return;
++
++  logical_monitor = get_logical_monitor (lock_surface);
++  if (!logical_monitor)
++    return;
++
++  compute_lock_surface_size (lock_surface, logical_monitor, &width, &height);
++  if (lock_surface->configured &&
++      lock_surface->configured_width == width &&
++      lock_surface->configured_height == height)
++    return;
++
++  display = lock_surface->manager->compositor->wayland_display;
++
++  configure = g_new0 (MetaWaylandSessionLockConfigure, 1);
++  configure->serial = wl_display_next_serial (display);
++  configure->width = width;
++  configure->height = height;
++  lock_surface->configures = g_list_append (lock_surface->configures,
++                                            configure);
++
++  lock_surface->configured = TRUE;
++  lock_surface->configured_width = width;
++  lock_surface->configured_height = height;
++
++  ext_session_lock_surface_v1_send_configure (lock_surface->resource,
++                                              configure->serial,
++                                              width, height);
++}
++
++/* Shown (in the lock group, at its output's position) while it belongs to
++ * the lock responsible for the session and its output exists. */
++static gboolean
++collect_surface_actor (GNode    *node,
++                       gpointer  data)
++{
++  MetaWaylandSurface *surface = node->data;
++  MetaSurfaceActor *surface_actor = meta_wayland_surface_get_actor (surface);
++  GList **surface_actors = data;
++
++  if (surface_actor)
++    *surface_actors = g_list_append (*surface_actors, surface_actor);
++  return FALSE;
++}
++
++/* Put the surface actor and its subsurface actors, bottom to top, in the
++ * container, as MetaWindowActorWayland does for windows. */
++static void
++rebuild_surface_tree (MetaWaylandSessionLockSurface *lock_surface)
++{
++  MetaWaylandSurface *surface =
++    meta_wayland_surface_role_get_surface (META_WAYLAND_SURFACE_ROLE (lock_surface));
++  g_autoptr (GList) surface_actors = NULL;
++  g_autoptr (GList) children = NULL;
++  GList *l;
++  int index = 0;
++
++  if (!lock_surface->container)
++    return;
++
++  g_node_traverse (surface->applied_state.subsurface_branch_node,
++                   G_IN_ORDER, G_TRAVERSE_LEAVES, -1,
++                   collect_surface_actor, &surface_actors);
++
++  children = clutter_actor_get_children (lock_surface->container);
++  for (l = children; l; l = l->next)
++    {
++      if (!g_list_find (surface_actors, l->data))
++        clutter_actor_remove_child (lock_surface->container, l->data);
++    }
++
++  for (l = surface_actors; l; l = l->next)
++    {
++      ClutterActor *actor = l->data;
++      ClutterActor *parent = clutter_actor_get_parent (actor);
++
++      if (parent == lock_surface->container)
++        {
++          if (clutter_actor_get_child_at_index (parent, index) != actor)
++            clutter_actor_set_child_at_index (parent, actor, index);
++        }
++      else
++        {
++          if (parent)
++            clutter_actor_remove_child (parent, actor);
++          clutter_actor_insert_child_at_index (lock_surface->container,
++                                               actor, index);
++        }
++      index++;
++    }
++}
++
++/* Shown (in the lock group, at its output's position) while it belongs to
++ * the lock responsible for the session and its output exists. */
++static void
++update_lock_surface (MetaWaylandSessionLockSurface *lock_surface)
++{
++  MetaWaylandSessionLockManager *manager = lock_surface->manager;
++  MetaWaylandActorSurface *actor_surface =
++    META_WAYLAND_ACTOR_SURFACE (lock_surface);
++  MetaSurfaceActor *surface_actor =
++    meta_wayland_actor_surface_get_actor (actor_surface);
++  ClutterActor *container = lock_surface->container;
++  MetaLogicalMonitor *logical_monitor;
++  gboolean shown;
++
++  if (!manager || !container)
++    return;
++
++  logical_monitor = get_logical_monitor (lock_surface);
++  shown = (manager->locked &&
++           lock_surface->resource &&
++           lock_surface->lock &&
++           lock_surface->lock == manager->lock &&
++           logical_monitor);
++
++  if (shown)
++    {
++      MtkRectangle layout = meta_logical_monitor_get_layout (logical_monitor);
++      int geometry_scale =
++        meta_wayland_actor_surface_get_geometry_scale (actor_surface);
++
++      if (clutter_actor_get_parent (container) != manager->lock_group)
++        clutter_actor_add_child (manager->lock_group, container);
++
++      clutter_actor_set_position (container, layout.x, layout.y);
++      clutter_actor_set_scale (container, geometry_scale, geometry_scale);
++      rebuild_surface_tree (lock_surface);
++      if (surface_actor)
++        clutter_actor_set_reactive (CLUTTER_ACTOR (surface_actor), TRUE);
++    }
++  else
++    {
++      ClutterActor *parent = clutter_actor_get_parent (container);
++
++      if (surface_actor)
++        clutter_actor_set_reactive (CLUTTER_ACTOR (surface_actor), FALSE);
++      if (parent)
++        clutter_actor_remove_child (parent, container);
++    }
++}
++
++static void
++on_output_destroyed (MetaWaylandOutput             *wayland_output,
++                     MetaWaylandSessionLockSurface *lock_surface)
++{
++  /* Emitted while the monitors are being rebuilt; the lock surface is
++   * hidden by on_monitors_changed () once the new views exist. */
++  g_clear_signal_handler (&lock_surface->output_destroyed_handler_id,
++                          lock_surface->output);
++  lock_surface->output = NULL;
++}
++
++static void
++lock_surface_clear_output (MetaWaylandSessionLockSurface *lock_surface)
++{
++  if (!lock_surface->output)
++    return;
++
++  g_clear_signal_handler (&lock_surface->output_destroyed_handler_id,
++                          lock_surface->output);
++  lock_surface->output = NULL;
++}
++
++static void
++lock_surface_detach (MetaWaylandSessionLockSurface *lock_surface)
++{
++  MetaWaylandSessionLockManager *manager = lock_surface->manager;
++
++  if (lock_surface->lock)
++    {
++      lock_surface->lock->surfaces =
++        g_list_remove (lock_surface->lock->surfaces, lock_surface);
++      lock_surface->lock = NULL;
++    }
++
++  lock_surface_clear_output (lock_surface);
++  g_list_free_full (g_steal_pointer (&lock_surface->configures), g_free);
++
++  if (manager)
++    {
++      update_lock_surface (lock_surface);
++      ensure_focus_surface (manager);
++    }
++}
++
++static void
++lock_surface_resource_destroyed (struct wl_resource *resource)
++{
++  MetaWaylandSessionLockSurface *lock_surface =
++    wl_resource_get_user_data (resource);
++
++  if (!lock_surface)
++    return;
++
++  lock_surface->resource = NULL;
++  lock_surface_detach (lock_surface);
++}
++
++static void
++lock_surface_destroy (struct wl_client   *client,
++                      struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static void
++lock_surface_ack_configure (struct wl_client   *client,
++                            struct wl_resource *resource,
++                            uint32_t            serial)
++{
++  MetaWaylandSessionLockSurface *lock_surface =
++    wl_resource_get_user_data (resource);
++  MetaWaylandSessionLockConfigure *acked = NULL;
++  GList *l;
++
++  if (!lock_surface)
++    return;
++
++  for (l = lock_surface->configures; l; l = l->next)
++    {
++      MetaWaylandSessionLockConfigure *configure = l->data;
++
++      if (configure->serial == serial)
++        {
++          acked = configure;
++          break;
++        }
++    }
++
++  if (!acked)
++    {
++      wl_resource_post_error (resource,
++                              EXT_SESSION_LOCK_SURFACE_V1_ERROR_INVALID_SERIAL,
++                              "serial %u was not sent or was already acked",
++                              serial);
++      return;
++    }
++
++  lock_surface->acked = TRUE;
++  lock_surface->acked_width = acked->width;
++  lock_surface->acked_height = acked->height;
++
++  /* The acked configure and every older one are consumed. */
++  while (lock_surface->configures)
++    {
++      MetaWaylandSessionLockConfigure *configure =
++        lock_surface->configures->data;
++      gboolean done = configure == acked;
++
++      lock_surface->configures =
++        g_list_delete_link (lock_surface->configures,
++                            lock_surface->configures);
++      g_free (configure);
++      if (done)
++        break;
++    }
++}
++
++static const struct ext_session_lock_surface_v1_interface lock_surface_interface = {
++  lock_surface_destroy,
++  lock_surface_ack_configure,
++};
++
++static void
++lock_get_lock_surface (struct wl_client   *client,
++                       struct wl_resource *resource,
++                       uint32_t            id,
++                       struct wl_resource *surface_resource,
++                       struct wl_resource *output_resource)
++{
++  MetaWaylandSessionLock *lock = wl_resource_get_user_data (resource);
++  MetaWaylandSurface *surface = wl_resource_get_user_data (surface_resource);
++  MetaWaylandOutput *wayland_output =
++    wl_resource_get_user_data (output_resource);
++  MetaWaylandSurfaceState *pending;
++  MetaWaylandSessionLockSurface *lock_surface;
++  struct wl_resource *lock_surface_resource;
++  GList *l;
++
++  pending = meta_wayland_surface_get_pending_state (surface);
++  if (surface->buffer || surface->unassigned.buffer ||
++      (pending && pending->newly_attached && pending->buffer))
++    {
++      wl_resource_post_error (resource,
++                              EXT_SESSION_LOCK_V1_ERROR_ALREADY_CONSTRUCTED,
++                              "wl_surface@%d has a buffer attached or "
++                              "committed",
++                              wl_resource_get_id (surface_resource));
++      return;
++    }
++
++  if (!meta_wayland_surface_assign_role (surface,
++                                         META_TYPE_WAYLAND_SESSION_LOCK_SURFACE,
++                                         NULL))
++    {
++      wl_resource_post_error (resource,
++                              EXT_SESSION_LOCK_V1_ERROR_ROLE,
++                              "wl_surface@%d already has a different role",
++                              wl_resource_get_id (surface_resource));
++      return;
++    }
++
++  lock_surface = META_WAYLAND_SESSION_LOCK_SURFACE (surface->role);
++  if (lock_surface->resource)
++    {
++      wl_resource_post_error (resource,
++                              EXT_SESSION_LOCK_V1_ERROR_ROLE,
++                              "wl_surface@%d already is a lock surface",
++                              wl_resource_get_id (surface_resource));
++      return;
++    }
++
++  if (lock && wayland_output)
++    {
++      for (l = lock->surfaces; l; l = l->next)
++        {
++          MetaWaylandSessionLockSurface *other = l->data;
++
++          if (other->output == wayland_output)
++            {
++              wl_resource_post_error (resource,
++                                      EXT_SESSION_LOCK_V1_ERROR_DUPLICATE_OUTPUT,
++                                      "wl_output@%d already has a lock "
++                                      "surface",
++                                      wl_resource_get_id (output_resource));
++              return;
++            }
++        }
++    }
++
++  lock_surface_resource =
++    wl_resource_create (client, &ext_session_lock_surface_v1_interface,
++                        wl_resource_get_version (resource), id);
++
++  /* A lock that was finished, or an output that is gone, gets an inert
++   * lock surface that is never configured nor shown. */
++  if (!lock || lock->state == LOCK_STATE_FINISHED)
++    {
++      wl_resource_set_implementation (lock_surface_resource,
++                                      &lock_surface_interface,
++                                      NULL, NULL);
++      return;
++    }
++
++  wl_resource_set_implementation (lock_surface_resource,
++                                  &lock_surface_interface,
++                                  lock_surface,
++                                  lock_surface_resource_destroyed);
++
++  lock_surface->manager = lock->manager;
++  lock_surface->lock = lock;
++  if (!lock_surface->container)
++    {
++      lock_surface->container = g_object_ref_sink (clutter_actor_new ());
++      clutter_actor_set_accessible_name (lock_surface->container,
++                                         "Session lock surface");
++    }
++  lock_surface->resource = lock_surface_resource;
++  lock_surface->configured = FALSE;
++  lock_surface->acked = FALSE;
++  lock->surfaces = g_list_append (lock->surfaces, lock_surface);
++
++  if (wayland_output)
++    {
++      lock_surface->output = wayland_output;
++      lock_surface->output_destroyed_handler_id =
++        g_signal_connect (wayland_output, "output-destroyed",
++                          G_CALLBACK (on_output_destroyed),
++                          lock_surface);
++    }
++
++  update_lock_surface (lock_surface);
++  send_configure (lock_surface);
++  ensure_focus_surface (lock->manager);
++}
++
++static const struct ext_session_lock_v1_interface lock_interface = {
++  lock_destroy,
++  lock_get_lock_surface,
++  lock_unlock_and_destroy,
++};
++
++/*
++ * The manager
++ */
++
++static void
++manager_destroy (struct wl_client   *client,
++                 struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static void
++manager_lock (struct wl_client   *client,
++              struct wl_resource *resource,
++              uint32_t            id)
++{
++  MetaWaylandSessionLockManager *manager = wl_resource_get_user_data (resource);
++  MetaWaylandSessionLock *lock;
++  g_autofree char *comm = NULL;
++  pid_t pid;
++
++  lock = g_new0 (MetaWaylandSessionLock, 1);
++  lock->manager = manager;
++  lock->resource = wl_resource_create (client, &ext_session_lock_v1_interface,
++                                       wl_resource_get_version (resource), id);
++  wl_resource_set_implementation (lock->resource, &lock_interface,
++                                  lock, lock_resource_destroyed);
++
++  describe_client (client, &comm, &pid);
++
++  if (manager->lock)
++    {
++      /* Another lock client holds (or is taking) the session. */
++      lock->state = LOCK_STATE_FINISHED;
++      ext_session_lock_v1_send_finished (lock->resource);
++      g_message ("ext-session-lock: refused a lock from %s (pid %d): the "
++                 "session is already locked", comm, pid);
++      return;
++    }
++
++  lock->state = LOCK_STATE_PENDING;
++  manager->lock = lock;
++
++  if (manager->locked)
++    {
++      g_message ("ext-session-lock: %s (pid %d) takes over the locked "
++                 "session", comm, pid);
++    }
++  else
++    {
++      g_message ("ext-session-lock: session locked by %s (pid %d)",
++                 comm, pid);
++      lock_session (manager);
++    }
++
++  sync_focus (manager);
++  maybe_send_locked (manager);
++}
++
++static const struct ext_session_lock_manager_v1_interface manager_interface = {
++  manager_destroy,
++  manager_lock,
++};
++
++static void
++bind_session_lock_manager (struct wl_client *client,
++                           void             *data,
++                           uint32_t          version,
++                           uint32_t          id)
++{
++  MetaWaylandSessionLockManager *manager = data;
++  struct wl_resource *resource;
++
++  resource = wl_resource_create (client,
++                                 &ext_session_lock_manager_v1_interface,
++                                 version, id);
++  wl_resource_set_implementation (resource, &manager_interface,
++                                  manager, NULL);
++}
++
++static MetaWaylandAccess
++session_lock_filter (const struct wl_client *wl_client,
++                     const struct wl_global *global,
++                     gpointer                user_data)
++{
++  /* A sandboxed app must not be able to take the screen and input. */
++  if (is_sandboxed_client (wl_client))
++    return META_WAYLAND_ACCESS_DENIED;
++
++  return META_WAYLAND_ACCESS_ALLOWED;
++}
++
++static void
++on_monitors_changed (MetaMonitorManager            *monitor_manager,
++                     MetaWaylandSessionLockManager *manager)
++{
++  GList *l;
++
++  if (!manager->locked)
++    return;
++
++  /* New views need a blanked frame presented too before a pending lock is
++   * reported locked. The blank already covers them from their first frame
++   * on. */
++  if (manager->lock && manager->lock->state == LOCK_STATE_PENDING)
++    track_pending_views (manager);
++
++  if (manager->lock)
++    {
++      for (l = manager->lock->surfaces; l; l = l->next)
++        {
++          MetaWaylandSessionLockSurface *lock_surface = l->data;
++
++          update_lock_surface (lock_surface);
++          send_configure (lock_surface);
++        }
++    }
++
++  queue_redraw_all_views (manager);
++  ensure_focus_surface (manager);
++  maybe_send_locked (manager);
++}
++
++/* Whether @surface is a lock surface or one of its subsurfaces. These have
++ * no window. */
++gboolean
++meta_wayland_surface_is_in_session_lock_surface (MetaWaylandSurface *surface)
++{
++  MetaWaylandSurface *toplevel = meta_wayland_surface_get_toplevel (surface);
++
++  return toplevel && META_IS_WAYLAND_SESSION_LOCK_SURFACE (toplevel->role);
++}
++
++gboolean
++meta_wayland_compositor_is_session_locked (MetaWaylandCompositor *compositor)
++{
++  MetaWaylandSessionLockManager *manager =
++    g_object_get_data (G_OBJECT (compositor), "-meta-wayland-session-lock");
++
++  return manager && manager->locked;
++}
++
++static void
++session_lock_manager_free (MetaWaylandSessionLockManager *manager)
++{
++  MetaBackend *backend = get_backend (manager);
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++  ClutterActor *stage = manager->stage;
++
++  g_clear_signal_handler (&manager->monitors_changed_handler_id,
++                          monitor_manager);
++  g_clear_signal_handler (&manager->power_save_handler_id, monitor_manager);
++  if (stage)
++    {
++      g_clear_signal_handler (&manager->stage_after_paint_handler_id, stage);
++      g_clear_signal_handler (&manager->stage_presented_handler_id, stage);
++      g_clear_signal_handler (&manager->stage_child_added_handler_id, stage);
++      g_clear_weak_pointer (&manager->stage);
++    }
++
++  g_clear_weak_pointer (&manager->focus_surface);
++  g_clear_pointer (&manager->pending_views, g_hash_table_unref);
++  /* The global goes away with the wl_display. */
++  g_free (manager);
++}
++
++void
++meta_wayland_session_lock_init (MetaWaylandCompositor *compositor)
++{
++  MetaContext *context = meta_wayland_compositor_get_context (compositor);
++  MetaBackend *backend = meta_context_get_backend (context);
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++  MetaWaylandFilterManager *filter_manager =
++    meta_wayland_compositor_get_filter_manager (compositor);
++  ClutterActor *stage = meta_backend_get_stage (backend);
++  MetaWaylandSessionLockManager *manager;
++  CoglColor black;
++
++  manager = g_new0 (MetaWaylandSessionLockManager, 1);
++  manager->compositor = compositor;
++  g_set_weak_pointer (&manager->stage, stage);
++  manager->pending_views = g_hash_table_new_full (NULL, NULL, NULL, g_free);
++
++  manager->lock_group = clutter_actor_new ();
++  clutter_actor_set_accessible_name (manager->lock_group,
++                                     "Session lock group");
++  manager->blank = clutter_actor_new ();
++  clutter_actor_set_accessible_name (manager->blank, "Session lock blank");
++  cogl_color_init_from_4f (&black, 0.0f, 0.0f, 0.0f, 1.0f);
++  clutter_actor_set_background_color (manager->blank, &black);
++  clutter_actor_set_position (manager->blank,
++                              -BLANK_EXTENT / 2, -BLANK_EXTENT / 2);
++  clutter_actor_set_size (manager->blank, BLANK_EXTENT, BLANK_EXTENT);
++  /* Reactive, so picking under it never reaches a window. */
++  clutter_actor_set_reactive (manager->blank, TRUE);
++  clutter_actor_add_child (manager->lock_group, manager->blank);
++  clutter_actor_hide (manager->lock_group);
++  clutter_actor_add_child (stage, manager->lock_group);
++
++  manager->stage_child_added_handler_id =
++    g_signal_connect (stage, "child-added",
++                      G_CALLBACK (on_stage_child_added), manager);
++  manager->stage_after_paint_handler_id =
++    g_signal_connect (stage, "after-paint",
++                      G_CALLBACK (on_after_paint), manager);
++  manager->stage_presented_handler_id =
++    g_signal_connect (stage, "presented",
++                      G_CALLBACK (on_presented), manager);
++  manager->monitors_changed_handler_id =
++    g_signal_connect_after (monitor_manager, "monitors-changed-internal",
++                            G_CALLBACK (on_monitors_changed), manager);
++  manager->power_save_handler_id =
++    g_signal_connect (monitor_manager, "power-save-mode-changed",
++                      G_CALLBACK (on_power_save_mode_changed), manager);
++
++  manager->global =
++    wl_global_create (compositor->wayland_display,
++                      &ext_session_lock_manager_v1_interface,
++                      META_EXT_SESSION_LOCK_MANAGER_V1_VERSION,
++                      manager,
++                      bind_session_lock_manager);
++  if (!manager->global)
++    g_error ("Failed to register a global ext-session-lock object");
++
++  meta_wayland_filter_manager_add_global (filter_manager,
++                                          manager->global,
++                                          session_lock_filter,
++                                          manager);
++
++  g_object_set_data_full (G_OBJECT (compositor),
++                          "-meta-wayland-session-lock",
++                          manager,
++                          (GDestroyNotify) session_lock_manager_free);
++}
++
++/*
++ * The lock surface role
++ */
++
++static void
++lock_surface_commit_state (MetaWaylandSurfaceRole  *surface_role,
++                           MetaWaylandTransaction  *transaction,
++                           MetaWaylandSurfaceState *pending)
++{
++  MetaWaylandSessionLockSurface *lock_surface =
++    META_WAYLAND_SESSION_LOCK_SURFACE (surface_role);
++  MetaWaylandSurface *surface =
++    meta_wayland_surface_role_get_surface (surface_role);
++  MetaWaylandBuffer *buffer;
++
++  if (!lock_surface->resource)
++    return;
++
++  if (!lock_surface->acked)
++    {
++      wl_resource_post_error (lock_surface->resource,
++                              EXT_SESSION_LOCK_SURFACE_V1_ERROR_COMMIT_BEFORE_FIRST_ACK,
++                              "committed before the first ack_configure");
++      return;
++    }
++
++  buffer = pending->newly_attached ? pending->buffer : surface->buffer;
++  if (!buffer)
++    {
++      wl_resource_post_error (lock_surface->resource,
++                              EXT_SESSION_LOCK_SURFACE_V1_ERROR_NULL_BUFFER,
++                              "committed with a null buffer");
++      return;
++    }
++}
++
++static void
++lock_surface_apply_state (MetaWaylandSurfaceRole  *surface_role,
++                          MetaWaylandSurfaceState *pending)
++{
++  MetaWaylandSessionLockSurface *lock_surface =
++    META_WAYLAND_SESSION_LOCK_SURFACE (surface_role);
++  MetaWaylandSurface *surface =
++    meta_wayland_surface_role_get_surface (surface_role);
++  MetaWaylandSurfaceRoleClass *surface_role_class =
++    META_WAYLAND_SURFACE_ROLE_CLASS (meta_wayland_session_lock_surface_parent_class);
++
++  if (lock_surface->resource && surface->buffer &&
++      (meta_wayland_surface_get_width (surface) != lock_surface->acked_width ||
++       meta_wayland_surface_get_height (surface) != lock_surface->acked_height))
++    {
++      wl_resource_post_error (lock_surface->resource,
++                              EXT_SESSION_LOCK_SURFACE_V1_ERROR_DIMENSIONS_MISMATCH,
++                              "surface is %dx%d, the acked configure is %dx%d",
++                              meta_wayland_surface_get_width (surface),
++                              meta_wayland_surface_get_height (surface),
++                              lock_surface->acked_width,
++                              lock_surface->acked_height);
++      return;
++    }
++
++  surface_role_class->apply_state (surface_role, pending);
++
++  update_lock_surface (lock_surface);
++}
++
++static MetaLogicalMonitor *
++lock_surface_get_preferred_scale_monitor (MetaWaylandSurfaceRole *surface_role)
++{
++  return get_logical_monitor (META_WAYLAND_SESSION_LOCK_SURFACE (surface_role));
++}
++
++static int
++lock_surface_get_geometry_scale (MetaWaylandActorSurface *actor_surface)
++{
++  MetaWaylandSessionLockSurface *lock_surface =
++    META_WAYLAND_SESSION_LOCK_SURFACE (actor_surface);
++  MetaLogicalMonitor *logical_monitor;
++
++  if (!lock_surface->manager ||
++      meta_backend_is_stage_views_scaled (get_backend (lock_surface->manager)))
++    return 1;
++
++  logical_monitor = get_logical_monitor (lock_surface);
++  if (!logical_monitor)
++    return 1;
++
++  return (int) roundf (meta_logical_monitor_get_scale (logical_monitor));
++}
++
++static void
++lock_surface_sync_actor_state (MetaWaylandActorSurface *actor_surface)
++{
++  MetaWaylandActorSurfaceClass *actor_surface_class =
++    META_WAYLAND_ACTOR_SURFACE_CLASS (meta_wayland_session_lock_surface_parent_class);
++  MetaSurfaceActor *surface_actor =
++    meta_wayland_actor_surface_get_actor (actor_surface);
++
++  if (!surface_actor)
++    return;
++
++  actor_surface_class->sync_actor_state (actor_surface);
++  update_lock_surface (META_WAYLAND_SESSION_LOCK_SURFACE (actor_surface));
++}
++
++static void
++lock_surface_notify_subsurface_state_changed (MetaWaylandSurfaceRole *surface_role)
++{
++  rebuild_surface_tree (META_WAYLAND_SESSION_LOCK_SURFACE (surface_role));
++}
++
++static MetaWaylandSurface *
++lock_surface_get_toplevel (MetaWaylandSurfaceRole *surface_role)
++{
++  return meta_wayland_surface_role_get_surface (surface_role);
++}
++
++static void
++meta_wayland_session_lock_surface_dispose (GObject *object)
++{
++  MetaWaylandSessionLockSurface *lock_surface =
++    META_WAYLAND_SESSION_LOCK_SURFACE (object);
++  MetaWaylandSessionLockManager *manager = lock_surface->manager;
++
++  if (lock_surface->resource)
++    {
++      wl_resource_set_user_data (lock_surface->resource, NULL);
++      lock_surface->resource = NULL;
++    }
++
++  lock_surface_detach (lock_surface);
++  lock_surface->manager = NULL;
++
++  if (lock_surface->container)
++    {
++      ClutterActor *parent = clutter_actor_get_parent (lock_surface->container);
++
++      if (parent)
++        clutter_actor_remove_child (parent, lock_surface->container);
++      clutter_actor_remove_all_children (lock_surface->container);
++      g_clear_object (&lock_surface->container);
++    }
++
++  G_OBJECT_CLASS (meta_wayland_session_lock_surface_parent_class)->dispose (object);
++
++  if (manager)
++    ensure_focus_surface (manager);
++}
++
++static void
++meta_wayland_session_lock_surface_init (MetaWaylandSessionLockSurface *lock_surface)
++{
++}
++
++static void
++meta_wayland_session_lock_surface_class_init (MetaWaylandSessionLockSurfaceClass *klass)
++{
++  GObjectClass *object_class = G_OBJECT_CLASS (klass);
++  MetaWaylandSurfaceRoleClass *surface_role_class =
++    META_WAYLAND_SURFACE_ROLE_CLASS (klass);
++  MetaWaylandActorSurfaceClass *actor_surface_class =
++    META_WAYLAND_ACTOR_SURFACE_CLASS (klass);
++
++  object_class->dispose = meta_wayland_session_lock_surface_dispose;
++
++  surface_role_class->commit_state = lock_surface_commit_state;
++  surface_role_class->apply_state = lock_surface_apply_state;
++  surface_role_class->get_preferred_scale_monitor =
++    lock_surface_get_preferred_scale_monitor;
++  surface_role_class->notify_subsurface_state_changed =
++    lock_surface_notify_subsurface_state_changed;
++  surface_role_class->get_toplevel = lock_surface_get_toplevel;
++
++  actor_surface_class->get_geometry_scale = lock_surface_get_geometry_scale;
++  actor_surface_class->sync_actor_state = lock_surface_sync_actor_state;
++}
+diff --git a/src/wayland/meta-wayland-session-lock.h b/src/wayland/meta-wayland-session-lock.h
+new file mode 100644
+index 0000000..f284a4c
+--- /dev/null
++++ b/src/wayland/meta-wayland-session-lock.h
+@@ -0,0 +1,36 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#pragma once
++
++#include "core/util-private.h"
++#include "wayland/meta-wayland-actor-surface.h"
++#include "wayland/meta-wayland-types.h"
++
++#define META_TYPE_WAYLAND_SESSION_LOCK_SURFACE (meta_wayland_session_lock_surface_get_type ())
++META_EXPORT_TEST
++G_DECLARE_FINAL_TYPE (MetaWaylandSessionLockSurface,
++                      meta_wayland_session_lock_surface,
++                      META, WAYLAND_SESSION_LOCK_SURFACE,
++                      MetaWaylandActorSurface)
++
++void meta_wayland_session_lock_init (MetaWaylandCompositor *compositor);
++
++gboolean meta_wayland_surface_is_in_session_lock_surface (MetaWaylandSurface *surface);
++
++META_EXPORT_TEST
++gboolean meta_wayland_compositor_is_session_locked (MetaWaylandCompositor *compositor);
+diff --git a/src/wayland/meta-wayland-subsurface.c b/src/wayland/meta-wayland-subsurface.c
+index 837a0a1..0b5c83c 100644
+--- a/src/wayland/meta-wayland-subsurface.c
++++ b/src/wayland/meta-wayland-subsurface.c
+@@ -27,6 +27,7 @@
+ #include "wayland/meta-wayland-buffer.h"
+ #include "wayland/meta-wayland-surface-private.h"
+ #include "wayland/meta-wayland-transaction.h"
++#include "wayland/meta-wayland-session-lock.h"
+ #include "wayland/meta-window-wayland.h"
+ 
+ struct _MetaWaylandSubsurface
+@@ -72,13 +73,16 @@ sync_actor_subsurface_state (MetaWaylandSurface *surface)
+   int x, y;
+ 
+   toplevel_window = meta_wayland_surface_get_toplevel_window (surface);
+-  if (!toplevel_window || !should_show (surface))
++  if ((!toplevel_window &&
++       !meta_wayland_surface_is_in_session_lock_surface (surface)) ||
++      !should_show (surface))
+     {
+       clutter_actor_hide (actor);
+       return;
+     }
+ 
+-  if (toplevel_window->client_type == META_WINDOW_CLIENT_TYPE_X11)
++  if (toplevel_window &&
++      toplevel_window->client_type == META_WINDOW_CLIENT_TYPE_X11)
+     return;
+ 
+   x = y = 0;
+@@ -258,7 +262,8 @@ meta_wayland_subsurface_sync_actor_state (MetaWaylandActorSurface *actor_surface
+   MetaWaylandActorSurfaceClass *actor_surface_class =
+     META_WAYLAND_ACTOR_SURFACE_CLASS (meta_wayland_subsurface_parent_class);
+ 
+-  if (meta_wayland_surface_get_window (surface))
++  if (meta_wayland_surface_get_window (surface) ||
++      meta_wayland_surface_is_in_session_lock_surface (surface))
+     actor_surface_class->sync_actor_state (actor_surface);
+ 
+   sync_actor_subsurface_state (surface);
+diff --git a/src/wayland/meta-wayland-versions.h b/src/wayland/meta-wayland-versions.h
+index facf87e..47d8bfd 100644
+--- a/src/wayland/meta-wayland-versions.h
++++ b/src/wayland/meta-wayland-versions.h
+@@ -79,3 +79,4 @@
+ #define META_ZWLR_SCREENCOPY_MANAGER_V1_VERSION 3
+ #define META_ZXDG_DECORATION_MANAGER_V1_VERSION 2
+ #define META_WP_TEARING_CONTROL_V1_VERSION 1
++#define META_EXT_SESSION_LOCK_MANAGER_V1_VERSION 1
+diff --git a/src/wayland/meta-wayland.c b/src/wayland/meta-wayland.c
+index 59933dc..51075f6 100644
+--- a/src/wayland/meta-wayland.c
++++ b/src/wayland/meta-wayland.c
+@@ -66,6 +66,7 @@
+ #include "wayland/meta-wayland-private.h"
+ #include "wayland/meta-wayland-region.h"
+ #include "wayland/meta-wayland-seat.h"
++#include "wayland/meta-wayland-session-lock.h"
+ #include "wayland/meta-wayland-subsurface.h"
+ #include "wayland/meta-wayland-system-bell.h"
+ #include "wayland/meta-wayland-tablet-manager.h"
+@@ -1031,6 +1032,7 @@ meta_wayland_compositor_new (MetaContext *context)
+   meta_wayland_commit_timing_init (compositor);
+   meta_wayland_fifo_init (compositor);
+   meta_wayland_tearing_control_init (compositor);
++  meta_wayland_session_lock_init (compositor);
+   meta_wayland_init_cursor_shape (compositor);
+   meta_wayland_init_color_representation (compositor);
+   meta_wayland_init_background_effect (compositor);

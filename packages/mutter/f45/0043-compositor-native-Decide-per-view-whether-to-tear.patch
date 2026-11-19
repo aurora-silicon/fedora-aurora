@@ -1,0 +1,180 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 00:47:24 +1100
+Subject: [PATCH] compositor/native: Decide per view whether to tear
+
+Every frame, look at the surface that covers the view (the unobscured
+fullscreen candidate also used for variable refresh rate): tearing is
+requested when its wp_tearing_control_v1 hint is async and the
+async-tearing setting allows it, i.e. the window is fullscreen
+(fullscreen-only, the default) or the surface just covers the whole
+monitor (always). Windowed, obscured or vsync surfaces are never torn.
+Decision changes are logged under the render debug topic.
+
+Views without a KMS CRTC (virtual monitors) have no page flip to tear;
+there tearing only stops the frame clock from pacing to the refresh
+cycle.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/compositor/meta-compositor-native.c      |   3 +
+ src/compositor/meta-compositor-view-native.c | 105 +++++++++++++++++++
+ src/compositor/meta-compositor-view-native.h |   3 +
+ 3 files changed, 111 insertions(+)
+
+diff --git a/src/compositor/meta-compositor-native.c b/src/compositor/meta-compositor-native.c
+index 704cbad..5164fdf 100644
+--- a/src/compositor/meta-compositor-native.c
++++ b/src/compositor/meta-compositor-native.c
+@@ -45,6 +45,9 @@ meta_compositor_native_before_paint (MetaCompositor     *compositor,
+   meta_compositor_view_native_maybe_update_fullscreen_actor (compositor_view_native,
+                                                              compositor);
+ 
++  meta_compositor_view_native_maybe_update_tearing (compositor_view_native,
++                                                    compositor);
++
+   parent_class = META_COMPOSITOR_CLASS (meta_compositor_native_parent_class);
+   parent_class->before_paint (compositor, compositor_view, frame);
+ }
+diff --git a/src/compositor/meta-compositor-view-native.c b/src/compositor/meta-compositor-view-native.c
+index 2505159..7907b64 100644
+--- a/src/compositor/meta-compositor-view-native.c
++++ b/src/compositor/meta-compositor-view-native.c
+@@ -33,7 +33,10 @@
+ #include "compositor/meta-window-actor-private.h"
+ #include "compositor/meta-surface-actor-wayland.h"
+ #include "core/window-private.h"
++#include "meta/meta-context.h"
++#include "wayland/meta-wayland-private.h"
+ #include "wayland/meta-wayland-surface-private.h"
++#include "wayland/meta-wayland-tearing-control.h"
+ 
+ static void update_fullscreen_actor (MetaCompositorViewNative *view_native,
+                                      MetaSurfaceActor         *fullscreen_actor);
+@@ -57,6 +60,9 @@ struct _MetaCompositorViewNative
+   gulong fullscreen_surface_repaint_scheduled_id;
+   gulong fullscreen_surface_update_scheduled_id;
+   gulong fullscreen_actor_destroy_id;
++
++  gboolean tearing;
++  const char *tearing_reason;
+ };
+ 
+ G_DEFINE_TYPE (MetaCompositorViewNative, meta_compositor_view_native,
+@@ -506,6 +512,105 @@ meta_compositor_view_native_maybe_update_fullscreen_actor (MetaCompositorViewNat
+   update_fullscreen_actor (view_native, fullscreen_actor);
+ }
+ 
++static gboolean
++wants_tearing (MetaCompositorViewNative  *view_native,
++               MetaCompositor            *compositor,
++               MetaTearingPolicy          policy,
++               const char               **reason)
++{
++  MetaSurfaceActor *surface_actor = view_native->fullscreen_actor;
++  MetaWaylandSurface *surface;
++  MetaWindow *window;
++
++  if (policy == META_TEARING_POLICY_OFF)
++    {
++      *reason = "disabled by the async-tearing setting";
++      return FALSE;
++    }
++
++  if (!surface_actor || !META_IS_SURFACE_ACTOR_WAYLAND (surface_actor))
++    {
++      *reason = "no unobscured surface covers the view";
++      return FALSE;
++    }
++
++  surface =
++    meta_surface_actor_wayland_get_surface (META_SURFACE_ACTOR_WAYLAND (surface_actor));
++  if (!surface)
++    {
++      *reason = "no surface";
++      return FALSE;
++    }
++
++  if (meta_wayland_surface_get_presentation_hint (surface) !=
++      META_WAYLAND_PRESENTATION_HINT_ASYNC)
++    {
++      *reason = "surface presentation hint is vsync";
++      return FALSE;
++    }
++
++  window = meta_wayland_surface_get_toplevel_window (surface);
++  if (policy == META_TEARING_POLICY_FULLSCREEN_ONLY &&
++      (!window || !meta_window_is_fullscreen (window)))
++    {
++      *reason = "window is not fullscreen";
++      return FALSE;
++    }
++
++  *reason = policy == META_TEARING_POLICY_ALWAYS ?
++            "async surface covers the view (policy always)" :
++            "fullscreen async surface (policy fullscreen-only)";
++  return TRUE;
++}
++
++void
++meta_compositor_view_native_maybe_update_tearing (MetaCompositorViewNative *view_native,
++                                                  MetaCompositor           *compositor)
++{
++  MetaCompositorView *compositor_view = META_COMPOSITOR_VIEW (view_native);
++  MetaDisplay *display = meta_compositor_get_display (compositor);
++  MetaContext *context = meta_display_get_context (display);
++  MetaWaylandCompositor *wayland_compositor =
++    meta_context_get_wayland_compositor (context);
++  ClutterStageView *stage_view;
++  CoglFramebuffer *framebuffer;
++  ClutterFrameClock *frame_clock;
++  MetaTearingPolicy policy;
++  const char *reason = NULL;
++  gboolean tearing;
++
++  if (!wayland_compositor)
++    return;
++
++  policy = meta_wayland_tearing_control_get_policy (wayland_compositor);
++  tearing = wants_tearing (view_native, compositor, policy, &reason);
++
++  stage_view = meta_compositor_view_get_stage_view (compositor_view);
++
++  if (tearing != view_native->tearing ||
++      reason != view_native->tearing_reason)
++    {
++      meta_topic (META_DEBUG_RENDER,
++                  "Tearing %s on view %p: %s",
++                  tearing ? "requested" : "not requested",
++                  stage_view, reason);
++      view_native->tearing = tearing;
++      view_native->tearing_reason = reason;
++    }
++
++  framebuffer = clutter_stage_view_get_onscreen (stage_view);
++  if (META_IS_ONSCREEN_NATIVE (framebuffer))
++    return;
++
++  /* Views without a KMS CRTC (virtual monitors) have no page flip to tear,
++   * so tearing only stops their frame clock from pacing to the refresh
++   * cycle.
++   */
++  frame_clock = clutter_stage_view_get_frame_clock (stage_view);
++  if (frame_clock)
++    clutter_frame_clock_set_tearing (frame_clock, tearing);
++}
++
+ MetaCompositorViewNative *
+ meta_compositor_view_native_new (ClutterStageView *stage_view)
+ {
+diff --git a/src/compositor/meta-compositor-view-native.h b/src/compositor/meta-compositor-view-native.h
+index 0e91388..1a4fc7f 100644
+--- a/src/compositor/meta-compositor-view-native.h
++++ b/src/compositor/meta-compositor-view-native.h
+@@ -37,3 +37,6 @@ void meta_compositor_view_native_maybe_assign_scanout (MetaCompositorViewNative
+ 
+ void meta_compositor_view_native_maybe_update_fullscreen_actor (MetaCompositorViewNative *view_native,
+                                                                 MetaCompositor           *compositor);
++
++void meta_compositor_view_native_maybe_update_tearing (MetaCompositorViewNative *view_native,
++                                                       MetaCompositor           *compositor);

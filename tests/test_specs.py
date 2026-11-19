@@ -413,6 +413,19 @@ class SpecTests(unittest.TestCase):
         self.assertIn('cp build/aura-boot.macho ../aurora-stage1/aura-boot.macho\n', stage1)
         for name in ('aura-raw.bin', 'aura-boot.macho'):
             self.assertIn(f'install -Dm644 ../aurora-stage1/{name} %{{buildroot}}%{{_datadir}}/aura/stage1/{name}\n', spec)
+    def test_aura_ships_a_secure_stage1_with_a_throwaway_key(self):
+        spec = (ROOT / 'packages' / 'aura' / 'aura.spec').read_text()
+        build = spec.split('%build', 1)[1].split('%install', 1)[0]
+        # The second `make clean` starts the secure-flavour Stage 1, the third the Stage 2 build.
+        secure = build.split('make clean', 2)[1]
+        self.assertIn('secboot_sign.pubkey(os.urandom(32))', secure)
+        self.assertIn('SECBOOT=audit SECBOOT_FLAVOUR=secure SECBOOT_PUBKEY=../aurora-stage1/nobody.pub', secure)
+        self.assertIn('cp build/aura.bin ../aurora-stage1/aura-secure-raw.bin\n', secure)
+        self.assertIn('ESP_STAGE2=1', build.split('make clean', 2)[2])
+        install = spec.split('%install', 1)[1].split('%files', 1)[0]
+        self.assertIn('install -Dm644 ../aurora-stage1/aura-secure-raw.bin '
+                      '%{buildroot}%{_datadir}/aura/stage1/aura-secure-raw.bin\n', install)
+        self.assertNotIn('nobody.pub', install)
     def test_fex_guest_mesa_moves_in_lockstep_with_the_host_mesa(self):
         def fields(name):
             text = (ROOT / 'packages' / name / (name + '.spec')).read_text()
@@ -570,6 +583,43 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(text, r'(?m)^Source\d+: 64-aurora-trackpad-clicks\.rules$')
         core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
         self.assertIn('%{_udevrulesdir}/64-aurora-trackpad-clicks.rules', core_files)
+    def test_t6041_trackpads_take_palms_from_the_kernel(self):
+        # hid-magicmouse reports T6041 palms as MT_TOOL_PALM; libinput's
+        # Apple MTP size threshold is off on those two MacBook Pros only.
+        d = ROOT / 'packages' / 'aurora-platform'
+        quirks = configparser.ConfigParser(interpolation=None)
+        quirks.optionxform = str
+        quirks.read_string((d / '60-aurora-t6041-trackpad.quirks').read_text())
+        self.assertEqual(sorted(quirks[s]['MatchDeviceTree'] for s in quirks.sections()),
+                         ['*j614c*', '*j616c*'])
+        for section in quirks.sections():
+            with self.subTest(section=section):
+                self.assertEqual(dict(quirks[section]), {
+                    'MatchUdevType': 'touchpad', 'MatchName': 'Apple*MTP*', 'MatchVendor': '0x05AC',
+                    'MatchDeviceTree': quirks[section]['MatchDeviceTree'], 'AttrPalmSizeThreshold': '0'})
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: 60-aurora-t6041-trackpad\.quirks$')
+        core_files = text.split('%files core', 1)[1].split('%files kdump', 1)[0]
+        self.assertIn('%{_datadir}/libinput/60-aurora-t6041-trackpad.quirks', core_files)
+    def test_t6041_power_defaults_apply_on_the_t6041_only(self):
+        d = ROOT / 'packages' / 'aurora-platform'
+        unit = configparser.ConfigParser(interpolation=None, strict=False)
+        unit.optionxform = str
+        unit.read_string((d / 'aurora-t6041-power.service').read_text())
+        self.assertEqual(unit['Unit']['ConditionFirmware'], 'device-tree-compatible(apple,t6041)')
+        self.assertEqual(unit['Service']['Type'], 'oneshot')
+        lines = (d / 'aurora-t6041-power.service').read_text().splitlines()
+        self.assertEqual([l for l in lines if l.startswith('ExecStart=')], [
+            "ExecStart=/bin/sh -c 'echo powersupersave > /sys/module/pcie_aspm/parameters/policy'",
+            'ExecStart=/usr/sbin/sysctl -q -w kernel.sched_util_clamp_min_rt_default=0'])
+        self.assertNotIn('Install', unit)
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: aurora-t6041-power\.service$')
+        self.assertIn('ln -s ../aurora-t6041-power.service '
+                      '%{buildroot}%{_unitdir}/sysinit.target.wants/aurora-t6041-power.service', text)
+        core_files = text.split('%files core', 1)[1].split('%files kdump', 1)[0]
+        self.assertIn('%{_unitdir}/aurora-t6041-power.service', core_files)
+        self.assertIn('%{_unitdir}/sysinit.target.wants/aurora-t6041-power.service', core_files)
     def test_platform_core_carries_no_kernel_or_boot_chain(self):
         d = ROOT / 'packages' / 'aurora-platform'
         text = (d / 'aurora-platform.spec').read_text()

@@ -1,13 +1,12 @@
-%global commit 1c1136ebd1e943d6d2ba7c204a11deee3e948dd8
+%global commit 8c9d9c0449dd515e0088c4a60a38d2dc40c5ccd0
 Name:           fastfetch
-Version:        2.68.1
-Release:        2%{?dist}.aurora
+Version:        2.71.0
+Release:        1%{?dist}.aurora
 Summary:        Fast neofetch-like system information tool
 
 License:        MIT
 URL:            https://github.com/fastfetch-cli/fastfetch
 Source0:        fastfetch-%{commit}.tar.gz
-Patch0:         0001-recognize-a18-pro.patch
 
 BuildRequires:  cmake
 BuildRequires:  python3
@@ -114,5 +113,9 @@ mechanisms like multithreading and caching to finish as fast as possible.
 
 
 %changelog
+* Tue Nov 17 2026 Aurora Silicon <hey@djdev.me> - 2.71.0-1.aurora
+- Update to 2.71.0
+- Drop the A18 Pro backport, included upstream since 2.69.0
+
 * Mon Oct 19 2026 Aurora Silicon <hey@djdev.me> - 2.68.1-2.aurora
 - Backport A18 Pro chip naming for CPU and Asahi GPU detection
