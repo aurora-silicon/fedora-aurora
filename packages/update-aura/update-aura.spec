@@ -1,14 +1,14 @@
-Name: update-m1n1
-Version: 20261107
-Release: 9%{?dist}.aurora
+Name: update-aura
+Version: 20261119
+Release: 1%{?dist}.aurora
 Summary: Transactional Aurora Stage 2 updates with retained-kernel DTB checks
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
-Source0: update-m1n1
+Source0: update-aura
 Source1: bootchain.py
 Source2: 10-devicetree.install
-Source3: 15-update-m1n1.install
-Source4: update-m1n1.sysconfig
+Source3: 15-update-aura.install
+Source4: update-aura.sysconfig
 Source5: LICENSE
 Source6: test_bootchain.py
 Source7: aurora-stage2-commit
@@ -18,11 +18,15 @@ Source10: aurora-stage2-guard.service
 Source11: aurora-stage2-guard.timer
 Source12: kernel-install-repair
 Provides: aurora-stage2-ctxr-slot = 1
+# The package was update-m1n1. LEGACY-ASAHI(2027-02-28): the old name is
+# provided so packages and scripts that still ask for it keep working.
+Provides: update-m1n1 = %{version}-%{release}
+Obsoletes: update-m1n1 < 20261119
 BuildArch: noarch
 BuildRequires: python3 dtc coreutils systemd-rpm-macros
 %{?systemd_requires}
 Requires: asahi-scripts bash coreutils dtc gzip python3 util-linux
-Requires: m1n1 uboot-images-armv8 grubby
+Requires: aura uboot-images-armv8 grubby
 
 %description
 Keep the ESP Stage 2 and /boot/dtb unchanged when a retained kernel requires
@@ -40,13 +44,15 @@ python3 -m py_compile %{SOURCE1}
 python3 %{SOURCE6}
 
 %install
-install -Dpm0755 %{SOURCE0} %{buildroot}%{_sbindir}/update-m1n1
+install -Dpm0755 %{SOURCE0} %{buildroot}%{_sbindir}/update-aura
+# LEGACY-ASAHI(2027-02-28): the command under its old name.
+ln -s update-aura %{buildroot}%{_sbindir}/update-m1n1
 install -Dm644 %{SOURCE1} %{buildroot}%{_libexecdir}/aurora/bootchain.py
 # Override grubby's eager link update through kernel-install's supported
 # precedence mechanism. Administrator masks and edits remain authoritative.
 install -Dm755 %{SOURCE2} %{buildroot}%{_sysconfdir}/kernel/install.d/10-devicetree.install
-install -Dm755 %{SOURCE3} %{buildroot}%{_kernel_install_dir}/15-update-m1n1.install
-install -Dm644 %{SOURCE4} %{buildroot}%{_sysconfdir}/sysconfig/update-m1n1
+install -Dm755 %{SOURCE3} %{buildroot}%{_kernel_install_dir}/15-update-aura.install
+install -Dm644 %{SOURCE4} %{buildroot}%{_sysconfdir}/sysconfig/update-aura
 install -Dm755 %{SOURCE7} %{buildroot}%{_libexecdir}/aurora/aurora-stage2-commit
 install -Dm755 %{SOURCE12} %{buildroot}%{_libexecdir}/aurora/kernel-install-repair
 install -Dm644 %{SOURCE8} %{buildroot}%{_unitdir}/aurora-stage2-commit.service
@@ -75,24 +81,26 @@ install -Dm644 /dev/null %{buildroot}%{_datadir}/aurora/stage2-sign-hook
 %posttrans
 %{_libexecdir}/aurora/kernel-install-repair || :
 
-%transfiletriggerin -- /usr/lib/m1n1 /usr/lib64/m1n1 /usr/share/uboot/apple_m1 /etc/m1n1.conf
-%{_sbindir}/update-m1n1 || :
+# LEGACY-ASAHI(2027-02-28): /etc/m1n1.conf counts until it is moved to /etc/aura.conf.
+%transfiletriggerin -- /usr/lib/aura /usr/lib64/aura /usr/share/uboot/apple_m1 /etc/aura.conf /etc/m1n1.conf
+%{_sbindir}/update-aura || :
 
 # A transaction runs kernel-install remove for every kernel it erases, also
 # for one it reinstalls, before the kernels it installs are added. Record the
 # transaction before it starts: its removals then leave Stage 2 to the kernels
 # it adds and to a refresh after it, which follows what GRUB boots next.
 %transfiletriggerun -- /usr/lib/modules
-AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-m1n1 --transaction-begin || :
+AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-aura --transaction-begin || :
 
 %transfiletriggerpostun -- /usr/lib/modules
-%{_sbindir}/update-m1n1 --transaction-end || :
+%{_sbindir}/update-aura --transaction-end || :
 
 %transfiletriggerin -- /usr/lib/modules
-%{_sbindir}/update-m1n1 --transaction-end || :
+%{_sbindir}/update-aura --transaction-end || :
 
 %files
 %license LICENSE
+%{_sbindir}/update-aura
 %{_sbindir}/update-m1n1
 %{_libexecdir}/aurora/bootchain.py
 %{_libexecdir}/aurora/aurora-stage2-commit
@@ -103,10 +111,23 @@ AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-m1n1 --transaction-begin || 
 %{_presetdir}/90-aurora-stage2.preset
 %{_datadir}/aurora/stage2-sign-hook
 %config(noreplace) %{_sysconfdir}/kernel/install.d/10-devicetree.install
-%{_kernel_install_dir}/15-update-m1n1.install
-%config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1
+%{_kernel_install_dir}/15-update-aura.install
+%config(noreplace) %{_sysconfdir}/sysconfig/update-aura
 
 %changelog
+* Thu Nov 19 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 20261119-1
+- Rename update-m1n1 to update-aura: the command, its kernel-install plugin
+  15-update-aura.install, /etc/sysconfig/update-aura, the aura image at
+  %{_libdir}/aura/aura.bin and the owner configuration /etc/aura.conf.
+  Provides and obsoletes update-m1n1, and keeps update-m1n1 as a symlink.
+- Write the one Stage 2 file the enrolled Stage 1 loads: aurora/boot.bin
+  (or boot-ctxr.bin), unless aurora/ has no Stage 2 file and m1n1/ has one,
+  which a Stage 1 enrolled before the rename chainloads. AURA_ESP_DIR
+  overrides the choice.
+- Until 2027-02-28 the old settings still apply: /etc/sysconfig/update-m1n1
+  (or its .rpmsave), M1N1_UPDATE_DISABLED, M1N1, /etc/m1n1.conf when
+  /etc/aura.conf is absent, and the asahi,m1n1-stage1-version property.
+
 * Sun Nov 15 2026 Isaac Duarte <31712685+Isaac-Duarte@users.noreply.github.com> - 20261107-9
 - Find the node a display alias names by its exact path. fdtget resolves
   a component without a unit address, such as /soc, to the first soc@...

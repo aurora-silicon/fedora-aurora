@@ -11,7 +11,7 @@ Reviewed public main `80de98bdcf362ecd7fffcd4a14f4ded1b457ae92`.
 - `packages/mesa-aurora/PKGBUILD`: export
   `MESA_GIT_SHA1_OVERRIDE=$_commit` before both Meson configurations and in
   `check()` (Meson may regenerate its always-stale Git header), and check
-  `libvulkan_asahi.so` for `(git-cf4e08105d), Borealis`. This recipe uses a Git
+  `libvulkan_aurora.so` for `(git-cf4e08105d), Borealis`. This recipe uses a Git
   source, so it can currently discover the commit, but the explicit override
   also covers archived sources and prevents an unrelated checkout's identity.
 - `packages/aurora-flatpak-gl/build-extension.sh` and `validate-repo.sh`: use
@@ -105,13 +105,13 @@ no compiler runtime dependency. Fedora 45 builds against `pkgconfig(libclc)`,
 which `libclc22-devel` provides there, and Rusticl requires `libclc22`.
 
 - alarm-aurora (reviewed main `266655ede65b6b24e2376b3c097a0bf8de5831f7`):
-  `mesa-aurora` builds only `-Dvulkan-drivers=asahi`, so lavapipe comes from
+  `mesa-aurora` builds only `-Dvulkan-drivers=aurora`, so lavapipe comes from
   Arch's stock `vulkan-swrast` (26.2.6), which still installs beside it.
   For one Mesa source, add a `vulkan-swrast-aurora` split package built in the
   LLVM-enabled tools tree with `provides=('vulkan-swrast')`,
   `conflicts=('vulkan-swrast')` and `replaces=('vulkan-swrast')`.
 - nixos-aurora (reviewed main `afa9b4c734f426000b0a017d60dc9a6394258b8b`):
-  `mesa.nix` sets `-Dvulkan-drivers=asahi`, so the system has no lavapipe at
+  `mesa.nix` sets `-Dvulkan-drivers=aurora`, so the system has no lavapipe at
   all, unlike stock nixpkgs Mesa. Build `src/gallium/targets/lavapipe` in the
   `tools` tree (which already has `-Dllvm=enabled`) and install
   `libvulkan_lvp.so` with its ICD into a separate output, keeping LLVM out of

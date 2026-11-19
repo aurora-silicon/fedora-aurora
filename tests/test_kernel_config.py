@@ -14,7 +14,7 @@ class UniversalKernelConfig(unittest.TestCase):
         merge = next(line for line in recipe.splitlines() if line.startswith('scripts/kconfig/merge_config.sh'))
         validation = next(line for line in recipe.splitlines() if line.startswith('python3 %{SOURCE5}'))
         for line in (merge, validation):
-            self.assertIn('arch/arm64/configs/asahi.config', line)
+            self.assertIn('arch/arm64/configs/aurora.config', line)
             self.assertIn('%{SOURCE4}', line)
         for name in ('neo.config', 'common.config'):
             self.assertNotIn(name, recipe)

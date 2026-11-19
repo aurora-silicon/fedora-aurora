@@ -93,7 +93,7 @@ grep -F '/usr/share/aurora-flatpak-gl/repo/objects/' "$out/flatpak-rpm-payload.t
 # Validation from the installed RPM's repository, not the build work directory.
 python3 /src/packages/aurora-flatpak-gl/validate-repo.py \
   /usr/share/aurora-flatpak-gl/repo "$commit" 25.08 26.08
-strings /usr/lib64/libvulkan_asahi.so | grep -F "(git-${commit:0:10}), Borealis" > "$out/driverInfo.txt"
+strings /usr/lib64/libvulkan_aurora.so | grep -F "(git-${commit:0:10}), Borealis" > "$out/driverInfo.txt"
 rpm -q --whatprovides 'libvulkan_lvp.so()(64bit)'
 test -f /usr/lib64/libvulkan_lvp.so
 # Only replacements/upgrades are acceptable. No unrelated old package can disappear.

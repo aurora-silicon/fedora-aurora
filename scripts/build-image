@@ -48,10 +48,10 @@ basics_root=$(mktemp -d)
 mount -o ro,loop,subvol="$root_subvolume" "$installer/root.img" "$basics_root"
 basics=0
 # A Stage 1 with the CTXR window chainloads these, on Mach-O Macs. The image
-# gets them only with an aura that has no monitor, the rule update-m1n1 follows
+# gets them only with an aura that has no monitor, the rule update-aura follows
 # on an installed Mac.
 if [[ -e $basics_root/usr/share/aura/monitor-free ]]; then
-  python3 "$root/scripts/prepare-ctxr-stage2.py" "$installer/esp/m1n1" || basics=$?
+  python3 "$root/scripts/prepare-ctxr-stage2.py" "$installer/esp/aurora" || basics=$?
 fi
 # Every image ships the basics (locale, terminal, wallpapers, network, lid
 # policy, GRUB finding /boot by UUID on the startup disk, Aurora Mesa for

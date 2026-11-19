@@ -22,14 +22,14 @@ read -r -a extra <<< "${AURORA_EXTRA_PACKAGES:-}"
 mkdir -p "$proof"
 exec > >(tee "$proof/system-upgrade.log") 2>&1
 
-# The container has no Mac boot chain; give update-m1n1 a scratch ESP so the
+# The container has no Mac boot chain; give update-aura a scratch ESP so the
 # kernel and boot-chain scriptlets run as they do on a Mac.
-mkdir -p /boot/efi/m1n1 /etc/sysconfig
-cat > /etc/sysconfig/update-m1n1 <<'CONFIG'
-M1N1=/usr/lib64/m1n1/m1n1.bin
+mkdir -p /boot/efi/aurora /etc/sysconfig
+cat > /etc/sysconfig/update-aura <<'CONFIG'
+AURA=/usr/lib64/aura/aura.bin
 U_BOOT=/usr/share/uboot/apple_m1/u-boot-nodtb.bin
 DTBS=/boot/dtb
-TARGET=/boot/efi/m1n1/boot.bin
+TARGET=/boot/efi/aurora/boot.bin
 CONFIG
 export AURORA_DEVICE_TREE_COMPATIBLE=/nonexistent
 
@@ -107,6 +107,6 @@ krel=$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-aurora-core | sort -
 [[ $krel == *.fc45.aurora.aarch64 ]]
 [[ -s /usr/lib/modules/$krel/vmlinuz && -d /usr/lib/modules/$krel/dtb/apple ]]
 [[ $(readlink /boot/dtb) == "dtb-$krel" ]]
-[[ -s /boot/efi/m1n1/boot.bin ]]
-rpm -q kernel-aurora-core aura uboot-aurora update-m1n1 > "$proof/bootchain-nevra.txt"
+[[ -s /boot/efi/aurora/boot.bin ]]
+rpm -q kernel-aurora-core aura uboot-aurora update-aura > "$proof/bootchain-nevra.txt"
 echo "Fedora 44 -> 45 system-upgrade passed: $(rpm -q aurora-release), kernel $krel"

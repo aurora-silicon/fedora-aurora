@@ -42,7 +42,7 @@ Requires: flatpak
 %description
 Installs org.freedesktop.Platform.GL.aurora, Aurora's Mesa built for the
 Freedesktop Flatpak runtimes, and enables it for every Flatpak app ahead of
-Flathub's GL.default. Apps then get the same Asahi Gallium and Honeykrisp
+Flathub's GL.default. Apps then get the same Aurora Gallium and Honeykrisp
 drivers as the rest of the system. Runtime branches without a GL.aurora build
 keep using GL.default.
 

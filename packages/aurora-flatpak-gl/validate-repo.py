@@ -14,10 +14,10 @@ def validate_payload(root, commit):
     root = Path(root).resolve()
     if (root / '.aurora-mesa-commit').read_text().strip() != commit:
         raise ValueError('GL payload has the wrong Mesa commit')
-    for name in ('lib/libvulkan_asahi.so', 'lib/libvulkan_lvp.so',
+    for name in ('lib/libvulkan_aurora.so', 'lib/libvulkan_lvp.so',
                  'lib/libEGL_mesa.so.0', 'lib/libGLX_mesa.so.0',
                  'lib/libLLVM.so.22.1', 'lib/dri/aurora_dri.so',
-                 'lib/dri/asahi_dri.so', 'lib/dri/zink_dri.so', 'lib/dri/swrast_dri.so'):
+                 'lib/dri/zink_dri.so', 'lib/dri/swrast_dri.so'):
         path = (root / name).resolve(strict=True)
         if not path.is_relative_to(root):
             raise ValueError(f'{name}: symlink escapes the payload')
@@ -25,7 +25,7 @@ def validate_payload(root, commit):
             header = stream.read(20)
         if header[:6] != b'\x7fELF\x02\x01' or struct.unpack('<H', header[18:20])[0] != 183:
             raise ValueError(f'{name}: not an AArch64 ELF library')
-    for name in ('vulkan/icd.d/asahi_icd.aarch64.json',
+    for name in ('vulkan/icd.d/aurora_icd.aarch64.json',
                  'vulkan/icd.d/lvp_icd.aarch64.json',
                  'glvnd/egl_vendor.d/50_mesa.json'):
         data = json.loads((root / name).read_text())['ICD']
@@ -37,7 +37,7 @@ def validate_payload(root, commit):
     defaults = (root / 'share/drirc.d/00-hk-defaults.conf').read_text()
     if 'hk_report_honeykrisp_driver_id' not in defaults:
         raise ValueError('GL payload lacks the DXVK/vkd3d driver-ID defaults')
-    blob = (root / 'lib/libvulkan_asahi.so').read_bytes()
+    blob = (root / 'lib/libvulkan_aurora.so').read_bytes()
     expected = f'(git-{commit[:10]}), Borealis'.encode()
     if expected not in blob:
         raise ValueError('GL driverInfo lacks the pinned commit and Borealis name')

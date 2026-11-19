@@ -20,12 +20,12 @@ import zlib
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / 'packages/update-m1n1/update-m1n1'
-HELPER = ROOT / 'packages/update-m1n1/bootchain.py'
+SCRIPT = ROOT / 'packages/update-aura/update-aura'
+HELPER = ROOT / 'packages/update-aura/bootchain.py'
 _helper_spec = importlib.util.spec_from_file_location('ctxr_bootchain', HELPER)
 bootchain = importlib.util.module_from_spec(_helper_spec)
 _helper_spec.loader.exec_module(bootchain)
-SPEC = ROOT / 'packages/update-m1n1/update-m1n1.spec'
+SPEC = ROOT / 'packages/update-aura/update-aura.spec'
 
 # Every chip AuraStage1Format.usesMachO admits or names, and every one below it.
 MACHO_CHIPS = ('t8132', 't6040', 't6041', 't8140', 't8142', 't8152', 't6050', 't6051', 't6052', 't8130', 't8fff', 't6fff')
@@ -66,7 +66,7 @@ def load_prepare():
 prepare_ctxr = load_prepare()
 
 
-class UpdateM1n1(unittest.TestCase):
+class UpdateAura(unittest.TestCase):
     NAMES = ('t8103-j274.dtb', 't6040-j616s-tether.dtb', 't6040-j616s.dtb',
              't8140-j700-ane-test.dtb', 't8140-j700.dtb', 't8132-j713.dtb')
     TREES = {name: device_tree([f'apple,{name.split("-", 1)[1].split(".", 1)[0].split("-", 1)[0]}',
@@ -77,9 +77,9 @@ class UpdateM1n1(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = root = Path(temp.name)
         self.esp = root / 'esp'
-        (self.esp / 'm1n1').mkdir(parents=True)
-        self.boot = self.esp / 'm1n1/boot.bin'
-        self.ctxr = self.esp / 'm1n1/boot-ctxr.bin'
+        (self.esp / 'aurora').mkdir(parents=True)
+        self.boot = self.esp / 'aurora/boot.bin'
+        self.ctxr = self.esp / 'aurora/boot-ctxr.bin'
         self.boot.write_bytes(FROZEN)
         os.utime(self.boot, (1000000, 1000000))
         self.dtbs = root / 'dtbs'
@@ -92,19 +92,19 @@ class UpdateM1n1(unittest.TestCase):
         for name, data in self.TREES.items():
             (self.dtbs / name).write_bytes(data)
             (installed / name).write_bytes(data)
-        (root / 'm1n1.bin').write_bytes(AURA)
+        (root / 'aura.bin').write_bytes(AURA)
         (root / 'u-boot-nodtb.bin').write_bytes(UBOOT)
         self.compatible = root / 'compatible'
         self.marker = root / 'monitor-free'
 
     def run_update(self, *args, **env):
-        settings = dict(M1N1='/m1n1.bin', U_BOOT='/u-boot-nodtb.bin', TARGET='/esp/m1n1/boot.bin',
-                        DTBS='/dtbs/*.dtb', CONFIG='/m1n1.conf',
+        settings = dict(AURA='/aura.bin', U_BOOT='/u-boot-nodtb.bin', TARGET='/esp/aurora/boot.bin',
+                        DTBS='/dtbs/*.dtb', CONFIG='/aura.conf',
                         AURORA_DEVICE_TREE_COMPATIBLE='/compatible', AURORA_MONITOR_FREE_MARKER='/monitor-free')
         settings.update(env)
         if args:
             settings['TARGET'] = str(args[0])
-        for key in ('M1N1', 'U_BOOT', 'TARGET', 'DTBS', 'CONFIG',
+        for key in ('AURA', 'U_BOOT', 'TARGET', 'DTBS', 'CONFIG',
                     'AURORA_DEVICE_TREE_COMPATIBLE', 'AURORA_MONITOR_FREE_MARKER'):
             settings[key] = settings[key].replace(str(self.root), '')
         output = io.StringIO()
@@ -113,8 +113,8 @@ class UpdateM1n1(unittest.TestCase):
             with patch.dict(os.environ, locale), contextlib.redirect_stdout(output):
                 bootchain.Update(self.root, settings).apply()
         except (bootchain.Refused, OSError) as error:
-            return subprocess.CompletedProcess(['update-m1n1'], 1, output.getvalue(), str(error))
-        return subprocess.CompletedProcess(['update-m1n1'], 0, output.getvalue(), '')
+            return subprocess.CompletedProcess(['update-aura'], 1, output.getvalue(), str(error))
+        return subprocess.CompletedProcess(['update-aura'], 0, output.getvalue(), '')
 
     def on(self, board, chip):
         self.compatible.write_bytes(compatible_file(board, chip))
@@ -135,22 +135,22 @@ class UpdateM1n1(unittest.TestCase):
     def assert_frozen(self):
         self.assertEqual(self.boot.read_bytes(), FROZEN)
         self.assertEqual(self.boot.stat().st_mtime, 1000000)
-        self.assertFalse((self.esp / 'm1n1/boot.bin.old').exists())
-        self.assertFalse((self.esp / 'm1n1/boot.bin.new').exists())
+        self.assertFalse((self.esp / 'aurora/boot.bin.old').exists())
+        self.assertFalse((self.esp / 'aurora/boot.bin.new').exists())
 
     def assert_updated_boot_bin(self, result):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.read_parts(self.boot), self.parts(sorted(self.TREES)))
-        self.assertEqual((self.esp / 'm1n1/boot.bin.old').read_bytes(), FROZEN)
+        self.assertEqual((self.esp / 'aurora/boot.bin.old').read_bytes(), FROZEN)
         self.assertFalse(self.ctxr.exists())
         self.assertNotIn('WARNING', result.stderr)
-        self.assertIn('m1n1/boot.bin', result.stdout)
+        self.assertIn('aurora/boot.bin', result.stdout)
 
     def test_macho_without_the_marker_keeps_updating_boot_bin(self):
         for chip in MACHO_CHIPS:
             with self.subTest(chip):
                 self.boot.write_bytes(FROZEN)
-                (self.esp / 'm1n1/boot.bin.old').unlink(missing_ok=True)
+                (self.esp / 'aurora/boot.bin.old').unlink(missing_ok=True)
                 self.on('j700', chip)
                 self.assert_updated_boot_bin(self.run_update())
 
@@ -222,19 +222,19 @@ class UpdateM1n1(unittest.TestCase):
         self.on('j700', 't8140')
         self.assertEqual(self.run_update().returncode, 0)
         first = self.ctxr.read_bytes()
-        self.assertFalse((self.esp / 'm1n1/boot-ctxr.bin.old').exists())
-        (self.root / 'm1n1.bin').write_bytes(b'NEWER-AURA')
+        self.assertFalse((self.esp / 'aurora/boot-ctxr.bin.old').exists())
+        (self.root / 'aura.bin').write_bytes(b'NEWER-AURA')
         self.assertEqual(self.run_update().returncode, 0)
-        self.assertEqual((self.esp / 'm1n1/boot-ctxr.bin.old').read_bytes(), first)
+        self.assertEqual((self.esp / 'aurora/boot-ctxr.bin.old').read_bytes(), first)
         self.assertTrue(self.ctxr.read_bytes().startswith(b'NEWER-AURA'))
-        self.assertFalse((self.esp / 'm1n1/boot-ctxr.bin.new').exists())
+        self.assertFalse((self.esp / 'aurora/boot-ctxr.bin.new').exists())
         self.assert_frozen()
 
     def test_macho_unchanged_stage2_keeps_the_rollback_copy(self):
         self.monitor_free()
         self.on('j700', 't8140')
         self.assertEqual(self.run_update().returncode, 0)
-        old = self.esp / 'm1n1/boot-ctxr.bin.old'
+        old = self.esp / 'aurora/boot-ctxr.bin.old'
         old.write_bytes(b'older generation')
         self.assertEqual(self.run_update().returncode, 0)
         self.assertEqual(old.read_bytes(), b'older generation')
@@ -267,20 +267,20 @@ class UpdateM1n1(unittest.TestCase):
         self.assertIn('have no apple,j873g', result.stderr)
         self.assert_frozen()
         self.assertFalse(self.ctxr.exists())
-        self.assertFalse((self.esp / 'm1n1/boot-ctxr.bin.new').exists())
+        self.assertFalse((self.esp / 'aurora/boot-ctxr.bin.new').exists())
 
     def test_a_ctxr_stage2_over_auras_slot_is_not_written(self):
         self.monitor_free()
         self.on('j700', 't8140')
         self.assertEqual(self.run_update().returncode, 0)
         first = self.ctxr.read_bytes()
-        (self.root / 'm1n1.bin').write_bytes(b'\0' * (16 << 20))
+        (self.root / 'aura.bin').write_bytes(b'\0' * (16 << 20))
         result = self.run_update()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('16 MiB', result.stderr)
         self.assertEqual(self.ctxr.read_bytes(), first)
-        self.assertFalse((self.esp / 'm1n1/boot-ctxr.bin.new').exists())
-        self.assertFalse((self.esp / 'm1n1/boot-ctxr.bin.old').exists())
+        self.assertFalse((self.esp / 'aurora/boot-ctxr.bin.new').exists())
+        self.assertFalse((self.esp / 'aurora/boot-ctxr.bin.old').exists())
         self.assert_frozen()
 
     def test_earlier_chips_are_the_same_with_and_without_the_marker(self):
@@ -290,7 +290,7 @@ class UpdateM1n1(unittest.TestCase):
             for chip in EARLIER_CHIPS:
                 with self.subTest(chip=chip, marked=marked):
                     self.boot.write_bytes(FROZEN)
-                    (self.esp / 'm1n1/boot.bin.old').unlink(missing_ok=True)
+                    (self.esp / 'aurora/boot.bin.old').unlink(missing_ok=True)
                     self.on('j274', chip)
                     self.assert_updated_boot_bin(self.run_update())
 
@@ -326,10 +326,10 @@ class UpdateM1n1(unittest.TestCase):
         self.assertEqual(self.read_parts(self.ctxr), self.parts(['t8140-j700-ane-test.dtb', 't8140-j700.dtb']))
         self.assert_frozen()
 
-    def test_m1n1_conf_options_reach_the_ctxr_stage2(self):
+    def test_aura_conf_options_reach_the_ctxr_stage2(self):
         self.monitor_free()
         self.on('j700', 't8140')
-        (self.root / 'm1n1.conf').write_text('chosen.bootargs=quiet\nnot an option\n')
+        (self.root / 'aura.conf').write_text('chosen.bootargs=quiet\nnot an option\n')
         self.assertEqual(self.run_update().returncode, 0)
         self.assertEqual(self.read_parts(self.ctxr),
                          self.parts(['t8140-j700-ane-test.dtb', 't8140-j700.dtb'], options=b'chosen.bootargs=quiet\n'))
@@ -346,44 +346,44 @@ class PrepareCtxrStage2(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.m1n1 = Path(temp.name) / 'esp/m1n1'
-        self.m1n1.mkdir(parents=True)
-        (self.m1n1 / 'boot.bin').write_bytes(b'combined')
+        self.aura = Path(temp.name) / 'esp/aurora'
+        self.aura.mkdir(parents=True)
+        (self.aura / 'boot.bin').write_bytes(b'combined')
         for board, chip in self.BOARDS.items():
-            (self.m1n1 / f'boot-{board}.bin').write_bytes(board_image(board, chip))
+            (self.aura / f'boot-{board}.bin').write_bytes(board_image(board, chip))
 
     def test_image_esp_carries_both_files_and_each_macho_boards_own(self):
-        before = {path.name: path.read_bytes() for path in self.m1n1.iterdir()}
-        written = prepare_ctxr.prepare(self.m1n1, self.m1n1)
+        before = {path.name: path.read_bytes() for path in self.aura.iterdir()}
+        written = prepare_ctxr.prepare(self.aura, self.aura)
         self.assertEqual(sorted(written), ['boot-ctxr-j614c.bin', 'boot-ctxr-j614s.bin', 'boot-ctxr-j616c.bin',
                                            'boot-ctxr-j616s.bin', 'boot-ctxr-j700.bin', 'boot-ctxr-j713.bin',
                                            'boot-ctxr-j873g.bin', 'boot-ctxr.bin'])
-        self.assertEqual((self.m1n1 / 'boot-ctxr.bin').read_bytes(), b'combined')
-        self.assertEqual((self.m1n1 / 'boot-ctxr-j700.bin').read_bytes(), before['boot-j700.bin'])
-        self.assertFalse((self.m1n1 / 'boot-ctxr-j274.bin').exists())
+        self.assertEqual((self.aura / 'boot-ctxr.bin').read_bytes(), b'combined')
+        self.assertEqual((self.aura / 'boot-ctxr-j700.bin').read_bytes(), before['boot-j700.bin'])
+        self.assertFalse((self.aura / 'boot-ctxr-j274.bin').exists())
         for name, data in before.items():
-            self.assertEqual((self.m1n1 / name).read_bytes(), data)
+            self.assertEqual((self.aura / name).read_bytes(), data)
 
     def test_a_second_run_replaces_what_the_first_wrote(self):
-        prepare_ctxr.prepare(self.m1n1, self.m1n1)
-        (self.m1n1 / 'boot.bin').write_bytes(b'rebuilt combined')
-        prepare_ctxr.prepare(self.m1n1, self.m1n1)
-        self.assertEqual((self.m1n1 / 'boot-ctxr.bin').read_bytes(), b'rebuilt combined')
+        prepare_ctxr.prepare(self.aura, self.aura)
+        (self.aura / 'boot.bin').write_bytes(b'rebuilt combined')
+        prepare_ctxr.prepare(self.aura, self.aura)
+        self.assertEqual((self.aura / 'boot-ctxr.bin').read_bytes(), b'rebuilt combined')
 
     def test_a_magic_inside_aura_is_not_mistaken_for_the_tree(self):
-        path = self.m1n1 / 'boot-j700.bin'
+        path = self.aura / 'boot-j700.bin'
         path.write_bytes(prepare_ctxr.DTB_MAGIC + b'\xff' * 60 + path.read_bytes())
-        prepare_ctxr.prepare(self.m1n1, self.m1n1)
-        self.assertTrue((self.m1n1 / 'boot-ctxr-j700.bin').is_file())
+        prepare_ctxr.prepare(self.aura, self.aura)
+        self.assertTrue((self.aura / 'boot-ctxr-j700.bin').is_file())
 
     def test_an_image_build_refuses_any_problem(self):
         cases = {
-            'missing required board': lambda: (self.m1n1 / 'boot-j614s.bin').unlink(),
-            'missing M4 Max board': lambda: (self.m1n1 / 'boot-j614c.bin').unlink(),
-            'board file without its tree': lambda: (self.m1n1 / 'boot-j700.bin').write_bytes(b'no tree'),
-            'oversized board file': lambda: (self.m1n1 / 'boot-j700.bin').write_bytes(
+            'missing required board': lambda: (self.aura / 'boot-j614s.bin').unlink(),
+            'missing M4 Max board': lambda: (self.aura / 'boot-j614c.bin').unlink(),
+            'board file without its tree': lambda: (self.aura / 'boot-j700.bin').write_bytes(b'no tree'),
+            'oversized board file': lambda: (self.aura / 'boot-j700.bin').write_bytes(
                 board_image('j700', 't8140') + b'\0' * prepare_ctxr.MAX_STAGE2_BYTES),
-            'oversized shared file': lambda: (self.m1n1 / 'boot.bin').write_bytes(
+            'oversized shared file': lambda: (self.aura / 'boot.bin').write_bytes(
                 b'\0' * (prepare_ctxr.MAX_STAGE2_BYTES + 1)),
         }
         for name, change in cases.items():
@@ -391,16 +391,16 @@ class PrepareCtxrStage2(unittest.TestCase):
                 self.setUp()
                 change()
                 with self.assertRaises(ValueError):
-                    prepare_ctxr.prepare(self.m1n1, self.m1n1)
+                    prepare_ctxr.prepare(self.aura, self.aura)
 
     def test_a_shared_file_at_the_limit_is_accepted(self):
-        (self.m1n1 / 'boot.bin').write_bytes(b'\0' * prepare_ctxr.MAX_STAGE2_BYTES)
-        self.assertIn('boot-ctxr.bin', prepare_ctxr.prepare(self.m1n1, self.m1n1))
+        (self.aura / 'boot.bin').write_bytes(b'\0' * prepare_ctxr.MAX_STAGE2_BYTES)
+        self.assertIn('boot-ctxr.bin', prepare_ctxr.prepare(self.aura, self.aura))
 
     def test_keep_going_only_leaves_out_the_file_with_the_problem(self):
-        (self.m1n1 / 'boot-j614s.bin').unlink()
-        (self.m1n1 / 'boot-j700.bin').write_bytes(board_image('j700', 't8140') + b'\0' * prepare_ctxr.MAX_STAGE2_BYTES)
-        written = prepare_ctxr.prepare(self.m1n1, self.m1n1, keep_going=True)
+        (self.aura / 'boot-j614s.bin').unlink()
+        (self.aura / 'boot-j700.bin').write_bytes(board_image('j700', 't8140') + b'\0' * prepare_ctxr.MAX_STAGE2_BYTES)
+        written = prepare_ctxr.prepare(self.aura, self.aura, keep_going=True)
         self.assertEqual(sorted(written), ['boot-ctxr-j614c.bin', 'boot-ctxr-j616c.bin', 'boot-ctxr-j616s.bin',
                                            'boot-ctxr-j713.bin', 'boot-ctxr-j873g.bin', 'boot-ctxr.bin'])
 
@@ -414,20 +414,20 @@ class PrepareCtxrStage2(unittest.TestCase):
 class Recipes(unittest.TestCase):
     def test_the_package_ships_the_tested_script_and_replaces_fedoras_files(self):
         spec = SPEC.read_text()
-        self.assertRegex(spec, r'(?m)^Source0: update-m1n1$')
-        self.assertIn('install -Dpm0755 %{SOURCE0} %{buildroot}%{_sbindir}/update-m1n1', spec)
-        self.assertRegex(spec, r'(?m)^Name: update-m1n1$')
-        self.assertIn('%config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1', spec)
-        self.assertIn('%{_kernel_install_dir}/15-update-m1n1.install', spec)
-        self.assertIn('%transfiletriggerin -- /usr/lib/m1n1 /usr/lib64/m1n1 /usr/share/uboot/apple_m1 /etc/m1n1.conf', spec)
+        self.assertRegex(spec, r'(?m)^Source0: update-aura$')
+        self.assertIn('install -Dpm0755 %{SOURCE0} %{buildroot}%{_sbindir}/update-aura', spec)
+        self.assertRegex(spec, r'(?m)^Name: update-aura$')
+        self.assertIn('%config(noreplace) %{_sysconfdir}/sysconfig/update-aura', spec)
+        self.assertIn('%{_kernel_install_dir}/15-update-aura.install', spec)
+        self.assertIn('%transfiletriggerin -- /usr/lib/aura /usr/lib64/aura /usr/share/uboot/apple_m1 /etc/aura.conf', spec)
 
     def test_kernel_transactions_are_recorded_before_and_closed_after(self):
         spec = SPEC.read_text()
         # Before the transaction, with the rpm process that runs it.
         self.assertIn('%transfiletriggerun -- /usr/lib/modules\n'
-                      'AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-m1n1 --transaction-begin || :\n', spec)
+                      'AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-aura --transaction-begin || :\n', spec)
         for trigger in ('%transfiletriggerpostun', '%transfiletriggerin'):
-            self.assertIn(f'{trigger} -- /usr/lib/modules\n%{{_sbindir}}/update-m1n1 --transaction-end || :\n', spec)
+            self.assertIn(f'{trigger} -- /usr/lib/modules\n%{{_sbindir}}/update-aura --transaction-end || :\n', spec)
 
     def test_aura_needs_the_capability_only_this_package_provides(self):
         self.assertRegex(SPEC.read_text(), r'(?m)^Provides: aurora-stage2-ctxr-slot = 1$')
@@ -490,7 +490,7 @@ class Recipes(unittest.TestCase):
         self.assertRegex(spec, r'(?m)^Source5: LICENSE$')
         self.assertRegex(spec, r'(?m)^%license LICENSE$')
         self.assertIn('Copyright The Asahi Linux Contributors',
-                      (ROOT / 'packages/update-m1n1/LICENSE').read_text())
+                      (ROOT / 'packages/update-aura/LICENSE').read_text())
 
     def test_the_tool_and_the_recipe_agree_on_the_marker_path(self):
         for path in (SCRIPT, HELPER):
@@ -509,15 +509,15 @@ class Recipes(unittest.TestCase):
                 (root / 'functions.sh').write_text('mount_sys_esp() { echo MOUNTED; return 1; }\n')
                 (root / 'present').write_bytes(compatible_file('j493', 't8112'))
                 script = SCRIPT.read_text().replace('/run/lock', str(root / 'lock')).replace(
-                    '/etc/sysconfig/update-m1n1', str(root / 'none')).replace(
+                    '/etc/sysconfig/update-aura', str(root / 'none')).replace(
                     '/etc/u-boot.conf', str(root / 'none')).replace(
                     '/usr/share/asahi-scripts/functions.sh', str(root / 'functions.sh'))
-                (root / 'update-m1n1').write_text(script)
+                (root / 'update-aura').write_text(script)
                 env = dict(os.environ, PATH=f'{root / "bin"}:{os.environ["PATH"]}',
                            AURORA_DEVICE_TREE_COMPATIBLE=compatible if compatible.startswith('/')
                            else str(root / compatible))
                 env.pop('TARGET', None)
-                result = subprocess.run(['bash', str(root / 'update-m1n1')], env=env,
+                result = subprocess.run(['bash', str(root / 'update-aura')], env=env,
                                         capture_output=True, text=True)
                 self.assertEqual('MOUNTED' in result.stdout, mount, result.stdout + result.stderr)
                 self.assertEqual(result.returncode, 1 if mount else 0, result.stderr)
@@ -537,16 +537,100 @@ class Recipes(unittest.TestCase):
             (root / 'functions.sh').write_text('mount_sys_esp() { echo MOUNTED; return 1; }\n')
             (root / 'present').write_bytes(compatible_file('j700', 't8140'))
             script = SCRIPT.read_text().replace('/run/lock', str(root / 'lock')).replace(
-                '/etc/sysconfig/update-m1n1', str(root / 'none')).replace(
+                '/etc/sysconfig/update-aura', str(root / 'none')).replace(
                 '/etc/u-boot.conf', str(root / 'none')).replace(
                 '/usr/share/asahi-scripts/functions.sh', str(root / 'functions.sh'))
-            (root / 'update-m1n1').write_text(script)
+            (root / 'update-aura').write_text(script)
             settings = dict(os.environ, PATH=f'{root / "bin"}:{os.environ["PATH"]}',
                             AURORA_DEVICE_TREE_COMPATIBLE=str(root / 'present'), **env)
             settings.pop('TARGET', None)
-            result = subprocess.run(['bash', str(root / 'update-m1n1'), *args], env=settings,
+            result = subprocess.run(['bash', str(root / 'update-aura'), *args], env=settings,
                                     capture_output=True, text=True)
             return result, calls.read_text().split() if calls.exists() else []
+
+    def run_on_esp(self, esp_files, sysconfig=None, legacy_sysconfig=None, legacy_conf=False):
+        """The entry point with a mounted (stub) ESP: the TARGET and CONFIG it chose, and the ESP after."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'bin').mkdir()
+            seen = root / 'seen'
+            (root / 'bin/python3').write_text(f'#!/bin/sh\necho "$TARGET $CONFIG" >> {seen}\nexit 0\n')
+            (root / 'bin/findmnt').write_text(f'#!/bin/sh\necho {root / "esp"}\n')
+            for tool in ('flock', 'umount'):
+                (root / 'bin' / tool).write_text('#!/bin/sh\nexit 0\n')
+            for tool in ('python3', 'findmnt', 'flock', 'umount'):
+                (root / 'bin' / tool).chmod(0o755)
+            (root / 'functions.sh').write_text('mount_sys_esp() { echo MOUNTED; }\n')
+            (root / 'present').write_bytes(compatible_file('j316s', 't6000'))
+            for name, content in esp_files.items():
+                (root / 'esp' / name).parent.mkdir(parents=True, exist_ok=True)
+                (root / 'esp' / name).write_bytes(content)
+            (root / 'etc').mkdir()
+            if sysconfig is not None:
+                (root / 'etc/update-aura').write_text(sysconfig)
+            if legacy_sysconfig is not None:
+                (root / 'etc/update-m1n1').write_text(legacy_sysconfig)
+            if legacy_conf:
+                (root / 'etc/m1n1.conf').write_text('chosen.example=1\n')
+            script = SCRIPT.read_text().replace('/run/lock', str(root / 'lock')).replace(
+                '/run/.system-efi', str(root / 'esp')).replace(
+                '/etc/sysconfig/update-aura', str(root / 'etc/update-aura')).replace(
+                '/etc/sysconfig/update-m1n1', str(root / 'etc/update-m1n1')).replace(
+                '/etc/aura.conf', str(root / 'etc/aura.conf')).replace(
+                '/etc/m1n1.conf', str(root / 'etc/m1n1.conf')).replace(
+                '/etc/u-boot.conf', str(root / 'none')).replace(
+                '/usr/share/asahi-scripts/functions.sh', str(root / 'functions.sh'))
+            (root / 'update-aura').write_text(script)
+            settings = dict(os.environ, PATH=f'{root / "bin"}:{os.environ["PATH"]}',
+                            AURORA_DEVICE_TREE_COMPATIBLE=str(root / 'present'))
+            for key in ('TARGET', 'CONFIG', 'AURA', 'M1N1'):
+                settings.pop(key, None)
+            result = subprocess.run(['bash', str(root / 'update-aura')], env=settings,
+                                    capture_output=True, text=True)
+            chosen = [line.replace(str(root), '') for line in seen.read_text().splitlines()] \
+                if seen.exists() else []
+            after = {str(p.relative_to(root / 'esp')): p.read_bytes()
+                     for p in (root / 'esp').rglob('*') if p.is_file()}
+            return result, chosen, after
+
+    def test_a_fresh_esp_gets_stage2_in_the_aurora_directory(self):
+        result, chosen, after = self.run_on_esp({})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(chosen[-1], '/esp/aurora/boot.bin /etc/aura.conf')
+        self.assertFalse(any(name.startswith('m1n1/') for name in after))
+
+    def test_stage2_goes_to_the_one_file_the_enrolled_stage1_loads(self):
+        # aurora/ only: a Stage 1 enrolled with the Aurora path.
+        _, chosen, after = self.run_on_esp({'aurora/boot.bin': b'NEW'})
+        self.assertEqual(chosen[-1].split()[0], '/esp/aurora/boot.bin')
+        self.assertEqual(after, {'aurora/boot.bin': b'NEW'})
+        # LEGACY-ASAHI(2027-02-28): m1n1/ only, a Stage 1 enrolled before the rename. Nothing
+        # is written to aurora/.
+        for name in ('boot.bin', 'boot-ctxr.bin'):
+            with self.subTest(legacy=name):
+                result, chosen, after = self.run_on_esp({'m1n1/' + name: b'LIVE'})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(chosen[-1].split()[0], '/esp/m1n1/boot.bin')
+                self.assertEqual(after, {'m1n1/' + name: b'LIVE'})
+        # Both: aurora/ wins and m1n1/ is left alone.
+        _, chosen, after = self.run_on_esp({'aurora/boot-ctxr.bin': b'NEW', 'm1n1/boot.bin': b'LIVE'})
+        self.assertEqual(chosen[-1].split()[0], '/esp/aurora/boot.bin')
+        self.assertEqual(after, {'aurora/boot-ctxr.bin': b'NEW', 'm1n1/boot.bin': b'LIVE'})
+
+    def test_an_explicit_esp_directory_wins(self):
+        result, chosen, after = self.run_on_esp({'m1n1/boot.bin': b'LIVE'}, sysconfig='AURA_ESP_DIR=aurora\n')
+        self.assertEqual(chosen[-1].split()[0], '/esp/aurora/boot.bin')
+        self.assertEqual(after, {'m1n1/boot.bin': b'LIVE'})
+
+    def test_pre_rename_settings_and_config_still_apply(self):
+        # LEGACY-ASAHI(2027-02-28): /etc/sysconfig/update-m1n1 and /etc/m1n1.conf.
+        result, chosen, _ = self.run_on_esp({}, legacy_sysconfig='M1N1_UPDATE_DISABLED=1\n')
+        self.assertEqual((result.returncode, chosen), (0, []))
+        result, chosen, _ = self.run_on_esp({}, legacy_sysconfig='M1N1_UPDATE_DISABLED=1\n',
+                                            sysconfig='M1N1_UPDATE_DISABLED=\n')
+        self.assertTrue(chosen)
+        result, chosen, _ = self.run_on_esp({}, legacy_conf=True)
+        self.assertEqual(chosen[-1].split()[1], '/etc/m1n1.conf')
 
     def test_a_removal_inside_a_package_transaction_stops_before_the_esp(self):
         result, calls = self.run_entry_point(defer=0, AURORA_KERNEL_ACTION='remove',
@@ -570,7 +654,7 @@ class Recipes(unittest.TestCase):
         result, calls = self.run_entry_point('--transaction-end')
         self.assertEqual((result.returncode, calls), (0, ['--transaction-end']), result.stderr)
         self.assertNotIn('MOUNTED', result.stdout)
-        # A removal left Stage 2 to the end: refresh as a plain update-m1n1 does.
+        # A removal left Stage 2 to the end: refresh as a plain update-aura does.
         result, calls = self.run_entry_point('--transaction-end', end=0)
         self.assertEqual(calls[:2], ['--transaction-end', '--check'])
         self.assertIn('MOUNTED', result.stdout)

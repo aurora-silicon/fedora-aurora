@@ -87,7 +87,7 @@ BuildRequires: libXrender-devel(x86-64) libXrender-devel(x86-32)
 BuildRequires: libpciaccess-devel(x86-64) libpciaccess-devel(x86-32)
 
 %description
-x86_64 and i686 builds of Aurora's Asahi Gallium, Zink and Honeykrisp drivers,
+x86_64 and i686 builds of Aurora's Gallium, Zink and Honeykrisp drivers,
 laid over the stock FEX guest rootfs as a Steam graphics provider at
 /usr/share/guestos/aurora-fex-mesa. Without it, x86 games run under FEX load a
 guest Mesa with no Apple G17P support and every GPU job they submit is rejected.
@@ -102,7 +102,7 @@ guest Mesa with no Apple G17P support and every GPU job they submit is rejected.
 unset PKG_CONFIG_PATH
 export MESA_GIT_SHA1_OVERRIDE=%{commit}
 common=(--prefix=/usr --buildtype=release -Db_ndebug=true --wrap-mode=nodownload
-  -Dplatforms=x11,wayland -Dgallium-drivers=asahi,zink,softpipe -Dvulkan-drivers=asahi
+  -Dplatforms=x11,wayland -Dgallium-drivers=aurora,zink,softpipe -Dvulkan-drivers=aurora
   -Dvulkan-layers= -Dglx=dri -Degl=enabled -Dgbm=enabled -Dgles1=disabled -Dgles2=enabled -Dopengl=true
   -Dglvnd=enabled -Dgallium-rusticl=false -Dtools= -Dbuild-tests=false
   -Dvalgrind=disabled -Dvideo-codecs= -Dmicrosoft-clc=disabled -Dlibunwind=disabled -Dlmsensors=disabled)
@@ -110,12 +110,12 @@ drivers=(-Dllvm=disabled -Dspirv-tools=disabled -Dmesa-clc=system -Dprecomp-comp
   --native-file tools.ini)
 # The CL compilers run on the build machine and need LLVM.
 PKG_CONFIG_LIBDIR=/usr/lib64/pkgconfig:/usr/share/pkgconfig meson setup tools "${common[@]}" --libdir=lib64 -Dllvm=enabled
-ninja -C tools %{?_smp_mflags} src/compiler/clc/mesa_clc src/compiler/spirv/vtn_bindgen2 src/asahi/clc/asahi_clc
+ninja -C tools %{?_smp_mflags} src/compiler/clc/mesa_clc src/compiler/spirv/vtn_bindgen2 src/aurora/clc/aurora_clc
 cat > tools.ini <<X
 [binaries]
 mesa_clc = '$PWD/tools/src/compiler/clc/mesa_clc'
 vtn_bindgen2 = '$PWD/tools/src/compiler/spirv/vtn_bindgen2'
-asahi_clc = '$PWD/tools/src/asahi/clc/asahi_clc'
+aurora_clc = '$PWD/tools/src/aurora/clc/aurora_clc'
 X
 PKG_CONFIG_LIBDIR=/usr/lib64/pkgconfig:/usr/share/pkgconfig meson setup b64 "${common[@]}" "${drivers[@]}" --libdir=lib64
 ninja -C b64 %{?_smp_mflags}
@@ -148,10 +148,10 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_unitdir}/aurora-fex-mesa.service
 install -Dm644 %{SOURCE2} %{buildroot}%{_presetdir}/80-aurora-fex-mesa.preset
 
 %check
-for f in %{buildroot}%{layer}/usr/lib64/libgallium-*.so %{buildroot}%{layer}/usr/lib64/libvulkan_asahi.so; do
+for f in %{buildroot}%{layer}/usr/lib64/libgallium-*.so %{buildroot}%{layer}/usr/lib64/libvulkan_aurora.so; do
   file -L "$f" | grep -q 'ELF 64-bit LSB shared object, x86-64'
 done
-for f in %{buildroot}%{layer}/usr/lib/libgallium-*.so %{buildroot}%{layer}/usr/lib/libvulkan_asahi.so; do
+for f in %{buildroot}%{layer}/usr/lib/libgallium-*.so %{buildroot}%{layer}/usr/lib/libvulkan_aurora.so; do
   file -L "$f" | grep -q 'ELF 32-bit LSB shared object, Intel'
 done
 # Nothing in the layer may need a runtime whose soname follows the guest's release.

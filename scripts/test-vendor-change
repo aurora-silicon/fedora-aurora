@@ -69,7 +69,7 @@ test "$(awk '$2 == 2' /tmp/held | wc -l)" = 0
 
 # With them, a plain upgrade makes exactly the allowed changes.
 install -Dm644 "$policies/aurora-vendors.conf" /usr/share/dnf5/vendors.d/aurora.conf
-install -Dm644 "$policies/aurora-vendors-asahi.conf" /usr/share/dnf5/vendors.d/aurora-asahi.conf
+install -Dm644 "$policies/aurora-vendors-fedora-remix.conf" /usr/share/dnf5/vendors.d/aurora-fedora-remix.conf
 install -Dm644 "$policies/aurora-vendors-unvendored.conf" /usr/share/dnf5/vendors.d/aurora-unvendored.conf
 dnf upgrade -y -q --repo=probes-new
 state | tee /tmp/allowed

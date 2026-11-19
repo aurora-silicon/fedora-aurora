@@ -121,7 +121,7 @@ dnf5 --dump-repo-config=aurora | grep -F 'https://aurorasilicon.org/fedora-auror
 mkdir -p /etc/dnf/libdnf5.conf.d
 cat > /etc/dnf/libdnf5.conf.d/90-aurora-fleet-bootchain.conf <<'CONF'
 [main]
-excludepkgs=kernel-aurora*,aura,uboot-aurora,m1n1*,update-m1n1,asahi-scripts,dracut-asahi,uboot-images-armv8,grub2-*,shim-*,kernel,kernel-core,kernel-modules*,kernel-16k*,kernel-uki*,plymouth-theme-aurora
+excludepkgs=kernel-aurora*,aura,uboot-aurora,m1n1*,update-aura,update-m1n1,asahi-scripts,dracut-asahi,uboot-images-armv8,grub2-*,shim-*,kernel,kernel-core,kernel-modules*,kernel-16k*,kernel-uki*,plymouth-theme-aurora
 CONF
 cp /etc/dnf/libdnf5.conf.d/90-aurora-fleet-bootchain.conf "$proof/bootchain.conf"
 dnf5 --dump-main-config > "$proof/dnf-config.txt"

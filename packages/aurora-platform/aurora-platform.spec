@@ -61,7 +61,7 @@ Obsoletes: asahi-platform-metapackage < 1
 Obsoletes: asahi-platform-metapackage-core < 1
 Obsoletes: asahi-platform-metapackage-audio < 1
 Conflicts: asahi-platform-metapackage < 1
-Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
+Requires: update-aura asahi-scripts dracut-asahi asahi-fwupdate
 # Use the established protection daemons; v2 is not shipped in images.
 Requires: speakersafetyd speakerguardd
 Requires: aurora-audio >= 4.1-12
@@ -95,7 +95,7 @@ Requires: (aurora-platform-selinux = %{version}-%{release} if selinux-policy-%{s
 
 %description core
 The Apple Silicon hardware services that every Aurora system needs: the
-boot.bin assembler (update-m1n1), vendor firmware in the initramfs
+boot.bin assembler (update-aura), vendor firmware in the initramfs
 (dracut-asahi), firmware refresh (asahi-fwupdate), speaker protection
 (speakersafetyd and speakerguardd), the Aurora audio graphs and UCM
 profiles, the noise filter for the built-in camera

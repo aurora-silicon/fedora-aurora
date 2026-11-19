@@ -41,8 +41,8 @@ Discover may offer it too).
   packages (NetworkManager, Mutter, PipeWire, UPower and others) follow Fedora
   45's versions where Fedora 45 is newer.
 - The Fedora 45 `kernel-aurora` is installed through Fedora's kernel-install
-  and dracut, with a new GRUB entry. `update-m1n1` rebuilds Stage 2
-  (`/boot/efi/m1n1/boot.bin`) from the new kernel's device trees, and the Aura
+  and dracut, with a new GRUB entry. `update-aura` rebuilds Stage 2
+  (`/boot/efi/aurora/boot.bin`) from the new kernel's device trees, and the Aura
   and U-Boot packages move to their Fedora 45 builds. Stage 1 is not touched.
 - The Fedora 44 kernel stays installed as a fallback in the GRUB menu, as for
   any kernel update.

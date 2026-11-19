@@ -23,7 +23,7 @@ remote=aurora-gl
 id=org.freedesktop.Platform.GL.aurora
 gl=/usr/lib/aarch64-linux-gnu/GL
 overrides=${AURORA_FLATPAK_GL_OVERRIDES:-/var/lib/flatpak/overrides/global}
-env_vk="VK_DRIVER_FILES=$gl/vulkan/icd.d/asahi_icd.aarch64.json:$gl/vulkan/icd.d/lvp_icd.aarch64.json"
+env_vk="VK_DRIVER_FILES=$gl/vulkan/icd.d/aurora_icd.aarch64.json:$gl/vulkan/icd.d/lvp_icd.aarch64.json"
 env_egl="__EGL_VENDOR_LIBRARY_FILENAMES=$gl/glvnd/egl_vendor.d/50_mesa.json"
 env_dri="LIBGL_DRIVERS_PATH=$gl/lib/dri"
 

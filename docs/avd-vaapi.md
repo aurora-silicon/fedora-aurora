@@ -12,7 +12,7 @@ The RPM owns both files in libva's system driver directory:
 
 ```text
 /usr/lib64/dri/v4l2_request_drv_video.so
-/usr/lib64/dri/asahi_drv_video.so -> v4l2_request_drv_video.so
+/usr/lib64/dri/aurora_drv_video.so -> v4l2_request_drv_video.so
 /usr/lib64/dri/aurora_drv_video.so -> v4l2_request_drv_video.so
 ```
 
@@ -50,7 +50,7 @@ client versions. Keep failed and fallback runs as evidence.
 
    ```sh
    rpm -q libva-v4l2-request-avd avd-fw kernel-aurora mesa-aurora-dri-drivers libva
-   readlink /usr/lib64/dri/asahi_drv_video.so
+   readlink /usr/lib64/dri/aurora_drv_video.so
    readlink /usr/lib64/dri/aurora_drv_video.so
    env -u LIBVA_DRIVER_NAME vainfo --display drm
    LIBVA_DRIVER_NAME=v4l2_request LIBVA_V4L2_DIAG=json vainfo --display drm

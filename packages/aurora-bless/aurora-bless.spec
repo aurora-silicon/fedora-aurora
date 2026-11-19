@@ -1,7 +1,7 @@
-%global commit 9b47a17827854588d458b1dcc8018c66f5c3237f
+%global commit aa89bd076048d2f7b99320434f14dee2d4328f7c
 Name: aurora-bless
 Version: 0.4.4
-Release: 4%{?dist}
+Release: 5%{?dist}
 Summary: Apple Silicon startup volume selector with Neo NVRAM support
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-bless
@@ -51,16 +51,18 @@ again. Pairings made only on Linux are left alone. Replaces asahi-btsync; the
 asahi-btsync command and asahi-btsync.service stay available as aliases.
 
 %prep
-%autosetup -n aurora-bless-9b47a17827854588d458b1dcc8018c66f5c3237f
+%autosetup -n aurora-bless-aa89bd076048d2f7b99320434f14dee2d4328f7c
 
 %build
-cargo build --locked --release -p asahi-bless -p aurora-nvram -p aurora-btsync -p aurora-panel-nits
+cargo build --locked --release -p aurora-bless -p aurora-nvram -p aurora-btsync -p aurora-panel-nits
 
 %check
-cargo test --locked -p asahi-bless -p apple-nvram -p aurora-nvram -p aurora-btsync -p aurora-panel-nits
+cargo test --locked -p aurora-bless -p apple-nvram -p aurora-nvram -p aurora-btsync -p aurora-panel-nits
 
 %install
-install -Dm755 target/release/asahi-bless %{buildroot}%{_bindir}/aurora-bless
+install -Dm755 target/release/aurora-bless %{buildroot}%{_bindir}/aurora-bless
+# LEGACY-ASAHI(2027-02-28): asahi-* command and unit aliases for scripts that
+# still call the Fedora Asahi Remix names this package replaces.
 ln -s aurora-bless %{buildroot}%{_bindir}/asahi-bless
 install -Dm755 target/release/aurora-nvram %{buildroot}%{_bindir}/aurora-nvram
 ln -s aurora-nvram %{buildroot}%{_bindir}/asahi-nvram
@@ -107,6 +109,11 @@ install -Dm644 aurora-btsync/etc/udev/rules.d/96-aurora-btsync.rules %{buildroot
 %{_udevrulesdir}/90-aurora-panel-nits.rules
 
 %changelog
+* Thu Nov 19 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.4.4-5
+- Pin aurora-bless aa89bd07, the 9b47a178 tree with its crates renamed, and
+  build -p aurora-bless. The asahi-* command and unit aliases stay until
+  2027-02-28 (LEGACY-ASAHI(2027-02-28)).
+
 * Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.4.4-4
 - Pin aurora-bless 9b47a178 and ship aurora-nvram and aurora-btsync, which
   replace asahi-nvram (0.2.3 panics on current NVRAM v3 stores) and
