@@ -35,6 +35,8 @@ Mozilla Firefox
 %patch -P604 -p1
 rm -f .mozconfig
 %build
+%install
+cp %{SOURCE12} %{buildroot}%{mozappdir}/browser/defaults/preferences
 %ifarch %{ix86} s390x ppc64le
 export RUSTFLAGS="-Cdebuginfo=0"
 %endif
@@ -48,14 +50,19 @@ class FirefoxRecipeTests(unittest.TestCase):
     def test_spec_edit_adds_the_patch_and_an_aurora_release(self):
         text = importer.edit_spec(FEDORA_SPEC, '0' * 40, 'Wed Nov 11 2026')
         self.assertTrue(text.startswith('# aurora-builder: heavy\n'))
-        self.assertIn('Release:        2%{?dist}.aurora2\n', text)
+        self.assertIn('Release:        2%{?dist}.aurora3\n', text)
         self.assertIn('Patch604:       last.patch\n\n# Aurora: V4L2 stateless decoders in RDD', text)
         self.assertIn('Patch900:       rdd-v4l2-request.patch\n', text)
-        self.assertIn('%patch -P900 -p1 -b .rdd-v4l2-request\n\nrm -f .mozconfig\n', text)
+        self.assertIn('%patch -P900 -p1 -b .rdd-v4l2-request\n%patch -P700 -p1 -b .webauthn-portal-1\n', text)
+        self.assertIn('%patch -P706 -p1 -b .webauthn-portal-7\n\nrm -f .mozconfig\n', text)
+        self.assertRegex(text, r'(?m)^Patch700:\s+webauthn-portal-0001-Bug-2088324-')
+        self.assertRegex(text, r'(?m)^Patch706:\s+webauthn-portal-0007-')
+        self.assertIn('pref("security.webauthn.use-xdg-desktop-portal", 1);', text)
+        self.assertIn('pref("security.webauthn.use-xdg-desktop-portal.security-keys", false);', text)
         self.assertIn('%global create_debuginfo  0\n', text)
         self.assertIn('%else\n  %bcond wasi_sdk 0\n%endif\n%endif', text)
         self.assertIn('%ifarch %{ix86} s390x ppc64le aarch64\nexport RUSTFLAGS="-Cdebuginfo=0"\n', text)
-        self.assertIn('%changelog\n* Wed Nov 11 2026 Aurora Silicon <hey@djdev.me> - 161.0-2.aurora2\n'
+        self.assertIn('%changelog\n* Wed Nov 11 2026 Aurora Silicon <hey@djdev.me> - 161.0-2.aurora3\n'
                       "- Rebuild of Fedora's firefox-161.0-2.\n", text)
         self.assertIn('* Fri Nov 06 2026 Fedora Packager', text)
 
@@ -73,6 +80,10 @@ class FirefoxRecipeTests(unittest.TestCase):
         self.assertRegex(spec, r'(?m)^Patch900:\s+rdd-v4l2-request\.patch$')
         self.assertRegex(spec, r'(?m)^%patch -P900 -p1 ')
         self.assertTrue((PACKAGE / 'rdd-v4l2-request.patch').is_file())
+        for i, name in enumerate(importer.WEBAUTHN_PORTAL):
+            self.assertRegex(spec, rf'(?m)^Patch{700 + i}:\s+{re.escape(name)}$')
+            self.assertRegex(spec, rf'(?m)^%patch -P{700 + i} -p1 ')
+            self.assertTrue((PACKAGE / name).is_file(), name)
 
     def test_fedora_keys_are_fetched_not_committed(self):
         for directory in (PACKAGE, PACKAGE / 'f45'):
