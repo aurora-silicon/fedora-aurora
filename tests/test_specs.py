@@ -960,7 +960,8 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(spec, r'(?m)^%package -n steam$')
         files = spec.split('%files -n steam', 1)[1].split('%changelog', 1)[0]
         self.assertIn('%{_bindir}/steam\n', files)
-        for requirement in ('aurora-userpages', 'fex-emu', 'gtk2'):
+        # libibus and lsof come from the host (aurora-silicon/aurora-steam-native#13).
+        for requirement in ('aurora-userpages', 'fex-emu', 'gtk2', 'ibus-libs', 'lsof'):
             self.assertRegex(spec, rf'(?m)^Requires: {requirement}$')
         # Fedora installs the launcher on PATH, not where the upstream default looks.
         self.assertIn("s,@USERPAGES@,%{_bindir}/userpages,", spec)
