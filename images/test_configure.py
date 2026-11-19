@@ -158,10 +158,10 @@ class ConfigureTests(unittest.TestCase):
         types = {path.stem: ET.parse(path).getroot().find("preferences/type")
                  for path in (out / "platforms").glob("*.xml")}
         self.assertEqual(types["workstation"].get("kernelcmdline"),
-                         "rhgb quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto user4k=on "
+                         "rhgb quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto "
                          "plymouth.ignore-serial-consoles")
         self.assertEqual(types["minimal"].get("kernelcmdline"),
-                         "quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto user4k=on")
+                         "quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto")
         self.assertEqual(types["minimal"].get("rootfs_label"), "AURORA_ROOT")
 
     def test_every_profile_ships_the_page_size_launcher(self):
@@ -175,7 +175,8 @@ class ConfigureTests(unittest.TestCase):
                 arguments = {argument for p in (out / "platforms").glob("*.xml")
                              for node in ET.parse(p).getroot().iter("type")
                              for argument in node.get("kernelcmdline", "").split()}
-                self.assertIn("user4k=on", arguments)
+                # The kernel turns 4K userspace on by itself; no argument.
+                self.assertFalse({a for a in arguments if a.startswith("user4k=")})
         script = (self.root / "userpages-fedora-minimal/config.sh").read_text()
         check = script[script.index("# Every profile runs programs with 4K pages"):script.rindex("\nexit 0\n")]
         bindir = self.root / "userpages-bin"
