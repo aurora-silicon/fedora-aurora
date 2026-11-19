@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 42%{?dist}
+Release: 43%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -50,6 +50,7 @@ Source124: aurora-kdump-clock-module-setup.sh
 Source125: aurora-kdump-clock.sh
 Source126: 60-aurora-t6041-trackpad.quirks
 Source127: aurora-t6041-power.service
+Source128: aurora-irq-steerable
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -152,6 +153,7 @@ install -Dm644 %{SOURCE100} %{buildroot}%{_docdir}/aurora-platform/README
 install -Dm644 %{SOURCE101} %{buildroot}%{_sysconfdir}/dnf/protected.d/aurora-platform-core.conf
 install -Dm644 %{SOURCE102} %{buildroot}%{_unitdir}/var-swap-swapfile2.swap.d/50-after-swapfile.conf
 install -Dm644 %{SOURCE110} %{buildroot}%{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf
+install -Dm755 %{SOURCE128} %{buildroot}%{_libexecdir}/aurora/aurora-irq-steerable
 install -Dm644 %{SOURCE103} %{buildroot}%{_udevrulesdir}/61-aurora-dmi-id.rules
 install -Dm644 %{SOURCE111} %{buildroot}%{_udevrulesdir}/62-aurora-gpu-render-only.rules
 install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
@@ -229,6 +231,7 @@ fi
 %{_unitdir}/var-swap-swapfile2.swap.d/
 %dir %{_unitdir}/irqbalance.service.d
 %{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf
+%{_libexecdir}/aurora/aurora-irq-steerable
 %{_unitdir}/aurora-t6041-power.service
 %{_unitdir}/sysinit.target.wants/aurora-t6041-power.service
 %{_udevrulesdir}/61-aurora-dmi-id.rules
@@ -260,12 +263,19 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
-* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-42
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-43
 - Recommend aurora-gamemode (and with it gamemode) on Plasma and GNOME
   installs, so existing desktops get GameMode with Aurora's settings on
   upgrade. Measured on J616s and Neo: -9 to -11 % frame time at two frames
   in flight at the same energy per frame where GameMode pins (four or more
   P cores), unchanged where it does not.
+
+* Thu Nov 19 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-42
+- irqbalance runs on an Apple silicon Mac when its device tree's interrupt
+  controller is the first AIC (compatible apple,aic), which can steer
+  interrupts, instead of when the SoC is the T8103: an ExecCondition
+  (aurora-irq-steerable) replaces the SoC check. Same result on every Mac
+  supported today.
 
 * Sun Nov 15 2026 AxxzyWasTaken <axxzytte@gmail.com> - 44-41
 - M4 Max (T6041) power defaults (aurora-t6041-power.service): PCIe ASPM
