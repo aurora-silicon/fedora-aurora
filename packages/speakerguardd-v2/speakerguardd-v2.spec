@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.1
-Release: 0.49.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.50.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -181,7 +181,9 @@ done
 # v2 interface: exactly one stack holds the speakers on each boot.
 sed -e "s@/usr/libexec/speakerguardd/@$lx/@g" packaging/systemd/legacy-gate.conf > legacy-gate.conf
 grep -qx "ExecCondition=+$lx/speakerguardd-gate legacy" legacy-gate.conf
-for u in speakersafetyd speakerguardd; do
+# speakerguardd@ is the 0.1 daemon's template unit (speakerguardd#197);
+# speakerguardd.service its unit before that, kept for an older 0.1.
+for u in speakersafetyd speakerguardd speakerguardd@; do
     install -Dm644 legacy-gate.conf %{buildroot}%{_unitdir}/$u.service.d/60-speakerguardd-v2-gate.conf
 done
 install -Dpm644 %{SOURCE3} %{buildroot}%{_presetdir}/50-speakerguardd-v2.preset
@@ -240,6 +242,8 @@ fi
 %{_unitdir}/speakersafetyd.service.d/60-speakerguardd-v2-gate.conf
 %dir %{_unitdir}/speakerguardd.service.d
 %{_unitdir}/speakerguardd.service.d/60-speakerguardd-v2-gate.conf
+%dir %{_unitdir}/speakerguardd@.service.d
+%{_unitdir}/speakerguardd@.service.d/60-speakerguardd-v2-gate.conf
 %{_presetdir}/50-speakerguardd-v2.preset
 %{_userpresetdir}/50-speakerguardd-v2.preset
 
@@ -248,6 +252,10 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Thu Nov 19 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.50.20261117gitbbd9ed30ac43
+- Install the legacy gate for speakerguardd@.service too, the 0.1
+  daemon's template unit from speakerguardd#197, so the older daemon stays
+  off wherever v2 runs; speakerguardd.service keeps it for an older 0.1.
 * Tue Nov 17 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.49.20261117gitbbd9ed30ac43
 - Release candidate 9 (speakerguardd#144): v2 is no longer labelled a
   preview; aurora-speaker-upgrade switches without the preview
