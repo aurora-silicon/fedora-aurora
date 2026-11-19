@@ -1,0 +1,287 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 23:05:50 +1100
+Subject: [PATCH] clutter/stage-view: Apply a per channel gamma LUT in the
+ final blit
+
+Add clutter_stage_view_set_gamma_lut(). While a ramp is set, the view
+paints through its offscreen framebuffer, and the offscreen blit samples
+a 1D LUT (RGBA float texture on layer 1) for each channel after the
+color state transform, so the ramp maps output encoded values the way a
+CRTC gamma LUT does: entry i maps i / (size - 1), with linear
+interpolation in between.
+
+This is for outputs whose CRTC has no usable gamma LUT. Changing only the
+ramp swaps the texture and keeps the offscreen; clearing it drops the
+offscreen again when nothing else needs one, so views without a ramp
+paint exactly as before.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ clutter/clutter/clutter-stage-view.c | 190 +++++++++++++++++++++++++++
+ clutter/clutter/clutter-stage-view.h |  10 ++
+ 2 files changed, 200 insertions(+)
+
+diff --git a/clutter/clutter/clutter-stage-view.c b/clutter/clutter/clutter-stage-view.c
+index 52d61bd..d3c601b 100644
+--- a/clutter/clutter/clutter-stage-view.c
++++ b/clutter/clutter/clutter-stage-view.c
+@@ -23,6 +23,7 @@
+ #include "clutter/clutter-stage-view-private.h"
+ 
+ #include <math.h>
++#include <string.h>
+ 
+ #include "clutter/clutter-color-pipeline-shader.h"
+ #include "clutter/clutter-color-state.h"
+@@ -81,6 +82,12 @@ typedef struct _ClutterStageViewPrivate
+   CoglOffscreen *offscreen;
+   CoglPipeline *offscreen_pipeline;
+ 
++  /* Per channel 1D LUT applied to the output encoded pixels as the final
++   * step of the offscreen blit, for outputs whose CRTC has no gamma LUT.
++   * RGBA float texels, gamma_lut_size of them. */
++  float *gamma_lut_data;
++  size_t gamma_lut_size;
++
+   gboolean use_shadowfb;
+   struct {
+     CoglOffscreen *framebuffer;
+@@ -235,6 +242,96 @@ ensure_stage_view_offscreen (ClutterStageView *view)
+   g_set_object (&priv->offscreen, offscreen);
+ }
+ 
++/* Must not collide with layer 0 (the offscreen texture) nor with the
++ * color pipeline layers, which start at 10. */
++#define GAMMA_LUT_LAYER 1
++
++static const char gamma_lut_globals[] =
++  "uniform float gamma_lut_size;\n"
++  "float gamma_lut_fetch (float index, int channel)\n"
++  "{\n"
++  "  vec4 texel = texture (cogl_sampler1,\n"
++  "                        vec2 ((index + 0.5) / gamma_lut_size, 0.5));\n"
++  "  return channel == 0 ? texel.r : channel == 1 ? texel.g : texel.b;\n"
++  "}\n"
++  "float gamma_lut_apply (float value, int channel)\n"
++  "{\n"
++  /* Same as a KMS GAMMA_LUT: entry i maps the input i / (size - 1), and
++   * inputs in between interpolate linearly between the two neighbours. */
++  "  float pos = clamp (value, 0.0, 1.0) * (gamma_lut_size - 1.0);\n"
++  "  float index0 = floor (pos);\n"
++  "  float index1 = min (index0 + 1.0, gamma_lut_size - 1.0);\n"
++  "  return mix (gamma_lut_fetch (index0, channel),\n"
++  "              gamma_lut_fetch (index1, channel),\n"
++  "              pos - index0);\n"
++  "}\n";
++
++static const char gamma_lut_source[] =
++  "  cogl_color_out.r = gamma_lut_apply (cogl_color_out.r, 0);\n"
++  "  cogl_color_out.g = gamma_lut_apply (cogl_color_out.g, 1);\n"
++  "  cogl_color_out.b = gamma_lut_apply (cogl_color_out.b, 2);\n";
++
++static CoglSnippet *
++get_gamma_lut_snippet (CoglContext *context)
++{
++  CoglSnippet *snippet;
++
++  snippet = g_object_get_data (G_OBJECT (context),
++                               "clutter-stage-view-gamma-lut-snippet");
++  if (!snippet)
++    {
++      snippet = cogl_snippet_new (COGL_SNIPPET_HOOK_FRAGMENT,
++                                  gamma_lut_globals,
++                                  gamma_lut_source);
++      g_object_set_data_full (G_OBJECT (context),
++                              "clutter-stage-view-gamma-lut-snippet",
++                              snippet,
++                              g_object_unref);
++    }
++
++  return snippet;
++}
++
++static void
++update_gamma_lut_layer (ClutterStageView *view,
++                        CoglPipeline     *pipeline)
++{
++  ClutterStageViewPrivate *priv =
++    clutter_stage_view_get_instance_private (view);
++  CoglContext *context = cogl_pipeline_get_context (pipeline);
++  g_autoptr (CoglTexture) texture = NULL;
++  g_autoptr (GError) error = NULL;
++  int location;
++
++  texture = cogl_texture_2d_new_from_data (context,
++                                           (int) priv->gamma_lut_size,
++                                           1,
++                                           COGL_PIXEL_FORMAT_RGBA_FP_32323232,
++                                           (int) (priv->gamma_lut_size * 4 *
++                                                  sizeof (float)),
++                                           (uint8_t *) priv->gamma_lut_data,
++                                           &error);
++  if (!texture)
++    {
++      g_warning ("Failed to create the gamma LUT texture of view %s: %s",
++                 priv->name, error->message);
++      return;
++    }
++
++  cogl_pipeline_set_layer_texture (pipeline, GAMMA_LUT_LAYER, texture);
++  cogl_pipeline_set_layer_combine (pipeline, GAMMA_LUT_LAYER,
++                                   "RGBA = REPLACE(PREVIOUS)", NULL);
++  cogl_pipeline_set_layer_wrap_mode (pipeline, GAMMA_LUT_LAYER,
++                                     COGL_PIPELINE_WRAP_MODE_CLAMP_TO_EDGE);
++  cogl_pipeline_set_layer_filters (pipeline, GAMMA_LUT_LAYER,
++                                   COGL_PIPELINE_FILTER_NEAREST,
++                                   COGL_PIPELINE_FILTER_NEAREST);
++
++  location = cogl_pipeline_get_uniform_location (pipeline, "gamma_lut_size");
++  cogl_pipeline_set_uniform_1f (pipeline, location,
++                                (float) priv->gamma_lut_size);
++}
++
+ static void
+ ensure_stage_view_offscreen_pipeline (ClutterStageView *view)
+ {
+@@ -270,6 +367,15 @@ ensure_stage_view_offscreen_pipeline (ClutterStageView *view)
+                                                  priv->output_color_state,
+                                                  CLUTTER_COLOR_STATE_TRANSFORM_OPAQUE);
+ 
++  /* After the color state transform: the LUT maps output encoded values,
++   * like a CRTC gamma LUT does. */
++  if (priv->gamma_lut_data)
++    {
++      cogl_pipeline_add_snippet (pipeline,
++                                 get_gamma_lut_snippet (cogl_pipeline_get_context (pipeline)));
++      update_gamma_lut_layer (view, pipeline);
++    }
++
+   g_set_object (&priv->offscreen_pipeline, pipeline);
+ }
+ 
+@@ -300,6 +406,7 @@ clutter_stage_view_invalidate_offscreen (ClutterStageView *view)
+     }
+ 
+   if (priv->transform == MTK_MONITOR_TRANSFORM_NORMAL &&
++      !priv->gamma_lut_data &&
+       !clutter_color_pipeline_shader_needs_color_state (priv->color_state,
+                                                         priv->output_color_state,
+                                                         CLUTTER_COLOR_STATE_TRANSFORM_OPAQUE))
+@@ -393,6 +500,87 @@ clutter_stage_view_ensure_color_states (ClutterStageView *view)
+     }
+ }
+ 
++/**
++ * clutter_stage_view_set_gamma_lut:
++ * @view: a #ClutterStageView
++ * @size: number of entries per channel, or 0 to remove the LUT
++ * @red: (array length=size) (nullable): red channel ramp
++ * @green: (array length=size) (nullable): green channel ramp
++ * @blue: (array length=size) (nullable): blue channel ramp
++ *
++ * Applies a per channel gamma ramp to everything the view shows, as the
++ * last step before the onscreen framebuffer, the way a CRTC gamma LUT
++ * would. For outputs without a usable hardware gamma LUT. The view paints
++ * through its offscreen framebuffer while a LUT is set.
++ */
++void
++clutter_stage_view_set_gamma_lut (ClutterStageView *view,
++                                  size_t            size,
++                                  const uint16_t   *red,
++                                  const uint16_t   *green,
++                                  const uint16_t   *blue)
++{
++  ClutterStageViewPrivate *priv =
++    clutter_stage_view_get_instance_private (view);
++  g_autofree float *data = NULL;
++  gboolean had_lut = priv->gamma_lut_data != NULL;
++  size_t i;
++
++  g_return_if_fail (size == 0 || size >= 2);
++  g_return_if_fail (size == 0 || (red && green && blue));
++
++  if (size > 0)
++    {
++      data = g_new (float, size * 4);
++      for (i = 0; i < size; i++)
++        {
++          data[i * 4 + 0] = red[i] / 65535.0f;
++          data[i * 4 + 1] = green[i] / 65535.0f;
++          data[i * 4 + 2] = blue[i] / 65535.0f;
++          data[i * 4 + 3] = 1.0f;
++        }
++    }
++
++  if (size == priv->gamma_lut_size &&
++      (size == 0 ||
++       memcmp (data, priv->gamma_lut_data, size * 4 * sizeof (float)) == 0))
++    return;
++
++  g_clear_pointer (&priv->gamma_lut_data, g_free);
++  priv->gamma_lut_data = g_steal_pointer (&data);
++  priv->gamma_lut_size = size;
++
++  /* Only the ramp changed: swap the texture, keep the offscreen. */
++  if (had_lut && priv->gamma_lut_data && priv->offscreen_pipeline)
++    {
++      update_gamma_lut_layer (view, priv->offscreen_pipeline);
++      if (priv->frame_clock)
++        {
++          clutter_stage_view_add_redraw_clip (view, NULL);
++          clutter_stage_view_schedule_update (view);
++        }
++      return;
++    }
++
++  clutter_stage_view_invalidate_offscreen (view);
++}
++
++/**
++ * clutter_stage_view_has_gamma_lut:
++ * @view: a #ClutterStageView
++ *
++ * Returns: whether the view applies a gamma ramp in its final blit, see
++ *   clutter_stage_view_set_gamma_lut().
++ */
++gboolean
++clutter_stage_view_has_gamma_lut (ClutterStageView *view)
++{
++  ClutterStageViewPrivate *priv =
++    clutter_stage_view_get_instance_private (view);
++
++  return priv->gamma_lut_data != NULL;
++}
++
+ static void
+ paint_transformed_framebuffer (ClutterStageView *view,
+                                CoglPipeline     *pipeline,
+@@ -1318,6 +1506,8 @@ clutter_stage_view_dispose (GObject *object)
+   g_clear_object (&priv->offscreen);
+   g_clear_object (&priv->offscreen_pipeline);
+   g_clear_object (&priv->output_color_state);
++  g_clear_pointer (&priv->gamma_lut_data, g_free);
++  priv->gamma_lut_size = 0;
+   g_clear_pointer (&priv->redraw_clip, mtk_region_unref);
+   g_clear_pointer (&priv->accumulated_redraw_clip, mtk_region_unref);
+   g_clear_pointer (&priv->frame_clock, clutter_frame_clock_destroy);
+diff --git a/clutter/clutter/clutter-stage-view.h b/clutter/clutter/clutter-stage-view.h
+index 9c52f5a..b862dbd 100644
+--- a/clutter/clutter/clutter-stage-view.h
++++ b/clutter/clutter/clutter-stage-view.h
+@@ -92,5 +92,15 @@ ClutterColorState * clutter_stage_view_get_output_color_state (ClutterStageView
+ CLUTTER_EXPORT
+ MtkMonitorTransform clutter_stage_view_get_transform (ClutterStageView *view);
+ 
++CLUTTER_EXPORT
++void clutter_stage_view_set_gamma_lut (ClutterStageView *view,
++                                       size_t            size,
++                                       const uint16_t   *red,
++                                       const uint16_t   *green,
++                                       const uint16_t   *blue);
++
++CLUTTER_EXPORT
++gboolean clutter_stage_view_has_gamma_lut (ClutterStageView *view);
++
+ CLUTTER_EXPORT
+ int clutter_stage_view_get_priority (ClutterStageView *view);

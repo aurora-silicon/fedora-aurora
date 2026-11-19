@@ -103,6 +103,35 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(lib.retry_delay(1, jitter=lambda: 1.0), 10.0)
 
 
+class ReleaseListingTests(unittest.TestCase):
+    def test_releases_are_read_in_small_pages_until_a_short_page(self):
+        from unittest.mock import patch
+        pages = {1: [{'tag_name': f'r{n}'} for n in range(20)], 2: [{'tag_name': 'last'}]}
+        routes = []
+        def api(route):
+            routes.append(route)
+            return pages[int(route.rsplit('page=', 1)[1])]
+        with patch.object(lib, 'gh_api', side_effect=api):
+            self.assertEqual([r['tag_name'] for r in lib.releases('o/r')][-1], 'last')
+        self.assertEqual(routes, ['repos/o/r/releases?per_page=20&page=1', 'repos/o/r/releases?per_page=20&page=2'])
+
+    def test_a_caller_that_stops_early_reads_no_further_pages(self):
+        from unittest.mock import patch
+        with patch.object(lib, 'gh_api', return_value=[{'tag_name': 'x'}] * 20) as api:
+            for release in lib.releases('o/r'):
+                break
+        self.assertEqual(api.call_count, 1)
+
+    def test_a_reset_stream_and_a_504_are_retried(self):
+        from unittest.mock import patch
+        import subprocess
+        for error in ('stream error: stream ID 1; CANCEL; received from peer',
+                      "HTTP 504: We couldn't respond to your request in time"):
+            results = [subprocess.CompletedProcess([], 1, '', error), subprocess.CompletedProcess([], 0, '[]', '')]
+            with patch.object(lib.subprocess, 'run', side_effect=results), patch.object(lib, 'log'):
+                self.assertEqual(lib.gh('api', 'x', sleep=lambda _: None).stdout, '[]')
+
+
 class HashAndArchiveTests(unittest.TestCase):
     def test_sri_round_trip(self):
         digest = 'a28ff3dc334fed46089997af76dd6cfdb4ef443da956d3c646ac011ffad9a634'

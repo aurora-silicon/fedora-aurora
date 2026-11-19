@@ -1,0 +1,1571 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 07:47:50 +1100
+Subject: [PATCH] tests: Add ext-session-lock-v1 tests
+
+Read back every frame of every view from its onscreen framebuffer and
+count a frame painted while the session is locked as a leak if it has
+any pixel other than the black blank and the lock surfaces (the
+compositor-drawn pointer sprite excepted). Every test asserts there
+were none.
+
+Cover lock and unlock (locked only after a blanked frame was presented,
+keyboard and pointer focus on the lock surface, both back on the
+window after unlock), a monitor plugged in and out while locked (blank
+from its first frame, then its own lock surface), a keyboard plugged in
+while locked, a lock client that goes away while locked (stays locked
+and blank until a new lock client unlocks), a second lock while one is
+held (finished), a lock destroyed before locked (given up) and the
+protocol errors.
+
+MUTTER_SESSION_LOCK_DUMP_DIR saves the read back frames as PNGs.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/tests/meson.build                         |  11 +
+ src/tests/wayland-session-lock-tests.c        | 906 ++++++++++++++++++
+ src/tests/wayland-test-clients/meson.build    |   3 +
+ src/tests/wayland-test-clients/session-lock.c | 585 +++++++++++
+ 4 files changed, 1505 insertions(+)
+ create mode 100644 src/tests/wayland-session-lock-tests.c
+ create mode 100644 src/tests/wayland-test-clients/session-lock.c
+
+diff --git a/src/tests/meson.build b/src/tests/meson.build
+index 1fd8bc2..41d612b 100644
+--- a/src/tests/meson.build
++++ b/src/tests/meson.build
+@@ -1097,6 +1097,17 @@ wayland_test_cases = [
+       test_client_executables.get('xdg-session-management-restore'),
+     ],
+   },
++  {
++    'name': 'wayland-session-lock',
++    'suite': 'wayland',
++    'sources': [
++      'wayland-session-lock-tests.c',
++      wayland_test_utils,
++    ],
++    'depends': [
++      test_client_executables.get('session-lock'),
++    ],
++  },
+   {
+     'name': 'wayland-screencopy',
+     'suite': 'wayland',
+diff --git a/src/tests/wayland-session-lock-tests.c b/src/tests/wayland-session-lock-tests.c
+new file mode 100644
+index 0000000..1f05be7
+--- /dev/null
++++ b/src/tests/wayland-session-lock-tests.c
+@@ -0,0 +1,906 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++/*
++ * ext-session-lock-v1 tests. Every frame of every view is read back from
++ * its onscreen framebuffer. While the session is locked, a frame may only
++ * contain the black blank and the blue lock surfaces: any other pixel (the
++ * red client, the desktop background, anything) counts as a leak, and
++ * every test asserts there were none.
++ */
++
++#include "config.h"
++
++#include <cairo.h>
++#include <math.h>
++
++#include "backends/meta-monitor-manager-private.h"
++#include "backends/meta-renderer.h"
++#include "compositor/compositor-private.h"
++#include "meta-test/meta-context-test.h"
++#include "tests/meta-monitor-manager-test.h"
++#include "tests/meta-monitor-test-utils.h"
++#include "tests/meta-test-utils.h"
++#include "tests/meta-wayland-test-driver.h"
++#include "tests/meta-wayland-test-utils.h"
++#include "wayland/meta-wayland-keyboard.h"
++#include "wayland/meta-wayland-pointer.h"
++#include "wayland/meta-wayland-private.h"
++#include "wayland/meta-wayland-seat.h"
++#include "wayland/meta-wayland-session-lock.h"
++#include "wayland/meta-wayland-surface-private.h"
++
++/* Must match the test client. */
++#define SYNC_NORMAL_SHOWN 1
++#define SYNC_LOCKED 2
++#define SYNC_FINISHED 3
++#define SYNC_UNLOCKED 4
++#define SYNC_DRAWN_BASE 10
++#define EVENT_UNLOCK 100
++#define EVENT_EXIT_NORMAL 200
++#define EVENT_EXIT_ABANDON 300
++
++#define CURSOR_BOX 64
++
++#define MONITOR_WIDTH 1024
++#define MONITOR_HEIGHT 768
++
++typedef struct _FrameStats
++{
++  int64_t red;   /* the normal client */
++  int64_t green;
++  int64_t blue;  /* lock surfaces */
++  int64_t black; /* the blank */
++  int64_t other;
++  int64_t cursor; /* not counted, see on_after_paint () */
++  int width;
++  int height;
++  uint32_t sample;
++} FrameStats;
++
++static MetaContext *test_context;
++static MetaWaylandTestDriver *test_driver;
++static GHashTable *sync_points;
++
++static GHashTable *last_frames; /* ClutterStageView -> FrameStats */
++static const char *dump_label;
++static int64_t n_frames;
++static int64_t n_locked_frames;
++static int64_t n_leaked_frames;
++
++static MonitorTestCaseSetup one_monitor = {
++  .modes = {
++    {
++      .width = MONITOR_WIDTH,
++      .height = MONITOR_HEIGHT,
++      .refresh_rate = 60.0
++    }
++  },
++  .n_modes = 1,
++  .outputs = {
++     {
++      .crtc = 0,
++      .modes = { 0 },
++      .n_modes = 1,
++      .preferred_mode = 0,
++      .possible_crtcs = { 0 },
++      .n_possible_crtcs = 1,
++      .width_mm = 222,
++      .height_mm = 125,
++      .serial = "session-lock-1",
++    },
++  },
++  .n_outputs = 1,
++  .crtcs = {
++    {
++      .current_mode = 0
++    },
++  },
++  .n_crtcs = 1
++};
++
++static MonitorTestCaseSetup two_monitors = {
++  .modes = {
++    {
++      .width = MONITOR_WIDTH,
++      .height = MONITOR_HEIGHT,
++      .refresh_rate = 60.0
++    }
++  },
++  .n_modes = 1,
++  .outputs = {
++     {
++      .crtc = 0,
++      .modes = { 0 },
++      .n_modes = 1,
++      .preferred_mode = 0,
++      .possible_crtcs = { 0 },
++      .n_possible_crtcs = 1,
++      .width_mm = 222,
++      .height_mm = 125,
++      .serial = "session-lock-1",
++    },
++     {
++      .crtc = 1,
++      .modes = { 0 },
++      .n_modes = 1,
++      .preferred_mode = 0,
++      .possible_crtcs = { 1 },
++      .n_possible_crtcs = 1,
++      .width_mm = 222,
++      .height_mm = 125,
++      .serial = "session-lock-2",
++    },
++  },
++  .n_outputs = 2,
++  .crtcs = {
++    {
++      .current_mode = 0
++    },
++    {
++      .current_mode = 0
++    },
++  },
++  .n_crtcs = 2
++};
++
++static MetaBackend *
++get_backend (void)
++{
++  return meta_context_get_backend (test_context);
++}
++
++static MetaWaylandCompositor *
++get_wayland_compositor (void)
++{
++  return meta_context_get_wayland_compositor (test_context);
++}
++
++static void
++set_monitors (MonitorTestCaseSetup *setup)
++{
++  /* Every test starts here: forget sync points of earlier clients. */
++  g_hash_table_remove_all (sync_points);
++
++  MetaBackend *backend = get_backend ();
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++  MetaMonitorTestSetup *test_setup;
++
++  test_setup = meta_create_monitor_test_setup (backend, setup,
++                                               MONITOR_TEST_FLAG_NO_STORED);
++  meta_monitor_manager_test_emulate_hotplug (
++    META_MONITOR_MANAGER_TEST (monitor_manager), test_setup);
++}
++
++static GList *
++get_views (void)
++{
++  MetaRenderer *renderer = meta_backend_get_renderer (get_backend ());
++
++  return meta_renderer_get_views (renderer);
++}
++
++/* With MUTTER_SESSION_LOCK_DUMP_DIR set, dump_views () saves what the
++ * onscreen framebuffers hold as PNGs. */
++static void
++maybe_dump (ClutterStageView *view,
++            const uint8_t    *pixels,
++            int               width,
++            int               height)
++{
++  const char *dir = g_getenv ("MUTTER_SESSION_LOCK_DUMP_DIR");
++  g_autofree char *path = NULL;
++  cairo_surface_t *surface;
++  uint8_t *data;
++  int stride, x, y;
++
++  if (!dir || !dump_label)
++    return;
++
++  path = g_strdup_printf ("%s/%s-view%d.png", dir, dump_label,
++                          g_list_index (get_views (), view));
++  surface = cairo_image_surface_create (CAIRO_FORMAT_RGB24, width, height);
++  data = cairo_image_surface_get_data (surface);
++  stride = cairo_image_surface_get_stride (surface);
++  for (y = 0; y < height; y++)
++    {
++      for (x = 0; x < width; x++)
++        {
++          const uint8_t *p = &pixels[(y * width + x) * 4];
++          uint32_t *d = (uint32_t *) (data + y * stride) + x;
++
++          *d = (p[0] << 16) | (p[1] << 8) | p[2];
++        }
++    }
++  cairo_surface_mark_dirty (surface);
++  g_assert_cmpint (cairo_surface_write_to_png (surface, path), ==,
++                   CAIRO_STATUS_SUCCESS);
++  cairo_surface_destroy (surface);
++}
++
++static void
++on_after_paint (ClutterStage     *stage,
++                ClutterStageView *view,
++                ClutterFrame     *frame,
++                gpointer          user_data)
++{
++  CoglFramebuffer *framebuffer = clutter_stage_view_get_onscreen (view);
++  g_autofree uint8_t *pixels = NULL;
++  FrameStats *stats;
++  graphene_point_t pointer;
++  MtkRectangle layout;
++  int width, height, i;
++
++  width = cogl_framebuffer_get_width (framebuffer);
++  height = cogl_framebuffer_get_height (framebuffer);
++  pixels = g_malloc0 ((size_t) width * height * 4);
++  g_assert_true (cogl_framebuffer_read_pixels (framebuffer, 0, 0,
++                                               width, height,
++                                               COGL_PIXEL_FORMAT_RGBA_8888,
++                                               pixels));
++
++  /* The pointer sprite is painted by the compositor in this backend; while
++   * locked it is never a normal client's cursor (pointer focus is only
++   * ever on lock surfaces, asserted by the tests), so the box around the
++   * pointer is not counted. */
++  clutter_seat_query_state (clutter_backend_get_default_seat (
++                              meta_backend_get_clutter_backend (get_backend ())),
++                            NULL, &pointer, NULL);
++  clutter_stage_view_get_layout (view, &layout);
++
++  stats = g_new0 (FrameStats, 1);
++  stats->width = width;
++  stats->height = height;
++  memcpy (&stats->sample, &pixels[((height / 2) * width + width / 2) * 4], 4);
++  for (i = 0; i < width * height; i++)
++    {
++      uint8_t *p = &pixels[i * 4];
++      float x = layout.x + (float) (i % width) * layout.width / width;
++      float y = layout.y + (float) (i / width) * layout.height / height;
++
++      if (fabsf (x - pointer.x) <= CURSOR_BOX && fabsf (y - pointer.y) <= CURSOR_BOX)
++        {
++          stats->cursor++;
++          continue;
++        }
++
++      if (p[0] == 0xff && p[1] == 0 && p[2] == 0)
++        stats->red++;
++      else if (p[0] == 0 && p[1] == 0xff && p[2] == 0)
++        stats->green++;
++      else if (p[0] == 0 && p[1] == 0 && p[2] == 0xff)
++        stats->blue++;
++      else if (p[0] == 0 && p[1] == 0 && p[2] == 0)
++        stats->black++;
++      else
++        stats->other++;
++    }
++
++  n_frames++;
++  if (meta_wayland_compositor_is_session_locked (get_wayland_compositor ()))
++    {
++      n_locked_frames++;
++      if (stats->red || stats->green || stats->other)
++        {
++          n_leaked_frames++;
++          g_warning ("Frame painted while locked shows normal content: "
++                     "red %" G_GINT64_FORMAT " green %" G_GINT64_FORMAT
++                     " other %" G_GINT64_FORMAT,
++                     stats->red, stats->green, stats->other);
++        }
++    }
++
++  maybe_dump (view, pixels, width, height);
++  g_hash_table_insert (last_frames, view, stats);
++}
++
++static void
++on_sync_point (MetaWaylandTestDriver *driver,
++               unsigned int           sequence,
++               struct wl_resource    *surface_resource,
++               struct wl_client      *wl_client,
++               gpointer               user_data)
++{
++  g_hash_table_add (sync_points, GUINT_TO_POINTER (sequence));
++}
++
++static void
++wait_for_sync (unsigned int sequence)
++{
++  while (!g_hash_table_contains (sync_points, GUINT_TO_POINTER (sequence)))
++    g_main_context_iteration (NULL, TRUE);
++  g_hash_table_remove (sync_points, GUINT_TO_POINTER (sequence));
++}
++
++/* Paint every view once more and return when all of them painted. */
++static void
++repaint_all_views (void)
++{
++  GList *l;
++
++  g_hash_table_remove_all (last_frames);
++  for (l = get_views (); l; l = l->next)
++    {
++      clutter_stage_view_add_redraw_clip (l->data, NULL);
++      clutter_stage_view_schedule_update (l->data);
++    }
++
++  while (g_hash_table_size (last_frames) < g_list_length (get_views ()))
++    g_main_context_iteration (NULL, TRUE);
++}
++
++static void
++dump_views (const char *label)
++{
++  dump_label = label;
++  repaint_all_views ();
++  dump_label = NULL;
++}
++
++static FrameStats *
++stats_for_view (int index)
++{
++  ClutterStageView *view = g_list_nth_data (get_views (), index);
++  FrameStats *stats = g_hash_table_lookup (last_frames, view);
++
++  g_assert_nonnull (stats);
++  return stats;
++}
++
++static void
++assert_view_all (int         index,
++                 const char *color)
++{
++  FrameStats *stats = stats_for_view (index);
++  int64_t n_pixels = (int64_t) stats->width * stats->height - stats->cursor;
++  int64_t count;
++
++  if (g_str_equal (color, "blue"))
++    count = stats->blue;
++  else if (g_str_equal (color, "black"))
++    count = stats->black;
++  else if (g_str_equal (color, "red"))
++    count = stats->red;
++  else if (g_str_equal (color, "green"))
++    count = stats->green;
++  else
++    g_assert_not_reached ();
++
++  g_debug ("view %d: %dx%d red %" G_GINT64_FORMAT " green %" G_GINT64_FORMAT
++           " blue %" G_GINT64_FORMAT " black %" G_GINT64_FORMAT
++           " other %" G_GINT64_FORMAT " sample %08x",
++           index, stats->width, stats->height, stats->red, stats->green,
++           stats->blue, stats->black, stats->other, stats->sample);
++  g_assert_cmpint (count, ==, n_pixels);
++}
++
++/* Normal content is shown: the red client is visible, nothing of a lock
++ * surface is. */
++static void
++assert_view_unlocked (int index)
++{
++  FrameStats *stats = stats_for_view (index);
++
++  g_debug ("view %d: %dx%d red %" G_GINT64_FORMAT " blue %" G_GINT64_FORMAT
++           " black %" G_GINT64_FORMAT " other %" G_GINT64_FORMAT,
++           index, stats->width, stats->height, stats->red, stats->blue,
++           stats->black, stats->other);
++  g_assert_cmpint (stats->red, >, 0);
++  g_assert_cmpint (stats->blue, ==, 0);
++}
++
++static void
++assert_no_leaks (void)
++{
++  g_assert_cmpint (n_leaked_frames, ==, 0);
++}
++
++static MetaWaylandSurface *
++get_keyboard_focus (void)
++{
++  return meta_wayland_keyboard_get_focus_surface (
++    get_wayland_compositor ()->seat->keyboard);
++}
++
++static MetaWaylandSurface *
++get_pointer_focus (void)
++{
++  return meta_wayland_pointer_get_focus_surface (
++    get_wayland_compositor ()->seat->pointer);
++}
++
++static gboolean
++is_lock_surface (MetaWaylandSurface *surface)
++{
++  return surface && META_IS_WAYLAND_SESSION_LOCK_SURFACE (surface->role);
++}
++
++static void
++move_pointer (ClutterVirtualInputDevice *pointer,
++              float                      x,
++              float                      y)
++{
++  clutter_virtual_input_device_notify_absolute_motion (pointer,
++                                                       CLUTTER_CURRENT_TIME,
++                                                       x, y);
++  meta_flush_input (test_context);
++  repaint_all_views ();
++  while (g_main_context_iteration (NULL, FALSE))
++    ;
++}
++
++static MetaWaylandTestClient *
++start_normal_client (void)
++{
++  MetaWaylandTestClient *client;
++
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "session-lock",
++                                                   "normal",
++                                                   NULL);
++  wait_for_sync (SYNC_NORMAL_SHOWN);
++  repaint_all_views ();
++  assert_view_unlocked (0);
++  return client;
++}
++
++static void
++stop_normal_client (MetaWaylandTestClient *client)
++{
++  meta_wayland_test_driver_emit_sync_event (test_driver, EVENT_EXIT_NORMAL);
++  meta_wayland_test_client_finish (client);
++}
++
++/* Lock client locks, every frame from the lock request on shows no normal
++ * content, the lock surface covers the output and gets the input, unlock
++ * restores the session. */
++static void
++session_lock_lock_unlock (void)
++{
++  g_autoptr (ClutterVirtualInputDevice) pointer = NULL;
++  g_autoptr (ClutterVirtualInputDevice) keyboard = NULL;
++  ClutterSeat *seat =
++    clutter_backend_get_default_seat (
++      meta_backend_get_clutter_backend (get_backend ()));
++  MetaWaylandTestClient *normal;
++  MetaWaylandTestClient *lock;
++  MetaWaylandSurface *normal_surface;
++
++  set_monitors (&one_monitor);
++  pointer = clutter_seat_create_virtual_device (seat, CLUTTER_POINTER_DEVICE);
++  keyboard = clutter_seat_create_virtual_device (seat, CLUTTER_KEYBOARD_DEVICE);
++  meta_flush_input (test_context);
++
++  normal = start_normal_client ();
++  dump_views ("lock-0-before");
++  meta_window_focus (meta_find_window_from_title (test_context, "normal"),
++                     META_CURRENT_TIME);
++  move_pointer (pointer, 10, 10);
++  move_pointer (pointer, 500, 400);
++  normal_surface = get_keyboard_focus ();
++  g_assert_nonnull (normal_surface);
++  g_assert_false (is_lock_surface (normal_surface));
++  g_debug ("keyboard focus %p pointer focus %p caps %u", normal_surface,
++           get_pointer_focus (), get_wayland_compositor ()->seat->capabilities);
++  g_assert_true (get_pointer_focus () == normal_surface);
++
++  n_locked_frames = n_leaked_frames = 0;
++  lock = meta_wayland_test_client_new_with_args (test_context,
++                                                 "session-lock", "lock",
++                                                 NULL);
++  wait_for_sync (SYNC_LOCKED);
++  g_assert_true (meta_wayland_compositor_is_session_locked (
++    get_wayland_compositor ()));
++  /* locked is sent only after a blanked frame was presented. */
++  g_assert_cmpint (n_locked_frames, >, 0);
++  assert_no_leaks ();
++
++  wait_for_sync (SYNC_DRAWN_BASE + 1);
++  dump_views ("lock-2-drawn");
++  assert_view_all (0, "blue");
++
++  /* The keyboard and the pointer go to the lock surface. */
++  g_assert_true (is_lock_surface (get_keyboard_focus ()));
++  move_pointer (pointer, 300, 200);
++  g_assert_true (is_lock_surface (get_pointer_focus ()));
++
++  meta_wayland_test_driver_emit_sync_event (test_driver, EVENT_UNLOCK);
++  wait_for_sync (SYNC_UNLOCKED);
++  meta_wayland_test_client_finish (lock);
++  g_assert_false (meta_wayland_compositor_is_session_locked (
++    get_wayland_compositor ()));
++
++  dump_views ("lock-3-unlocked");
++  assert_view_unlocked (0);
++  g_assert_true (get_keyboard_focus () == normal_surface);
++  move_pointer (pointer, 500, 400);
++  g_assert_true (get_pointer_focus () == normal_surface);
++
++  assert_no_leaks ();
++  g_debug ("frames %" G_GINT64_FORMAT ", painted while locked %" G_GINT64_FORMAT
++           ", leaked %" G_GINT64_FORMAT,
++           n_frames, n_locked_frames, n_leaked_frames);
++  stop_normal_client (normal);
++}
++
++/* A monitor plugged in while locked never shows normal content, not even
++ * in its first frame, and gets its own lock surface; unplugging it keeps
++ * the rest locked. */
++static void
++session_lock_hotplug (void)
++{
++  MetaWaylandTestClient *normal;
++  MetaWaylandTestClient *lock;
++  int64_t frames_before;
++
++  set_monitors (&one_monitor);
++  normal = start_normal_client ();
++
++  n_locked_frames = n_leaked_frames = 0;
++  lock = meta_wayland_test_client_new_with_args (test_context,
++                                                 "session-lock", "lock",
++                                                 NULL);
++  wait_for_sync (SYNC_LOCKED);
++  wait_for_sync (SYNC_DRAWN_BASE + 1);
++
++  frames_before = n_locked_frames;
++  set_monitors (&two_monitors);
++  g_assert_cmpuint (g_list_length (get_views ()), ==, 2);
++
++  /* Until the client draws on the new output, it is blank. */
++  dump_views ("hotplug-1-plugged");
++  assert_view_all (0, "blue");
++  if (stats_for_view (1)->blue == 0)
++    assert_view_all (1, "black");
++  assert_no_leaks ();
++
++  wait_for_sync (SYNC_DRAWN_BASE + 2);
++  dump_views ("hotplug-2-drawn");
++  assert_view_all (0, "blue");
++  assert_view_all (1, "blue");
++  g_assert_cmpint (n_locked_frames, >, frames_before);
++  assert_no_leaks ();
++
++  set_monitors (&one_monitor);
++  g_assert_cmpuint (g_list_length (get_views ()), ==, 1);
++  wait_for_sync (SYNC_DRAWN_BASE + 1);
++  repaint_all_views ();
++  assert_view_all (0, "blue");
++  assert_no_leaks ();
++
++  meta_wayland_test_driver_emit_sync_event (test_driver, EVENT_UNLOCK);
++  wait_for_sync (SYNC_UNLOCKED);
++  meta_wayland_test_client_finish (lock);
++
++  repaint_all_views ();
++  assert_view_unlocked (0);
++  assert_no_leaks ();
++  stop_normal_client (normal);
++}
++
++/* A keyboard plugged in while locked types into the lock surface, never
++ * into the focused normal window. */
++static void
++session_lock_keyboard_hotplug (void)
++{
++  ClutterSeat *seat =
++    clutter_backend_get_default_seat (
++      meta_backend_get_clutter_backend (get_backend ()));
++  g_autoptr (ClutterVirtualInputDevice) keyboard = NULL;
++  MetaWaylandTestClient *normal;
++  MetaWaylandTestClient *lock;
++  MetaWaylandSurface *normal_surface;
++
++  set_monitors (&one_monitor);
++  normal = start_normal_client ();
++  meta_window_focus (meta_find_window_from_title (test_context, "normal"),
++                     META_CURRENT_TIME);
++  normal_surface = get_wayland_compositor ()->seat->input_focus;
++  g_assert_nonnull (normal_surface);
++
++  lock = meta_wayland_test_client_new_with_args (test_context,
++                                                 "session-lock", "lock",
++                                                 NULL);
++  wait_for_sync (SYNC_LOCKED);
++  wait_for_sync (SYNC_DRAWN_BASE + 1);
++
++  keyboard = clutter_seat_create_virtual_device (seat, CLUTTER_KEYBOARD_DEVICE);
++  meta_flush_input (test_context);
++  while (!(get_wayland_compositor ()->seat->capabilities &
++           WL_SEAT_CAPABILITY_KEYBOARD))
++    g_main_context_iteration (NULL, TRUE);
++  while (g_main_context_iteration (NULL, FALSE))
++    ;
++  g_assert_true (is_lock_surface (get_keyboard_focus ()));
++
++  meta_wayland_test_driver_emit_sync_event (test_driver, EVENT_UNLOCK);
++  wait_for_sync (SYNC_UNLOCKED);
++  meta_wayland_test_client_finish (lock);
++  g_assert_true (get_keyboard_focus () == normal_surface);
++
++  stop_normal_client (normal);
++}
++
++/* Lock (if needed) and unlock with a new lock client. */
++static void
++recover_session (void)
++{
++  MetaWaylandTestClient *lock;
++
++  g_hash_table_remove_all (sync_points);
++
++  lock = meta_wayland_test_client_new_with_args (test_context,
++                                                 "session-lock", "lock",
++                                                 NULL);
++  wait_for_sync (SYNC_LOCKED);
++  meta_wayland_test_driver_emit_sync_event (test_driver, EVENT_UNLOCK);
++  wait_for_sync (SYNC_UNLOCKED);
++  meta_wayland_test_client_finish (lock);
++  g_assert_false (meta_wayland_compositor_is_session_locked (
++    get_wayland_compositor ()));
++}
++
++/* The lock client goes away while locked: the session stays locked and
++ * blank until another lock client unlocks it. */
++static void
++session_lock_abandon (void)
++{
++  MetaWaylandTestClient *normal;
++  MetaWaylandTestClient *lock;
++  int i;
++
++  set_monitors (&one_monitor);
++  normal = start_normal_client ();
++
++  n_locked_frames = n_leaked_frames = 0;
++  lock = meta_wayland_test_client_new_with_args (test_context,
++                                                 "session-lock", "abandon",
++                                                 NULL);
++  wait_for_sync (SYNC_LOCKED);
++  wait_for_sync (SYNC_DRAWN_BASE + 1);
++  g_test_expect_message ("libmutter", G_LOG_LEVEL_WARNING,
++                         "ext-session-lock: the lock client went away*");
++  meta_wayland_test_driver_emit_sync_event (test_driver, EVENT_EXIT_ABANDON);
++  meta_wayland_test_client_finish (lock);
++  while (g_main_context_iteration (NULL, FALSE))
++    ;
++  g_test_assert_expected_messages ();
++
++  g_assert_true (meta_wayland_compositor_is_session_locked (
++    get_wayland_compositor ()));
++  for (i = 0; i < 5; i++)
++    {
++      dump_views (i == 0 ? "abandon-1-dead" : NULL);
++      assert_view_all (0, "black");
++    }
++  g_assert_null (get_keyboard_focus ());
++
++  recover_session ();
++  repaint_all_views ();
++  assert_view_unlocked (0);
++  assert_no_leaks ();
++  stop_normal_client (normal);
++}
++
++/* While one client holds the lock, another one's lock is finished. */
++static void
++session_lock_second (void)
++{
++  MetaWaylandTestClient *lock;
++  MetaWaylandTestClient *second;
++
++  set_monitors (&one_monitor);
++  lock = meta_wayland_test_client_new_with_args (test_context,
++                                                 "session-lock", "lock",
++                                                 NULL);
++  wait_for_sync (SYNC_LOCKED);
++  wait_for_sync (SYNC_DRAWN_BASE + 1);
++
++  second = meta_wayland_test_client_new_with_args (test_context,
++                                                   "session-lock", "second",
++                                                   NULL);
++  wait_for_sync (SYNC_FINISHED);
++  meta_wayland_test_client_finish (second);
++
++  repaint_all_views ();
++  assert_view_all (0, "blue");
++  g_assert_true (meta_wayland_compositor_is_session_locked (
++    get_wayland_compositor ()));
++
++  meta_wayland_test_driver_emit_sync_event (test_driver, EVENT_UNLOCK);
++  wait_for_sync (SYNC_UNLOCKED);
++  meta_wayland_test_client_finish (lock);
++  g_assert_false (meta_wayland_compositor_is_session_locked (
++    get_wayland_compositor ()));
++}
++
++/* Destroying the lock before locked gives up the lock. */
++static void
++session_lock_cancel (void)
++{
++  MetaWaylandTestClient *normal;
++  MetaWaylandTestClient *lock;
++
++  set_monitors (&one_monitor);
++  normal = start_normal_client ();
++
++  n_locked_frames = n_leaked_frames = 0;
++  lock = meta_wayland_test_client_new_with_args (test_context,
++                                                 "session-lock", "cancel",
++                                                 NULL);
++  wait_for_sync (SYNC_UNLOCKED);
++  meta_wayland_test_client_finish (lock);
++  g_assert_false (meta_wayland_compositor_is_session_locked (
++    get_wayland_compositor ()));
++
++  repaint_all_views ();
++  assert_view_unlocked (0);
++  assert_no_leaks ();
++  stop_normal_client (normal);
++}
++
++static void
++session_lock_protocol_error (gconstpointer data)
++{
++  const char *error = data;
++  g_autofree char *mode = g_strdup_printf ("error-%s", error);
++  MetaWaylandTestClient *normal;
++  MetaWaylandTestClient *client;
++
++  set_monitors (&one_monitor);
++  normal = start_normal_client ();
++
++  n_locked_frames = n_leaked_frames = 0;
++  g_test_expect_message ("libmutter", G_LOG_LEVEL_MESSAGE,
++                         "ext-session-lock: session locked by*");
++  g_test_expect_message ("libmutter", G_LOG_LEVEL_WARNING,
++                         "WL: error in client communication*");
++  if (g_str_equal (error, "invalid-unlock"))
++    {
++      g_test_expect_message ("libmutter", G_LOG_LEVEL_MESSAGE,
++                             "ext-session-lock: session unlocked");
++    }
++  else
++    {
++      g_test_expect_message ("libmutter", G_LOG_LEVEL_WARNING,
++                             "ext-session-lock: the lock client went away*");
++    }
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "session-lock", mode,
++                                                   NULL);
++  meta_wayland_test_client_finish (client);
++  while (g_main_context_iteration (NULL, FALSE))
++    ;
++  g_test_assert_expected_messages ();
++
++  if (g_str_equal (error, "invalid-unlock"))
++    {
++      /* Never locked: the lock is given up. */
++      g_assert_false (meta_wayland_compositor_is_session_locked (
++        get_wayland_compositor ()));
++    }
++  else
++    {
++      /* Locked, then killed by the error: stays locked. */
++      g_assert_true (meta_wayland_compositor_is_session_locked (
++        get_wayland_compositor ()));
++      repaint_all_views ();
++      assert_view_all (0, "black");
++      recover_session ();
++    }
++
++  repaint_all_views ();
++  assert_view_unlocked (0);
++  assert_no_leaks ();
++  stop_normal_client (normal);
++}
++
++static void
++on_before_tests (MetaContext *context)
++{
++  MetaWaylandCompositor *compositor =
++    meta_context_get_wayland_compositor (context);
++  ClutterActor *stage = meta_backend_get_stage (get_backend ());
++
++  test_driver = meta_wayland_test_driver_new (compositor);
++  sync_points = g_hash_table_new (NULL, NULL);
++  g_signal_connect (test_driver, "sync-point",
++                    G_CALLBACK (on_sync_point), NULL);
++
++  last_frames = g_hash_table_new_full (NULL, NULL, NULL, g_free);
++  g_signal_connect (stage, "after-paint",
++                    G_CALLBACK (on_after_paint), NULL);
++
++}
++
++static void
++on_after_tests (MetaContext *context)
++{
++  ClutterActor *stage = meta_backend_get_stage (get_backend ());
++
++  g_signal_handlers_disconnect_by_func (stage, on_after_paint, NULL);
++  g_clear_pointer (&last_frames, g_hash_table_unref);
++  g_clear_pointer (&sync_points, g_hash_table_unref);
++  g_clear_object (&test_driver);
++}
++
++static const char *protocol_errors[] = {
++  "invalid-unlock",
++  "invalid-destroy",
++  "role",
++  "role-twice",
++  "duplicate-output",
++  "already-constructed",
++  "commit-before-ack",
++  "null-buffer",
++  "dimensions-mismatch",
++  "invalid-serial",
++  "ack-twice",
++};
++
++static void
++init_tests (void)
++{
++  size_t i;
++
++  g_test_add_func ("/wayland/session-lock/lock-unlock",
++                   session_lock_lock_unlock);
++  g_test_add_func ("/wayland/session-lock/hotplug",
++                   session_lock_hotplug);
++  g_test_add_func ("/wayland/session-lock/keyboard-hotplug",
++                   session_lock_keyboard_hotplug);
++  g_test_add_func ("/wayland/session-lock/abandon",
++                   session_lock_abandon);
++  g_test_add_func ("/wayland/session-lock/second-lock",
++                   session_lock_second);
++  g_test_add_func ("/wayland/session-lock/cancel",
++                   session_lock_cancel);
++
++  for (i = 0; i < G_N_ELEMENTS (protocol_errors); i++)
++    {
++      g_autofree char *path =
++        g_strdup_printf ("/wayland/session-lock/error/%s", protocol_errors[i]);
++
++      g_test_add_data_func (path, protocol_errors[i],
++                            session_lock_protocol_error);
++    }
++}
++
++int
++main (int    argc,
++      char **argv)
++{
++  g_autoptr (MetaContext) context = NULL;
++
++  context = meta_create_test_context (META_CONTEXT_TEST_TYPE_TEST,
++                                      META_CONTEXT_TEST_FLAG_NO_X11 |
++                                      META_CONTEXT_TEST_FLAG_TEST_CLIENT);
++  g_assert_true (meta_context_configure (context, &argc, &argv, NULL));
++
++  test_context = context;
++
++  init_tests ();
++
++  g_signal_connect (context, "before-tests",
++                    G_CALLBACK (on_before_tests), NULL);
++  g_signal_connect (context, "after-tests",
++                    G_CALLBACK (on_after_tests), NULL);
++
++  return meta_context_test_run_tests (META_CONTEXT_TEST (context),
++                                      META_TEST_RUN_FLAG_NONE);
++}
+diff --git a/src/tests/wayland-test-clients/meson.build b/src/tests/wayland-test-clients/meson.build
+index 2b558d5..a806756 100644
+--- a/src/tests/wayland-test-clients/meson.build
++++ b/src/tests/wayland-test-clients/meson.build
+@@ -158,6 +158,9 @@ wayland_test_clients = [
+   {
+     'name': 'ycbcr',
+   },
++  {
++    'name': 'session-lock',
++  },
+   {
+     'name': 'screencopy',
+     'extra_deps': [
+diff --git a/src/tests/wayland-test-clients/session-lock.c b/src/tests/wayland-test-clients/session-lock.c
+new file mode 100644
+index 0000000..3e2de39
+--- /dev/null
++++ b/src/tests/wayland-test-clients/session-lock.c
+@@ -0,0 +1,585 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include "config.h"
++
++#include <errno.h>
++#include <glib.h>
++#include <string.h>
++#include <wayland-client.h>
++
++#include "wayland-test-client-utils.h"
++
++#include "ext-session-lock-v1-client-protocol.h"
++
++/* Must match the colors in wayland-session-lock-tests.c */
++#define NORMAL_COLOR 0xffff0000
++#define LOCK_COLOR 0xff0000ff
++
++/* Sync points sent to the test */
++#define SYNC_NORMAL_SHOWN 1
++#define SYNC_LOCKED 2
++#define SYNC_FINISHED 3
++#define SYNC_UNLOCKED 4
++#define SYNC_DRAWN_BASE 10 /* + number of outputs with a drawn lock surface */
++
++/* Sync events sent by the test. They go to every client, so each kind of
++ * client waits for its own value. */
++#define EVENT_UNLOCK 100
++#define EVENT_EXIT_NORMAL 200
++#define EVENT_EXIT_ABANDON 300
++
++typedef struct _Output
++{
++  uint32_t name;
++  struct wl_output *wl_output;
++  struct wl_surface *surface;
++  struct ext_session_lock_surface_v1 *lock_surface;
++  gboolean drawn;
++} Output;
++
++static WaylandDisplay *display;
++static struct wl_registry *registry;
++static struct ext_session_lock_manager_v1 *lock_manager;
++static struct ext_session_lock_v1 *lock;
++static GList *outputs;
++static gboolean locked;
++static gboolean finished;
++static gboolean create_lock_surfaces = TRUE;
++static int last_drawn_report;
++
++static GHashTable *commands;
++
++static void
++on_command (WaylandDisplay *wayland_display,
++            uint32_t        serial,
++            gpointer        user_data)
++{
++  g_hash_table_add (commands, GUINT_TO_POINTER (serial));
++}
++
++/* Commands are recorded from the moment the client connected, so one sent
++ * while the client was busy with something else is not lost. */
++static void
++wait_for_command (uint32_t command)
++{
++  while (!g_hash_table_contains (commands, GUINT_TO_POINTER (command)))
++    wayland_display_dispatch (display);
++}
++
++static void
++report_drawn (void)
++{
++  GList *l;
++  int n_drawn = 0;
++
++  for (l = outputs; l; l = l->next)
++    {
++      Output *output = l->data;
++
++      if (!output->drawn)
++        return;
++      n_drawn++;
++    }
++
++  if (n_drawn == last_drawn_report)
++    return;
++
++  last_drawn_report = n_drawn;
++  test_driver_sync_point (display->test_driver, SYNC_DRAWN_BASE + n_drawn,
++                          NULL);
++}
++
++static void
++handle_lock_surface_configure (void                               *data,
++                               struct ext_session_lock_surface_v1 *lock_surface,
++                               uint32_t                            serial,
++                               uint32_t                            width,
++                               uint32_t                            height)
++{
++  Output *output = data;
++
++  ext_session_lock_surface_v1_ack_configure (lock_surface, serial);
++  draw_surface (display, output->surface, width, height, LOCK_COLOR);
++  wl_surface_commit (output->surface);
++  output->drawn = TRUE;
++  report_drawn ();
++}
++
++static const struct ext_session_lock_surface_v1_listener lock_surface_listener = {
++  handle_lock_surface_configure,
++};
++
++static void
++create_lock_surface (Output *output)
++{
++  if (!lock || finished || output->lock_surface)
++    return;
++
++  output->surface = wl_compositor_create_surface (display->compositor);
++  output->lock_surface =
++    ext_session_lock_v1_get_lock_surface (lock, output->surface,
++                                          output->wl_output);
++  ext_session_lock_surface_v1_add_listener (output->lock_surface,
++                                            &lock_surface_listener, output);
++}
++
++static void
++destroy_output (Output *output)
++{
++  g_clear_pointer (&output->lock_surface,
++                   ext_session_lock_surface_v1_destroy);
++  g_clear_pointer (&output->surface, wl_surface_destroy);
++  g_clear_pointer (&output->wl_output, wl_output_release);
++  g_free (output);
++}
++
++static void
++handle_locked (void                       *data,
++               struct ext_session_lock_v1 *lock_object)
++{
++  locked = TRUE;
++  test_driver_sync_point (display->test_driver, SYNC_LOCKED, NULL);
++}
++
++static void
++handle_finished (void                       *data,
++                 struct ext_session_lock_v1 *lock_object)
++{
++  finished = TRUE;
++  test_driver_sync_point (display->test_driver, SYNC_FINISHED, NULL);
++}
++
++static const struct ext_session_lock_v1_listener lock_listener = {
++  handle_locked,
++  handle_finished,
++};
++
++static void
++handle_registry_global (void               *user_data,
++                        struct wl_registry *wl_registry,
++                        uint32_t            name,
++                        const char         *interface,
++                        uint32_t            version)
++{
++  if (strcmp (interface, ext_session_lock_manager_v1_interface.name) == 0)
++    {
++      lock_manager =
++        wl_registry_bind (wl_registry, name,
++                          &ext_session_lock_manager_v1_interface, 1);
++    }
++  else if (strcmp (interface, wl_output_interface.name) == 0)
++    {
++      Output *output = g_new0 (Output, 1);
++
++      output->name = name;
++      output->wl_output = wl_registry_bind (wl_registry, name,
++                                            &wl_output_interface, 3);
++      outputs = g_list_append (outputs, output);
++
++      if (create_lock_surfaces)
++        create_lock_surface (output);
++    }
++}
++
++static void
++handle_registry_global_remove (void               *user_data,
++                               struct wl_registry *wl_registry,
++                               uint32_t            name)
++{
++  GList *l;
++
++  for (l = outputs; l; l = l->next)
++    {
++      Output *output = l->data;
++
++      if (output->name == name)
++        {
++          outputs = g_list_delete_link (outputs, l);
++          destroy_output (output);
++          last_drawn_report = 0;
++          report_drawn ();
++          return;
++        }
++    }
++}
++
++static const struct wl_registry_listener registry_listener = {
++  handle_registry_global,
++  handle_registry_global_remove,
++};
++
++static void
++connect_display (void)
++{
++  display = wayland_display_new (WAYLAND_DISPLAY_CAPABILITY_TEST_DRIVER);
++  commands = g_hash_table_new (NULL, NULL);
++  g_signal_connect (display, "sync-event", G_CALLBACK (on_command), NULL);
++  registry = wl_display_get_registry (display->display);
++  wl_registry_add_listener (registry, &registry_listener, NULL);
++  wl_display_roundtrip (display->display);
++  wl_display_roundtrip (display->display);
++
++  g_assert_nonnull (lock_manager);
++  g_assert_nonnull (outputs);
++}
++
++static void
++start_lock (void)
++{
++  GList *l;
++
++  lock = ext_session_lock_manager_v1_lock (lock_manager);
++  ext_session_lock_v1_add_listener (lock, &lock_listener, NULL);
++
++  if (create_lock_surfaces)
++    {
++      for (l = outputs; l; l = l->next)
++        create_lock_surface (l->data);
++    }
++}
++
++static void
++wait_for_locked (void)
++{
++  while (!locked && !finished)
++    wayland_display_dispatch (display);
++
++  g_assert_true (locked);
++}
++
++static void
++unlock (void)
++{
++  ext_session_lock_v1_unlock_and_destroy (lock);
++  lock = NULL;
++  wl_display_roundtrip (display->display);
++  test_driver_sync_point (display->test_driver, SYNC_UNLOCKED, NULL);
++  wl_display_roundtrip (display->display);
++}
++
++static int
++expect_protocol_error (const struct wl_interface *interface,
++                       uint32_t                   code)
++{
++  const struct wl_interface *error_interface = NULL;
++  uint32_t error_code;
++
++  while (wl_display_roundtrip (display->display) != -1)
++    ;
++
++  g_assert_cmpint (wl_display_get_error (display->display), ==, EPROTO);
++  error_code = wl_display_get_protocol_error (display->display,
++                                              &error_interface, NULL);
++  /* After a destructor request the proxy is gone, so libwayland can't name
++   * the interface; only the code is checked then. */
++  if (interface)
++    {
++      g_assert_nonnull (error_interface);
++      g_assert_cmpstr (error_interface->name, ==, interface->name);
++    }
++  g_assert_cmpuint (error_code, ==, code);
++
++  return EXIT_SUCCESS;
++}
++
++/* Lock, draw on every output (also outputs added later), unlock when
++ * asked. */
++static int
++run_lock (void)
++{
++  start_lock ();
++  wait_for_locked ();
++  wait_for_command (EVENT_UNLOCK);
++  unlock ();
++  return EXIT_SUCCESS;
++}
++
++/* Lock, draw, then go away without unlocking. */
++static int
++run_abandon (void)
++{
++  start_lock ();
++  wait_for_locked ();
++  while (last_drawn_report == 0)
++    wayland_display_dispatch (display);
++  wait_for_command (EVENT_EXIT_ABANDON);
++  return EXIT_SUCCESS;
++}
++
++/* Another client holds the lock: this one must get finished. */
++static int
++run_second (void)
++{
++  create_lock_surfaces = FALSE;
++  start_lock ();
++  while (!finished && !locked)
++    wayland_display_dispatch (display);
++  g_assert_true (finished);
++  g_assert_false (locked);
++
++  /* Lock surfaces on a finished lock are inert. */
++  create_lock_surfaces = TRUE;
++  create_lock_surface (outputs->data);
++  ext_session_lock_v1_destroy (lock);
++  lock = NULL;
++  wl_display_roundtrip (display->display);
++  g_assert_cmpint (wl_display_get_error (display->display), ==, 0);
++  return EXIT_SUCCESS;
++}
++
++/* Lock and give up before the locked event. */
++static int
++run_cancel (void)
++{
++  start_lock ();
++  ext_session_lock_v1_destroy (lock);
++  lock = NULL;
++  wl_display_roundtrip (display->display);
++  g_assert_false (locked);
++  g_assert_cmpint (wl_display_get_error (display->display), ==, 0);
++  test_driver_sync_point (display->test_driver, SYNC_UNLOCKED, NULL);
++  wl_display_roundtrip (display->display);
++  return EXIT_SUCCESS;
++}
++
++/* A normal fullscreen toplevel (the content that must never show while
++ * locked). */
++static int
++run_normal (void)
++{
++  WaylandSurface *surface;
++
++  surface = wayland_surface_new (display, "normal", 100, 100, NORMAL_COLOR);
++  xdg_toplevel_set_fullscreen (surface->xdg_toplevel, NULL);
++  wl_surface_commit (surface->wl_surface);
++  wait_for_window_shown (display, surface->wl_surface);
++  wait_for_effects_completed (display, surface->wl_surface);
++  test_driver_sync_point (display->test_driver, SYNC_NORMAL_SHOWN, NULL);
++  wait_for_command (EVENT_EXIT_NORMAL);
++  g_object_unref (surface);
++  return EXIT_SUCCESS;
++}
++
++static Output *
++first_output (void)
++{
++  return outputs->data;
++}
++
++static struct ext_session_lock_surface_v1 *
++get_raw_lock_surface (struct wl_surface *surface,
++                      Output            *output,
++                      uint32_t          *serial,
++                      int               *width,
++                      int               *height);
++
++typedef struct _RawConfigure
++{
++  gboolean configured;
++  uint32_t serial;
++  int width;
++  int height;
++} RawConfigure;
++
++static void
++handle_raw_configure (void                               *data,
++                      struct ext_session_lock_surface_v1 *lock_surface,
++                      uint32_t                            serial,
++                      uint32_t                            width,
++                      uint32_t                            height)
++{
++  RawConfigure *configure = data;
++
++  configure->configured = TRUE;
++  configure->serial = serial;
++  configure->width = width;
++  configure->height = height;
++}
++
++static const struct ext_session_lock_surface_v1_listener raw_listener = {
++  handle_raw_configure,
++};
++
++static struct ext_session_lock_surface_v1 *
++get_raw_lock_surface (struct wl_surface *surface,
++                      Output            *output,
++                      uint32_t          *serial,
++                      int               *width,
++                      int               *height)
++{
++  static RawConfigure configure;
++  struct ext_session_lock_surface_v1 *lock_surface;
++
++  configure = (RawConfigure) { 0 };
++  lock_surface = ext_session_lock_v1_get_lock_surface (lock, surface,
++                                                       output->wl_output);
++  ext_session_lock_surface_v1_add_listener (lock_surface, &raw_listener,
++                                            &configure);
++  while (!configure.configured)
++    wayland_display_dispatch (display);
++
++  *serial = configure.serial;
++  *width = configure.width;
++  *height = configure.height;
++  return lock_surface;
++}
++
++static int
++run_error (const char *error)
++{
++  struct wl_surface *surface;
++  struct ext_session_lock_surface_v1 *lock_surface;
++  uint32_t serial;
++  int width, height;
++
++  create_lock_surfaces = FALSE;
++  start_lock ();
++
++  if (g_strcmp0 (error, "invalid-unlock") == 0)
++    {
++      /* In the same flush as lock: the locked event can't be sent yet. */
++      ext_session_lock_v1_unlock_and_destroy (lock);
++      return expect_protocol_error (NULL,
++                                    EXT_SESSION_LOCK_V1_ERROR_INVALID_UNLOCK);
++    }
++
++  wait_for_locked ();
++  surface = wl_compositor_create_surface (display->compositor);
++
++  if (g_strcmp0 (error, "invalid-destroy") == 0)
++    {
++      ext_session_lock_v1_destroy (lock);
++      return expect_protocol_error (NULL,
++                                    EXT_SESSION_LOCK_V1_ERROR_INVALID_DESTROY);
++    }
++  else if (g_strcmp0 (error, "role") == 0)
++    {
++      struct xdg_surface *xdg_surface =
++        xdg_wm_base_get_xdg_surface (display->xdg_wm_base, surface);
++
++      xdg_surface_get_toplevel (xdg_surface);
++      ext_session_lock_v1_get_lock_surface (lock, surface,
++                                            first_output ()->wl_output);
++      return expect_protocol_error (&ext_session_lock_v1_interface,
++                                    EXT_SESSION_LOCK_V1_ERROR_ROLE);
++    }
++  else if (g_strcmp0 (error, "role-twice") == 0)
++    {
++      ext_session_lock_v1_get_lock_surface (lock, surface,
++                                            first_output ()->wl_output);
++      ext_session_lock_v1_get_lock_surface (lock, surface,
++                                            first_output ()->wl_output);
++      return expect_protocol_error (&ext_session_lock_v1_interface,
++                                    EXT_SESSION_LOCK_V1_ERROR_ROLE);
++    }
++  else if (g_strcmp0 (error, "duplicate-output") == 0)
++    {
++      struct wl_surface *other =
++        wl_compositor_create_surface (display->compositor);
++
++      ext_session_lock_v1_get_lock_surface (lock, surface,
++                                            first_output ()->wl_output);
++      ext_session_lock_v1_get_lock_surface (lock, other,
++                                            first_output ()->wl_output);
++      return expect_protocol_error (&ext_session_lock_v1_interface,
++                                    EXT_SESSION_LOCK_V1_ERROR_DUPLICATE_OUTPUT);
++    }
++  else if (g_strcmp0 (error, "already-constructed") == 0)
++    {
++      draw_surface (display, surface, 64, 64, LOCK_COLOR);
++      wl_surface_commit (surface);
++      ext_session_lock_v1_get_lock_surface (lock, surface,
++                                            first_output ()->wl_output);
++      return expect_protocol_error (&ext_session_lock_v1_interface,
++                                    EXT_SESSION_LOCK_V1_ERROR_ALREADY_CONSTRUCTED);
++    }
++  else if (g_strcmp0 (error, "commit-before-ack") == 0)
++    {
++      lock_surface = get_raw_lock_surface (surface, first_output (),
++                                           &serial, &width, &height);
++      draw_surface (display, surface, width, height, LOCK_COLOR);
++      wl_surface_commit (surface);
++      return expect_protocol_error (&ext_session_lock_surface_v1_interface,
++                                    EXT_SESSION_LOCK_SURFACE_V1_ERROR_COMMIT_BEFORE_FIRST_ACK);
++    }
++  else if (g_strcmp0 (error, "null-buffer") == 0)
++    {
++      lock_surface = get_raw_lock_surface (surface, first_output (),
++                                           &serial, &width, &height);
++      ext_session_lock_surface_v1_ack_configure (lock_surface, serial);
++      wl_surface_commit (surface);
++      return expect_protocol_error (&ext_session_lock_surface_v1_interface,
++                                    EXT_SESSION_LOCK_SURFACE_V1_ERROR_NULL_BUFFER);
++    }
++  else if (g_strcmp0 (error, "dimensions-mismatch") == 0)
++    {
++      lock_surface = get_raw_lock_surface (surface, first_output (),
++                                           &serial, &width, &height);
++      ext_session_lock_surface_v1_ack_configure (lock_surface, serial);
++      draw_surface (display, surface, width / 2, height / 2, LOCK_COLOR);
++      wl_surface_commit (surface);
++      return expect_protocol_error (&ext_session_lock_surface_v1_interface,
++                                    EXT_SESSION_LOCK_SURFACE_V1_ERROR_DIMENSIONS_MISMATCH);
++    }
++  else if (g_strcmp0 (error, "invalid-serial") == 0)
++    {
++      lock_surface = get_raw_lock_surface (surface, first_output (),
++                                           &serial, &width, &height);
++      ext_session_lock_surface_v1_ack_configure (lock_surface, serial + 100);
++      return expect_protocol_error (&ext_session_lock_surface_v1_interface,
++                                    EXT_SESSION_LOCK_SURFACE_V1_ERROR_INVALID_SERIAL);
++    }
++  else if (g_strcmp0 (error, "ack-twice") == 0)
++    {
++      lock_surface = get_raw_lock_surface (surface, first_output (),
++                                           &serial, &width, &height);
++      ext_session_lock_surface_v1_ack_configure (lock_surface, serial);
++      ext_session_lock_surface_v1_ack_configure (lock_surface, serial);
++      return expect_protocol_error (&ext_session_lock_surface_v1_interface,
++                                    EXT_SESSION_LOCK_SURFACE_V1_ERROR_INVALID_SERIAL);
++    }
++
++  g_error ("Unknown error mode %s", error);
++}
++
++int
++main (int    argc,
++      char **argv)
++{
++  const char *mode;
++
++  g_assert_cmpint (argc, ==, 2);
++  mode = argv[1];
++
++  connect_display ();
++
++  if (g_strcmp0 (mode, "normal") == 0)
++    return run_normal ();
++  else if (g_strcmp0 (mode, "lock") == 0)
++    return run_lock ();
++  else if (g_strcmp0 (mode, "abandon") == 0)
++    return run_abandon ();
++  else if (g_strcmp0 (mode, "second") == 0)
++    return run_second ();
++  else if (g_strcmp0 (mode, "cancel") == 0)
++    return run_cancel ();
++  else if (g_str_has_prefix (mode, "error-"))
++    return run_error (mode + strlen ("error-"));
++
++  g_error ("Unknown mode %s", mode);
++}
