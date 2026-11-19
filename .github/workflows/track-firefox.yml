@@ -1,0 +1,153 @@
+name: Track Fedora Firefox
+# Aurora's Firefox is Fedora's recipe plus the RDD V4L2 Request patch
+# (packages/firefox, scripts/import-fedora-firefox.py). The Aurora repository
+# has priority over Fedora's, so every Fedora Firefox update needs a rebuild
+# here. Each run:
+#   1. merges a proposal whose dispatched native build (rpms.yml, both Fedora
+#      releases) and source checks passed, with a merge commit so publication
+#      can use that build, then starts publication for both releases;
+#   2. imports Fedora's f44/f45 heads and, when they changed, pushes a
+#      proposal branch auto/firefox-<version>-<f44>-<f45> and dispatches its
+#      build and checks.
+# A failed proposal build fails this workflow until a newer import replaces it.
+# Disable with the repository variable TRACK_FIREFOX=false; keep proposals
+# unmerged with AUTO_MERGE_FIREFOX=false.
+on:
+  schedule:
+    - cron: '23 */2 * * *'
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Report only; no push, dispatch or merge
+        type: boolean
+        default: true
+  pull_request:
+    paths:
+      - .github/workflows/track-firefox.yml
+      - scripts/import-fedora-firefox.py
+permissions: {}
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: track-firefox
+  cancel-in-progress: false
+jobs:
+  track:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPOSITORY: ${{ github.repository }}
+      LIVE: >-
+        ${{ github.ref == 'refs/heads/main' && vars.TRACK_FIREFOX != 'false' &&
+            (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.dry-run == false)) }}
+      AUTO_MERGE: ${{ vars.AUTO_MERGE_FIREFOX != 'false' }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - name: Merge a proposal that passed
+        id: merge
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          say() { echo "$*" | tee -a "$GITHUB_STEP_SUMMARY"; }
+          act() { if [[ $LIVE == true ]]; then "$@"; else say "dry run: $*"; fi; }
+          # The native build tooling must match main, or publication will not take the build.
+          shared=$(python3 -c 'import importlib.util as u; s=u.spec_from_file_location("i","scripts/import-rpm-build.py"); m=u.module_from_spec(s); s.loader.exec_module(m); print(" ".join(m.SHARED))')
+          failed=0
+          git switch -q --detach
+          base=$(git rev-parse HEAD)
+          for ref in $(git for-each-ref --format='%(refname:strip=4)' 'refs/remotes/origin/auto/firefox-*'); do
+            branch=auto/$ref
+            [[ $ref == firefox-* ]] || continue
+            head=$(git rev-parse "origin/$branch")
+            if git merge-base --is-ancestor "$head" HEAD; then
+              act git push origin --delete "$branch"
+              continue
+            fi
+            stale=
+            for path in $shared; do
+              [[ $(git rev-parse "$head:$path") == $(git rev-parse "HEAD:$path") ]] || stale=$path
+            done
+            if [[ -n $stale ]]; then
+              say "$branch: $stale changed on main; merging main and rebuilding"
+              git switch -q --detach "$head"
+              git merge -q --no-edit "$base"
+              act git push origin "HEAD:refs/heads/$branch"
+              act gh workflow run rpms.yml --repo "$REPOSITORY" --ref "$branch" -f packages=firefox
+              act gh workflow run checks.yml --repo "$REPOSITORY" --ref "$branch"
+              git switch -q --detach "$base"
+              continue
+            fi
+            rpm=$(gh api "repos/$REPOSITORY/actions/workflows/rpms.yml/runs?head_sha=$head&event=workflow_dispatch&per_page=20" \
+              --jq '[.workflow_runs[] | select(.head_branch == "'"$branch"'")] | sort_by(.created_at) | last | (.status + ":" + (.conclusion // "") + ":" + (.id|tostring))')
+            checks=$(gh api "repos/$REPOSITORY/actions/workflows/checks.yml/runs?head_sha=$head&per_page=20" \
+              --jq '[.workflow_runs[]] | sort_by(.created_at) | last | (.status + ":" + (.conclusion // ""))')
+            say "$branch ${head:0:12}: rpms ${rpm:-none}, checks ${checks:-none}"
+            if [[ -z $rpm || $rpm == ':'* ]]; then
+              act gh workflow run rpms.yml --repo "$REPOSITORY" --ref "$branch" -f packages=firefox
+              [[ -n $checks && $checks != ':'* ]] || act gh workflow run checks.yml --repo "$REPOSITORY" --ref "$branch"
+              continue
+            fi
+            if [[ $rpm == completed:* && $rpm != completed:success:* ]] || [[ $checks == completed:* && $checks != completed:success ]]; then
+              echo "::error::$branch: the Firefox proposal failed (rpms $rpm, checks $checks)"
+              failed=1
+              continue
+            fi
+            [[ $rpm == completed:success:* && $checks == completed:success ]] || continue
+            artifacts=$(gh api "repos/$REPOSITORY/actions/runs/${rpm##*:}/artifacts" --jq '[.artifacts[] | select(.expired | not) | .name] | join(" ")')
+            for want in rpm-firefox rpm-f45-firefox; do
+              [[ " $artifacts " == *" $want "* ]] || { echo "::error::$branch: run ${rpm##*:} has no $want"; failed=1; continue 2; }
+            done
+            if [[ $AUTO_MERGE != true ]]; then
+              say "$branch passed; automatic merging is off (AUTO_MERGE_FIREFOX)"
+              continue
+            fi
+            git merge -q --no-ff "$head" -m "Merge Fedora Firefox rebuild $ref"
+            base=$(git rev-parse HEAD)
+            act git push origin HEAD:main
+            act git push origin --delete "$branch"
+            for release in 44 45; do
+              act gh workflow run publish.yml --repo "$REPOSITORY" --ref main -f fedora-release=$release
+            done
+            say "$branch merged into main"
+          done
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+      - name: Propose Fedora's current Firefox
+        run: |
+          set -euo pipefail
+          say() { echo "$*" | tee -a "$GITHUB_STEP_SUMMARY"; }
+          act() { if [[ $LIVE == true ]]; then "$@"; else say "dry run: $*"; fi; }
+          python3 scripts/import-fedora-firefox.py | tee -a "$GITHUB_STEP_SUMMARY"
+          if [[ -z $(git status --porcelain packages/firefox) ]]; then
+            say 'packages/firefox matches Fedora'
+            exit 0
+          fi
+          version=$(sed -n 's/^Version:[[:space:]]*//p' packages/firefox/firefox.spec)
+          f44=$(python3 -c 'import json; print(json.load(open("packages/firefox/distgit.json"))["commit"][:7])')
+          f45=$(python3 -c 'import json; print(json.load(open("packages/firefox/f45/distgit.json"))["commit"][:7])')
+          branch=auto/firefox-$version-$f44-$f45
+          if git rev-parse -q --verify "origin/$branch" >/dev/null; then
+            say "$branch is already proposed"
+            exit 0
+          fi
+          git switch -q -c "$branch" "$(git rev-parse HEAD)"
+          git add -A packages/firefox
+          git commit -q -m "firefox: rebuild Fedora's Firefox $version" \
+            -m "Fedora dist-git f44 $f44, f45 $f45, with the RDD V4L2 Request patch."
+          act git push origin "HEAD:refs/heads/$branch"
+          act gh workflow run rpms.yml --repo "$REPOSITORY" --ref "$branch" -f packages=firefox
+          act gh workflow run checks.yml --repo "$REPOSITORY" --ref "$branch"
+          # Older proposals are superseded by this one.
+          for old in $(git for-each-ref --format='%(refname:strip=4)' 'refs/remotes/origin/auto/firefox-*'); do
+            [[ auto/$old == "$branch" ]] || act git push origin --delete "auto/$old"
+          done
+          say "proposed $branch"
+      - if: steps.merge.outputs.failed == '1'
+        run: exit 1

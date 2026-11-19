@@ -1,0 +1,10 @@
+{
+  "repository": "https://src.fedoraproject.org/rpms/firefox.git",
+  "branch": "f44",
+  "commit": "211785faaa4fc9e8948ff63e54d93e52084880f6",
+  "fetch": {
+    "google-api-key": "232902423a73072bf27915158115da91dcbd5efe48d3cd768a69b4e9c11bee87",
+    "google-loc-api-key": "a4e468b7dc9ed42b039f0c21c6232b7e28cfc7f5f1f77ccede29442c04a1749c",
+    "mozilla-api-key": "39685580bba0ded942386fdf1b690e822f2dae201cfe62bd4b5118b9a7e7e9fa"
+  }
+}

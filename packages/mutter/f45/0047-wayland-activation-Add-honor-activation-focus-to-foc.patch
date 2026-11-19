@@ -1,0 +1,242 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 01:31:29 +1100
+Subject: [PATCH] wayland/activation: Add honor-activation-focus to focus
+ activated windows
+
+A window that asks for an xdg-activation token to hand a link to another
+app (a chat client opening a URL in the browser, a launcher opening a
+file) often sends a stale input serial or none at all. Mutter then
+treats the token as unproven and only marks the target window as
+demanding attention, so the browser shows "is ready" instead of coming
+to the front. The same happens with a valid token when the user typed or
+clicked while the target app was still starting, because the window is
+activated with the token's creation time.
+
+Add org.gnome.mutter honor-activation-focus (default true). When set, a
+token that was committed while its requesting surface belonged to the
+focused window activates and raises the target window, using the current
+time. Tokens from unfocused clients still only mark the target as
+demanding attention, so background windows cannot take focus. When
+unset, behaviour is unchanged.
+---
+ data/org.gnome.mutter.gschema.xml.in  | 15 ++++++++
+ src/core/prefs.c                      | 17 ++++++++++
+ src/meta/prefs.h                      |  6 ++++
+ src/wayland/meta-wayland-activation.c | 49 +++++++++++++++++++++++++--
+ 4 files changed, 85 insertions(+), 2 deletions(-)
+
+diff --git a/data/org.gnome.mutter.gschema.xml.in b/data/org.gnome.mutter.gschema.xml.in
+index 40f6c2e..2b97f94 100644
+--- a/data/org.gnome.mutter.gschema.xml.in
++++ b/data/org.gnome.mutter.gschema.xml.in
+@@ -109,6 +109,21 @@
+       </description>
+     </key>
+ 
++    <key name="honor-activation-focus" type="b">
++      <default>true</default>
++      <summary>Focus windows activated with a valid activation token</summary>
++      <description>
++        When true, a window activated through xdg-activation-v1 (or a
++        startup notification) is focused and raised whenever the token was
++        requested by the window that had keyboard focus at the time, even if
++        the token carries no matching input serial or the user typed or
++        clicked after the token was made. Tokens requested by unfocused
++        windows still only mark the target window as demanding attention.
++        When false, only tokens with a matching recent input serial focus
++        the target window; others mark it as demanding attention.
++      </description>
++    </key>
++
+     <key name="check-alive-timeout" type="u">
+       <default>5000</default>
+       <summary>Timeout for check-alive ping</summary>
+diff --git a/src/core/prefs.c b/src/core/prefs.c
+index fe38b34..163402d 100644
+--- a/src/core/prefs.c
++++ b/src/core/prefs.c
+@@ -112,6 +112,7 @@ static gboolean resize_with_right_button = FALSE;
+ static gboolean edge_tiling = FALSE;
+ static gboolean force_fullscreen = TRUE;
+ static gboolean auto_maximize = TRUE;
++static gboolean honor_activation_focus = TRUE;
+ static gboolean show_fallback_app_menu = TRUE;
+ 
+ static GDesktopVisualBellType visual_bell_type = G_DESKTOP_VISUAL_BELL_FULLSCREEN_FLASH;
+@@ -383,6 +384,13 @@ static MetaBoolPreference preferences_bool[] =
+       },
+       &auto_maximize,
+     },
++    {
++      { "honor-activation-focus",
++        SCHEMA_MUTTER,
++        META_PREF_HONOR_ACTIVATION_FOCUS,
++      },
++      &honor_activation_focus,
++    },
+     {
+       { KEY_LOCATE_POINTER,
+         SCHEMA_INTERFACE,
+@@ -1711,6 +1719,9 @@ meta_preference_to_string (MetaPreference pref)
+ 
+     case META_PREF_CHECK_ALIVE_TIMEOUT:
+       return "CHECK_ALIVE_TIMEOUT";
++
++    case META_PREF_HONOR_ACTIVATION_FOCUS:
++      return "HONOR_ACTIVATION_FOCUS";
+     }
+ 
+   return "(unknown)";
+@@ -2126,6 +2137,12 @@ meta_prefs_get_auto_maximize (void)
+   return auto_maximize;
+ }
+ 
++gboolean
++meta_prefs_get_honor_activation_focus (void)
++{
++  return honor_activation_focus;
++}
++
+ MetaKeyBindingAction
+ meta_prefs_get_keybinding_action (const char *name)
+ {
+diff --git a/src/meta/prefs.h b/src/meta/prefs.h
+index 47c6e5e..5acef4b 100644
+--- a/src/meta/prefs.h
++++ b/src/meta/prefs.h
+@@ -64,6 +64,8 @@
+  * @META_PREF_CENTER_NEW_WINDOWS: center new windows
+  * @META_PREF_DRAG_THRESHOLD: drag threshold
+  * @META_PREF_LOCATE_POINTER: show pointer location
++ * @META_PREF_CHECK_ALIVE_TIMEOUT: check-alive timeout
++ * @META_PREF_HONOR_ACTIVATION_FOCUS: honor activation focus
+  */
+ 
+ /* Keep in sync with GSettings schemas! */
+@@ -103,6 +105,7 @@ typedef enum
+   META_PREF_DRAG_THRESHOLD,
+   META_PREF_LOCATE_POINTER,
+   META_PREF_CHECK_ALIVE_TIMEOUT,
++  META_PREF_HONOR_ACTIVATION_FOCUS,
+ } MetaPreference;
+ 
+ typedef void (* MetaPrefsChangedFunc) (MetaPreference pref,
+@@ -170,6 +173,9 @@ gboolean                    meta_prefs_get_edge_tiling        (void);
+ META_EXPORT
+ gboolean                    meta_prefs_get_auto_maximize      (void);
+ 
++META_EXPORT
++gboolean                    meta_prefs_get_honor_activation_focus (void);
++
+ META_EXPORT
+ gboolean                    meta_prefs_get_center_new_windows (void);
+ 
+diff --git a/src/wayland/meta-wayland-activation.c b/src/wayland/meta-wayland-activation.c
+index 435a999..27c2273 100644
+--- a/src/wayland/meta-wayland-activation.c
++++ b/src/wayland/meta-wayland-activation.c
+@@ -24,6 +24,7 @@
+ #include <glib.h>
+ #include <wayland-server.h>
+ 
++#include "meta/prefs.h"
+ #include "wayland/meta-wayland-private.h"
+ #include "wayland/meta-wayland-versions.h"
+ 
+@@ -53,6 +54,7 @@ struct _MetaXdgActivationToken
+   gulong sequence_complete_id;
+   gulong sequence_timeout_id;
+   gboolean committed;
++  gboolean requester_focused;
+ };
+ 
+ static MetaDisplay *
+@@ -168,6 +170,15 @@ token_commit (struct wl_client   *client,
+ 
+   timestamp = meta_display_get_current_time_roundtrip (display);
+ 
++  if (token->surface)
++    {
++      MetaWindow *requester =
++        meta_wayland_surface_get_toplevel_window (token->surface);
++
++      token->requester_focused =
++        requester && requester == meta_display_get_focus_window (display);
++    }
++
+   token->committed = TRUE;
+   token->token = create_startup_token (activation, display);
+   token->sequence = g_object_new (META_TYPE_STARTUP_SEQUENCE,
+@@ -310,6 +321,20 @@ token_can_activate (MetaXdgActivationToken *token)
+                                           NULL, NULL, NULL);
+ }
+ 
++/* With honor-activation-focus, a token requested by the window that had
++ * keyboard focus when the token was committed activates its target even if
++ * it carries no matching input serial (many toolkits send a stale serial or
++ * none when they hand a link to another app). Tokens from unfocused clients
++ * still only mark the target as demanding attention. */
++static gboolean
++token_is_honored (MetaXdgActivationToken *token)
++{
++  if (!meta_prefs_get_honor_activation_focus ())
++    return FALSE;
++
++  return token->committed && token->requester_focused;
++}
++
+ static gboolean
+ startup_sequence_is_recent (MetaDisplay         *display,
+                             MetaStartupSequence *sequence)
+@@ -330,6 +355,7 @@ maybe_activate (MetaWaylandActivation *activation,
+   MetaDisplay *display = display_from_activation (activation);
+   MetaXdgActivationToken *token;
+   MetaStartupSequence *sequence;
++  gboolean honor;
+ 
+   if (!window || window->unmanaging)
+     return TRUE;
+@@ -351,14 +377,30 @@ maybe_activate (MetaWaylandActivation *activation,
+   if (!sequence)
+     return TRUE;
+ 
+-  if ((token && token_can_activate (token)) ||
++  honor = token && token_is_honored (token);
++
++  if (honor ||
++      (token && token_can_activate (token)) ||
+       (!token && startup_sequence_is_recent (display, sequence)))
+     {
+       uint32_t timestamp;
+       int32_t workspace_idx;
+ 
+       workspace_idx = meta_startup_sequence_get_workspace (sequence);
+-      timestamp = meta_startup_sequence_get_timestamp (sequence);
++
++      /* An honored token focuses the window even when the user typed or
++       * clicked after the token was made (e.g. while the target app was
++       * still starting), so activate with the current time instead of the
++       * token's creation time. */
++      if (honor)
++        timestamp = meta_display_get_current_time_roundtrip (display);
++      else
++        timestamp = meta_startup_sequence_get_timestamp (sequence);
++
++      meta_topic (META_DEBUG_FOCUS,
++                  "xdg-activation: activating %s (token %s, %s)",
++                  window->desc, token_str,
++                  honor ? "honored: requester had focus" : "input serial");
+ 
+       if (workspace_idx >= 0)
+         meta_window_change_workspace_by_index (window, workspace_idx, TRUE);
+@@ -368,6 +410,9 @@ maybe_activate (MetaWaylandActivation *activation,
+     }
+   else
+     {
++      meta_topic (META_DEBUG_FOCUS,
++                  "xdg-activation: %s demands attention (token %s)",
++                  window->desc, token_str);
+       meta_window_set_demands_attention (window);
+     }
+ 

@@ -361,6 +361,17 @@ exit 0
     return receipt
 
 
+# Each Fedora release builds from its own pinned Fedora Asahi Remix description.
+LOCKS = {"44": "upstream.json", "45": "upstream-f45.json"}
+
+
+def lock(fedora_release):
+    data = json.loads((HERE / LOCKS[fedora_release]).read_text())
+    if data["fedora_release"] != fedora_release:
+        raise ValueError(f"{LOCKS[fedora_release]} pins Fedora {data['fedora_release']}")
+    return data
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--upstream", type=Path, required=True)
@@ -369,11 +380,12 @@ def main():
     parser.add_argument("--repository-url", required=True)
     parser.add_argument("--signing-key", type=Path, required=True)
     parser.add_argument("--signing-key-fingerprint", required=True)
+    parser.add_argument("--fedora-release", choices=sorted(LOCKS), default="44")
     args = parser.parse_args()
     try:
         receipt = prepare(args.upstream, args.output, args.profile, args.repository_url,
                           args.signing_key, args.signing_key_fingerprint,
-                          json.loads((HERE / "upstream.json").read_text()))
+                          lock(args.fedora_release))
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(receipt, indent=2))

@@ -4,18 +4,23 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / 'scripts'))
+import fedoralib  # noqa: E402
 
 
 class PlanTests(unittest.TestCase):
-    def plan(self, changed_sources, shared_tooling=False, split=False, event_name="push", requires=None):
+    def plan(self, changed_sources, shared_tooling=False, split=False, event_name="push", requires=None,
+             requested='', heavy_change=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'scripts').mkdir()
             shutil.copyfile(ROOT / 'scripts/ci-plan.py', root / 'scripts/ci-plan.py')
+            shutil.copyfile(ROOT / 'scripts/fedoralib.py', root / 'scripts/fedoralib.py')
             for name in ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora']:
                 recipe = root / 'packages' / name / (name + '.spec')
                 recipe.parent.mkdir(parents=True)
@@ -28,6 +33,9 @@ class PlanTests(unittest.TestCase):
             x86 = root / 'packages/mesa-aurora-fex-guest/mesa-aurora-fex-guest.spec'
             x86.parent.mkdir(parents=True)
             x86.write_text('# aurora-builder: x86_64\nName: mesa-aurora-fex-guest\n')
+            heavy = root / 'packages/firefox/firefox.spec'
+            heavy.parent.mkdir(parents=True)
+            heavy.write_text('# aurora-builder: heavy\nName: firefox\n')
             sources = {'kernel-aurora': {'commit': 'old'}, 'mesa-aurora': {'commit': 'old'},
                        'mesa-aurora-fex-guest': {'commit': 'old'}}
             (root / 'sources.json').write_text(json.dumps(sources))
@@ -39,21 +47,27 @@ class PlanTests(unittest.TestCase):
             before = git('rev-parse', 'HEAD')
             sources.update(changed_sources)
             (root / 'sources.json').write_text(json.dumps(sources))
+            if heavy_change:
+                heavy.write_text(heavy.read_text() + 'Release: 2\n')
             if shared_tooling:
                 name = shared_tooling if isinstance(shared_tooling, str) else 'build-rpm'
                 path = root / (name if '/' in name else 'scripts/' + name)
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text('changed shared builder\n')
+                # Append a comment, valid in Python/shell/YAML, so a change to a tool
+                # ci-plan.py itself imports (fedoralib.py) still parses and keeps SHARED.
+                with path.open('a') as handle:
+                    handle.write('# changed shared builder\n')
             git('add', '.')
             git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'update')
             event = root / 'event.json'
-            event.write_text(json.dumps({'before': before, 'pull_request': {'base': {'sha': before}}}))
+            event.write_text(json.dumps({'before': before, 'pull_request': {'base': {'sha': before}},
+                                         'inputs': {'packages': requested}}))
             env = {**os.environ, 'GITHUB_EVENT_PATH': str(event), 'GITHUB_EVENT_NAME': event_name,
                    'GITHUB_SHA': git('rev-parse', 'HEAD')}
             output = subprocess.check_output(['python3', str(root / 'scripts/ci-plan.py')], env=env, text=True)
             plan = dict(line.split('=', 1) for line in output.splitlines())
             plan = {key: json.loads(value) for key, value in plan.items()}
-            return plan if split else plan['packages'] + plan['x86_packages']
+            return plan if split else plan['packages'] + plan['x86_packages'] + plan['heavy_packages']
 
     def test_new_firmware_and_power_pins_leave_kernel_and_mesa_unbuilt(self):
         self.assertEqual(self.plan({'avd-fw': {'commit': 'new'}, 'upower-aurora': {'commit': 'new'}}),
@@ -69,7 +83,8 @@ class PlanTests(unittest.TestCase):
     def test_x86_payload_recipes_are_planned_for_the_x86_builder_only(self):
         self.assertEqual(self.plan({'mesa-aurora': {'commit': 'new'}, 'mesa-aurora-fex-guest': {'commit': 'new'}},
                                    split=True),
-                         {'full': True, 'packages': ['mesa-aurora'], 'x86_packages': ['mesa-aurora-fex-guest']})
+                         {'full': True, 'packages': ['mesa-aurora'], 'x86_packages': ['mesa-aurora-fex-guest'],
+                          'heavy_packages': []})
 
     def test_flatpak_repository_builder_invalidates_native_build_receipts(self):
         self.assertEqual(self.plan({'avd-fw': {'commit': 'new'}}, shared_tooling='build-flatpak-gl-repo'),
@@ -110,3 +125,31 @@ class PlanTests(unittest.TestCase):
                                    requires={'avd-fw': 'kernel-aurora-devel'}),
                          ['avd-fw', 'kernel-aurora'])
 
+    def test_heavy_recipe_change_is_not_built_by_a_push_or_pull_request(self):
+        for event in ('push', 'pull_request'):
+            with self.subTest(event=event):
+                self.assertEqual(self.plan({}, heavy_change=True, event_name=event), [])
+
+    def test_shared_builder_change_leaves_the_heavy_recipe_out_of_the_full_set(self):
+        plan = self.plan({}, shared_tooling=True, split=True)
+        self.assertTrue(plan['full'])
+        self.assertEqual(plan['heavy_packages'], [])
+
+    def test_manual_run_builds_a_named_heavy_recipe_alone(self):
+        plan = self.plan({}, split=True, event_name='workflow_dispatch', requested='firefox', heavy_change=True)
+        self.assertEqual(plan, {'full': False, 'packages': [], 'x86_packages': [], 'heavy_packages': ['firefox']})
+
+    def test_shared_lookaside_fetcher_invalidates_every_build(self):
+        self.assertEqual(self.plan({}, shared_tooling='fetch-fedora-lookaside.py'),
+                         ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])
+
+    def test_every_shared_build_tool_forces_a_full_rebuild(self):
+        # Each file whose change invalidates prior build receipts (fedoralib.SHARED,
+        # used by import-rpm-build.py) must also force a full rebuild here; otherwise a
+        # tooling change strands packages with no eligible build. The two read the same
+        # list, so they cannot drift.
+        for path in fedoralib.SHARED:
+            with self.subTest(path=path):
+                self.assertEqual(
+                    self.plan({'avd-fw': {'commit': 'new'}}, shared_tooling=path),
+                    ['avd-fw', 'kernel-aurora', 'mesa-aurora', 'upower-aurora', 'mesa-aurora-fex-guest'])

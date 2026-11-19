@@ -97,3 +97,28 @@ early boot uses the same renderer.
 The fix changes the renderer, not the theme, service ordering or Mutter's
 colour policy. Physical brightness, DCP firmware state and HDR restoration
 after login still require testing on the affected display.
+
+## Damage-only flushes
+
+`0003-drm-Flush-only-the-damaged-areas.patch` passes the rectangles that
+`flush_head()` copied to `drmModeDirtyFB()` instead of the whole buffer.
+Plymouth draws into the scan-out buffer and asks the driver to flush it on
+every redraw. With the whole buffer as the clip, a driver that copies damage
+to the hardware framebuffer (simpledrm, the splash's device until the
+display driver binds) copies the whole screen for each spinner frame. The
+clips are merged into their bounding box past 16 rectangles, and the whole
+buffer is still flushed after the scan-out buffer is set again. Upstream
+main has the same full-buffer flush.
+
+Measured on a J616s (3456x2234 boot framebuffer, same kernel and command
+line, `sched_switch` traced from boot): on simpledrm plymouthd spent a
+median 18 ms of CPU per frame and drew about 30 frames per second; with
+the patch 0.55 ms per frame, with no frame gap over 40 ms. Drivers without
+a dirty callback (appledrm) are unaffected: `drmModeDirtyFB()` returns
+`ENOSYS` once and Plymouth stops calling it.
+
+`test-drm-damage.c` runs `flush_head()` against a mocked DRM device: one
+sprite gives one clip of its size, separate areas are each covered, more
+than 16 areas are merged and still covered, an unchanged frame flushes
+nothing, and a scan-out reset flushes the whole buffer. It fails on the
+unpatched renderer.

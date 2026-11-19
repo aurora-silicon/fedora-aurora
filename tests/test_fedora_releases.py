@@ -142,6 +142,10 @@ class ReleaseTests(unittest.TestCase):
             spec = fedoralib.recipe_files(ROOT, name, 45)[name + '.spec']
             fetched = {record.get('archive_file', f"{key}-{record['commit']}.tar.gz")
                        for key, record in new.get(name, {}).get('extra_sources', {}).items()}
+            files = fedoralib.recipe_files(ROOT, name, 45)
+            if 'distgit.json' in files:
+                fetched |= set(json.loads(files['distgit.json'].read_text()).get('fetch', {}))
+                fetched |= set(re.findall(r'^SHA512 \(([^)]+)\) = ', files['sources'].read_text(), re.M))
             for filename in re.findall(r'^(?:Patch\d*|Source\d*):\s+([^%\s]+)$', spec.read_text(), re.M):
                 if not filename.startswith(('http:', 'https:')) and filename not in fetched:
                     self.assertIn(filename, fedoralib.recipe_files(ROOT, name, 45), (name, filename))

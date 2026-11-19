@@ -1,0 +1,83 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 20:16:26 +1100
+Subject: [PATCH] wayland/data-control: Pass the receive fd straight to Wayland
+ sources
+
+When the selection is owned by a Wayland data source, hand the fd from
+zwlr_data_control_offer_v1.receive directly to that source instead of
+going through meta_selection_transfer_async() and a second pipe. This
+is what wlroots does, and it saves a copy.
+
+wl-clip-persist depends on it: after it takes over the selection it
+reads its own offer back, and it recognizes that read as its own only
+when its source's send event carries the pipe it passed to receive.
+With the intermediate pipe it took every one of its own selections for
+a new one and re-set the selection in a loop (about 17000 times in 8
+seconds).
+
+Owners that are not Wayland sources, such as the clipboard manager's
+saved copy, still go through meta_selection_transfer_async().
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/wayland/meta-selection-source-wayland-private.h |  2 ++
+ src/wayland/meta-selection-source-wayland.c         |  6 ++++++
+ src/wayland/meta-wayland-data-control.c             | 13 +++++++++++++
+ 3 files changed, 21 insertions(+)
+
+diff --git a/src/wayland/meta-selection-source-wayland-private.h b/src/wayland/meta-selection-source-wayland-private.h
+index 82a9c52..50f5638 100644
+--- a/src/wayland/meta-selection-source-wayland-private.h
++++ b/src/wayland/meta-selection-source-wayland-private.h
+@@ -33,3 +33,5 @@ G_DECLARE_FINAL_TYPE (MetaSelectionSourceWayland,
+ 
+ MetaSelectionSource * meta_selection_source_wayland_new (MetaWaylandDataSource *source);
+ 
++MetaWaylandDataSource * meta_selection_source_wayland_get_data_source (MetaSelectionSourceWayland *source_wayland);
++
+diff --git a/src/wayland/meta-selection-source-wayland.c b/src/wayland/meta-selection-source-wayland.c
+index 829272a..a650ea5 100644
+--- a/src/wayland/meta-selection-source-wayland.c
++++ b/src/wayland/meta-selection-source-wayland.c
+@@ -166,3 +166,9 @@ meta_selection_source_wayland_new (MetaWaylandDataSource *data_source)
+ 
+   return META_SELECTION_SOURCE (source_wayland);
+ }
++
++MetaWaylandDataSource *
++meta_selection_source_wayland_get_data_source (MetaSelectionSourceWayland *source_wayland)
++{
++  return source_wayland->data_source;
++}
+diff --git a/src/wayland/meta-wayland-data-control.c b/src/wayland/meta-wayland-data-control.c
+index 1dd8f9b..84fc398 100644
+--- a/src/wayland/meta-wayland-data-control.c
++++ b/src/wayland/meta-wayland-data-control.c
+@@ -40,6 +40,7 @@
+ #include "core/display-private.h"
+ #include "core/meta-selection-private.h"
+ #include "meta/meta-selection-source-memory.h"
++#include "wayland/meta-selection-source-wayland-private.h"
+ #include "wayland/meta-wayland-data-control.h"
+ #include "wayland/meta-wayland-data-device.h"
+ #include "wayland/meta-wayland-data-device-primary.h"
+@@ -244,6 +245,18 @@ control_offer_receive (struct wl_client   *client,
+       return;
+     }
+ 
++  if (META_IS_SELECTION_SOURCE_WAYLAND (offer->owner))
++    {
++      MetaWaylandDataSource *source =
++        meta_selection_source_wayland_get_data_source (META_SELECTION_SOURCE_WAYLAND (offer->owner));
++
++      /* Hand the client's fd straight to the Wayland source, as wlroots
++       * does. Clipboard managers such as wl-clip-persist recognize their
++       * own selection by getting back the pipe they passed to receive. */
++      meta_wayland_data_source_send (source, mime_type, fd);
++      return;
++    }
++
+   stream = g_unix_output_stream_new (fd, TRUE);
+   meta_selection_transfer_async (selection,
+                                  offer->selection_type,

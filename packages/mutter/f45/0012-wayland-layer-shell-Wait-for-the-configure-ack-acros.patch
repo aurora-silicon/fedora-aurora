@@ -1,0 +1,79 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 12:47:27 +1100
+Subject: [PATCH] wayland/layer-shell: Wait for the configure ack across
+ commits
+
+Some clients (gtk-layer-shell) ack the configure in a commit before the
+one that attaches the first buffer. Remember the acked serial and use it
+when the surface maps, so the acked configuration is applied instead of
+taking the "committed initial non-empty content without acknowledging
+configuration" path.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/wayland/meta-wayland-layer-shell.c | 23 ++++++++++++++++++++++-
+ 1 file changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/src/wayland/meta-wayland-layer-shell.c b/src/wayland/meta-wayland-layer-shell.c
+index 4730b3e..b150ba2 100644
+--- a/src/wayland/meta-wayland-layer-shell.c
++++ b/src/wayland/meta-wayland-layer-shell.c
+@@ -114,6 +114,11 @@ struct _MetaWaylandLayerSurface
+   gboolean mapped;
+   gboolean closed;
+   MtkRectangle configured_rect;
++
++  /* Last serial the client acked; a client may ack in a commit before the
++   * one that maps the surface. */
++  gboolean has_acked_serial;
++  uint32_t acked_serial;
+ };
+ 
+ G_DEFINE_TYPE (MetaWaylandLayerSurface,
+@@ -633,6 +638,7 @@ reset_layer_surface (MetaWaylandLayerSurface *layer_surface)
+   layer_surface->initial_commit_done = FALSE;
+   layer_surface->configure_sent = FALSE;
+   layer_surface->mapped = FALSE;
++  layer_surface->has_acked_serial = FALSE;
+   layer_surface->configured_rect = (MtkRectangle) { 0 };
+ 
+   meta_wayland_shell_surface_destroy_window (shell_surface);
+@@ -783,6 +789,13 @@ meta_wayland_layer_surface_post_apply_state (MetaWaylandSurfaceRole  *surface_ro
+     {
+       layer_surface->mapped = TRUE;
+       newly_mapped = TRUE;
++
++      if (!pending->has_acked_configure_serial &&
++          layer_surface->has_acked_serial)
++        {
++          pending->has_acked_configure_serial = TRUE;
++          pending->acked_configure_serial = layer_surface->acked_serial;
++        }
+     }
+ 
+   meta_wayland_shell_surface_calculate_geometry (shell_surface, &geometry);
+@@ -987,7 +1000,12 @@ layer_surface_get_popup (struct wl_client   *client,
+                          struct wl_resource *resource,
+                          struct wl_resource *popup_resource)
+ {
+-  g_warning ("zwlr_layer_surface_v1.get_popup is not supported yet");
++  MetaWaylandLayerSurface *layer_surface = wl_resource_get_user_data (resource);
++
++  meta_wayland_xdg_popup_set_parent_surface (popup_resource,
++                                             surface_from_layer_surface (layer_surface),
++                                             resource,
++                                             ZWLR_LAYER_SURFACE_V1_ERROR_INVALID_SURFACE_STATE);
+ }
+ 
+ static void
+@@ -1010,6 +1028,9 @@ layer_surface_ack_configure (struct wl_client   *client,
+ 
+   pending->has_acked_configure_serial = TRUE;
+   pending->acked_configure_serial = serial;
++
++  layer_surface->has_acked_serial = TRUE;
++  layer_surface->acked_serial = serial;
+ }
+ 
+ static void

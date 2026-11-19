@@ -9,12 +9,21 @@ import subprocess
 import tempfile
 import unittest
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def distgit_inputs(directory):
+    """Files a dist-git import fetches at build time (scripts/fetch-fedora-lookaside.py)."""
+    if not (directory / 'distgit.json').is_file():
+        return set()
+    names = set(json.loads((directory / 'distgit.json').read_text()).get('fetch', {}))
+    return names | set(re.findall(r'^SHA512 \(([^)]+)\) = ', (directory / 'sources').read_text(), re.M))
 class SpecTests(unittest.TestCase):
     def test_declared_local_sources_and_patches_are_present(self):
         pins = json.loads((ROOT / 'sources.json').read_text())
         for spec in (ROOT / 'packages').glob('*/*.spec'):
             extras = pins.get(spec.parent.name, {}).get('extra_sources', {})
             fetched = {record.get("archive_file", f"{name}-{record['commit']}.tar.gz") for name, record in extras.items()}
+            fetched |= distgit_inputs(spec.parent)
             with self.subTest(spec=spec.name):
                 for kind, value in re.findall(r'^(Source\d*|Patch\d*):\s+(\S+)', spec.read_text(), re.M):
                     if '%{' not in value and not value.startswith('http') and value not in fetched:
@@ -144,6 +153,47 @@ class SpecTests(unittest.TestCase):
         for unit in ('systemd-growfs-root.service', 'systemd-growfs@.service'):
             self.assertIn(f'%{{_unitdir}}/{unit}.d/aurora-growfs.conf', files)
         self.assertIn('/usr/lib/aurora/\n', files)
+    def test_secboot_subpackage_ships_the_uki_pipeline(self):
+        text = (ROOT / 'packages' / 'aurora-firstboot' / 'aurora-firstboot.spec').read_text()
+        sub = text.split('%package -n aurora-secboot', 1)[1].split('%description', 1)[0]
+        for tool in ('systemd-ukify', 'systemd-boot-unsigned', 'sbsigntools', 'openssl', 'python3'):
+            self.assertRegex(sub, rf'(?m)^Requires: .*\b{tool}\b')
+        self.assertIn('make install-secboot install-selinux-secboot', text)
+        self.assertIn('selinux/aurora_secboot.pp', text.split('%build', 1)[1].split('%install', 1)[0])
+        files = text.split('%files -n aurora-secboot', 1)[1].split('%changelog', 1)[0]
+        for path in ('%{_bindir}/aurora-secboot', '%{_prefix}/lib/kernel/install.d/92-aurora-secboot.install',
+                     '%{_unitdir}/aurora-secboot-adopt.service', '%config(noreplace) %{_sysconfdir}/aurora/secboot.conf',
+                     '%dir %attr(0700,root,root) %{_sharedstatedir}/aurora/secboot',
+                     '%{_datadir}/selinux/packages/%{selinuxtype}/aurora_secboot.pp'):
+            self.assertIn(path, files)
+        # Fedora builds with dracut; the mkinitcpio hook belongs to ALARM.
+        self.assertNotIn('initcpio', text)
+        post = text.split('%post -n aurora-secboot', 1)[1].split('%preun', 1)[0]
+        self.assertIn('%selinux_modules_install', post)
+        self.assertIn('restorecon -R %{_sharedstatedir}/aurora/secboot',
+                      text.split('%posttrans -n aurora-secboot', 1)[1].split('%post', 1)[0])
+        for lab in ('debug_shell', 'panic=', 'watchdog_sec'):
+            self.assertNotIn(lab, text)
+    def test_reboot_watchdog_fits_the_apple_hardware_watchdog(self):
+        # The Apple SoC watchdog (24 MHz, 32-bit) cannot time out later than
+        # about 178 s; a longer RebootWatchdogSec makes the kernel feed it, so
+        # a stalled reboot is not reset. Both values must stay within range.
+        d = ROOT / 'packages' / 'aurora-platform'
+        conf = (d / '90-aurora-reboot-watchdog.conf').read_text()
+        values = dict(re.findall(r'(?m)^(\w+WatchdogSec)=(\S+)$', conf))
+        self.assertEqual(values, {'RebootWatchdogSec': '2min', 'KExecWatchdogSec': '2min'})
+        self.assertIn('[Manager]', conf.splitlines())
+        hw_max_s = (2**32 - 1) // 24_000_000
+        for value in values.values():
+            seconds = int(value[:-3]) * 60
+            self.assertGreater(seconds, 0)
+            self.assertLessEqual(seconds, hw_max_s)
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: 90-aurora-reboot-watchdog\.conf$')
+        install = text.split('%install', 1)[1].split('%posttrans core', 1)[0]
+        self.assertIn('%{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf', install)
+        core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
+        self.assertIn('%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf\n', core_files)
     def test_initramfs_carries_the_usb4_router_with_the_type_c_controllers(self):
         # dracut-asahi brings tps6598x and sn201202x; their router must come too.
         d = ROOT / 'packages' / 'aurora-platform'
@@ -184,6 +234,101 @@ class SpecTests(unittest.TestCase):
         self.assertIn('/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh', text)
         core_files = text.split('%files core', 1)[1].split('%changelog', 1)[0]
         self.assertIn('%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/', core_files)
+    def test_kdump_crash_kernel_initramfs_has_the_disk_and_a_clock(self):
+        # kdump-utils' 99-kdump.conf replaces add_dracutmodules, so the Aurora
+        # conf must sort after it and name nvme_apple itself.
+        d = ROOT / 'packages' / 'aurora-platform'
+        conf = (d / 'aurora-kdump-dracut.conf').read_text()
+        self.assertRegex(conf, r'(?m)^add_drivers\+=" nvme_apple "$')
+        self.assertRegex(conf, r'(?m)^add_dracutmodules\+=" aurora-kdump-clock "$')
+        self.assertGreater('99-zz-aurora.conf', '99-kdump.conf')
+        setup = (d / 'aurora-kdump-clock-module-setup.sh').read_text()
+        self.assertRegex(setup, r'(?m)^\s+return 255$')
+        self.assertRegex(setup, r'(?m)^\s+inst_hook pre-mount \d+ "\$moddir/aurora-kdump-clock\.sh"$')
+        hook = (d / 'aurora-kdump-clock.sh').read_text()
+        self.assertIn('[ ! -e /dev/rtc0 ]', hook)
+        self.assertIn('CRASHTIME', hook)
+        self.assertIn('hwclock --hctosys --utc -f "$_rtc"', hook)
+        self.assertNotRegex(hook, r'(?m)^\s*exit\b')  # sourced by dracut
+        self.assertRegex(setup, r'(?m)^\s+inst_multiple hwclock head tr sed date$')
+        # The crash kernel must not load drivers of live coprocessors.
+        omit = re.search(r'(?m)^omit_drivers\+="([^"]*)"$', conf)
+        self.assertIsNotNone(omit)
+        for drv in ('aurora', 'appledrm', 'thunderbolt', 'apple[-_]pmp', 'aop', 'i2c[-_]pasemi.*', 'xhci.*'):
+            self.assertIn(drv, omit.group(1).split())
+        self.assertNotIn('nvme', omit.group(1))
+        # No squashfs image behind a busybox /init in the crash kernel.
+        squash = re.search(r'(?m)^omit_dracutmodules\+="([^"]*)"$', conf)
+        self.assertIsNotNone(squash)
+        for mod in ('squash', 'squash-squashfs', 'squash-lib'):
+            self.assertIn(mod, squash.group(1).split())
+        # The hook takes CRASHTIME from a vmcoreinfo-like stream.
+        vmcore = b'\x7fELF\x00\x01OSRELEASE=7.3.0\nCRASHTIME=1794139056\n\x00\x02'
+        out = subprocess.run(['sh', '-c', "tr -c '[:print:]' '\\n' | sed -n 's/^CRASHTIME=\\([0-9][0-9]*\\)$/\\1/p' | head -n 1"],
+                             input=vmcore, capture_output=True, check=True).stdout
+        self.assertEqual(out, b'1794139056\n')
+        for script in ('aurora-kdump-clock.sh', 'aurora-kdump-setup'):
+            subprocess.run(['sh', '-n', str(d / script)], check=True)
+        unit = (d / 'aurora-kdump.service.conf').read_text()
+        self.assertIn("ExecCondition=/bin/sh -c 'test \"$(cat /sys/kernel/kexec_crash_size)\" -gt 0'", unit)
+
+    def test_kdump_is_an_opt_in_subpackage(self):
+        text = (ROOT / 'packages' / 'aurora-platform' / 'aurora-platform.spec').read_text()
+        main_and_core = text.split('%package kdump', 1)[0]
+        self.assertNotRegex(main_and_core, r'(?m)^Requires:.*kdump')
+        self.assertNotIn('kdump', text.split('%posttrans core', 1)[1].split('%files', 1)[0].split('%post kdump', 1)[0])
+        self.assertFalse((ROOT / 'packages' / 'aurora-platform' / '80-aurora-kdump.preset').exists())
+        self.assertNotIn('kdump', text.split('%files core', 1)[1].split('%files', 1)[0])
+        self.assertRegex(text, r'(?m)^Requires: kdump-utils makedumpfile grubby$')
+        self.assertIn('if [ "$1" -eq 1 ]; then\n  %{_libexecdir}/aurora/aurora-kdump-setup enable || :',
+                      text.split('%post kdump', 1)[1].split('%preun kdump', 1)[0])
+        self.assertIn('if [ "$1" -eq 0 ]; then\n  %{_libexecdir}/aurora/aurora-kdump-setup disable || :',
+                      text.split('%preun kdump', 1)[1].split('%pre selinux', 1)[0])
+        kdump_files = text.split('%files kdump', 1)[1].split('%files selinux', 1)[0]
+        for path in ('%{_prefix}/lib/kdump/dracut.conf.d/99-zz-aurora.conf',
+                     '%{_prefix}/lib/dracut/modules.d/99aurora-kdump-clock/',
+                     '%{_unitdir}/kdump.service.d/50-aurora-kdump.conf',
+                     '%{_libexecdir}/aurora/aurora-kdump-setup'):
+            self.assertIn(path + '\n', kdump_files)
+
+    def test_kdump_setup_enables_and_undoes_only_what_it_added(self):
+        script = ROOT / 'packages' / 'aurora-platform' / 'aurora-kdump-setup'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            log = root / 'calls'
+            for tool in ('systemctl', 'grubby'):
+                (bindir / tool).write_text(f'#!/bin/sh\necho {tool} "$@" >> "{log}"\n')
+                (bindir / tool).chmod(0o755)
+            cmdline, state = root / 'cmdline', root / 'state' / 'kdump-crashkernel-added'
+            env = dict(os.environ, PATH=f"{bindir}:{os.environ['PATH']}", AURORA_KDUMP_STATE=str(state),
+                       AURORA_KERNEL_CMDLINE=str(cmdline))
+            run = lambda *a: subprocess.run(['sh', str(script), *a], env=env, capture_output=True, text=True)
+            # An owner's crashkernel= is kept on enable and on disable.
+            cmdline.write_text('root=UUID=x ro crashkernel=512M\n')
+            self.assertEqual(run('enable').returncode, 0)
+            self.assertEqual(log.read_text(), 'systemctl enable kdump.service\n')
+            self.assertFalse(state.exists())
+            log.write_text('')
+            run('disable')
+            self.assertEqual(log.read_text(), 'systemctl disable kdump.service\n')
+            self.assertEqual(cmdline.read_text(), 'root=UUID=x ro crashkernel=512M\n')
+            # Without one, enable sets kdump-utils' default and disable removes it.
+            log.write_text('')
+            cmdline.write_text('root=UUID=x ro\n')
+            run('enable')
+            self.assertEqual(log.read_text(), 'systemctl enable kdump.service\ngrubby --update-kernel=ALL --args=crashkernel=512M\n')
+            self.assertEqual(cmdline.read_text(), 'root=UUID=x ro crashkernel=512M\n')
+            self.assertTrue(state.exists())
+            cmdline.write_text('root=UUID=x ro crashkernel=512M quiet\n')
+            log.write_text('')
+            run('disable')
+            self.assertEqual(log.read_text(), 'systemctl disable kdump.service\ngrubby --update-kernel=ALL --remove-args=crashkernel\n')
+            self.assertEqual(cmdline.read_text(), 'root=UUID=x ro quiet\n')
+            self.assertFalse(state.exists())
+            self.assertEqual(run().returncode, 2)
+
     def test_grub_uuid_refresh_replaces_only_stale_uuid_searches(self):
         script = ROOT / 'packages' / 'aurora-platform' / 'aurora-grub-uuid'
         spec = (ROOT / 'packages' / 'aurora-platform' / 'aurora-platform.spec').read_text()
@@ -268,6 +413,19 @@ class SpecTests(unittest.TestCase):
         self.assertIn('cp build/aura-boot.macho ../aurora-stage1/aura-boot.macho\n', stage1)
         for name in ('aura-raw.bin', 'aura-boot.macho'):
             self.assertIn(f'install -Dm644 ../aurora-stage1/{name} %{{buildroot}}%{{_datadir}}/aura/stage1/{name}\n', spec)
+    def test_aura_ships_a_secure_stage1_with_a_throwaway_key(self):
+        spec = (ROOT / 'packages' / 'aura' / 'aura.spec').read_text()
+        build = spec.split('%build', 1)[1].split('%install', 1)[0]
+        # The second `make clean` starts the secure-flavour Stage 1, the third the Stage 2 build.
+        secure = build.split('make clean', 2)[1]
+        self.assertIn('secboot_sign.pubkey(os.urandom(32))', secure)
+        self.assertIn('SECBOOT=audit SECBOOT_FLAVOUR=secure SECBOOT_PUBKEY=../aurora-stage1/nobody.pub', secure)
+        self.assertIn('cp build/aura.bin ../aurora-stage1/aura-secure-raw.bin\n', secure)
+        self.assertIn('ESP_STAGE2=1', build.split('make clean', 2)[2])
+        install = spec.split('%install', 1)[1].split('%files', 1)[0]
+        self.assertIn('install -Dm644 ../aurora-stage1/aura-secure-raw.bin '
+                      '%{buildroot}%{_datadir}/aura/stage1/aura-secure-raw.bin\n', install)
+        self.assertNotIn('nobody.pub', install)
     def test_fex_guest_mesa_moves_in_lockstep_with_the_host_mesa(self):
         def fields(name):
             text = (ROOT / 'packages' / name / (name + '.spec')).read_text()
@@ -412,6 +570,56 @@ class SpecTests(unittest.TestCase):
         text = (d / 'aurora-platform.spec').read_text()
         core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
         self.assertIn('%{_udevrulesdir}/62-aurora-gpu-render-only.rules', core_files)
+    def test_host_clicks_only_where_an_actuator_is(self):
+        # macOS plays every click from the host; only MTP trackpads with an
+        # actuator node switch, so SPI and external trackpads keep theirs.
+        d = ROOT / 'packages' / 'aurora-platform'
+        rules = [l for l in (d / '64-aurora-trackpad-clicks.rules').read_text().splitlines()
+                 if l and not l.startswith('#')]
+        self.assertEqual(rules, ['ACTION=="add|bind", SUBSYSTEM=="hid", DRIVER=="magicmouse", '
+                                 'ENV{HID_NAME}=="Apple MTP multi-touch", TEST=="../of_node/actuator", '
+                                 'ATTR{[module/hid_magicmouse]parameters/haptic_press}="Y"'])
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: 64-aurora-trackpad-clicks\.rules$')
+        core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
+        self.assertIn('%{_udevrulesdir}/64-aurora-trackpad-clicks.rules', core_files)
+    def test_t6041_trackpads_take_palms_from_the_kernel(self):
+        # hid-magicmouse reports T6041 palms as MT_TOOL_PALM; libinput's
+        # Apple MTP size threshold is off on those two MacBook Pros only.
+        d = ROOT / 'packages' / 'aurora-platform'
+        quirks = configparser.ConfigParser(interpolation=None)
+        quirks.optionxform = str
+        quirks.read_string((d / '60-aurora-t6041-trackpad.quirks').read_text())
+        self.assertEqual(sorted(quirks[s]['MatchDeviceTree'] for s in quirks.sections()),
+                         ['*j614c*', '*j616c*'])
+        for section in quirks.sections():
+            with self.subTest(section=section):
+                self.assertEqual(dict(quirks[section]), {
+                    'MatchUdevType': 'touchpad', 'MatchName': 'Apple*MTP*', 'MatchVendor': '0x05AC',
+                    'MatchDeviceTree': quirks[section]['MatchDeviceTree'], 'AttrPalmSizeThreshold': '0'})
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: 60-aurora-t6041-trackpad\.quirks$')
+        core_files = text.split('%files core', 1)[1].split('%files kdump', 1)[0]
+        self.assertIn('%{_datadir}/libinput/60-aurora-t6041-trackpad.quirks', core_files)
+    def test_t6041_power_defaults_apply_on_the_t6041_only(self):
+        d = ROOT / 'packages' / 'aurora-platform'
+        unit = configparser.ConfigParser(interpolation=None, strict=False)
+        unit.optionxform = str
+        unit.read_string((d / 'aurora-t6041-power.service').read_text())
+        self.assertEqual(unit['Unit']['ConditionFirmware'], 'device-tree-compatible(apple,t6041)')
+        self.assertEqual(unit['Service']['Type'], 'oneshot')
+        lines = (d / 'aurora-t6041-power.service').read_text().splitlines()
+        self.assertEqual([l for l in lines if l.startswith('ExecStart=')], [
+            "ExecStart=/bin/sh -c 'echo powersupersave > /sys/module/pcie_aspm/parameters/policy'",
+            'ExecStart=/usr/sbin/sysctl -q -w kernel.sched_util_clamp_min_rt_default=0'])
+        self.assertNotIn('Install', unit)
+        text = (d / 'aurora-platform.spec').read_text()
+        self.assertRegex(text, r'(?m)^Source\d+: aurora-t6041-power\.service$')
+        self.assertIn('ln -s ../aurora-t6041-power.service '
+                      '%{buildroot}%{_unitdir}/sysinit.target.wants/aurora-t6041-power.service', text)
+        core_files = text.split('%files core', 1)[1].split('%files kdump', 1)[0]
+        self.assertIn('%{_unitdir}/aurora-t6041-power.service', core_files)
+        self.assertIn('%{_unitdir}/sysinit.target.wants/aurora-t6041-power.service', core_files)
     def test_platform_core_carries_no_kernel_or_boot_chain(self):
         d = ROOT / 'packages' / 'aurora-platform'
         text = (d / 'aurora-platform.spec').read_text()
@@ -421,10 +629,9 @@ class SpecTests(unittest.TestCase):
                      'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise',
                      'aurora-kbd-light']:
             self.assertIn(name, requires)
-        # The established protection stack stays as the fallback; v2 comes with
-        # the upgrade tool, which switches a Mac only on a passing self-check.
+        # Ship the established protection stack without the v2 preview.
         self.assertRegex(core, r'(?m)^Requires: speakersafetyd speakerguardd$')
-        self.assertRegex(core, r'(?m)^Requires: speakerguardd-v2 >= 1\.0\.0~alpha\.1-0\.40 aurora-speaker-upgrade >= 0\.1-0\.10$')
+        self.assertNotIn('speakerguardd-v2', core)
         for name in requires:
             self.assertFalse(name.startswith(('kernel', 'uboot', 'm1n1')) or name == 'aura', name)
         self.assertNotIn('aurora-release', requires)
@@ -440,7 +647,14 @@ class SpecTests(unittest.TestCase):
         spec = (ROOT / 'packages/speakerguardd-v2/speakerguardd-v2.spec').read_text()
         self.assertRegex(spec, r'(?m)^Release: 0\.(3[3-9]|[4-9][0-9])\.')
         self.assertIn('install -Dm644 packaging/session/parity.json', spec)
-        for name in ('aurora-audio', 'kernel-aurora'):
+        # The speaker graph needs Aurora's PipeWire; Fedora's never provides it.
+        self.assertRegex(spec, r'(?m)^Requires: pipewire-speaker-graph >= 2$')
+        pw = (ROOT / 'packages/pipewire/pipewire.spec').read_text()
+        libs = pw.split('%package libs', 1)[1].split('%description libs', 1)[0]
+        self.assertRegex(libs, r'(?m)^Provides:\s+pipewire-speaker-graph = 2$')
+        for n in ('1006', '1007', '1008', '1010'):
+            self.assertRegex(pw, rf'(?m)^Patch{n}:')
+        for name in ('aurora-platform', 'aurora-audio', 'kernel-aurora'):
             text = (ROOT / 'packages' / name / f'{name}.spec').read_text()
             self.assertNotRegex(text, r'(?m)^(Requires|Recommends):.*\b(speakerguardd-v2|aurora-speaker-upgrade)\b', name)
         audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
@@ -746,7 +960,8 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(spec, r'(?m)^%package -n steam$')
         files = spec.split('%files -n steam', 1)[1].split('%changelog', 1)[0]
         self.assertIn('%{_bindir}/steam\n', files)
-        for requirement in ('aurora-userpages', 'fex-emu', 'gtk2'):
+        # libibus and lsof come from the host (aurora-silicon/aurora-steam-native#13).
+        for requirement in ('aurora-userpages', 'fex-emu', 'gtk2', 'ibus-libs', 'lsof'):
             self.assertRegex(spec, rf'(?m)^Requires: {requirement}$')
         # Fedora installs the launcher on PATH, not where the upstream default looks.
         self.assertIn("s,@USERPAGES@,%{_bindir}/userpages,", spec)
@@ -808,4 +1023,34 @@ class SpecTests(unittest.TestCase):
         self.assertIn('make -C sk check', text.split('%check', 1)[1].split('%install', 1)[0])
         pins = json.loads((ROOT / 'sources.json').read_text())
         self.assertIn(pins['aurora-sep-sk']['commit'], text)
+    def test_camera_denoise_user_unit_skips_root_and_system_users(self):
+        # camera-denoise#8 (ConditionUser, start limits) is in the pinned
+        # commit and %check runs its unit test (tests/check-unit.sh).
+        spec = (ROOT / 'packages/aurora-camera-denoise/aurora-camera-denoise.spec').read_text()
+        pins = json.loads((ROOT / 'sources.json').read_text())
+        self.assertIn(pins['aurora-camera-denoise']['commit'], spec)
+        self.assertNotEqual(pins['aurora-camera-denoise']['commit'],
+                            '456c567527d6bbba27d0aaeec1199032e0ec88c3')
+        self.assertIn('%meson_test', spec.split('%check', 1)[1].split('%install', 1)[0])
+    def test_camera_denoise_ships_the_encoder_filter_plugin(self):
+        spec = (ROOT / 'packages/aurora-camera-denoise/aurora-camera-denoise.spec').read_text()
+        files = spec.split('%files', 1)[1].split('%changelog', 1)[0]
+        self.assertIn('%{_libdir}/aurora-camera-denoise/cdn-backend-ave.so', files)
+        self.assertIn('%{_libdir}/aurora-camera-denoise/cdn-backend-ane.so', files)
+        self.assertIn('%{_datadir}/aurora-camera-denoise/', files)
+    def test_diagnostics_are_opt_in_and_follow_their_pin(self):
+        text = (ROOT / 'packages/aurora-diag/aurora-diag.spec').read_text()
+        pin = json.loads((ROOT / 'sources.json').read_text())['aurora-diag']
+        self.assertIn('%global commit ' + pin['commit'] + '\n', text)
+        self.assertRegex(text, r'(?m)^Version: ' + re.escape(pin['version']) + '$')
+        self.assertEqual(pin['archive_root'], 'aurora-diag-' + pin['commit'])
+        self.assertIn('make check', text.split('%check', 1)[1].split('%install', 1)[0])
+        files = text.split('%files', 1)[1]
+        for path in ('%{_bindir}/aurora-diag', '%{_bindir}/aurora-panic-log', '%{_datadir}/aurora-diag'):
+            self.assertIn(path, files)
+        self.assertRegex(text, r'(?m)^Requires: python3$')
+        for spec in (ROOT / 'packages').glob('*/*.spec'):
+            if spec.parent.name != 'aurora-diag':
+                self.assertNotRegex(spec.read_text(), r'(?m)^(Requires|Recommends|Supplements)(\(\w+\))?:.*\baurora-diag\b', spec.name)
+        self.assertNotIn('"aurora-diag"', (ROOT / 'images/configure.py').read_text())
 if __name__ == '__main__': unittest.main()

@@ -1,0 +1,2207 @@
+From 1145ba6e103697de7fa57d931f71c27cd42de04d Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 09:02:20 +1100
+Subject: [PATCH 57/57] tests: Add session lock capture, window list and grab
+ tests
+
+Add clients that try to get at what is behind the lock
+(session-lock-spy) and cases that check, with the per-frame onscreen
+readback of every view still counting leaks:
+
+- screencopy: a screen recorder (copy_with_damage always in flight)
+  and screenshot rounds (copy, region, overlay_cursor) while the
+  session gets locked, stays locked and is unlocked. Every frame the
+  client gets while locked is read back and holds only the blank and
+  the lock color; the window animating behind the lock completes no
+  damage frame (it does when unlocked).
+- screencopy-hotplug: an output plugged in while locked is captured as
+  soon as it shows up, black and then the lock color.
+- foreign-toplevel: a client bound before the lock gets no event while
+  locked (title change, new window, closed window), one bound while
+  locked gets no toplevel, minimize/activate/close requests do nothing;
+  on unlock both are brought up to date.
+- shell-grab: a full screen stage actor added and one raised above the
+  lock, a stage grab and key focus on it, the overlay key and Alt+Tab:
+  nothing is painted over the lock, the actor gets no event, the keys
+  reach the lock client, the focus window does not change.
+- window-capture: a window screen cast (capture_into and
+  blit_to_framebuffer), paint_to_content and paint_to_bitmap of a
+  window give transparent images while locked, a frame is recorded at
+  lock and unlock, and none while the window changes behind the lock.
+
+Phases are sync events from the test on the client's own connection, so
+an event logged as locked was sent after the compositor held the lock.
+Export the screen cast window functions the test calls.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/backends/meta-screen-cast-window.h        |   7 +
+ src/tests/meson.build                         |   1 +
+ src/tests/wayland-session-lock-tests.c        | 982 ++++++++++++++++++
+ src/tests/wayland-test-clients/meson.build    |   3 +
+ .../wayland-test-clients/session-lock-spy.c   | 949 +++++++++++++++++
+ src/tests/wayland-test-clients/session-lock.c |  87 ++
+ 6 files changed, 2029 insertions(+)
+ create mode 100644 src/tests/wayland-test-clients/session-lock-spy.c
+
+diff --git a/src/backends/meta-screen-cast-window.h b/src/backends/meta-screen-cast-window.h
+index fe2625c..59cd805 100644
+--- a/src/backends/meta-screen-cast-window.h
++++ b/src/backends/meta-screen-cast-window.h
+@@ -22,11 +22,13 @@
+ #include <glib-object.h>
+ 
+ #include "clutter/clutter.h"
++#include "core/util-private.h"
+ #include "meta/boxes.h"
+ 
+ G_BEGIN_DECLS
+ 
+ #define META_TYPE_SCREEN_CAST_WINDOW (meta_screen_cast_window_get_type ())
++META_EXPORT_TEST
+ G_DECLARE_INTERFACE (MetaScreenCastWindow, meta_screen_cast_window,
+                      META, SCREEN_CAST_WINDOW, GObject)
+ 
+@@ -63,6 +65,7 @@ struct _MetaScreenCastWindowInterface
+   void (*dec_usage) (MetaScreenCastWindow *screen_cast_window);
+ };
+ 
++META_EXPORT_TEST
+ void meta_screen_cast_window_get_buffer_bounds (MetaScreenCastWindow *screen_cast_window,
+                                                 MtkRectangle         *bounds);
+ 
+@@ -78,15 +81,19 @@ gboolean meta_screen_cast_window_transform_cursor_position (MetaScreenCastWindow
+                                                             graphene_point_t     *out_relative_cursor_position,
+                                                             float                *out_view_scale);
+ 
++META_EXPORT_TEST
+ void meta_screen_cast_window_capture_into (MetaScreenCastWindow *screen_cast_window,
+                                            MtkRectangle         *bounds,
+                                            uint8_t              *data);
+ 
++META_EXPORT_TEST
+ gboolean meta_screen_cast_window_blit_to_framebuffer (MetaScreenCastWindow *screen_cast_window,
+                                                       MtkRectangle         *bounds,
+                                                       CoglFramebuffer      *framebuffer);
+ 
++META_EXPORT_TEST
+ void meta_screen_cast_window_inc_usage (MetaScreenCastWindow *screen_cast_window);
++META_EXPORT_TEST
+ void meta_screen_cast_window_dec_usage (MetaScreenCastWindow *screen_cast_window);
+ 
+ G_END_DECLS
+diff --git a/src/tests/meson.build b/src/tests/meson.build
+index 41d612b..04b53bf 100644
+--- a/src/tests/meson.build
++++ b/src/tests/meson.build
+@@ -1106,6 +1106,7 @@ wayland_test_cases = [
+     ],
+     'depends': [
+       test_client_executables.get('session-lock'),
++      test_client_executables.get('session-lock-spy'),
+     ],
+   },
+   {
+diff --git a/src/tests/wayland-session-lock-tests.c b/src/tests/wayland-session-lock-tests.c
+index 1f05be7..e421537 100644
+--- a/src/tests/wayland-session-lock-tests.c
++++ b/src/tests/wayland-session-lock-tests.c
+@@ -26,11 +26,15 @@
+ #include "config.h"
+ 
+ #include <cairo.h>
++#include <linux/input-event-codes.h>
+ #include <math.h>
++#include <stdio.h>
+ 
+ #include "backends/meta-monitor-manager-private.h"
+ #include "backends/meta-renderer.h"
++#include "backends/meta-screen-cast-window.h"
+ #include "compositor/compositor-private.h"
++#include "compositor/meta-window-actor-private.h"
+ #include "meta-test/meta-context-test.h"
+ #include "tests/meta-monitor-manager-test.h"
+ #include "tests/meta-monitor-test-utils.h"
+@@ -810,6 +814,974 @@ session_lock_protocol_error (gconstpointer data)
+   stop_normal_client (normal);
+ }
+ 
++/*
++ * Capture, window list and grab hardening: clients and shell code that try
++ * to get at what is behind the lock (session-lock-spy test client).
++ */
++
++#define SYNC_KEY_FOCUS 30
++#define SYNC_KEY_BASE 1000
++#define SYNC_SPY_READY 40
++#define SYNC_SPY_ROUND_DONE 41
++#define SYNC_SPY_MARKED 42
++#define SYNC_APP_SHOWN 60
++#define SYNC_APP_DONE 61
++#define SYNC_FT_LISTED 70
++#define SYNC_FT_LATE_BOUND 71
++#define SYNC_FT_REQUESTED 72
++#define SYNC_FT_LOGGED 73
++#define SYNC_FT_LATE_READY 74
++#define SYNC_FT_LATE_LOGGED 83
++
++#define EVENT_PHASE_LOCKED 500
++#define EVENT_PHASE_UNLOCKING 501
++#define EVENT_SPY_EXIT 502
++#define EVENT_SPY_ROUND 503
++#define EVENT_SPY_MARK 504
++#define EVENT_SPY_LOG 505
++#define EVENT_APP_RETITLE 600
++#define EVENT_APP_NEW_WINDOW 601
++#define EVENT_APP_CLOSE_EXTRA 602
++#define EVENT_APP_ANIMATE 603
++#define EVENT_APP_EXIT 604
++#define EVENT_FT_BIND 700
++#define EVENT_FT_REQUEST 701
++#define EVENT_FT_EXIT 702
++
++static gboolean
++on_sync_timeout (gpointer user_data)
++{
++  gboolean *timed_out = user_data;
++
++  *timed_out = TRUE;
++  return G_SOURCE_REMOVE;
++}
++
++/* As wait_for_sync (), but gives up after timeout_ms. */
++static gboolean
++wait_for_sync_timeout (unsigned int sequence,
++                       unsigned int timeout_ms)
++{
++  gboolean timed_out = FALSE;
++  guint id;
++
++  id = g_timeout_add (timeout_ms, on_sync_timeout, &timed_out);
++  while (!timed_out &&
++         !g_hash_table_contains (sync_points, GUINT_TO_POINTER (sequence)))
++    g_main_context_iteration (NULL, TRUE);
++  if (!timed_out)
++    g_source_remove (id);
++
++  return g_hash_table_remove (sync_points, GUINT_TO_POINTER (sequence));
++}
++
++static void
++command (unsigned int event,
++         unsigned int reply)
++{
++  meta_wayland_test_driver_emit_sync_event (test_driver, event);
++  if (reply)
++    wait_for_sync (reply);
++}
++
++static MetaWaylandTestClient *
++start_app (void)
++{
++  MetaWaylandTestClient *client;
++
++  client = meta_wayland_test_client_new_with_args (test_context,
++                                                   "session-lock-spy",
++                                                   "app", NULL);
++  wait_for_sync (SYNC_APP_SHOWN);
++  repaint_all_views ();
++  assert_view_unlocked (0);
++  return client;
++}
++
++static void
++stop_app (MetaWaylandTestClient *client)
++{
++  command (EVENT_APP_EXIT, 0);
++  meta_wayland_test_client_finish (client);
++}
++
++/* Start a lock client; the spies are told about the lock as soon as the
++ * compositor holds it (before 'locked' is sent), then it is waited for. */
++static MetaWaylandTestClient *
++lock_session (const char *mode)
++{
++  MetaWaylandTestClient *lock;
++
++  n_locked_frames = n_leaked_frames = 0;
++  lock = meta_wayland_test_client_new_with_args (test_context,
++                                                 "session-lock", mode,
++                                                 NULL);
++  while (!meta_wayland_compositor_is_session_locked (get_wayland_compositor ()))
++    g_main_context_iteration (NULL, TRUE);
++  command (EVENT_PHASE_LOCKED, 0);
++  wait_for_sync (SYNC_LOCKED);
++  wait_for_sync (SYNC_DRAWN_BASE + 1);
++  return lock;
++}
++
++static void
++unlock_session (MetaWaylandTestClient *lock)
++{
++  command (EVENT_PHASE_UNLOCKING, 0);
++  meta_wayland_test_driver_emit_sync_event (test_driver, EVENT_UNLOCK);
++  wait_for_sync (SYNC_UNLOCKED);
++  meta_wayland_test_client_finish (lock);
++  g_assert_false (meta_wayland_compositor_is_session_locked (
++    get_wayland_compositor ()));
++}
++
++typedef struct _LogLine
++{
++  char *what;
++  GHashTable *fields;
++} LogLine;
++
++static void
++log_line_free (LogLine *line)
++{
++  g_free (line->what);
++  g_hash_table_unref (line->fields);
++  g_free (line);
++}
++
++static GPtrArray *
++read_log (const char *path)
++{
++  g_autofree char *contents = NULL;
++  g_auto (GStrv) lines = NULL;
++  GPtrArray *log = g_ptr_array_new_with_free_func ((GDestroyNotify) log_line_free);
++  int i;
++
++  g_assert_true (g_file_get_contents (path, &contents, NULL, NULL));
++  lines = g_strsplit (contents, "\n", -1);
++  for (i = 0; lines[i]; i++)
++    {
++      g_auto (GStrv) words = NULL;
++      LogLine *line;
++      int j;
++
++      if (!*lines[i])
++        continue;
++
++      words = g_strsplit (lines[i], " ", -1);
++      line = g_new0 (LogLine, 1);
++      line->what = g_strdup (words[0]);
++      line->fields = g_hash_table_new_full (g_str_hash, g_str_equal,
++                                            g_free, g_free);
++      for (j = 1; words[j]; j++)
++        {
++          char *eq = strchr (words[j], '=');
++
++          if (!eq)
++            continue;
++          g_hash_table_insert (line->fields,
++                               g_strndup (words[j], eq - words[j]),
++                               g_strdup (eq + 1));
++        }
++      g_ptr_array_add (log, line);
++    }
++
++  return log;
++}
++
++static const char *
++field (LogLine    *line,
++       const char *name)
++{
++  const char *value = g_hash_table_lookup (line->fields, name);
++
++  return value ? value : "";
++}
++
++static int64_t
++field_int (LogLine    *line,
++           const char *name)
++{
++  return g_ascii_strtoll (field (line, name), NULL, 10);
++}
++
++static gboolean
++is (LogLine    *line,
++    const char *what,
++    const char *phase)
++{
++  return g_str_equal (line->what, what) &&
++         (!phase || g_str_equal (field (line, "phase"), phase));
++}
++
++static char *
++make_log_path (const char *name)
++{
++  static char *dir = NULL;
++
++  if (!dir)
++    dir = g_dir_make_tmp ("session-lock-spy-XXXXXX", NULL);
++  g_assert_nonnull (dir);
++  return g_build_filename (dir, name, NULL);
++}
++
++typedef struct _CaptureStats
++{
++  int n_frames;
++  int n_leaks;
++  int n_full_blue;
++  int n_with_normal;
++} CaptureStats;
++
++/* Frames that arrived in @phase (on @output, or any if -1): the ones with
++ * pixels of the normal client (red, green) or of anything else than the
++ * blank and the lock surface are leaks. The pointer sprite is drawn only
++ * with overlay_cursor, and never a client's (the pointer focus is the lock
++ * surface), so those frames may have up to a pointer box of other pixels. */
++static CaptureStats
++count_frames (GPtrArray  *log,
++              const char *phase,
++              int         output)
++{
++  CaptureStats stats = { 0 };
++  unsigned int i;
++
++  for (i = 0; i < log->len; i++)
++    {
++      LogLine *line = g_ptr_array_index (log, i);
++      int64_t other_allowed = 0;
++      int64_t width, height;
++
++      if (!is (line, "frame", phase))
++        continue;
++      if (output >= 0 && field_int (line, "output") != output)
++        continue;
++
++      if (g_str_equal (field (line, "kind"), "cursor"))
++        other_allowed = 4 * CURSOR_BOX * CURSOR_BOX;
++
++      sscanf (field (line, "size"), "%" G_GINT64_FORMAT "x%" G_GINT64_FORMAT,
++              &width, &height);
++      stats.n_frames++;
++      if (field_int (line, "red") || field_int (line, "green"))
++        stats.n_with_normal++;
++      if (field_int (line, "red") || field_int (line, "green") ||
++          field_int (line, "other") > other_allowed)
++        {
++          stats.n_leaks++;
++          if (g_str_equal (phase, "L"))
++            g_warning ("capture client got normal content while locked: %s %s "
++                       "red %s green %s other %s",
++                       field (line, "kind"), field (line, "size"),
++                       field (line, "red"), field (line, "green"),
++                       field (line, "other"));
++        }
++      if (field_int (line, "blue") == width * height)
++        stats.n_full_blue++;
++    }
++
++  g_debug ("phase %s output %d: %d frames, %d leaks, %d all lock color, "
++           "%d with normal content",
++           phase, output, stats.n_frames, stats.n_leaks, stats.n_full_blue,
++           stats.n_with_normal);
++  return stats;
++}
++
++static void
++spy_round (void)
++{
++  command (EVENT_SPY_ROUND, SYNC_SPY_ROUND_DONE);
++}
++
++/* Damage frames the spy got since the last mark. */
++static int64_t
++spy_mark (const char *log_path)
++{
++  g_autoptr (GPtrArray) log = NULL;
++  LogLine *last = NULL;
++  unsigned int i;
++
++  command (EVENT_SPY_MARK, SYNC_SPY_MARKED);
++  log = read_log (log_path);
++  for (i = 0; i < log->len; i++)
++    {
++      LogLine *line = g_ptr_array_index (log, i);
++
++      if (is (line, "mark", NULL))
++        last = line;
++    }
++  g_assert_nonnull (last);
++  return field_int (last, "damage_frames");
++}
++
++/* A screen recorder (a copy_with_damage frame always in flight) and
++ * screenshot rounds (copy, region, overlay_cursor) while the session gets
++ * locked, stays locked with the window behind it animating, and gets
++ * unlocked: every frame that arrives while locked holds only the blank and
++ * the lock color, and the hidden window's damage completes no frame. */
++static void
++session_lock_screencopy (void)
++{
++  g_autofree char *log_path = make_log_path ("screencopy.log");
++  g_autoptr (GPtrArray) log = NULL;
++  MetaWaylandTestClient *app;
++  MetaWaylandTestClient *spy;
++  MetaWaylandTestClient *lock;
++  CaptureStats before, locked, after;
++  int64_t damage_unlocked, damage_locked;
++  int i;
++
++  set_monitors (&one_monitor);
++  app = start_app ();
++  spy = meta_wayland_test_client_new_with_args (test_context,
++                                                "session-lock-spy",
++                                                "screencopy", log_path,
++                                                NULL);
++  wait_for_sync (SYNC_SPY_READY);
++  spy_round ();
++
++  /* Control: unlocked, the animation completes damage frames. */
++  spy_mark (log_path);
++  command (EVENT_APP_ANIMATE, SYNC_APP_DONE);
++  damage_unlocked = spy_mark (log_path);
++
++  lock = lock_session ("lock");
++  repaint_all_views ();
++  dump_label = "screencopy-locked";
++  for (i = 0; i < 5; i++)
++    spy_round ();
++  dump_label = NULL;
++
++  spy_mark (log_path);
++  command (EVENT_APP_ANIMATE, SYNC_APP_DONE);
++  repaint_all_views ();
++  spy_round ();
++  damage_locked = spy_mark (log_path);
++
++  unlock_session (lock);
++  spy_round ();
++  command (EVENT_SPY_EXIT, 0);
++  meta_wayland_test_client_finish (spy);
++
++  log = read_log (log_path);
++  before = count_frames (log, "U", -1);
++  locked = count_frames (log, "L", -1);
++  after = count_frames (log, "X", -1);
++  g_debug ("damage frames during the animation: unlocked %" G_GINT64_FORMAT
++           ", locked %" G_GINT64_FORMAT, damage_unlocked, damage_locked);
++
++  /* The client sees the window when unlocked (it would see a leak). */
++  g_assert_cmpint (before.n_with_normal, >, 0);
++  g_assert_cmpint (after.n_with_normal, >, 0);
++  /* While locked: many frames, none with anything but the blank and the
++   * lock color (frames taken before the lock surface was painted are
++   * black). */
++  g_assert_cmpint (locked.n_frames, >=, 15);
++  g_assert_cmpint (locked.n_leaks, ==, 0);
++  g_assert_cmpint (locked.n_with_normal, ==, 0);
++  g_assert_cmpint (locked.n_full_blue, >=, 1);
++  g_assert_cmpint (damage_unlocked, >, 0);
++  g_assert_cmpint (damage_locked, ==, 0);
++
++  assert_no_leaks ();
++  stop_app (app);
++}
++
++/* An output plugged in while locked is captured by the client as soon as
++ * it shows up: black, then the lock color, never the content. */
++static void
++session_lock_screencopy_hotplug (void)
++{
++  g_autofree char *log_path = make_log_path ("screencopy-hotplug.log");
++  g_autoptr (GPtrArray) log = NULL;
++  MetaWaylandTestClient *app;
++  MetaWaylandTestClient *spy;
++  MetaWaylandTestClient *lock;
++  CaptureStats locked0, locked1;
++  gboolean new_output_seen = FALSE;
++  unsigned int i;
++
++  set_monitors (&one_monitor);
++  app = start_app ();
++  spy = meta_wayland_test_client_new_with_args (test_context,
++                                                "session-lock-spy",
++                                                "screencopy", log_path,
++                                                NULL);
++  wait_for_sync (SYNC_SPY_READY);
++
++  lock = lock_session ("lock");
++  set_monitors (&two_monitors);
++  g_assert_cmpuint (g_list_length (get_views ()), ==, 2);
++  wait_for_sync (SYNC_DRAWN_BASE + 2);
++  for (i = 0; i < 3; i++)
++    spy_round ();
++  dump_views ("screencopy-hotplug");
++  assert_view_all (0, "blue");
++  assert_view_all (1, "blue");
++
++  set_monitors (&one_monitor);
++  wait_for_sync (SYNC_DRAWN_BASE + 1);
++  spy_round ();
++
++  unlock_session (lock);
++  command (EVENT_SPY_EXIT, 0);
++  meta_wayland_test_client_finish (spy);
++
++  log = read_log (log_path);
++  for (i = 0; i < log->len; i++)
++    {
++      LogLine *line = g_ptr_array_index (log, i);
++
++      if (is (line, "output", "L") && field_int (line, "output") == 1)
++        new_output_seen = TRUE;
++    }
++  g_assert_true (new_output_seen);
++  locked0 = count_frames (log, "L", 0);
++  locked1 = count_frames (log, "L", 1);
++  g_assert_cmpint (locked1.n_frames, >=, 4);
++  g_assert_cmpint (locked1.n_leaks, ==, 0);
++  g_assert_cmpint (locked1.n_full_blue, >=, 1);
++  g_assert_cmpint (locked0.n_leaks, ==, 0);
++  g_assert_cmpint (count_frames (log, "L", -1).n_leaks, ==, 0);
++
++  assert_no_leaks ();
++  stop_app (app);
++}
++
++static int
++count_ft_events (GPtrArray  *log,
++                 const char *phase,
++                 const char *event,
++                 const char *title)
++{
++  unsigned int i;
++  int n = 0;
++
++  for (i = 0; i < log->len; i++)
++    {
++      LogLine *line = g_ptr_array_index (log, i);
++
++      if (!is (line, "ft", phase))
++        continue;
++      if (event && !g_str_equal (field (line, "event"), event))
++        continue;
++      if (title && !g_str_equal (field (line, "title"), title))
++        continue;
++      n++;
++    }
++
++  return n;
++}
++
++static int64_t
++last_ft_listed (GPtrArray  *log,
++                const char *phase)
++{
++  int64_t n = -1;
++  unsigned int i;
++
++  for (i = 0; i < log->len; i++)
++    {
++      LogLine *line = g_ptr_array_index (log, i);
++
++      if (is (line, "ft", phase) && g_str_equal (field (line, "event"), "log"))
++        n = field_int (line, "toplevels");
++    }
++
++  return n;
++}
++
++/* A foreign toplevel client bound before the lock learns nothing new while
++ * locked (title change, new window, closed window), one bound while locked
++ * gets no list, and requests sent while locked do nothing; on unlock both
++ * are brought up to date. */
++static void
++session_lock_foreign_toplevel (void)
++{
++  g_autofree char *early_path = make_log_path ("ft-early.log");
++  g_autofree char *late_path = make_log_path ("ft-late.log");
++  g_autoptr (GPtrArray) early_log = NULL;
++  g_autoptr (GPtrArray) late_log = NULL;
++  MetaWaylandTestClient *app;
++  MetaWaylandTestClient *early;
++  MetaWaylandTestClient *late;
++  MetaWaylandTestClient *lock;
++  MetaWindow *normal_window;
++  MetaWindow *new_window;
++  MetaWindow *focus_window;
++  int n_events_locked;
++
++  set_monitors (&one_monitor);
++  app = start_app ();
++  normal_window = meta_find_window_from_title (test_context, "normal");
++  g_assert_nonnull (normal_window);
++  g_object_add_weak_pointer (G_OBJECT (normal_window),
++                             (gpointer *) &normal_window);
++  early = meta_wayland_test_client_new_with_args (test_context,
++                                                  "session-lock-spy",
++                                                  "ft", early_path, NULL);
++  wait_for_sync (SYNC_FT_LISTED);
++
++  lock = lock_session ("lock");
++
++  command (EVENT_APP_RETITLE, SYNC_APP_DONE);
++  command (EVENT_APP_NEW_WINDOW, SYNC_APP_DONE);
++  command (EVENT_APP_CLOSE_EXTRA, SYNC_APP_DONE);
++  while (!(new_window = meta_find_window_from_title (test_context,
++                                                     "new-while-locked")) ||
++         !new_window->mapped)
++    g_main_context_iteration (NULL, TRUE);
++  g_assert_null (meta_find_window_from_title (test_context, "extra"));
++
++  late = meta_wayland_test_client_new_with_args (test_context,
++                                                 "session-lock-spy",
++                                                 "ft-late", late_path,
++                                                 "locked", NULL);
++  wait_for_sync (SYNC_FT_LATE_READY);
++  command (EVENT_FT_BIND, SYNC_FT_LATE_BOUND);
++
++  /* minimize, unset_fullscreen, activate and close every handle. */
++  focus_window = meta_display_get_focus_window (
++    meta_context_get_display (test_context));
++  command (EVENT_FT_REQUEST, SYNC_FT_REQUESTED);
++  while (g_main_context_iteration (NULL, FALSE))
++    ;
++  g_assert_nonnull (normal_window);
++  g_assert_false (normal_window->minimized);
++  g_assert_true (meta_window_is_fullscreen (normal_window));
++  g_assert_false (new_window->minimized);
++  g_assert_true (meta_display_get_focus_window (
++    meta_context_get_display (test_context)) == focus_window);
++
++  meta_wayland_test_driver_emit_sync_event (test_driver, EVENT_SPY_LOG);
++  wait_for_sync (SYNC_FT_LOGGED);
++  wait_for_sync (SYNC_FT_LATE_LOGGED);
++
++  repaint_all_views ();
++  assert_view_all (0, "blue");
++
++  unlock_session (lock);
++  meta_wayland_test_driver_emit_sync_event (test_driver, EVENT_SPY_LOG);
++  wait_for_sync (SYNC_FT_LOGGED);
++  wait_for_sync (SYNC_FT_LATE_LOGGED);
++  command (EVENT_FT_EXIT, 0);
++  meta_wayland_test_client_finish (early);
++  meta_wayland_test_client_finish (late);
++
++  early_log = read_log (early_path);
++  late_log = read_log (late_path);
++
++  /* Before the lock: the windows were listed. */
++  g_assert_cmpint (count_ft_events (early_log, "U", "title", "normal"), ==, 1);
++  g_assert_cmpint (count_ft_events (early_log, "U", "title", "extra"), ==, 1);
++
++  /* While locked: no event at all, only what the client logged itself. */
++  n_events_locked = count_ft_events (early_log, "L", NULL, NULL) -
++                    count_ft_events (early_log, "L", "requested", NULL) -
++                    count_ft_events (early_log, "L", "log", NULL);
++  g_assert_cmpint (n_events_locked, ==, 0);
++  g_assert_cmpint (count_ft_events (early_log, "L", "requested", NULL), ==, 2);
++  g_assert_cmpint (last_ft_listed (early_log, "L"), ==, 2);
++  g_assert_cmpint (count_ft_events (late_log, "L", "toplevel", NULL), ==, 0);
++  g_assert_cmpint (count_ft_events (late_log, "L", NULL, NULL) -
++                   count_ft_events (late_log, "L", "bound", NULL) -
++                   count_ft_events (late_log, "L", "log", NULL), ==, 0);
++  g_assert_cmpint (last_ft_listed (late_log, "L"), ==, 0);
++
++  /* After unlock: the changes, in one batch. */
++  g_assert_cmpint (count_ft_events (early_log, "X", "title", "secret-title"), ==, 1);
++  g_assert_cmpint (count_ft_events (early_log, "X", "title", "new-while-locked"), ==, 1);
++  g_assert_cmpint (count_ft_events (early_log, "X", "closed", NULL), ==, 1);
++  g_assert_cmpint (count_ft_events (early_log, "X", "toplevel", NULL), ==, 1);
++  g_assert_cmpint (last_ft_listed (early_log, "X"), ==, 3);
++  g_assert_cmpint (count_ft_events (late_log, "X", "toplevel", NULL), ==, 2);
++  g_assert_cmpint (count_ft_events (late_log, "X", "title", "secret-title"), ==, 1);
++  g_assert_cmpint (count_ft_events (late_log, "X", "title", "new-while-locked"), ==, 1);
++  g_assert_cmpint (count_ft_events (late_log, "X", "title", "extra"), ==, 0);
++
++  g_assert_nonnull (normal_window);
++  g_assert_false (normal_window->minimized);
++  g_object_remove_weak_pointer (G_OBJECT (normal_window),
++                                (gpointer *) &normal_window);
++
++  assert_no_leaks ();
++  stop_app (app);
++}
++
++typedef struct _ShellActor
++{
++  ClutterActor *actor;
++  int n_events;
++} ShellActor;
++
++static gboolean
++on_shell_actor_event (ClutterActor *actor,
++                      ClutterEvent *event,
++                      ShellActor   *shell_actor)
++{
++  ClutterEventType type = clutter_event_type (event);
++
++  if (type == CLUTTER_KEY_PRESS || type == CLUTTER_KEY_RELEASE ||
++      type == CLUTTER_BUTTON_PRESS || type == CLUTTER_BUTTON_RELEASE)
++    shell_actor->n_events++;
++
++  return CLUTTER_EVENT_STOP;
++}
++
++/* A green full stage actor, like a shell modal dialog or the overview. */
++static void
++shell_actor_init (ShellActor *shell_actor)
++{
++  ClutterActor *stage = meta_backend_get_stage (get_backend ());
++  CoglColor green;
++
++  shell_actor->actor = clutter_actor_new ();
++  cogl_color_init_from_4f (&green, 0.0f, 1.0f, 0.0f, 1.0f);
++  clutter_actor_set_background_color (shell_actor->actor, &green);
++  clutter_actor_set_size (shell_actor->actor, MONITOR_WIDTH, MONITOR_HEIGHT);
++  clutter_actor_set_reactive (shell_actor->actor, TRUE);
++  g_signal_connect (shell_actor->actor, "event",
++                    G_CALLBACK (on_shell_actor_event), shell_actor);
++  clutter_actor_add_child (stage, shell_actor->actor);
++}
++
++static void
++on_overlay_key (MetaDisplay *display,
++                int         *n_overlay_key)
++{
++  (*n_overlay_key)++;
++}
++
++static void
++press_key (ClutterVirtualInputDevice *keyboard,
++           uint32_t                   key,
++           gboolean                   pressed)
++{
++  clutter_virtual_input_device_notify_key (keyboard, CLUTTER_CURRENT_TIME, key,
++                                           pressed ?
++                                           CLUTTER_KEY_STATE_PRESSED :
++                                           CLUTTER_KEY_STATE_RELEASED);
++  meta_flush_input (test_context);
++  while (g_main_context_iteration (NULL, FALSE))
++    ;
++}
++
++static void
++tap_key (ClutterVirtualInputDevice *keyboard,
++         uint32_t                   key)
++{
++  press_key (keyboard, key, TRUE);
++  press_key (keyboard, key, FALSE);
++}
++
++/* While locked, shell code raises a full screen actor over everything,
++ * grabs the stage and gives it the key focus, and hotkeys are pressed: the
++ * actor is never painted, gets no event, and the lock surface keeps the
++ * keyboard and the pointer. */
++static void
++session_lock_shell_grab (void)
++{
++  ClutterSeat *seat =
++    clutter_backend_get_default_seat (
++      meta_backend_get_clutter_backend (get_backend ()));
++  MetaDisplay *display = meta_context_get_display (test_context);
++  ClutterActor *stage = meta_backend_get_stage (get_backend ());
++  g_autoptr (ClutterVirtualInputDevice) pointer = NULL;
++  g_autoptr (ClutterVirtualInputDevice) keyboard = NULL;
++  g_autoptr (ClutterGrab) grab = NULL;
++  ShellActor added = { 0 }, raised = { 0 };
++  MetaWaylandTestClient *app;
++  MetaWaylandTestClient *lock;
++  MetaWaylandSurface *app_surface;
++  MetaWindow *focus_window;
++  int n_overlay_key = 0;
++
++  set_monitors (&one_monitor);
++  pointer = clutter_seat_create_virtual_device (seat, CLUTTER_POINTER_DEVICE);
++  keyboard = clutter_seat_create_virtual_device (seat, CLUTTER_KEYBOARD_DEVICE);
++  meta_flush_input (test_context);
++  g_signal_connect (display, "overlay-key", G_CALLBACK (on_overlay_key),
++                    &n_overlay_key);
++
++  app = start_app ();
++  meta_window_focus (meta_find_window_from_title (test_context, "normal"),
++                     META_CURRENT_TIME);
++  move_pointer (pointer, 500, 400);
++  app_surface = get_keyboard_focus ();
++  g_assert_nonnull (app_surface);
++  focus_window = meta_display_get_focus_window (display);
++
++  /* Control: unlocked, the overlay key works. */
++  tap_key (keyboard, KEY_LEFTMETA);
++  g_assert_cmpint (n_overlay_key, ==, 1);
++  n_overlay_key = 0;
++
++  lock = lock_session ("lock-keys");
++  wait_for_sync (SYNC_KEY_FOCUS);
++  g_assert_true (is_lock_surface (get_keyboard_focus ()));
++
++  /* Added above the lock, then an existing child raised above it. */
++  shell_actor_init (&raised);
++  shell_actor_init (&added);
++  clutter_actor_set_child_above_sibling (stage, raised.actor, NULL);
++  dump_views ("shell-grab-1-raised");
++  assert_view_all (0, "blue");
++
++  clutter_stage_set_key_focus (CLUTTER_STAGE (stage), raised.actor);
++  grab = clutter_stage_grab (CLUTTER_STAGE (stage), raised.actor);
++  while (g_main_context_iteration (NULL, FALSE))
++    ;
++  g_assert_true (is_lock_surface (get_keyboard_focus ()));
++
++  tap_key (keyboard, KEY_A);
++  g_assert_true (wait_for_sync_timeout (SYNC_KEY_BASE + KEY_A, 5000));
++  g_assert_true (is_lock_surface (get_keyboard_focus ()));
++
++  move_pointer (pointer, 300, 200);
++  g_assert_true (is_lock_surface (get_pointer_focus ()));
++  clutter_virtual_input_device_notify_button (pointer, CLUTTER_CURRENT_TIME,
++                                              CLUTTER_BUTTON_PRIMARY,
++                                              CLUTTER_BUTTON_STATE_PRESSED);
++  clutter_virtual_input_device_notify_button (pointer, CLUTTER_CURRENT_TIME,
++                                              CLUTTER_BUTTON_PRIMARY,
++                                              CLUTTER_BUTTON_STATE_RELEASED);
++  meta_flush_input (test_context);
++  while (g_main_context_iteration (NULL, FALSE))
++    ;
++  g_assert_true (is_lock_surface (get_pointer_focus ()));
++
++  /* Hotkeys: the overlay key and the window switcher do nothing, the keys
++   * go to the lock surface. */
++  tap_key (keyboard, KEY_LEFTMETA);
++  press_key (keyboard, KEY_LEFTALT, TRUE);
++  tap_key (keyboard, KEY_TAB);
++  press_key (keyboard, KEY_LEFTALT, FALSE);
++  g_assert_true (wait_for_sync_timeout (SYNC_KEY_BASE + KEY_TAB, 5000));
++  g_assert_cmpint (n_overlay_key, ==, 0);
++  g_assert_true (meta_display_get_focus_window (display) == focus_window);
++  g_assert_true (is_lock_surface (get_keyboard_focus ()));
++
++  g_assert_cmpint (added.n_events, ==, 0);
++  g_assert_cmpint (raised.n_events, ==, 0);
++
++  dump_views ("shell-grab-2-grabbed");
++  assert_view_all (0, "blue");
++  assert_no_leaks ();
++
++  clutter_grab_dismiss (grab);
++  g_clear_pointer (&added.actor, clutter_actor_destroy);
++  g_clear_pointer (&raised.actor, clutter_actor_destroy);
++
++  unlock_session (lock);
++  g_assert_true (get_keyboard_focus () == app_surface);
++
++  g_signal_handlers_disconnect_by_func (display, on_overlay_key,
++                                        &n_overlay_key);
++  assert_no_leaks ();
++  stop_app (app);
++}
++
++typedef struct _WindowCapture
++{
++  int64_t red;
++  int64_t visible; /* any non transparent pixel */
++} WindowCapture;
++
++static WindowCapture
++count_pixels (const uint8_t *data,
++              int            width,
++              int            height,
++              int            stride,
++              gboolean       argb_native)
++{
++  WindowCapture capture = { 0 };
++  int x, y;
++
++  for (y = 0; y < height; y++)
++    {
++      for (x = 0; x < width; x++)
++        {
++          const uint8_t *p = data + y * stride + x * 4;
++          uint8_t r, g, b, a;
++
++          if (argb_native)
++            {
++              uint32_t v = *(const uint32_t *) p;
++
++              a = v >> 24;
++              r = v >> 16;
++              g = v >> 8;
++              b = v;
++            }
++          else
++            {
++              r = p[0];
++              g = p[1];
++              b = p[2];
++              a = p[3];
++            }
++
++          if (r == 0xff && g == 0 && b == 0)
++            capture.red++;
++          if (a || r || g || b)
++            capture.visible++;
++        }
++    }
++
++  return capture;
++}
++
++/* Everything a window screen cast or a window screenshot can get. */
++static void
++capture_window (MetaWindowActor *window_actor,
++                WindowCapture   *out)
++{
++  MetaScreenCastWindow *screen_cast_window =
++    META_SCREEN_CAST_WINDOW (window_actor);
++  ClutterBackend *clutter_backend =
++    meta_backend_get_clutter_backend (get_backend ());
++  CoglContext *cogl_context =
++    clutter_backend_get_cogl_context (clutter_backend);
++  g_autoptr (GError) error = NULL;
++  g_autoptr (ClutterContent) content = NULL;
++  g_autoptr (CoglBitmap) bitmap = NULL;
++  g_autoptr (CoglOffscreen) offscreen = NULL;
++  g_autoptr (CoglTexture) texture = NULL;
++  g_autofree uint8_t *data = NULL;
++  CoglTexture *content_texture;
++  MtkRectangle bounds;
++  uint8_t *bitmap_data;
++  int width, height;
++
++  /* A window stream's buffer path */
++  meta_screen_cast_window_get_buffer_bounds (screen_cast_window, &bounds);
++  g_assert_cmpint (bounds.width, >, 0);
++  data = g_malloc ((size_t) bounds.width * bounds.height * 4);
++  memset (data, 0xff, (size_t) bounds.width * bounds.height * 4);
++  meta_screen_cast_window_capture_into (screen_cast_window, &bounds, data);
++  out[0] = count_pixels (data, bounds.width, bounds.height, bounds.width * 4,
++                         TRUE);
++
++  /* A window stream's dma-buf path */
++  texture = cogl_texture_2d_new_with_size (cogl_context,
++                                           bounds.width, bounds.height);
++  offscreen = cogl_offscreen_new_with_texture (texture);
++  g_assert_true (cogl_framebuffer_allocate (COGL_FRAMEBUFFER (offscreen),
++                                            NULL));
++  g_assert_true (meta_screen_cast_window_blit_to_framebuffer (
++    screen_cast_window, &bounds, COGL_FRAMEBUFFER (offscreen)));
++  memset (data, 0xff, (size_t) bounds.width * bounds.height * 4);
++  g_assert_true (cogl_framebuffer_read_pixels (COGL_FRAMEBUFFER (offscreen),
++                                               0, 0,
++                                               bounds.width, bounds.height,
++                                               COGL_PIXEL_FORMAT_RGBA_8888_PRE,
++                                               data));
++  out[1] = count_pixels (data, bounds.width, bounds.height, bounds.width * 4,
++                         FALSE);
++
++  /* Window screenshots */
++  content = meta_window_actor_paint_to_content (window_actor, NULL, &error);
++  g_assert_no_error (error);
++  g_assert_nonnull (content);
++  content_texture = clutter_texture_content_get_texture (
++    CLUTTER_TEXTURE_CONTENT (content));
++  width = cogl_texture_get_width (content_texture);
++  height = cogl_texture_get_height (content_texture);
++  g_clear_pointer (&data, g_free);
++  data = g_malloc0 ((size_t) width * height * 4);
++  cogl_texture_get_data (content_texture, COGL_PIXEL_FORMAT_RGBA_8888_PRE,
++                         width * 4, data);
++  out[2] = count_pixels (data, width, height, width * 4, FALSE);
++
++  bitmap = meta_window_actor_paint_to_bitmap (window_actor, NULL,
++                                              COGL_PIXEL_FORMAT_ARGB32_NATIVE);
++  g_assert_nonnull (bitmap);
++  bitmap_data = cogl_bitmap_map (bitmap, COGL_BUFFER_ACCESS_READ, 0, NULL);
++  g_assert_nonnull (bitmap_data);
++  out[3] = count_pixels (bitmap_data,
++                         cogl_bitmap_get_width (bitmap),
++                         cogl_bitmap_get_height (bitmap),
++                         cogl_bitmap_get_rowstride (bitmap),
++                         TRUE);
++  cogl_bitmap_unmap (bitmap);
++}
++
++static void
++on_window_damaged (MetaWindowActor *window_actor,
++                   int             *n_damaged)
++{
++  (*n_damaged)++;
++}
++
++/* A window that is being screen cast while the session gets locked: its
++ * streams and screenshots get only transparent images while locked, a
++ * frame is recorded at the lock (and the unlock), and the window
++ * changing behind the lock records nothing. */
++static void
++session_lock_window_capture (void)
++{
++  static const char * const paths[] = {
++    "capture_into", "blit_to_framebuffer", "paint_to_content", "paint_to_bitmap",
++  };
++  MetaWaylandTestClient *app;
++  MetaWaylandTestClient *lock;
++  MetaWindow *window;
++  MetaWindowActor *window_actor;
++  WindowCapture before[4], locked[4], after[4];
++  int n_damaged = 0;
++  int damaged_at_lock, damaged_while_locked, damaged_at_unlock;
++  int i;
++
++  set_monitors (&one_monitor);
++  app = start_app ();
++  window = meta_find_window_from_title (test_context, "normal");
++  window_actor = meta_window_actor_from_window (window);
++  g_assert_nonnull (window_actor);
++  meta_screen_cast_window_inc_usage (META_SCREEN_CAST_WINDOW (window_actor));
++  g_signal_connect (window_actor, "damaged",
++                    G_CALLBACK (on_window_damaged), &n_damaged);
++
++  capture_window (window_actor, before);
++
++  n_damaged = 0;
++  lock = lock_session ("lock");
++  damaged_at_lock = n_damaged;
++  capture_window (window_actor, locked);
++
++  n_damaged = 0;
++  command (EVENT_APP_ANIMATE, SYNC_APP_DONE);
++  repaint_all_views ();
++  damaged_while_locked = n_damaged;
++
++  n_damaged = 0;
++  unlock_session (lock);
++  damaged_at_unlock = n_damaged;
++  capture_window (window_actor, after);
++
++  for (i = 0; i < 4; i++)
++    {
++      g_debug ("%s: red before %" G_GINT64_FORMAT " locked %" G_GINT64_FORMAT
++               " (visible %" G_GINT64_FORMAT ") after %" G_GINT64_FORMAT,
++               paths[i], before[i].red, locked[i].red, locked[i].visible,
++               after[i].red);
++      g_assert_cmpint (before[i].red, >, 0);
++      g_assert_cmpint (locked[i].red, ==, 0);
++      g_assert_cmpint (locked[i].visible, ==, 0);
++      g_assert_cmpint (after[i].red, >, 0);
++    }
++  g_debug ("damaged: at lock %d, while locked %d, at unlock %d",
++           damaged_at_lock, damaged_while_locked, damaged_at_unlock);
++  g_assert_cmpint (damaged_at_lock, >=, 1);
++  g_assert_cmpint (damaged_while_locked, ==, 0);
++  g_assert_cmpint (damaged_at_unlock, >=, 1);
++
++  g_signal_handlers_disconnect_by_func (window_actor, on_window_damaged,
++                                        &n_damaged);
++  meta_screen_cast_window_dec_usage (META_SCREEN_CAST_WINDOW (window_actor));
++  assert_no_leaks ();
++  stop_app (app);
++}
++
+ static void
+ on_before_tests (MetaContext *context)
+ {
+@@ -870,6 +1842,16 @@ init_tests (void)
+                    session_lock_second);
+   g_test_add_func ("/wayland/session-lock/cancel",
+                    session_lock_cancel);
++  g_test_add_func ("/wayland/session-lock/screencopy",
++                   session_lock_screencopy);
++  g_test_add_func ("/wayland/session-lock/screencopy-hotplug",
++                   session_lock_screencopy_hotplug);
++  g_test_add_func ("/wayland/session-lock/foreign-toplevel",
++                   session_lock_foreign_toplevel);
++  g_test_add_func ("/wayland/session-lock/shell-grab",
++                   session_lock_shell_grab);
++  g_test_add_func ("/wayland/session-lock/window-capture",
++                   session_lock_window_capture);
+ 
+   for (i = 0; i < G_N_ELEMENTS (protocol_errors); i++)
+     {
+diff --git a/src/tests/wayland-test-clients/meson.build b/src/tests/wayland-test-clients/meson.build
+index a806756..9f4c3ba 100644
+--- a/src/tests/wayland-test-clients/meson.build
++++ b/src/tests/wayland-test-clients/meson.build
+@@ -161,6 +161,9 @@ wayland_test_clients = [
+   {
+     'name': 'session-lock',
+   },
++  {
++    'name': 'session-lock-spy',
++  },
+   {
+     'name': 'screencopy',
+     'extra_deps': [
+diff --git a/src/tests/wayland-test-clients/session-lock-spy.c b/src/tests/wayland-test-clients/session-lock-spy.c
+new file mode 100644
+index 0000000..cd5eec0
+--- /dev/null
++++ b/src/tests/wayland-test-clients/session-lock-spy.c
+@@ -0,0 +1,949 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++/*
++ * Clients that try to get at what is behind a session lock, for
++ * wayland-session-lock-tests.c:
++ *
++ *  - "screencopy LOG": captures every output with wlr-screencopy, with a
++ *    copy_with_damage frame always in flight on each output (like a screen
++ *    recorder) and, on request, a round of copy, region copy and
++ *    overlay_cursor copy frames. Every frame it gets is classified pixel by
++ *    pixel and logged with the phase it arrived in.
++ *  - "ft LOG" / "ft-late LOG": a wlr-foreign-toplevel-management client,
++ *    bound at start or only when asked (while locked); logs every event with
++ *    its phase, and on request sends requests for every handle.
++ *  - "app": the content behind the lock: a fullscreen red toplevel that
++ *    changes its title, maps and closes other toplevels and animates when
++ *    asked.
++ *
++ * Phases come from sync events of the test, which arrive on the same
++ * connection as the protocol events: an event logged in phase "locked" was
++ * sent by the compositor after the test saw the session locked, and one
++ * logged before "unlocking" was sent before the test unlocked.
++ */
++
++#include "config.h"
++
++#include <glib.h>
++#include <stdio.h>
++#include <string.h>
++#include <sys/mman.h>
++#include <unistd.h>
++#include <wayland-client.h>
++
++#include "wayland-test-client-utils.h"
++
++#include "wlr-foreign-toplevel-management-unstable-v1-client-protocol.h"
++#include "wlr-screencopy-unstable-v1-client-protocol.h"
++
++/* Must match wayland-session-lock-tests.c */
++#define NORMAL_COLOR 0xffff0000
++#define OTHER_NORMAL_COLOR 0xff00ff00
++
++#define SYNC_SPY_READY 40
++#define SYNC_SPY_ROUND_DONE 41
++#define SYNC_SPY_MARKED 42
++#define SYNC_SPY_LOGGED 43
++#define SYNC_APP_SHOWN 60
++#define SYNC_APP_DONE 61
++#define SYNC_FT_LISTED 70
++#define SYNC_FT_LATE_BOUND 71
++#define SYNC_FT_REQUESTED 72
++#define SYNC_FT_LOGGED 73
++#define SYNC_FT_LATE_READY 74
++
++#define EVENT_PHASE_LOCKED 500
++#define EVENT_PHASE_UNLOCKING 501
++#define EVENT_SPY_EXIT 502
++#define EVENT_SPY_ROUND 503
++#define EVENT_SPY_MARK 504
++#define EVENT_SPY_LOG 505
++#define EVENT_APP_RETITLE 600
++#define EVENT_APP_NEW_WINDOW 601
++#define EVENT_APP_CLOSE_EXTRA 602
++#define EVENT_APP_ANIMATE 603
++#define EVENT_APP_EXIT 604
++#define EVENT_FT_BIND 700
++#define EVENT_FT_REQUEST 701
++#define EVENT_FT_EXIT 702
++
++#define ANIMATION_FRAMES 30
++
++typedef enum _Phase
++{
++  PHASE_UNLOCKED,
++  PHASE_LOCKED,
++  PHASE_UNLOCKING,
++} Phase;
++
++static const char * const phase_names[] = { "U", "L", "X" };
++
++static WaylandDisplay *display;
++static struct wl_registry *registry;
++static FILE *log_file;
++static Phase phase = PHASE_UNLOCKED;
++static GHashTable *commands;
++
++static void
++on_command (WaylandDisplay *wayland_display,
++            uint32_t        serial,
++            gpointer        user_data)
++{
++  if (serial == EVENT_PHASE_LOCKED)
++    phase = PHASE_LOCKED;
++  else if (serial == EVENT_PHASE_UNLOCKING)
++    phase = PHASE_UNLOCKING;
++  else
++    g_hash_table_add (commands, GUINT_TO_POINTER (serial));
++}
++
++static gboolean
++take_command (uint32_t command)
++{
++  return g_hash_table_remove (commands, GUINT_TO_POINTER (command));
++}
++
++static void
++sync_point (uint32_t sequence)
++{
++  test_driver_sync_point (display->test_driver, sequence, NULL);
++  wl_display_flush (display->display);
++}
++
++/*
++ * wlr-screencopy
++ */
++
++typedef struct _Output Output;
++
++typedef enum _FrameKind
++{
++  FRAME_DAMAGE,
++  FRAME_COPY,
++  FRAME_REGION,
++  FRAME_CURSOR,
++} FrameKind;
++
++static const char * const kind_names[] = { "damage", "copy", "region", "cursor" };
++
++typedef struct _Frame
++{
++  Output *output;
++  FrameKind kind;
++  struct zwlr_screencopy_frame_v1 *frame;
++  uint32_t format;
++  int width, height, stride;
++  gboolean buffer_done;
++  gboolean copied;
++  struct wl_buffer *buffer;
++  uint32_t *data;
++  size_t size;
++  int n_damage;
++  gboolean full_damage;
++} Frame;
++
++struct _Output
++{
++  uint32_t name;
++  int index;
++  struct wl_output *wl_output;
++  Frame *damage_frame;
++  int n_round_frames;
++  gboolean dumped[3];
++};
++
++static struct zwlr_screencopy_manager_v1 *screencopy_manager;
++static GList *outputs;
++static int next_output_index;
++static int n_frames_pending;
++static int n_damage_frames_since_mark;
++static gboolean round_pending;
++
++static void start_damage_frame (Output *output);
++
++static void
++maybe_dump (Frame          *f,
++            const uint32_t *pixels)
++{
++  const char *dir = g_getenv ("MUTTER_SESSION_LOCK_DUMP_DIR");
++  g_autofree char *path = NULL;
++  FILE *ppm;
++  int x, y;
++
++  if (!dir || !f->output || f->kind != FRAME_COPY || f->output->dumped[phase])
++    return;
++
++  f->output->dumped[phase] = TRUE;
++  path = g_strdup_printf ("%s/screencopy-client-%s-output%d.ppm", dir,
++                          phase == PHASE_LOCKED ? "locked" :
++                          phase == PHASE_UNLOCKED ? "unlocked" : "unlocking",
++                          f->output->index);
++  ppm = fopen (path, "w");
++  g_assert_nonnull (ppm);
++  fprintf (ppm, "P6\n%d %d\n255\n", f->width, f->height);
++  for (y = 0; y < f->height; y++)
++    {
++      for (x = 0; x < f->width; x++)
++        {
++          uint32_t p = pixels[y * (f->stride / 4) + x];
++          uint8_t rgb[3] = { (p >> 16) & 0xff, (p >> 8) & 0xff, p & 0xff };
++
++          fwrite (rgb, 1, 3, ppm);
++        }
++    }
++  fclose (ppm);
++}
++
++static void
++log_frame (Frame *f)
++{
++  int64_t red = 0, green = 0, blue = 0, black = 0, other = 0;
++  int x, y;
++
++  for (y = 0; y < f->height; y++)
++    {
++      for (x = 0; x < f->width; x++)
++        {
++          uint32_t p = f->data[y * (f->stride / 4) + x] & 0xffffff;
++
++          if (p == 0xff0000)
++            red++;
++          else if (p == 0x00ff00)
++            green++;
++          else if (p == 0x0000ff)
++            blue++;
++          else if (p == 0)
++            black++;
++          else
++            other++;
++        }
++    }
++
++  maybe_dump (f, f->data);
++
++  fprintf (log_file,
++           "frame phase=%s kind=%s output=%d size=%dx%d red=%" G_GINT64_FORMAT
++           " green=%" G_GINT64_FORMAT " blue=%" G_GINT64_FORMAT
++           " black=%" G_GINT64_FORMAT " other=%" G_GINT64_FORMAT
++           " damage=%d full_damage=%d\n",
++           phase_names[phase], kind_names[f->kind],
++           f->output ? f->output->index : -1,
++           f->width, f->height, red, green, blue, black, other,
++           f->n_damage, f->full_damage);
++  fflush (log_file);
++}
++
++static void
++frame_free (Frame *f)
++{
++  zwlr_screencopy_frame_v1_destroy (f->frame);
++  if (f->buffer)
++    {
++      wl_buffer_destroy (f->buffer);
++      munmap (f->data, f->size);
++    }
++  g_free (f);
++}
++
++static void
++frame_finished (Frame *f)
++{
++  Output *output = f->output;
++
++  if (f->kind == FRAME_DAMAGE)
++    {
++      if (output && output->damage_frame == f)
++        output->damage_frame = NULL;
++      frame_free (f);
++      if (output)
++        start_damage_frame (output);
++      return;
++    }
++
++  n_frames_pending--;
++  frame_free (f);
++  if (round_pending && n_frames_pending == 0)
++    {
++      round_pending = FALSE;
++      sync_point (SYNC_SPY_ROUND_DONE);
++    }
++}
++
++static void
++handle_frame_buffer (void                            *user_data,
++                     struct zwlr_screencopy_frame_v1 *frame,
++                     uint32_t                         format,
++                     uint32_t                         width,
++                     uint32_t                         height,
++                     uint32_t                         stride)
++{
++  Frame *f = user_data;
++
++  f->format = format;
++  f->width = width;
++  f->height = height;
++  f->stride = stride;
++}
++
++static void
++handle_frame_flags (void                            *user_data,
++                    struct zwlr_screencopy_frame_v1 *frame,
++                    uint32_t                         flags)
++{
++}
++
++static void
++handle_frame_ready (void                            *user_data,
++                    struct zwlr_screencopy_frame_v1 *frame,
++                    uint32_t                         tv_sec_hi,
++                    uint32_t                         tv_sec_lo,
++                    uint32_t                         tv_nsec)
++{
++  Frame *f = user_data;
++
++  log_frame (f);
++  if (f->kind == FRAME_DAMAGE)
++    n_damage_frames_since_mark++;
++  frame_finished (f);
++}
++
++static void
++handle_frame_failed (void                            *user_data,
++                     struct zwlr_screencopy_frame_v1 *frame)
++{
++  Frame *f = user_data;
++
++  fprintf (log_file, "failed phase=%s kind=%s output=%d\n",
++           phase_names[phase], kind_names[f->kind],
++           f->output ? f->output->index : -1);
++  fflush (log_file);
++  /* A failed damage frame (its output went away) is not restarted. */
++  if (f->kind == FRAME_DAMAGE && f->output)
++    {
++      f->output->damage_frame = NULL;
++      f->output = NULL;
++    }
++  frame_finished (f);
++}
++
++static void
++handle_frame_damage (void                            *user_data,
++                     struct zwlr_screencopy_frame_v1 *frame,
++                     uint32_t                         x,
++                     uint32_t                         y,
++                     uint32_t                         width,
++                     uint32_t                         height)
++{
++  Frame *f = user_data;
++
++  f->n_damage++;
++  if (x == 0 && y == 0 && (int) width == f->width && (int) height == f->height)
++    f->full_damage = TRUE;
++}
++
++static void
++handle_frame_linux_dmabuf (void                            *user_data,
++                           struct zwlr_screencopy_frame_v1 *frame,
++                           uint32_t                         format,
++                           uint32_t                         width,
++                           uint32_t                         height)
++{
++}
++
++static void
++handle_frame_buffer_done (void                            *user_data,
++                          struct zwlr_screencopy_frame_v1 *frame)
++{
++  Frame *f = user_data;
++  struct wl_shm_pool *pool;
++  int fd;
++
++  g_assert_cmpuint (f->format, ==, WL_SHM_FORMAT_XRGB8888);
++  f->buffer_done = TRUE;
++  f->size = (size_t) f->stride * f->height;
++  fd = create_anonymous_file (f->size);
++  g_assert_cmpint (fd, >=, 0);
++  f->data = mmap (NULL, f->size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
++  g_assert_true (f->data != MAP_FAILED);
++  /* Not a color the classification knows: an unwritten buffer shows as
++   * "other". */
++  memset (f->data, 0x5a, f->size);
++  pool = wl_shm_create_pool (display->shm, fd, f->size);
++  f->buffer = wl_shm_pool_create_buffer (pool, 0, f->width, f->height,
++                                         f->stride, f->format);
++  wl_shm_pool_destroy (pool);
++  close (fd);
++
++  if (f->kind == FRAME_DAMAGE)
++    zwlr_screencopy_frame_v1_copy_with_damage (f->frame, f->buffer);
++  else
++    zwlr_screencopy_frame_v1_copy (f->frame, f->buffer);
++  f->copied = TRUE;
++}
++
++static const struct zwlr_screencopy_frame_v1_listener frame_listener = {
++  handle_frame_buffer,
++  handle_frame_flags,
++  handle_frame_ready,
++  handle_frame_failed,
++  handle_frame_damage,
++  handle_frame_linux_dmabuf,
++  handle_frame_buffer_done,
++};
++
++static Frame *
++capture (Output    *output,
++         FrameKind  kind)
++{
++  Frame *f = g_new0 (Frame, 1);
++
++  f->output = output;
++  f->kind = kind;
++  if (kind == FRAME_REGION)
++    {
++      f->frame =
++        zwlr_screencopy_manager_v1_capture_output_region (screencopy_manager,
++                                                          0,
++                                                          output->wl_output,
++                                                          100, 100, 300, 200);
++    }
++  else
++    {
++      f->frame =
++        zwlr_screencopy_manager_v1_capture_output (screencopy_manager,
++                                                   kind == FRAME_CURSOR,
++                                                   output->wl_output);
++    }
++  zwlr_screencopy_frame_v1_add_listener (f->frame, &frame_listener, f);
++  return f;
++}
++
++static void
++start_damage_frame (Output *output)
++{
++  if (output->damage_frame)
++    return;
++
++  output->damage_frame = capture (output, FRAME_DAMAGE);
++}
++
++static void
++start_round (void)
++{
++  GList *l;
++
++  round_pending = TRUE;
++  for (l = outputs; l; l = l->next)
++    {
++      Output *output = l->data;
++
++      capture (output, FRAME_COPY);
++      capture (output, FRAME_REGION);
++      capture (output, FRAME_CURSOR);
++      n_frames_pending += 3;
++    }
++
++  if (n_frames_pending == 0)
++    {
++      round_pending = FALSE;
++      sync_point (SYNC_SPY_ROUND_DONE);
++    }
++}
++
++static void
++add_output (uint32_t name)
++{
++  Output *output = g_new0 (Output, 1);
++
++  output->name = name;
++  output->index = next_output_index++;
++  output->wl_output = wl_registry_bind (registry, name, &wl_output_interface,
++                                        3);
++  outputs = g_list_append (outputs, output);
++
++  fprintf (log_file, "output phase=%s output=%d\n", phase_names[phase],
++           output->index);
++  fflush (log_file);
++
++  /* An output that shows up is captured right away. */
++  if (screencopy_manager)
++    {
++      start_damage_frame (output);
++      capture (output, FRAME_COPY);
++      n_frames_pending++;
++    }
++}
++
++static void
++remove_output (uint32_t name)
++{
++  GList *l;
++
++  for (l = outputs; l; l = l->next)
++    {
++      Output *output = l->data;
++
++      if (output->name != name)
++        continue;
++
++      /* Frames in flight still point at it; it is not freed. */
++      fprintf (log_file, "output-removed phase=%s output=%d\n",
++               phase_names[phase], output->index);
++      fflush (log_file);
++      if (output->damage_frame)
++        output->damage_frame->output = NULL;
++      output->damage_frame = NULL;
++      outputs = g_list_delete_link (outputs, l);
++      wl_output_release (output->wl_output);
++      output->wl_output = NULL;
++      return;
++    }
++}
++
++/*
++ * wlr-foreign-toplevel-management
++ */
++
++typedef struct _Toplevel
++{
++  int id;
++  struct zwlr_foreign_toplevel_handle_v1 *handle;
++  char *title;
++  gboolean closed;
++} Toplevel;
++
++static struct zwlr_foreign_toplevel_manager_v1 *ft_manager;
++static uint32_t ft_manager_name;
++static GList *toplevels;
++static int next_toplevel_id;
++static int n_done;
++
++static void
++log_ft (Toplevel   *toplevel,
++        const char *event,
++        const char *detail)
++{
++  fprintf (log_file, "ft phase=%s event=%s id=%d%s%s\n", phase_names[phase],
++           event, toplevel ? toplevel->id : -1,
++           detail ? " " : "", detail ? detail : "");
++  fflush (log_file);
++}
++
++static void
++handle_title (void                                   *data,
++              struct zwlr_foreign_toplevel_handle_v1 *handle,
++              const char                             *title)
++{
++  Toplevel *toplevel = data;
++  g_autofree char *detail = g_strdup_printf ("title=%s", title);
++
++  g_set_str (&toplevel->title, title);
++  log_ft (toplevel, "title", detail);
++}
++
++static void
++handle_app_id (void                                   *data,
++               struct zwlr_foreign_toplevel_handle_v1 *handle,
++               const char                             *app_id)
++{
++  log_ft (data, "app_id", NULL);
++}
++
++static void
++handle_output_enter (void                                   *data,
++                     struct zwlr_foreign_toplevel_handle_v1 *handle,
++                     struct wl_output                       *output)
++{
++  log_ft (data, "output_enter", NULL);
++}
++
++static void
++handle_output_leave (void                                   *data,
++                     struct zwlr_foreign_toplevel_handle_v1 *handle,
++                     struct wl_output                       *output)
++{
++  log_ft (data, "output_leave", NULL);
++}
++
++static void
++handle_state (void                                   *data,
++              struct zwlr_foreign_toplevel_handle_v1 *handle,
++              struct wl_array                        *state)
++{
++  g_autoptr (GString) detail = g_string_new ("state=");
++  uint32_t *s;
++
++  wl_array_for_each (s, state)
++    g_string_append_printf (detail, "%u,", *s);
++  log_ft (data, "state", detail->str);
++}
++
++static void
++handle_done (void                                   *data,
++             struct zwlr_foreign_toplevel_handle_v1 *handle)
++{
++  n_done++;
++  log_ft (data, "done", NULL);
++}
++
++static void
++handle_closed (void                                   *data,
++               struct zwlr_foreign_toplevel_handle_v1 *handle)
++{
++  Toplevel *toplevel = data;
++
++  toplevel->closed = TRUE;
++  log_ft (toplevel, "closed", NULL);
++}
++
++static void
++handle_parent (void                                   *data,
++               struct zwlr_foreign_toplevel_handle_v1 *handle,
++               struct zwlr_foreign_toplevel_handle_v1 *parent)
++{
++  log_ft (data, "parent", NULL);
++}
++
++static const struct zwlr_foreign_toplevel_handle_v1_listener handle_listener = {
++  handle_title,
++  handle_app_id,
++  handle_output_enter,
++  handle_output_leave,
++  handle_state,
++  handle_done,
++  handle_closed,
++  handle_parent,
++};
++
++static void
++handle_toplevel (void                                    *data,
++                 struct zwlr_foreign_toplevel_manager_v1 *manager,
++                 struct zwlr_foreign_toplevel_handle_v1  *handle)
++{
++  Toplevel *toplevel = g_new0 (Toplevel, 1);
++
++  toplevel->id = next_toplevel_id++;
++  toplevel->handle = handle;
++  zwlr_foreign_toplevel_handle_v1_add_listener (handle, &handle_listener,
++                                                toplevel);
++  toplevels = g_list_append (toplevels, toplevel);
++  log_ft (toplevel, "toplevel", NULL);
++}
++
++static void
++handle_finished (void                                    *data,
++                 struct zwlr_foreign_toplevel_manager_v1 *manager)
++{
++  log_ft (NULL, "finished", NULL);
++}
++
++static const struct zwlr_foreign_toplevel_manager_v1_listener manager_listener = {
++  handle_toplevel,
++  handle_finished,
++};
++
++static void
++bind_ft_manager (void)
++{
++  g_assert_cmpuint (ft_manager_name, !=, 0);
++  ft_manager = wl_registry_bind (registry, ft_manager_name,
++                                 &zwlr_foreign_toplevel_manager_v1_interface,
++                                 3);
++  zwlr_foreign_toplevel_manager_v1_add_listener (ft_manager,
++                                                 &manager_listener, NULL);
++  log_ft (NULL, "bound", NULL);
++}
++
++static void
++send_ft_requests (void)
++{
++  GList *l;
++
++  for (l = toplevels; l; l = l->next)
++    {
++      Toplevel *toplevel = l->data;
++
++      if (toplevel->closed)
++        continue;
++
++      zwlr_foreign_toplevel_handle_v1_set_minimized (toplevel->handle);
++      zwlr_foreign_toplevel_handle_v1_unset_fullscreen (toplevel->handle);
++      zwlr_foreign_toplevel_handle_v1_activate (toplevel->handle,
++                                                display->wl_seat);
++      zwlr_foreign_toplevel_handle_v1_close (toplevel->handle);
++      log_ft (toplevel, "requested", NULL);
++    }
++}
++
++/*
++ * Registry
++ */
++
++static gboolean bind_outputs;
++
++static void
++handle_registry_global (void               *user_data,
++                        struct wl_registry *wl_registry,
++                        uint32_t            name,
++                        const char         *interface,
++                        uint32_t            version)
++{
++  if (strcmp (interface, zwlr_screencopy_manager_v1_interface.name) == 0)
++    {
++      screencopy_manager =
++        wl_registry_bind (wl_registry, name,
++                          &zwlr_screencopy_manager_v1_interface, 3);
++    }
++  else if (strcmp (interface,
++                   zwlr_foreign_toplevel_manager_v1_interface.name) == 0)
++    {
++      ft_manager_name = name;
++    }
++  else if (bind_outputs && strcmp (interface, wl_output_interface.name) == 0)
++    {
++      add_output (name);
++    }
++}
++
++static void
++handle_registry_global_remove (void               *user_data,
++                               struct wl_registry *wl_registry,
++                               uint32_t            name)
++{
++  remove_output (name);
++}
++
++static const struct wl_registry_listener registry_listener = {
++  handle_registry_global,
++  handle_registry_global_remove,
++};
++
++static void
++connect_display (gboolean with_outputs)
++{
++  display = wayland_display_new (WAYLAND_DISPLAY_CAPABILITY_TEST_DRIVER);
++  commands = g_hash_table_new (NULL, NULL);
++  g_signal_connect (display, "sync-event", G_CALLBACK (on_command), NULL);
++  bind_outputs = with_outputs;
++  registry = wl_display_get_registry (display->display);
++  wl_registry_add_listener (registry, &registry_listener, NULL);
++  wl_display_roundtrip (display->display);
++}
++
++static int
++run_screencopy (void)
++{
++  GList *l;
++
++  connect_display (TRUE);
++  g_assert_nonnull (screencopy_manager);
++  g_assert_nonnull (outputs);
++
++  for (l = outputs; l; l = l->next)
++    {
++      start_damage_frame (l->data);
++      capture (l->data, FRAME_COPY);
++      n_frames_pending++;
++    }
++  round_pending = TRUE;
++  while (round_pending)
++    wayland_display_dispatch (display);
++  sync_point (SYNC_SPY_READY);
++
++  while (!take_command (EVENT_SPY_EXIT))
++    {
++      wayland_display_dispatch (display);
++
++      if (take_command (EVENT_SPY_ROUND))
++        start_round ();
++      if (take_command (EVENT_SPY_MARK))
++        {
++          fprintf (log_file, "mark phase=%s damage_frames=%d\n",
++                   phase_names[phase], n_damage_frames_since_mark);
++          fflush (log_file);
++          n_damage_frames_since_mark = 0;
++          sync_point (SYNC_SPY_MARKED);
++        }
++    }
++
++  return EXIT_SUCCESS;
++}
++
++static int
++run_ft (gboolean late)
++{
++  connect_display (FALSE);
++
++  if (!late)
++    {
++      bind_ft_manager ();
++      while (n_done == 0)
++        wayland_display_dispatch (display);
++      wl_display_roundtrip (display->display);
++      sync_point (SYNC_FT_LISTED);
++    }
++  else
++    {
++      sync_point (SYNC_FT_LATE_READY);
++    }
++
++  while (!take_command (EVENT_FT_EXIT))
++    {
++      wayland_display_dispatch (display);
++
++      if (take_command (EVENT_FT_BIND) && late && !ft_manager)
++        {
++          bind_ft_manager ();
++          wl_display_roundtrip (display->display);
++          wl_display_roundtrip (display->display);
++          sync_point (SYNC_FT_LATE_BOUND);
++        }
++      if (take_command (EVENT_FT_REQUEST) && !late)
++        {
++          send_ft_requests ();
++          wl_display_roundtrip (display->display);
++          sync_point (SYNC_FT_REQUESTED);
++        }
++      if (take_command (EVENT_SPY_LOG))
++        {
++          wl_display_roundtrip (display->display);
++          fprintf (log_file, "ft phase=%s event=log toplevels=%u\n",
++                   phase_names[phase], g_list_length (toplevels));
++          fflush (log_file);
++          sync_point (late ? SYNC_FT_LOGGED + 10 : SYNC_FT_LOGGED);
++        }
++    }
++
++  return EXIT_SUCCESS;
++}
++
++static int
++run_app (void)
++{
++  WaylandSurface *surface;
++  WaylandSurface *extra;
++  WaylandSurface *new_window = NULL;
++
++  connect_display (FALSE);
++
++  surface = wayland_surface_new (display, "normal", 100, 100, NORMAL_COLOR);
++  xdg_toplevel_set_fullscreen (surface->xdg_toplevel, NULL);
++  wl_surface_commit (surface->wl_surface);
++  wait_for_window_shown (display, surface->wl_surface);
++  wait_for_effects_completed (display, surface->wl_surface);
++
++  /* Closed while locked. */
++  extra = wayland_surface_new (display, "extra", 100, 100, NORMAL_COLOR);
++  wl_surface_commit (extra->wl_surface);
++  wait_for_window_shown (display, extra->wl_surface);
++  wait_for_effects_completed (display, extra->wl_surface);
++
++  sync_point (SYNC_APP_SHOWN);
++
++  while (!take_command (EVENT_APP_EXIT))
++    {
++      wayland_display_dispatch (display);
++
++      if (take_command (EVENT_APP_RETITLE))
++        {
++          xdg_toplevel_set_title (surface->xdg_toplevel, "secret-title");
++          wl_surface_commit (surface->wl_surface);
++          wl_display_roundtrip (display->display);
++          sync_point (SYNC_APP_DONE);
++        }
++      if (take_command (EVENT_APP_NEW_WINDOW))
++        {
++          new_window = wayland_surface_new (display, "new-while-locked",
++                                            100, 100, NORMAL_COLOR);
++          wl_surface_commit (new_window->wl_surface);
++          /* Not waiting for it to be shown: behind the lock it is not
++           * painted. */
++          wait_for_window_configured (display, new_window);
++          wl_display_roundtrip (display->display);
++          sync_point (SYNC_APP_DONE);
++        }
++      if (take_command (EVENT_APP_CLOSE_EXTRA))
++        {
++          g_clear_object (&extra);
++          wl_display_roundtrip (display->display);
++          sync_point (SYNC_APP_DONE);
++        }
++      if (take_command (EVENT_APP_ANIMATE))
++        {
++          int i;
++
++          /* Not paced by frame callbacks: a covered window may not get
++           * them. */
++          for (i = 0; i < ANIMATION_FRAMES; i++)
++            {
++              draw_surface (display, surface->wl_surface,
++                            surface->width, surface->height,
++                            i % 2 ? NORMAL_COLOR : OTHER_NORMAL_COLOR);
++              wl_surface_commit (surface->wl_surface);
++              wl_display_roundtrip (display->display);
++              g_usleep (10000);
++            }
++          draw_surface (display, surface->wl_surface,
++                        surface->width, surface->height, NORMAL_COLOR);
++          wl_surface_commit (surface->wl_surface);
++          wl_display_roundtrip (display->display);
++          sync_point (SYNC_APP_DONE);
++        }
++    }
++
++  g_clear_object (&new_window);
++  g_clear_object (&extra);
++  g_object_unref (surface);
++  return EXIT_SUCCESS;
++}
++
++int
++main (int    argc,
++      char **argv)
++{
++  const char *mode;
++  int ret;
++
++  g_assert_cmpint (argc, >=, 2);
++  mode = argv[1];
++
++  if (argc >= 3)
++    {
++      log_file = fopen (argv[2], "w");
++      g_assert_nonnull (log_file);
++    }
++
++  /* A client started while locked can't get the phase event. */
++  if (argc >= 4 && g_strcmp0 (argv[3], "locked") == 0)
++    phase = PHASE_LOCKED;
++
++  if (g_strcmp0 (mode, "screencopy") == 0)
++    ret = run_screencopy ();
++  else if (g_strcmp0 (mode, "ft") == 0)
++    ret = run_ft (FALSE);
++  else if (g_strcmp0 (mode, "ft-late") == 0)
++    ret = run_ft (TRUE);
++  else if (g_strcmp0 (mode, "app") == 0)
++    ret = run_app ();
++  else
++    g_error ("Unknown mode %s", mode);
++
++  if (log_file)
++    fclose (log_file);
++  return ret;
++}
+diff --git a/src/tests/wayland-test-clients/session-lock.c b/src/tests/wayland-test-clients/session-lock.c
+index 3e2de39..0e1b484 100644
+--- a/src/tests/wayland-test-clients/session-lock.c
++++ b/src/tests/wayland-test-clients/session-lock.c
+@@ -20,6 +20,7 @@
+ #include <errno.h>
+ #include <glib.h>
+ #include <string.h>
++#include <unistd.h>
+ #include <wayland-client.h>
+ 
+ #include "wayland-test-client-utils.h"
+@@ -36,6 +37,8 @@
+ #define SYNC_FINISHED 3
+ #define SYNC_UNLOCKED 4
+ #define SYNC_DRAWN_BASE 10 /* + number of outputs with a drawn lock surface */
++#define SYNC_KEY_FOCUS 30
++#define SYNC_KEY_BASE 1000 /* + evdev code of a pressed key */
+ 
+ /* Sync events sent by the test. They go to every client, so each kind of
+  * client waits for its own value. */
+@@ -309,6 +312,88 @@ run_lock (void)
+   return EXIT_SUCCESS;
+ }
+ 
++static void
++keyboard_keymap (void               *data,
++                 struct wl_keyboard *wl_keyboard,
++                 uint32_t            format,
++                 int32_t             fd,
++                 uint32_t            size)
++{
++  close (fd);
++}
++
++static void
++keyboard_enter (void               *data,
++                struct wl_keyboard *wl_keyboard,
++                uint32_t            serial,
++                struct wl_surface  *surface,
++                struct wl_array    *keys)
++{
++  test_driver_sync_point (display->test_driver, SYNC_KEY_FOCUS, NULL);
++}
++
++static void
++keyboard_leave (void               *data,
++                struct wl_keyboard *wl_keyboard,
++                uint32_t            serial,
++                struct wl_surface  *surface)
++{
++}
++
++static void
++keyboard_key (void               *data,
++              struct wl_keyboard *wl_keyboard,
++              uint32_t            serial,
++              uint32_t            time,
++              uint32_t            key,
++              uint32_t            state)
++{
++  if (state == WL_KEYBOARD_KEY_STATE_PRESSED)
++    test_driver_sync_point (display->test_driver, SYNC_KEY_BASE + key, NULL);
++}
++
++static void
++keyboard_modifiers (void               *data,
++                    struct wl_keyboard *wl_keyboard,
++                    uint32_t            serial,
++                    uint32_t            mods_depressed,
++                    uint32_t            mods_latched,
++                    uint32_t            mods_locked,
++                    uint32_t            group)
++{
++}
++
++static void
++keyboard_repeat_info (void               *data,
++                      struct wl_keyboard *wl_keyboard,
++                      int32_t             rate,
++                      int32_t             delay)
++{
++}
++
++static const struct wl_keyboard_listener keyboard_listener = {
++  keyboard_keymap,
++  keyboard_enter,
++  keyboard_leave,
++  keyboard_key,
++  keyboard_modifiers,
++  keyboard_repeat_info,
++};
++
++/* As run_lock (), and report keyboard focus and every key pressed. */
++static int
++run_lock_keys (void)
++{
++  struct wl_keyboard *keyboard;
++
++  g_assert_nonnull (display->wl_seat);
++  keyboard = wl_seat_get_keyboard (display->wl_seat);
++  wl_keyboard_add_listener (keyboard, &keyboard_listener, NULL);
++  wl_display_roundtrip (display->display);
++
++  return run_lock ();
++}
++
+ /* Lock, draw, then go away without unlocking. */
+ static int
+ run_abandon (void)
+@@ -572,6 +657,8 @@ main (int    argc,
+     return run_normal ();
+   else if (g_strcmp0 (mode, "lock") == 0)
+     return run_lock ();
++  else if (g_strcmp0 (mode, "lock-keys") == 0)
++    return run_lock_keys ();
+   else if (g_strcmp0 (mode, "abandon") == 0)
+     return run_abandon ();
+   else if (g_strcmp0 (mode, "second") == 0)
+-- 
+2.54.0
+
