@@ -632,7 +632,7 @@ class SpecTests(unittest.TestCase):
         # The established protection stack stays as the fallback; v2 comes with
         # the upgrade tool, whose preset switches a Mac only on a passing self-check.
         self.assertRegex(core, r'(?m)^Requires: speakersafetyd speakerguardd$')
-        self.assertRegex(core, r'(?m)^Requires: speakerguardd-v2 >= 1\.0\.0~alpha\.1-0\.50 aurora-speaker-upgrade >= 0\.1-0\.17$')
+        self.assertRegex(core, r'(?m)^Requires: speakerguardd-v2 >= 1\.0\.0~alpha\.2-0\.51 aurora-speaker-upgrade >= 0\.1-0\.18$')
         for name in requires:
             self.assertFalse(name.startswith(('kernel', 'uboot', 'm1n1')) or name == 'aura', name)
         self.assertNotIn('aurora-release', requires)

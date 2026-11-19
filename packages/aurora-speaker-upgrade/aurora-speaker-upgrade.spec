@@ -1,10 +1,10 @@
-%global commit 86fbf429deb4a207eeb17ba8d73ef4d1cd8e7865
+%global commit dafc508877e3100b4dc2edf6727243ee4eef193d
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261119
+%global snapdate 20261120
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.17.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.18.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -64,12 +64,12 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.pr
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
-* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.17.20261119git86fbf429deb4
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.18.20261120gitdafc508877e3
 - Enable aurora-speaker-upgrade.service by preset: at the next boot each
   Mac moves its speakers to speakerguardd v2 when its own tuning passes the
   silent self-check; a refused Mac keeps speakersafetyd and is not retried
   until the kernel, speakerguardd or the tool changes.
-- Rebuilt from speakerguardd v2 86fbf429.
+- Rebuilt from speakerguardd 1.0.0-alpha.2 (main dafc5088).
 
 * Tue Nov 17 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.16.20261117gitbbd9ed30ac43
 - Release candidate 9 (speakerguardd#144): switch without the preview

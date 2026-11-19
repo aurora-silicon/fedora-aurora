@@ -1,14 +1,14 @@
-%global commit 86fbf429deb4a207eeb17ba8d73ef4d1cd8e7865
+%global commit dafc508877e3100b4dc2edf6727243ee4eef193d
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261119
+%global snapdate 20261120
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
 %global cargo_pkgs -p sgv2-core -p sgv2-lv2 -p sgv2-supervisor -p aurora-speaker-tuning
 
 Name: speakerguardd-v2
-Version: 1.0.0~alpha.1
-Release: 0.50.%{snapdate}git%{shortcommit}%{?dist}
+Version: 1.0.0~alpha.2
+Release: 0.51.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -248,13 +248,14 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
-* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.1-0.50.20261119git86fbf429deb4
-- Rebuilt from speakerguardd v2 86fbf429: the voicing chain stops after a
-  long exact silence (speakerguardd#171) and the speaker path idles while
-  nothing plays (#176); power-only amplifier models are refused only with
-  the power axis (#179); a J815 session fixture (#187); the gate answers at
-  once when the device tree describes no speaker card (#194); the J815
-  graph carries the #176 hold sink (#199).
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.2-0.51.20261120gitdafc508877e3
+- speakerguardd 1.0.0-alpha.2 (dafc5088), the first release from main now
+  that v2 is speakerguardd's main line: the voicing chain stops after a long
+  exact silence (speakerguardd#171) and the speaker path idles while nothing
+  plays (#176); power-only amplifier models are refused only with the power
+  axis (#179); a J815 session fixture (#187); the gate answers at once when
+  the device tree describes no speaker card (#194); the J815 graph carries
+  the #176 hold sink (#199).
 
 * Tue Nov 17 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.49.20261117gitbbd9ed30ac43
 - Release candidate 9 (speakerguardd#144): v2 is no longer labelled a

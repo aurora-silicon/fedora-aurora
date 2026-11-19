@@ -65,7 +65,7 @@ Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
 # The established protection daemons stay installed as the fallback;
 # aurora-speaker-upgrade moves a Mac to v2 only when its self-check passes.
 Requires: speakersafetyd speakerguardd
-Requires: speakerguardd-v2 >= 1.0.0~alpha.1-0.50 aurora-speaker-upgrade >= 0.1-0.17
+Requires: speakerguardd-v2 >= 1.0.0~alpha.2-0.51 aurora-speaker-upgrade >= 0.1-0.18
 Requires: aurora-audio >= 4.1-12
 Requires: alsa-ucm-conf-aurora
 # BlueZ 5.86 attempts an empty default-parameter transaction at startup.
