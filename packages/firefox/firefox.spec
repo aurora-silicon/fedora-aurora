@@ -46,7 +46,11 @@ ExcludeArch: i686
 %endif
 %endif
 
+%ifarch aarch64
+%bcond build_with_clang 1
+%else
 %bcond build_with_clang 0
+%endif
 %if %{with build_with_clang}
 %global toolchain clang
 %else
@@ -194,7 +198,7 @@ ExcludeArch: i686
 Summary:        Mozilla Firefox Web browser
 Name:           firefox
 Version:        160.0
-Release:        1%{?dist}.aurora2
+Release:        1%{?dist}.aurora3
 URL:            https://www.mozilla.org/firefox/
 # Automatically converted from old format: MPLv1.1 or GPLv2+ or LGPLv2+ - review is highly recommended.
 License:        LicenseRef-Callaway-MPLv1.1 OR GPL-2.0-or-later OR LicenseRef-Callaway-LGPLv2+
@@ -614,7 +618,7 @@ echo "ac_add_options --disable-debug" >> .mozconfig
 %endif
 
 # Second arches fail to start with jemalloc enabled
-%ifnarch %{ix86} x86_64
+%ifnarch %{ix86} x86_64 aarch64
 echo "ac_add_options --disable-jemalloc" >> .mozconfig
 %endif
 
@@ -856,6 +860,9 @@ echo "export AR=\"llvm-ar\"" >> .mozconfig
 echo "export NM=\"llvm-nm\"" >> .mozconfig
 echo "export RANLIB=\"llvm-ranlib\"" >> .mozconfig
 echo "ac_add_options --enable-linker=lld" >> .mozconfig
+%if !0%{?build_with_pgo}
+echo "ac_add_options --enable-lto=thin" >> .mozconfig
+%endif
 %else
 echo "export CC=gcc" >> .mozconfig
 echo "export CXX=g++" >> .mozconfig
@@ -1198,13 +1205,15 @@ fi
 #---------------------------------------------------------------------
 
 %changelog
-* Wed Nov 11 2026 Aurora Silicon <hey@djdev.me> - 160.0-1.aurora2
+* Fri Nov 20 2026 Aurora Silicon <hey@djdev.me> - 160.0-1.aurora3
 - Rebuild of Fedora's firefox-160.0-1.
 - Allow V4L2 stateless (Request API) decoders in the RDD sandbox.
 - Allow sysinfo in the RDD sandbox, so Mesa's zink driver can create the
   GBM device behind VA-API DMABuf surfaces.
 - No debuginfo, no Rust debug info and no WASI SDK build, to fit the native
   builder.
+- Build aarch64 with clang, lld, ThinLTO and mozjemalloc, as Mozilla builds
+  its Linux aarch64 release (no PGO: it does not fit the native builder).
 
 * Fri Nov 06 2026 Martin Stransky <stransky@redhat.com> - 160.0-1
 - Update to latest upstream (160.0)

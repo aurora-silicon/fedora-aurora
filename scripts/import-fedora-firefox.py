@@ -31,7 +31,7 @@ RELEASES = {44: 'f44', 45: 'f45'}
 FETCHED = ('google-api-key', 'google-loc-api-key', 'mozilla-api-key')
 OURS = ('rdd-v4l2-request.patch',)
 SKIP = {'.git', '.gitignore', 'sources'} | set(FETCHED)
-AURORA_RELEASE = '.aurora2'
+AURORA_RELEASE = '.aurora3'
 CHANGELOG = """\
 * {date} Aurora Silicon <hey@djdev.me> - {evr}
 - Rebuild of Fedora's firefox-{version}-{release}.
@@ -40,6 +40,8 @@ CHANGELOG = """\
   GBM device behind VA-API DMABuf surfaces.
 - No debuginfo, no Rust debug info and no WASI SDK build, to fit the native
   builder.
+- Build aarch64 with clang, lld, ThinLTO and mozjemalloc, as Mozilla builds
+  its Linux aarch64 release (no PGO: it does not fit the native builder).
 
 """
 
@@ -71,6 +73,19 @@ def edit_spec(text, commit, date):
     # without debug info on its smaller architectures.
     text = once(text, r'^%ifarch %\{ix86\} s390x ppc64le\n(export RUSTFLAGS="-Cdebuginfo=0")$',
                 r'%ifarch %{ix86} s390x ppc64le aarch64\n\g<1>', 'Rust debug info')
+    # aarch64 is built the way Mozilla builds its own Linux aarch64 release:
+    # clang, lld, ThinLTO and mozjemalloc.  Fedora builds it with GCC at -O2,
+    # no LTO and glibc malloc; on Speedometer 3.1 that trails Mozilla's build.
+    # PGO stays off: its instrumented build, profile run and final build do
+    # not fit the 6 h limit of the 4-core arm64 builder.
+    text = once(text, r'^%bcond build_with_clang 0$',
+                '%ifarch aarch64\n%bcond build_with_clang 1\n%else\n%bcond build_with_clang 0\n%endif',
+                'clang on aarch64')
+    text = once(text, r'^(echo "ac_add_options --enable-linker=lld" >> \.mozconfig)$',
+                '\\g<1>\n%if !0%{?build_with_pgo}\necho "ac_add_options --enable-lto=thin" >> .mozconfig\n%endif',
+                'ThinLTO with clang')
+    text = once(text, r'^(# Second arches fail to start with jemalloc enabled\n)%ifnarch %\{ix86\} x86_64$',
+                '\\g<1>%ifnarch %{ix86} x86_64 aarch64', 'jemalloc on aarch64')
     text = once(text, r'^(Release:\s+\S+%\{\?dist\})$', r'\g<1>' + AURORA_RELEASE, 'Release')
     patches = list(re.finditer(r'^Patch\d+:.*$', text.split('\n%description', 1)[0], re.M))
     if not patches:
