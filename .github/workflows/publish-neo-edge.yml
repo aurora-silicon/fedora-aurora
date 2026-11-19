@@ -1,0 +1,24 @@
+name: Publish qualified Fedora 44 Neo Edge payload
+on:
+  workflow_dispatch:
+    inputs:
+      qualification:
+        description: Exact-pair owner evidence JSON for CTS, deep sleep, and restoration
+        type: string
+        required: true
+permissions:
+  contents: write
+  actions: read
+  id-token: write
+  attestations: write
+concurrency:
+  group: fedora-44-neo-edge-alpha-1
+  cancel-in-progress: false
+jobs:
+  delivery:
+    if: github.repository == 'aurora-silicon/fedora-aurora' && github.ref == 'refs/heads/main'
+    uses: aurora-silicon/aurora-distributions/.github/workflows/build-payload.yml@771d6d3caa560c15bdd2b411c6e1cae0a606a32f
+    with:
+      profile: fedora-kde
+      image-run: '44380859872'
+      neo-edge-evidence: ${{ inputs.qualification }}
