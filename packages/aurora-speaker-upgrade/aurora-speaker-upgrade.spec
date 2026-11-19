@@ -1,4 +1,4 @@
-%global commit d2457cf2a77b1e6ef0a5800844095790bc8a0839
+%global commit 86fbf429deb4a207eeb17ba8d73ef4d1cd8e7865
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261119
 
@@ -64,12 +64,12 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.pr
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
-* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.17.20261119gitd2457cf2a77b
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.17.20261119git86fbf429deb4
 - Enable aurora-speaker-upgrade.service by preset: at the next boot each
   Mac moves its speakers to speakerguardd v2 when its own tuning passes the
   silent self-check; a refused Mac keeps speakersafetyd and is not retried
   until the kernel, speakerguardd or the tool changes.
-- Rebuilt from speakerguardd v2 d2457cf2.
+- Rebuilt from speakerguardd v2 86fbf429.
 
 * Tue Nov 17 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.16.20261117gitbbd9ed30ac43
 - Release candidate 9 (speakerguardd#144): switch without the preview
