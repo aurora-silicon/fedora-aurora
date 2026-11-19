@@ -16,7 +16,8 @@ Version:        1.94.100
 Epoch:          1
 # aurora10: the Touch ID lockout reaches fprintd as FP_DEVICE_ERROR_LOCKED_OUT.
 # aurora11: and why Touch ID needs the password (after boot, other reasons).
-Release:        1%{?dist}.aurora12
+# aurora13: a close requested during suspend runs once the device resumes.
+Release:        1%{?dist}.aurora13
 Summary:        Toolkit for fingerprint scanner
 
 # Automatically converted from old format: LGPLv2+ - review is highly recommended.
@@ -70,6 +71,10 @@ Patch1008:      0009-aurora-say-why-touch-id-needs-the-password.patch
 # fp_device_get_password_required(): say before a prompt that Touch ID needs
 # the password, so front-ends don't ask for a finger first.
 Patch1009:      0010-let-a-front-end-ask-whether-the-reader-needs-the-password.patch
+# Keep a close requested while the device is suspended and run it once the
+# resume completes, instead of refusing it as busy and leaving the reader
+# open with no owner. From alarm-aurora (aurora-silicon/alarm-aurora#254).
+Patch1010:      0011-run-a-close-requested-during-suspend-after-resume.patch
 
 BuildRequires:  meson
 BuildRequires:  gcc
@@ -205,6 +210,10 @@ python3 %{SOURCE1004} libfprint/drivers/aurora/aurora.c
 %{_datadir}/installed-tests/libfprint-2/
 
 %changelog
+* Thu Nov 19 2026 Ryan Murray <ryan@aurorasilicon.org> - 1:1.94.100-1.aurora13
+- Run a close requested while the device is suspended once it resumes, so
+  the reader does not stay open with no owner after a suspend during verify
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1:1.94.100-1.aurora12
 - Add fp_device_get_password_required(), answered by the aurora driver from
   the kernel's lockout state, so front-ends can skip the finger prompt while
