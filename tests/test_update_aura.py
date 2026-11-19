@@ -599,21 +599,23 @@ class Recipes(unittest.TestCase):
         self.assertEqual(chosen[-1], '/esp/aurora/boot.bin /etc/aura.conf')
         self.assertFalse(any(name.startswith('m1n1/') for name in after))
 
-    def test_an_esp_with_an_aurora_stage2_keeps_using_it(self):
-        result, chosen, after = self.run_on_esp({'aurora/boot.bin': b'NEW'})
+    def test_stage2_goes_to_the_one_file_the_enrolled_stage1_loads(self):
+        # aurora/ only: a Stage 1 enrolled with the Aurora path.
+        _, chosen, after = self.run_on_esp({'aurora/boot.bin': b'NEW'})
         self.assertEqual(chosen[-1].split()[0], '/esp/aurora/boot.bin')
         self.assertEqual(after, {'aurora/boot.bin': b'NEW'})
-
-    def test_a_pre_rename_stage1_keeps_its_stage2_and_aurora_gets_a_copy(self):
-        # LEGACY-ASAHI(2027-02-28): an enrolled Stage 1 still chainloads m1n1/.
+        # LEGACY-ASAHI(2027-02-28): m1n1/ only, a Stage 1 enrolled before the rename. Nothing
+        # is written to aurora/.
         for name in ('boot.bin', 'boot-ctxr.bin'):
-            with self.subTest(name=name):
-                result, chosen, after = self.run_on_esp({'m1n1/' + name: b'LIVE', 'm1n1/boot.bin.next': b'TRIAL'})
+            with self.subTest(legacy=name):
+                result, chosen, after = self.run_on_esp({'m1n1/' + name: b'LIVE'})
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(chosen[-1].split()[0], '/esp/m1n1/boot.bin')
-                self.assertEqual(after['aurora/' + name], b'LIVE')
-                self.assertNotIn('aurora/boot.bin.next', after)
-                self.assertFalse(any(name.startswith('aurora/.') for name in after))
+                self.assertEqual(after, {'m1n1/' + name: b'LIVE'})
+        # Both: aurora/ wins and m1n1/ is left alone.
+        _, chosen, after = self.run_on_esp({'aurora/boot-ctxr.bin': b'NEW', 'm1n1/boot.bin': b'LIVE'})
+        self.assertEqual(chosen[-1].split()[0], '/esp/aurora/boot.bin')
+        self.assertEqual(after, {'aurora/boot-ctxr.bin': b'NEW', 'm1n1/boot.bin': b'LIVE'})
 
     def test_an_explicit_esp_directory_wins(self):
         result, chosen, after = self.run_on_esp({'m1n1/boot.bin': b'LIVE'}, sysconfig='AURA_ESP_DIR=aurora\n')

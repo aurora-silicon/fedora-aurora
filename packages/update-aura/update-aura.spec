@@ -120,11 +120,10 @@ AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-aura --transaction-begin || 
   15-update-aura.install, /etc/sysconfig/update-aura, the aura image at
   %{_libdir}/aura/aura.bin and the owner configuration /etc/aura.conf.
   Provides and obsoletes update-m1n1, and keeps update-m1n1 as a symlink.
-- Write Stage 2 to aurora/ on the ESP. While the ESP still has
-  m1n1/boot.bin or m1n1/boot-ctxr.bin (a Stage 1 enrolled before the rename
-  chainloads it), that file stays the one updated and trialled, and every
-  committed image is also copied to aurora/. AURA_ESP_DIR overrides the
-  choice.
+- Write the one Stage 2 file the enrolled Stage 1 loads: aurora/boot.bin
+  (or boot-ctxr.bin), unless aurora/ has no Stage 2 file and m1n1/ has one,
+  which a Stage 1 enrolled before the rename chainloads. AURA_ESP_DIR
+  overrides the choice.
 - Until 2027-02-28 the old settings still apply: /etc/sysconfig/update-m1n1
   (or its .rpmsave), M1N1_UPDATE_DISABLED, M1N1, /etc/m1n1.conf when
   /etc/aura.conf is absent, and the asahi,m1n1-stage1-version property.
