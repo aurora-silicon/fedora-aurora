@@ -41,9 +41,10 @@ launcher for the installed games.
 %package -n steam
 Summary: Steam for Aurora (native ARM64 client)
 Requires: %{name} = %{version}-%{release}
-# `steam` registers each game's processes with GameMode while the game runs
-# (busctl from systemd, pgrep from procps-ng); aurora-gamemode brings
-# gamemoded and Aurora's settings. AURORA_STEAM_GAMEMODE=0 turns it off.
+# `steam` registers each process Steam tracks for a game with GameMode (an
+# inotify watcher on the client's gameprocess_log.txt, busctl from systemd);
+# aurora-gamemode brings gamemoded and Aurora's settings.
+# AURORA_STEAM_GAMEMODE=0 turns it off.
 Recommends: aurora-gamemode
 
 %description -n steam
@@ -103,9 +104,10 @@ done
 
 %changelog
 * Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 0-3.gitc06f610
-- `steam` runs games under GameMode: while the client runs, every process
-  below a game's reaper is registered with gamemoded (RegisterGameByPID),
-  so GameMode is on only while a game runs. Recommends aurora-gamemode.
+- `steam` runs games under GameMode: a watcher follows the client's
+  logs/gameprocess_log.txt through inotify and registers every PID Steam
+  tracks for a game with gamemoded (RegisterGameByPID), so GameMode is on
+  only while a game runs. Recommends aurora-gamemode.
   AURORA_STEAM_GAMEMODE=0 turns it off.
 
 * Thu Nov 19 2026 Ryan Murray <ryan@aurorasilicon.org> - 0-2.gitc06f610
