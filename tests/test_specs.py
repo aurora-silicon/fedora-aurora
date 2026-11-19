@@ -562,13 +562,16 @@ class SpecTests(unittest.TestCase):
         subprocess.run(['sh', '-n', str(script)], check=True)
         def run(root_compat, aic_compat):
             with tempfile.TemporaryDirectory() as tmp:
-                dt = Path(tmp)
+                # Like /proc/device-tree, the tree is reached through a symlink.
+                dt = Path(tmp) / 'base'
+                dt.mkdir()
+                (Path(tmp) / 'device-tree').symlink_to(dt)
                 (dt / 'compatible').write_bytes(root_compat)
                 if aic_compat is not None:
                     node = dt / 'soc' / 'interrupt-controller@23b100000'
                     node.mkdir(parents=True)
                     (node / 'compatible').write_bytes(aic_compat)
-                text = script.read_text().replace('dt=/proc/device-tree', f'dt={tmp}')
+                text = script.read_text().replace('dt=/proc/device-tree', f'dt={tmp}/device-tree')
                 return subprocess.run(['sh', '-c', text]).returncode
         self.assertEqual(run(b'apple,j293\0apple,t8103\0apple,arm-platform\0', b'apple,t8103-aic\0apple,aic\0'), 0)
         self.assertEqual(run(b'apple,j316s\0apple,t6000\0apple,arm-platform\0', b'apple,t6000-aic\0apple,aic2\0'), 1)

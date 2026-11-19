@@ -6,6 +6,7 @@
 # that accepts one. Exit 1 skips the unit without failing it.
 dt=/proc/device-tree
 tr '\0' '\n' < "$dt/compatible" 2>/dev/null | grep -qx 'apple,arm-platform' || exit 0
-find "$dt" -maxdepth 3 -path '*/interrupt-controller@*/compatible' -exec cat {} + 2>/dev/null |
+# /proc/device-tree is a symlink: -H makes find descend it.
+find -H "$dt" -maxdepth 3 -path '*/interrupt-controller@*/compatible' -exec cat {} + 2>/dev/null |
     tr '\0' '\n' | grep -qx 'apple,aic' && exit 0
 exit 1
