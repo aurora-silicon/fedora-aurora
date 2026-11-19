@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 41%{?dist}
+Release: 42%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -16,6 +16,10 @@ Requires: linux-firmware amd-gpu-firmware intel-gpu-firmware nvidia-gpu-firmware
 Requires: iwlwifi-dvm-firmware iwlwifi-mvm-firmware realtek-firmware
 Requires: aurora-sep libfprint(aurora-sep) = 4
 Requires: aurora-firstboot avd-fw upower >= 1.91.4
+# 7.3.0-37 keeps MTE off on Apple SoCs whose device tree reserves no MTE
+# tag storage; aura 1.0.0~b13 reserves it. Either makes arm64.nomte moot.
+Requires: kernel-aurora >= 7.3.0-37
+Requires: aura >= 1.0.0~b13
 Requires: kernel-aurora aura uboot-aurora aurora-release aurora-logos aurora-firmware aurora-bless aurora-neo-platform-config tiny-dfr
 
 Source100: README
@@ -182,10 +186,15 @@ install -Dm755 %{SOURCE125} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora
 # A grub.cfg whose only stale lines are partition UUID searches; see the script.
 %{_libexecdir}/aurora/aurora-grub-uuid || :
 %{_libexecdir}/aurora/aurora-ppd-config || :
-# MTE stays off on chips whose tag storage no boot loader reserves yet.
-if tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -qxE 'apple,(t6050|t8142)' &&
-    ! grep -qE '(^|[[:space:]])arm64\.nomte([[:space:]]|$)' /etc/kernel/cmdline 2>/dev/null; then
-  grubby --update-kernel=ALL --args=arm64.nomte || :
+
+# 44-37 to 44-41 added arm64.nomte on T6050 and T8142 Macs with grubby, which
+# writes it to every boot entry, /etc/default/grub and /etc/kernel/cmdline.
+# The kernel now keeps MTE off by itself on an Apple SoC whose device tree
+# reserves no MTE tag storage, and aura reserves it, so take the argument back
+# out once, when updating from one of those releases.
+%triggerpostun core -- aurora-platform-core < 44-42
+if grep -qsE '(^|[[:space:]"])arm64\.nomte([[:space:]"]|$)' /etc/kernel/cmdline /etc/default/grub /boot/loader/entries/*.conf; then
+  grubby --update-kernel=ALL --remove-args=arm64.nomte || :
 fi
 
 # Also cover tuned-ppd installed/upgraded without an aurora-platform update.
@@ -256,6 +265,14 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Thu Nov 19 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-42
+- Stop adding arm64.nomte on T6050 and T8142 Macs, and remove the one
+  44-37 added from every boot entry. The kernel (7.3.0-37 and later) keeps
+  MTE off on any Apple SoC with MTE whose device tree has no
+  apple,mte-tag-storage reserved-memory node, and aura 1.0.0~b13 adds that
+  node, so no chip needs the argument. The removal runs once, on the update
+  from 44-41 or older. Based on DjDeveloperr's 44-39 draft.
+
 * Sun Nov 15 2026 AxxzyWasTaken <axxzytte@gmail.com> - 44-41
 - M4 Max (T6041) power defaults (aurora-t6041-power.service): PCIe ASPM
   policy powersupersave, so the Wi-Fi/Bluetooth and SD reader links use the
