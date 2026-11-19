@@ -92,7 +92,7 @@ ExcludeArch: i686
 %if 0%{?rhel}
 %global use_bundled_cbindgen  1
 %else
-%global use_bundled_cbindgen  1
+%global use_bundled_cbindgen  0
 %endif
 %if %{debug_build}
 %global release_build     0
@@ -1202,6 +1202,7 @@ fi
   GBM device behind VA-API DMABuf surfaces.
 - No debuginfo, no Rust debug info and no WASI SDK build, to fit the native
   builder.
+- Build with Fedora's cbindgen package instead of the bundled copy.
 
 * Wed Nov 18 2026 Martin Stransky <stransky@redhat.com> - 160.0.1-1
 - Update to latest upstream (160.0.1)
