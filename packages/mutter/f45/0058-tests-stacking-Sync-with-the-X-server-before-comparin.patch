@@ -1,0 +1,39 @@
+From cf4713a0dce060d2d2d00fb65a17680dc75936a2 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Marco=20Trevisan=20=28Trevi=C3=B1o=29?= <mail@3v1n0.net>
+Date: Wed, 16 Sep 2026 16:18:50 +0000
+Subject: [PATCH] tests/stacking: Sync with the X server before comparing
+ stacks
+
+Some tests such as workspace-maximized and map-after-headless are
+flacky as failing when comparing the xserver stacking.
+
+In fact test_case_check_xserver_stacking() compares the results of
+XQueryTree() with the stack tracker contents, which is updated via
+the X events the display has received.
+
+A client that just created or restacked a window can show up on the X
+side before we have handled the corresponding event, so the X server
+list may mismatch the mutter one.
+
+So wait the events being handled before doing the comparison.
+---
+ src/tests/test-runner.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/tests/test-runner.c b/src/tests/test-runner.c
+index bb42f3c5d68..04ae2dc77c3 100644
+--- a/src/tests/test-runner.c
++++ b/src/tests/test-runner.c
+@@ -438,6 +438,9 @@ test_case_check_xserver_stacking (TestCase *test,
+   if (!display->x11_display)
+     return TRUE;
+ 
++  if (!test_case_wait (test, error))
++    return FALSE;
++
+   guint64 *windows;
+   int n_windows;
+   meta_stack_tracker_get_stack (display->stack_tracker, &windows, &n_windows);
+-- 
+GitLab
+

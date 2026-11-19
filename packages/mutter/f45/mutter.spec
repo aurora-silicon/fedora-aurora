@@ -89,6 +89,12 @@ Patch54:       0054-wayland-session-lock-Keep-the-lock-above-restacked-s.patch
 Patch55:       0055-wayland-foreign-toplevel-Freeze-the-toplevel-list-wh.patch
 Patch56:       0056-wayland-session-lock-Keep-captures-from-showing-what.patch
 Patch57:       0057-tests-Add-session-lock-capture-window-list-and-grab-.patch
+# Upstream MR !5339 (open): sync with the X server before comparing the
+# X server stacking with the stack tracker. Without it the stacking tests
+# race the X events they compare against; workspace-maximized flakes this
+# way on the shared CI runners and upstream.
+# https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/5339
+Patch58:       0058-tests-stacking-Sync-with-the-X-server-before-comparin.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -255,7 +261,7 @@ trap 'status=$?; cp -a "%{_vpath_builddir}/meson-logs/." "$log_dir/"; rm -rf "$X
 # Timing-dependent tests that flake on shared CI runners under xvfb (failed
 # in turn across reruns of the same sources, passed on others): skip them,
 # as Fedora does for flaky tests. Every other test still gates the build.
-flaky='input-capture wayland-keyboard sloppy-focus-auto-raise closed-transient-no-input-parents-queued-default-focus-destroyed workspace-maximized'
+flaky='input-capture wayland-keyboard sloppy-focus-auto-raise closed-transient-no-input-parents-queued-default-focus-destroyed'
 # --list prints "suite - project:name" (or a bare name); keep the name.
 tests=$(meson test -C %{_vpath_builddir} --no-rebuild --list | awk 'NF {print $NF}' | sed 's/^.*://' | sort -u)
 for name in $flaky; do
@@ -308,9 +314,10 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 
 %changelog
 * Thu Nov 19 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-23.aurora
-- Skip the workspace-maximized stacking test in %%check: under xvfb its
-  X11 client sometimes misses a frame_complete callback and the test
-  fails (exit 245), while the same sources pass on other runs.
+- Carry upstream MR !5339 for the workspace-maximized stacking race: the
+  stacking tests now wait for mutter to handle the pending X events before
+  comparing the X server stacking with the stack tracker, so the test
+  keeps gating the build instead of being skipped.
 
 * Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-22.aurora
 - Keep what is behind a session lock out of every capture and window
