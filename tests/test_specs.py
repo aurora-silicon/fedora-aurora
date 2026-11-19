@@ -648,9 +648,10 @@ class SpecTests(unittest.TestCase):
                      'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise',
                      'aurora-kbd-light']:
             self.assertIn(name, requires)
-        # Ship the established protection stack without the v2 preview.
+        # The established protection stack stays as the fallback; v2 comes with
+        # the upgrade tool, whose preset switches a Mac only on a passing self-check.
         self.assertRegex(core, r'(?m)^Requires: speakersafetyd speakerguardd$')
-        self.assertNotIn('speakerguardd-v2', core)
+        self.assertRegex(core, r'(?m)^Requires: speakerguardd-v2 >= 1\.0\.0~alpha\.2-0\.51 aurora-speaker-upgrade >= 0\.1-0\.18$')
         for name in requires:
             self.assertFalse(name.startswith(('kernel', 'uboot', 'm1n1')) or name == 'aura', name)
         self.assertNotIn('aurora-release', requires)
@@ -660,9 +661,10 @@ class SpecTests(unittest.TestCase):
         self.assertEqual((d / 'aurora-platform-core.conf').read_text().split(), ['aurora-platform-core'])
         self.assertIn('protected.d/aurora-platform-core.conf', text.split('%files core', 1)[1])
         self.assertRegex(text, r'(?m)^Requires: aurora-platform-core = %\{version\}-%\{release\}$')
-    def test_audio_keeps_legacy_profiles_and_v2_is_opt_in(self):
-        # v2 is back as release candidate 8, installable by hand only: no
-        # default package pulls it, and aurora-audio retires only RC7 and older.
+    def test_audio_keeps_legacy_profiles_and_v2_switches_by_preset(self):
+        # aurora-platform-core pulls v2 and the upgrade tool, whose preset moves
+        # a Mac to v2 at boot on a passing self-check; aurora-audio and the
+        # kernel keep the legacy stack as the fallback and retire only RC7 and older.
         spec = (ROOT / 'packages/speakerguardd-v2/speakerguardd-v2.spec').read_text()
         self.assertRegex(spec, r'(?m)^Release: 0\.(3[3-9]|[4-9][0-9])\.')
         self.assertIn('install -Dm644 packaging/session/parity.json', spec)
@@ -673,9 +675,13 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(libs, r'(?m)^Provides:\s+pipewire-speaker-graph = 2$')
         for n in ('1006', '1007', '1008', '1010'):
             self.assertRegex(pw, rf'(?m)^Patch{n}:')
-        for name in ('aurora-platform', 'aurora-audio', 'kernel-aurora'):
+        for name in ('aurora-audio', 'kernel-aurora'):
             text = (ROOT / 'packages' / name / f'{name}.spec').read_text()
             self.assertNotRegex(text, r'(?m)^(Requires|Recommends):.*\b(speakerguardd-v2|aurora-speaker-upgrade)\b', name)
+        upgrade = (ROOT / 'packages/aurora-speaker-upgrade/aurora-speaker-upgrade.spec').read_text()
+        self.assertIn('%{_presetdir}/50-aurora-speaker-upgrade.preset', upgrade)
+        preset = (ROOT / 'packages/aurora-speaker-upgrade/50-aurora-speaker-upgrade.preset').read_text()
+        self.assertRegex(preset, r'(?m)^enable aurora-speaker-upgrade\.service$')
         audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
         self.assertRegex(audio, r'(?m)^Requires: speakersafetyd speakerguardd$')
         self.assertIn('Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33\n', audio)
