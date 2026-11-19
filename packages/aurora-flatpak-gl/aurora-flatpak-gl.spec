@@ -65,9 +65,13 @@ done
 python3 %{SOURCE3} "$repo" %{commit} 25.08 26.08
 
 %posttrans
-%{_libexecdir}/aurora-flatpak-gl/aurora-flatpak-gl enable >/dev/null || :
+if ! %{_libexecdir}/aurora-flatpak-gl/aurora-flatpak-gl enable >/dev/null; then
+    echo 'aurora-flatpak-gl: setup failed; run %{_libexecdir}/aurora-flatpak-gl/aurora-flatpak-gl enable to retry' >&2
+    exit 1
+fi
 
 %preun
+# A failing %%preun would block the erase; the helper reports what it left.
 if [ $1 -eq 0 ]; then
     %{_libexecdir}/aurora-flatpak-gl/aurora-flatpak-gl disable >/dev/null || :
 fi

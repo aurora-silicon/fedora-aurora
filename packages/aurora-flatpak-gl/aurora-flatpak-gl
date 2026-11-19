@@ -37,15 +37,16 @@ installed_refs() {
 }
 
 remove_ref() {
+  # A ref that was never pinned has no pattern to remove; that is fine.
   flatpak pin --system --remove "$1" >/dev/null 2>&1 || true
-  flatpak uninstall --system --noninteractive -y "$1" || true
+  flatpak uninstall --system --noninteractive -y "$1"
 }
 
 enable() {
   if [ ! -d "$repo/objects" ]; then
     echo "aurora-flatpak-gl: no repository at $repo; Flatpak apps keep GL.default" >&2
     disable
-    return 0
+    return
   fi
   if flatpak remotes --system --columns=name | grep -qx "$remote"; then
     flatpak remote-modify --system --url="file://$repo" "$remote"
@@ -56,18 +57,19 @@ enable() {
   local rc=0 ref offered
   offered=$(repo_refs)
   for ref in $(installed_refs); do
-    printf '%s\n' "$offered" | grep -qxF "$ref" || remove_ref "$ref"
+    printf '%s\n' "$offered" | grep -qxF "$ref" || remove_ref "$ref" || rc=1
   done
   for ref in $offered; do
     flatpak install --system --noninteractive -y --or-update "$remote" "$ref" || rc=1
-    flatpak pin --system "$ref" >/dev/null 2>&1 || true
+    # Unpinned, "flatpak uninstall --unused" would remove it.
+    flatpak pin --system "$ref" >/dev/null || rc=1
   done
   flatpak override --system --env="$env_vk" --env="$env_egl" --env="$env_dri" || rc=1
   return $rc
 }
 
 disable() {
-  local ref
+  local ref rc=0
   if [ -f "$overrides" ]; then
     local line
     for line in "$env_vk" "$env_egl" "$env_dri"; do
@@ -79,11 +81,12 @@ disable() {
     grep -qvE '^(\[.*\]|[[:space:]]*)$' "$overrides" || rm -f "$overrides"
   fi
   for ref in $(installed_refs); do
-    remove_ref "$ref"
+    remove_ref "$ref" || rc=1
   done
   if flatpak remotes --system --columns=name | grep -qx "$remote"; then
-    flatpak remote-delete --system --force "$remote" || true
+    flatpak remote-delete --system --force "$remote" || rc=1
   fi
+  return $rc
 }
 
 status() {

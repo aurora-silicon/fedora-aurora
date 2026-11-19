@@ -15,6 +15,7 @@ FAKE_FLATPAK = r'''#!/bin/bash
 s=$FAKE_FLATPAK_STATE
 touch "$s/installed" "$s/remotes"
 cmd=$1; shift
+[ "${FAKE_FLATPAK_FAIL:-}" = "$cmd" ] && { echo "error: $cmd failed" >&2; exit 1; }
 args=()
 for a in "$@"; do case $a in -*) ;; *) args+=("$a") ;; esac; done
 case $cmd in
@@ -89,6 +90,23 @@ class FlatpakGlHelperTests(unittest.TestCase):
         self.assertEqual(self.installed(), [])
         self.assertNotIn('aurora-gl', (self.state / 'remotes').read_text().split())
         self.assertEqual(self.overrides.read_text(), '[Environment]\nMY_SETTING=1\n')
+
+    def test_a_failed_uninstall_is_reported(self):
+        # A stale GL.aurora left running beside the new host Mesa must not be
+        # reported as success, neither by enable nor by disable.
+        self.package_repo('25.08', '26.08')
+        self.run_helper('enable')
+        self.package_repo('26.08')
+        self.env['FAKE_FLATPAK_FAIL'] = 'uninstall'
+        self.assertNotEqual(self.run_helper('enable').returncode, 0)
+        self.assertIn(f'{ID}/aarch64/25.08', self.installed())
+        self.assertNotEqual(self.run_helper('disable').returncode, 0)
+
+    def test_a_failed_pin_is_reported(self):
+        # An unpinned GL.aurora is removed by "flatpak uninstall --unused".
+        self.package_repo('26.08')
+        self.env['FAKE_FLATPAK_FAIL'] = 'pin'
+        self.assertNotEqual(self.run_helper('enable').returncode, 0)
 
 
 if __name__ == '__main__':
