@@ -43,7 +43,7 @@ Requires: coreutils kmod dracut grubby
 # A kernel-only upgrade must also restore the legacy speaker graphs.
 Requires: aurora-audio >= 4.1-12
 Requires: (aurora-platform-core >= 44-23 if aurora-platform-core)
-Requires: update-m1n1 >= 20261107
+Requires: update-aura >= 20261107
 # sep-key interfaces 3 and 4 (linux#1506, #1544): aurora-fido before 0.2.0-2
 # speaks only 1 and 2 and crash-loops against this kernel.
 Conflicts: aurora-fido < 0.2.0-2
@@ -90,7 +90,7 @@ line; an owner's user4k=off is kept.
 %prep
 %autosetup -p1 -n linux-%{commit}
 cp %{SOURCE1} .config
-scripts/kconfig/merge_config.sh -m .config arch/arm64/configs/asahi.config %{SOURCE4}
+scripts/kconfig/merge_config.sh -m .config arch/arm64/configs/aurora.config %{SOURCE4}
 scripts/config --set-str LOCALVERSION '' --disable LOCALVERSION_AUTO --set-str SYSTEM_TRUSTED_KEYS '' --set-str SYSTEM_REVOCATION_KEYS ''
 
 %build
@@ -100,7 +100,7 @@ export RUST_LIB_SRC=/usr/lib/rustlib/src/rust/library
 python3 tools/aurora-bindgen/build.py --output-dir "$PWD/private-bindgen"
 export BINDGEN="$PWD/private-bindgen/rust-bindgen-0.73.2/target/release/bindgen"
 make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" olddefconfig
-python3 %{SOURCE5} arch/arm64/configs/asahi.config %{SOURCE4} .config
+python3 %{SOURCE5} arch/arm64/configs/aurora.config %{SOURCE4} .config
 ctxr=0
 if grep -qx 'CONFIG_ARM64_CTXR_EXECMEM=y' .config; then ctxr=1; fi
 if [ "$ctxr" != %{ctxr_execmem} ]; then

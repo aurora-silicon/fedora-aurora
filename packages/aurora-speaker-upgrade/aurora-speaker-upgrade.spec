@@ -6,7 +6,7 @@ Name: aurora-speaker-upgrade
 Version: 0.1
 Release: 0.16.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
-# The vendored installer collector (asahi_firmware) and the AEA range port
+# The vendored installer collector (aurora_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
 License: MIT
 URL: https://github.com/aurora-silicon/speakerguardd/tree/v2/packaging/upgrade

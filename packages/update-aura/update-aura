@@ -1,20 +1,36 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 set -euo pipefail
+# LEGACY-ASAHI(2027-02-28): settings kept from the update-m1n1 package (the
+# file itself, or the copy RPM saves when it removes the old package) apply first,
+# so /etc/sysconfig/update-aura overrides them.
+for legacy in /etc/sysconfig/update-m1n1 /etc/sysconfig/update-m1n1.rpmsave; do
+    # shellcheck disable=SC1090
+    [[ ! -f $legacy ]] || source "$legacy"
+done
+if [[ -z ${AURA+x} && -n ${M1N1+x} ]]; then AURA=$M1N1; fi
 # shellcheck disable=SC1091
-[[ ! -f /etc/sysconfig/update-m1n1 ]] || source /etc/sysconfig/update-m1n1
-[[ -z ${M1N1_UPDATE_DISABLED:-} ]] || exit 0
+[[ ! -f /etc/sysconfig/update-aura ]] || source /etc/sysconfig/update-aura
+[[ -z ${AURA_UPDATE_DISABLED:-}${M1N1_UPDATE_DISABLED:-} ]] || exit 0
 # shellcheck disable=SC1091
 [[ ! -f /etc/u-boot.conf ]] || source /etc/u-boot.conf
 export AURORA_FIRMWARE_DT=${FIRMWAREDT:-${FirmwareDT:-}}
 
 if [[ -n ${SOURCE:-} ]]; then
-    M1N1=${M1N1-"$SOURCE/m1n1.bin"}
+    AURA=${AURA-"$SOURCE/aura.bin"}
     U_BOOT=${U_BOOT-"$SOURCE/u-boot-nodtb.bin"}
 fi
-export M1N1=${M1N1-/usr/lib64/m1n1/m1n1.bin}
+if [[ -z ${AURA+x} && ! -e /usr/lib64/aura/aura.bin && -e /usr/lib64/m1n1/m1n1.bin ]]; then
+    AURA=/usr/lib64/m1n1/m1n1.bin  # LEGACY-ASAHI(2027-02-28): pre-rename aura or m1n1 package
+fi
+export AURA=${AURA-/usr/lib64/aura/aura.bin}
 export U_BOOT=${U_BOOT-/usr/share/uboot/apple_m1/u-boot-nodtb.bin}
-export CONFIG=${CONFIG:-/etc/m1n1.conf}
+# LEGACY-ASAHI(2027-02-28): an owner's /etc/m1n1.conf still counts until it is
+# moved to /etc/aura.conf.
+if [[ -z ${CONFIG:-} && ! -e /etc/aura.conf && -e /etc/m1n1.conf ]]; then
+    CONFIG=/etc/m1n1.conf
+fi
+export CONFIG=${CONFIG:-/etc/aura.conf}
 export DTBS=${DTBS-/boot/dtb}
 export AURORA_DEVICE_TREE_COMPATIBLE=${AURORA_DEVICE_TREE_COMPATIBLE:-/proc/device-tree/compatible}
 export AURORA_MONITOR_FREE_MARKER=${AURORA_MONITOR_FREE_MARKER:-/usr/share/aura/monitor-free}
@@ -25,7 +41,7 @@ case $mode in
         export TARGET=${TARGET:-}
         ;;
     *)
-        [[ -z $mode || $mode != --* ]] || { echo "unknown update-m1n1 option" >&2; exit 2; }
+        [[ -z $mode || $mode != --* ]] || { echo "unknown update-aura option" >&2; exit 2; }
         export TARGET=${TARGET:-$mode}
         ;;
 esac
@@ -33,7 +49,7 @@ esac
 # One lock covers discovery, mounting, staging and link replacement, including
 # callers from both RPM file triggers and kernel-install.
 mkdir -p /run/lock
-exec 9>/run/lock/update-m1n1.lock
+exec 9>/run/lock/update-aura.lock
 flock -x 9
 
 # A package transaction that removes kernels is recorded before it starts.
@@ -51,6 +67,24 @@ if [[ ${AURORA_KERNEL_ACTION:-} == remove ]] && python3 /usr/libexec/aurora/boot
     exit 0
 fi
 mounted=false
+mirror_dir=
+# Copy each committed Stage 2 from the legacy directory into aurora/: the file
+# a Stage 1 enrolled with the Aurora path will chainload. Trial files stay put.
+mirror_committed() {
+    [[ -n $mirror_dir ]] || return 0
+    mkdir -p "$mirror_dir"
+    local name
+    for name in boot.bin boot-ctxr.bin; do
+        [[ -f $stage2_dir/$name && ! -L $stage2_dir/$name ]] || continue
+        if ! cmp -s "$stage2_dir/$name" "$mirror_dir/$name"; then
+            cp "$stage2_dir/$name" "$mirror_dir/.$name.tmp"
+            sync -f "$mirror_dir/.$name.tmp"
+            mv -f "$mirror_dir/.$name.tmp" "$mirror_dir/$name"
+            sync -f "$mirror_dir"
+            echo "update-aura: copied $name to aurora/ for an Aurora-path Stage 1" >&2
+        fi
+    done
+}
 cleanup() {
     if $mounted; then umount /run/.system-efi; fi
 }
@@ -67,7 +101,7 @@ fi
 # An image build has no device tree and no ESP: the check above validated
 # every board, and the image builder writes Stage 2 itself.
 if [[ -z $TARGET && $mode != --commit && $mode != --guard && ! -e $AURORA_DEVICE_TREE_COMPATIBLE ]]; then
-    echo "update-m1n1: no device tree; Stage 2 is left to the image builder" >&2
+    echo "update-aura: no device tree; Stage 2 is left to the image builder" >&2
     exit 0
 fi
 if [[ -z $TARGET ]]; then
@@ -75,7 +109,20 @@ if [[ -z $TARGET ]]; then
     source /usr/share/asahi-scripts/functions.sh
     mount_sys_esp /run/.system-efi
     mounted=true
-    export TARGET=/run/.system-efi/m1n1/boot.bin
+    # Stage 2 lives in aurora/. LEGACY-ASAHI(2027-02-28): a Stage 1 enrolled
+    # before the rename chainloads m1n1/boot.bin (or m1n1/boot-ctxr.bin) and
+    # only reinstalling Stage 1 changes that, so while that file is on the ESP
+    # it stays the updated image and aurora/ gets a copy of every committed one.
+    if [[ -n ${AURA_ESP_DIR:-} ]]; then
+        stage2_dir=/run/.system-efi/$AURA_ESP_DIR
+    elif [[ -e /run/.system-efi/m1n1/boot.bin || -e /run/.system-efi/m1n1/boot-ctxr.bin ]]; then
+        stage2_dir=/run/.system-efi/m1n1
+        mirror_dir=/run/.system-efi/aurora
+    else
+        stage2_dir=/run/.system-efi/aurora
+    fi
+    mkdir -p "$stage2_dir"
+    export TARGET=$stage2_dir/boot.bin
 fi
 # Resolve the actual mount, including explicitly configured ESP targets.
 ESP_ROOT=$(findmnt -nro TARGET --target "$(dirname "$TARGET")")
@@ -91,3 +138,4 @@ if ! python3 /usr/libexec/aurora/bootchain.py "${args[@]}"; then
     fi
     exit 1
 fi
+mirror_committed

@@ -9,7 +9,7 @@
 #
 # The extension is exported with ExtensionOf priority 10, above GL.default.
 # Flatpak lists GL drivers in priority order, and the first driver to provide a
-# merged file name (asahi_icd.aarch64.json, 50_mesa.json, asahi_dri.so, ...)
+# merged file name (aurora_icd.aarch64.json, 50_mesa.json, aurora_dri.so, ...)
 # keeps it, so with both drivers enabled the Aurora files are the ones apps see.
 set -euo pipefail
 branch=${1:?runtime branch, e.g. 25.08}
@@ -31,8 +31,9 @@ sed -e "s/@BRANCH@/$branch/g" -e "s/@COMMIT@/$commit/g" -e "s/@SHA256@/$sha256/g
   "$here/org.freedesktop.Platform.GL.aurora.yml.in" > "$manifest"
 flatpak-builder --arch=aarch64 --disable-rofiles-fuse --force-clean \
   --state-dir="$work/state" "$work/build" "$manifest"
-# The F45 candidate uses Mesa's DRIL loader names. Preserve Aurora's
-# compatibility entry point as an in-payload alias to that same Asahi loader.
+# The F45 candidate uses Mesa's DRIL loader names. Mesa installs aurora_dri.so
+# itself; LEGACY-ASAHI(2027-02-28): a Mesa from before the rename only has
+# asahi_dri.so, so alias the Aurora entry point to it in the payload.
 if [[ ${AURORA_FEDORA_RELEASE:-44} == 45 ]]; then
   dri_payload=$work/build/files/lib/dri
   if [[ ! -e $dri_payload/aurora_dri.so ]]; then

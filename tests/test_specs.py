@@ -508,10 +508,10 @@ class SpecTests(unittest.TestCase):
         build = (d / 'build-extension.sh').read_text()
         # The override points at the merged GL directories; the extension must
         # ship files under the same names, at the merge-dirs locations.
-        for name in ['vulkan/icd.d/asahi_icd.aarch64.json', 'vulkan/icd.d/lvp_icd.aarch64.json',
+        for name in ['vulkan/icd.d/aurora_icd.aarch64.json', 'vulkan/icd.d/lvp_icd.aarch64.json',
                      'glvnd/egl_vendor.d/50_mesa.json', 'lib/dri']:
             self.assertIn('$gl/' + name, helper)
-        self.assertIn('-Dvulkan-drivers=asahi,swrast', manifest)
+        self.assertIn('-Dvulkan-drivers=aurora,swrast', manifest)
         self.assertIn('mv ${FLATPAK_DEST}/share/vulkan/icd.d ${FLATPAK_DEST}/vulkan/icd.d', manifest)
         self.assertIn('mv ${FLATPAK_DEST}/share/glvnd/egl_vendor.d ${FLATPAK_DEST}/glvnd/egl_vendor.d', manifest)
         self.assertIn("prefix: /usr/lib/aarch64-linux-gnu/GL/aurora", manifest)
@@ -625,7 +625,7 @@ class SpecTests(unittest.TestCase):
         text = (d / 'aurora-platform.spec').read_text()
         core = text.split('%package core', 1)[1].split('%description core', 1)[0]
         requires = ' '.join(re.findall(r'^Requires:\s+(.+)$', core, re.M)).split()
-        for name in ['update-m1n1', 'dracut-asahi', 'asahi-fwupdate',
+        for name in ['update-aura', 'dracut-asahi', 'asahi-fwupdate',
                      'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise',
                      'aurora-kbd-light']:
             self.assertIn(name, requires)
@@ -633,7 +633,7 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(core, r'(?m)^Requires: speakersafetyd speakerguardd$')
         self.assertNotIn('speakerguardd-v2', core)
         for name in requires:
-            self.assertFalse(name.startswith(('kernel', 'uboot', 'm1n1')) or name == 'aura', name)
+            self.assertFalse(name.startswith(('kernel', 'uboot', 'aura')) or name == 'aura', name)
         self.assertNotIn('aurora-release', requires)
         self.assertNotIn('aurora-bless', requires)
         for name in ['asahi-platform-metapackage', 'asahi-platform-metapackage-core']:

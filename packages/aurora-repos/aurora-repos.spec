@@ -12,7 +12,7 @@ Conflicts: aurora-release < 44-8
 Source100: aurora.repo
 Source101: RPM-GPG-KEY-aurora
 Source102: aurora-vendors.conf
-Source103: aurora-vendors-asahi.conf
+Source103: aurora-vendors-fedora-remix.conf
 Source104: aurora-vendors-unvendored.conf
 Source105: aurora-override.repo
 
@@ -34,7 +34,7 @@ repository is verified, even where the repository file was changed locally.
 install -Dm644 %{SOURCE100} %{buildroot}%{_sysconfdir}/yum.repos.d/aurora.repo
 install -Dm644 %{SOURCE101} %{buildroot}%{_sysconfdir}/pki/rpm-gpg/RPM-GPG-KEY-aurora
 install -Dm644 %{SOURCE102} %{buildroot}/usr/share/dnf5/vendors.d/aurora.conf
-install -Dm644 %{SOURCE103} %{buildroot}/usr/share/dnf5/vendors.d/aurora-asahi.conf
+install -Dm644 %{SOURCE103} %{buildroot}/usr/share/dnf5/vendors.d/aurora-fedora-remix.conf
 install -Dm644 %{SOURCE104} %{buildroot}/usr/share/dnf5/vendors.d/aurora-unvendored.conf
 install -Dm644 %{SOURCE105} %{buildroot}/usr/share/dnf5/repos.override.d/50-aurora.repo
 

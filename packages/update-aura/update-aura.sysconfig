@@ -1,0 +1,6 @@
+# AURA defaults to /usr/lib64/aura/aura.bin (LEGACY-ASAHI(2027-02-28): or
+# /usr/lib64/m1n1/m1n1.bin while only a pre-rename aura or m1n1 package is installed).
+#AURA=/usr/lib64/aura/aura.bin
+U_BOOT="/usr/share/uboot/apple_m1/u-boot-nodtb.bin"
+# A custom DTBS directory or glob is still checked against retained kernels.
+DTBS="/boot/dtb"

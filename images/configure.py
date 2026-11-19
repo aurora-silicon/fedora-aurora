@@ -150,7 +150,7 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
     with fstab_script.open("a") as script:
         script.write(ESP_FSCK)
 
-    # No Asahi kernel, bootloader or branding repository can replace Aurora RPMs.
+    # No Fedora Asahi Remix kernel, bootloader or branding repository can replace Aurora RPMs.
     (destination / "repositories/asahi.xml").unlink()
     for path in destination.rglob("*.xml"):
         tree = ET.parse(path)

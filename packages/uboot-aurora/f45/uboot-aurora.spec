@@ -24,12 +24,12 @@ make O=build-aurora %{?_smp_mflags}
 
 %install
 install -Dm644 build-aurora/u-boot-nodtb.bin %{buildroot}%{_datadir}/uboot/apple_m1/u-boot-nodtb.bin
-install -Dm644 build-aurora/u-boot-nodtb.bin %{buildroot}/usr/lib/asahi-boot/u-boot-nodtb.bin
+install -Dm644 build-aurora/u-boot-nodtb.bin %{buildroot}/usr/lib/aurora-boot/u-boot-nodtb.bin
 
 %files
 %license Licenses/gpl-2.0.txt
 %{_datadir}/uboot/apple_m1/
-/usr/lib/asahi-boot/u-boot-nodtb.bin
+/usr/lib/aurora-boot/u-boot-nodtb.bin
 
 %changelog
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 2026.07-13

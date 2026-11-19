@@ -3,7 +3,7 @@
 Name: mesa-aurora
 Version: 26.3.0
 Release: 30%{?dist}.aurora
-Summary: Aurora Asahi OpenGL and Vulkan drivers
+Summary: Aurora OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
 Source0: mesa-aurora-%{commit}.tar.gz
@@ -21,7 +21,7 @@ BuildRequires: wayland-devel wayland-protocols-devel vulkan-headers vulkan-loade
 BuildRequires: libdisplay-info-devel lm_sensors-devel zlib-ng-compat-devel libzstd-devel xcb-util-keysyms-devel
 
 %description
-Aurora's native Asahi Gallium and Honeykrisp drivers. Compiler tools are built
+Aurora's native Aurora Gallium and Honeykrisp drivers. Compiler tools are built
 first; GL/Vulkan drivers do not link to LLVM or SPIRV-Tools. Rusticl OpenCL
 is packaged separately with its compiler runtime dependencies.
 
@@ -60,7 +60,7 @@ Requires: mesa-aurora-filesystem%{?_isa} = %{version}-%{release}
 Requires: libglvnd-egl libglvnd-glx
 
 %description -n mesa-aurora-dri-drivers
-Aurora Asahi, Zink and software OpenGL drivers, plus EGL and GBM integration.
+Aurora, Zink and software OpenGL drivers, plus EGL and GBM integration.
 
 %package -n mesa-aurora-vulkan-drivers
 Summary: Aurora Honeykrisp Vulkan driver
@@ -139,15 +139,15 @@ Linker interface for the matching Aurora Rusticl OpenCL library.
 # Release archives have no .git directory; stamp both Meson builds explicitly.
 export MESA_GIT_SHA1_OVERRIDE=%{commit}
 options=(--prefix=/usr --libdir=lib64 --libexecdir=libexec --buildtype=release --wrap-mode=nodownload
-  -Dplatforms=x11,wayland -Dgallium-drivers=asahi,zink,softpipe -Dvulkan-drivers=asahi
+  -Dplatforms=x11,wayland -Dgallium-drivers=aurora,zink,softpipe -Dvulkan-drivers=aurora
   -Degl=enabled -Dgbm=enabled -Dglx=dri -Dgles1=enabled -Dgles2=enabled
   -Dglvnd=enabled -Dvideo-codecs=all -Dvulkan-layers=
   -Dexpat=enabled -Dzstd=enabled -Dlmsensors=enabled -Dlibunwind=disabled -Dvalgrind=disabled)
-meson setup tools "${options[@]/#-Dvulkan-drivers=asahi/-Dvulkan-drivers=asahi,swrast}" -Dllvm=enabled -Dgallium-rusticl=true -Dbuild-tests=false
-ninja -C tools %{?_smp_mflags} src/compiler/clc/mesa_clc src/compiler/spirv/vtn_bindgen2 src/asahi/clc/asahi_clc src/gallium/targets/rusticl/libRusticlOpenCL.so.1.0.0 \
+meson setup tools "${options[@]/#-Dvulkan-drivers=aurora/-Dvulkan-drivers=aurora,swrast}" -Dllvm=enabled -Dgallium-rusticl=true -Dbuild-tests=false
+ninja -C tools %{?_smp_mflags} src/compiler/clc/mesa_clc src/compiler/spirv/vtn_bindgen2 src/aurora/clc/aurora_clc src/gallium/targets/rusticl/libRusticlOpenCL.so.1.0.0 \
   src/gallium/targets/lavapipe/libvulkan_lvp.so src/gallium/targets/lavapipe/lvp_icd.aarch64.json
-printf "[binaries]\nmesa_clc = '%s'\nvtn_bindgen2 = '%s'\nasahi_clc = '%s'\n" \
-  "$PWD/tools/src/compiler/clc/mesa_clc" "$PWD/tools/src/compiler/spirv/vtn_bindgen2" "$PWD/tools/src/asahi/clc/asahi_clc" > tools.ini
+printf "[binaries]\nmesa_clc = '%s'\nvtn_bindgen2 = '%s'\naurora_clc = '%s'\n" \
+  "$PWD/tools/src/compiler/clc/mesa_clc" "$PWD/tools/src/compiler/spirv/vtn_bindgen2" "$PWD/tools/src/aurora/clc/aurora_clc" > tools.ini
 meson setup build "${options[@]}" --native-file tools.ini -Dgallium-rusticl=false -Dllvm=disabled -Dspirv-tools=disabled -Dmesa-clc=system -Dprecomp-compiler=system -Dbuild-tests=true
 ninja -C build %{?_smp_mflags}
 
@@ -177,11 +177,11 @@ while IFS= read -r binary; do
   fi
 done < <(find %{buildroot} -type f -name '*.so*')
 find %{buildroot} -type f -o -type l | sed 's@%{buildroot}@@' > all.files
-grep -E 'libvulkan_asahi\.so|vulkan/icd.d/.*asahi.*json' all.files > vulkan.files
+grep -E 'libvulkan_aurora\.so|vulkan/icd.d/.*aurora.*json' all.files > vulkan.files
 grep -E '^/usr/include/|/pkgconfig/|^/usr/lib64/libgbm\.so$' all.files > devel.files
-grep -vE 'libvulkan_asahi\.so|vulkan/icd.d/.*asahi.*json|libvulkan_lvp\.so|vulkan/icd.d/lvp_icd|libRusticlOpenCL|/OpenCL/vendors/' all.files | grep -vxF -f devel.files > dri.files
+grep -vE 'libvulkan_aurora\.so|vulkan/icd.d/.*aurora.*json|libvulkan_lvp\.so|vulkan/icd.d/lvp_icd|libRusticlOpenCL|/OpenCL/vendors/' all.files | grep -vxF -f devel.files > dri.files
 # Check the installed driverInfo, not just the build environment variable.
-strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(git-$(echo %{commit} | cut -c1-10)), Borealis"
+strings %{buildroot}%{_libdir}/libvulkan_aurora.so | grep -F "Mesa " | grep -F "(git-$(echo %{commit} | cut -c1-10)), Borealis"
 
 %files -n mesa-aurora-dri-drivers -f dri.files
 %files -n mesa-aurora-vulkan-drivers -f vulkan.files

@@ -56,7 +56,7 @@ class PeripheralAdmissionTests(unittest.TestCase):
         self.assertIn("blacklist dockchannel-hid", blacklist)
         setup = (PACKAGE / "module-setup.sh").read_text()
         self.assertRegex(setup, r"(?m)^installkernel\(\) \{ instmods .*\bdockchannel-hid\b")
-        # Asahi unpacks the target Mac's firmware in its pre-udev 10 hook.
+        # dracut-asahi unpacks the target Mac's firmware in its pre-udev 10 hook.
         self.assertIn("depends() { echo asahi-firmware; }", setup)
         self.assertIn('inst_hook pre-udev 20 "$moddir/admit-peripherals.sh"', setup)
 

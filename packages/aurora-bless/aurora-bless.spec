@@ -60,7 +60,11 @@ cargo build --locked --release -p asahi-bless -p aurora-nvram -p aurora-btsync -
 cargo test --locked -p asahi-bless -p apple-nvram -p aurora-nvram -p aurora-btsync -p aurora-panel-nits
 
 %install
+# The workspace crate keeps its upstream name, asahi-bless, until aurora-bless
+# renames it; the installed command is aurora-bless.
 install -Dm755 target/release/asahi-bless %{buildroot}%{_bindir}/aurora-bless
+# LEGACY-ASAHI(2027-02-28): asahi-* command and unit aliases for scripts that
+# still call the Fedora Asahi Remix names this package replaces.
 ln -s aurora-bless %{buildroot}%{_bindir}/asahi-bless
 install -Dm755 target/release/aurora-nvram %{buildroot}%{_bindir}/aurora-nvram
 ln -s aurora-nvram %{buildroot}%{_bindir}/asahi-nvram

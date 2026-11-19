@@ -3,7 +3,7 @@
 # Finish installing Aurora kernels whose kernel-install run stopped early.
 #
 # Before 20261107-6 the Stage 2 updater refused a boot entry whose kernel was
-# gone and every kernel from before the DT ABI marker. 15-update-m1n1.install
+# gone and every kernel from before the DT ABI marker. 15-update-aura.install
 # then failed, kernel-install stopped before the initramfs and the boot entry,
 # and the Mac kept booting the older kernel. Run kernel-install again for each
 # kernel-aurora-core newer than every one that has a boot entry. Kernels
@@ -14,7 +14,7 @@ entries=${AURORA_BLS_ENTRIES:-/boot/loader/entries}
 modules=${AURORA_MODULES_DIR:-/usr/lib/modules}
 
 rpm -q kernel-aurora-core >/dev/null 2>&1 || exit 0
-own=$(rpm -q --qf '%{INSTALLTID}\n' update-m1n1 2>/dev/null | sort -n | tail -n 1)
+own=$(rpm -q --qf '%{INSTALLTID}\n' update-aura 2>/dev/null | sort -n | tail -n 1)
 kernels=$(rpm -q --qf '%{INSTALLTID} %{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-aurora-core |
     sort -k2,2V)
 
@@ -35,8 +35,8 @@ printf '%s\n' "$kernels" | while read -r tid krel; do
         [ "$(printf '%s\n%s\n' "$newest" "$krel" | sort -V | tail -n 1)" = "$newest" ]; then
         continue
     fi
-    echo "update-m1n1: kernel $krel has no boot entry; finishing its kernel-install" >&2
+    echo "update-aura: kernel $krel has no boot entry; finishing its kernel-install" >&2
     kernel-install add "$krel" "$modules/$krel/vmlinuz" ||
-        echo "update-m1n1: kernel-install add $krel failed" >&2
+        echo "update-aura: kernel-install add $krel failed" >&2
 done
 exit 0

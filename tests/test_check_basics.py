@@ -325,7 +325,7 @@ class CheckBasicsTests(unittest.TestCase):
         write(root / 'usr/lib/environment.d/60-aurora-flatpak-gl.conf',
               'FLATPAK_GL_DRIVERS=${FLATPAK_GL_DRIVERS:-aurora:default:host}\n')
         write(root / 'var/lib/flatpak/overrides/global',
-              '[Environment]\nVK_DRIVER_FILES=/usr/lib/aarch64-linux-gnu/GL/vulkan/icd.d/asahi_icd.aarch64.json\n')
+              '[Environment]\nVK_DRIVER_FILES=/usr/lib/aarch64-linux-gnu/GL/vulkan/icd.d/aurora_icd.aarch64.json\n')
         return root
 
     def check_flatpak_gl(self, root):

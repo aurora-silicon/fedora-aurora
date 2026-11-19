@@ -12,11 +12,11 @@ Source3: 99-aurora-speaker-irq.conf
 Patch0: 0001-restore-legacy-speaker-graphs.patch
 BuildArch: noarch
 BuildRequires: make
-# Fedora Asahi installs carry asahi-audio, which ships the same files.
+# Fedora Asahi Remix installs carry asahi-audio, which ships the same files.
 Provides: asahi-audio = %{version}-%{release}
 Conflicts: asahi-audio
 Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplumber >= 0.5.16 bankstown lv2-triforce lsp-plugins-lv2
-# Restore the established Asahi protection stack on existing installations.
+# Restore the established Aurora protection stack on existing installations.
 Requires: speakersafetyd speakerguardd
 Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33
 Obsoletes: speakerguardd-v2-selinux < 1.0.0~alpha.1-0.33
@@ -35,10 +35,10 @@ Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source r
 %check
 make install DESTDIR="$PWD/check-root" PREFIX=/usr
 for board in j316 j413 j616 j700; do
-    test -s "check-root/usr/share/asahi-audio/$board/graph.json"
-    grep -q "/usr/share/asahi-audio/$board/graph.json" check-root/usr/share/wireplumber/wireplumber.conf.d/99-asahi.conf
+    test -s "check-root/usr/share/aurora-audio/$board/graph.json"
+    grep -q "/usr/share/aurora-audio/$board/graph.json" check-root/usr/share/wireplumber/wireplumber.conf.d/99-aurora.conf
 done
-test -s check-root/usr/share/asahi-audio/j700/48.wav
+test -s check-root/usr/share/aurora-audio/j700/48.wav
 rm -rf check-root
 
 %install
@@ -54,7 +54,7 @@ install -Dm644 %{SOURCE3} %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d
 
 %files
 %license LICENSE
-%{_datadir}/asahi-audio/
+%{_datadir}/aurora-audio/
 %{_datadir}/wireplumber/
 %{_datadir}/pipewire/
 %{_prefix}/lib/dracut/modules.d/90aurora-audio/

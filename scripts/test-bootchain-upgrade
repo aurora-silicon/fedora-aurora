@@ -114,8 +114,8 @@ ln -sfn "dtb-$new" /boot/dtb
 install -m644 packages/kernel-aurora/dtb-abi "/usr/lib/modules/$new/dtb-abi"
 
 # Build the replacement RPM, including its failure-injection %check suite.
-bash scripts/build-rpm update-m1n1 > "$proof/rpmbuild.log" 2>&1
-cp out/rpms/update-m1n1-*.rpm "$proof/"
+bash scripts/build-rpm update-aura > "$proof/rpmbuild.log" 2>&1
+cp out/rpms/update-aura-*.rpm "$proof/"
 # Exercise the candidate core's actual %preun body with two coinstalled RPM
 # versions. The historical $1=0 guard incorrectly skipped this first erase.
 python3 - <<'PY'
@@ -169,8 +169,12 @@ KERNEL_INSTALL_PLUGINS=/tmp/record-erase.install dnf remove -y bootchain-erase-p
 [[ $(rpm -q bootchain-erase-probe) == bootchain-erase-probe-1-2.noarch ]]
 cp /tmp/erased-kernels.log "$proof/erased-kernels.log"
 KERNEL_INSTALL_PLUGINS=/tmp/record-erase.install dnf remove -y bootchain-erase-probe > /dev/null 2>&1
-dnf upgrade -y out/rpms/update-m1n1-*.noarch.rpm 2>&1 | tee "$proof/dnf-updater-upgrade.log"
-rpm -q update-m1n1 > "$proof/candidate-nevra.txt"
+# update-aura obsoletes the vendor's update-m1n1. LEGACY-ASAHI(2027-02-28): the
+# vendor's settings file, its TARGET and the update-m1n1 command keep working.
+dnf install -y out/rpms/update-aura-*.noarch.rpm 2>&1 | tee "$proof/dnf-updater-upgrade.log"
+rpm -q update-aura > "$proof/candidate-nevra.txt"
+[[ $(rpm -q --whatprovides update-m1n1) == update-aura-* ]]
+[[ $(readlink /usr/sbin/update-m1n1) == update-aura ]]
 [[ -f /etc/kernel/install.d/10-devicetree.install ]]
 before=$(sha256sum /boot/efi/m1n1/boot.bin)
 if kernel-install add 7.3-no-dtb /usr/lib/modules/7.3-no-dtb/vmlinuz > "$proof/candidate-missing-dtb.log" 2>&1; then
@@ -185,7 +189,7 @@ printf '%s %s\n' "$1" "$2" > /tmp/after-remove.log
 HOOK
 chmod +x /tmp/after-remove.install
 ln -sfn dtb-7.3-no-dtb /boot/dtb
-KERNEL_INSTALL_PLUGINS='/etc/kernel/install.d/10-devicetree.install /usr/lib/kernel/install.d/15-update-m1n1.install /tmp/after-remove.install' \
+KERNEL_INSTALL_PLUGINS='/etc/kernel/install.d/10-devicetree.install /usr/lib/kernel/install.d/15-update-aura.install /tmp/after-remove.install' \
   kernel-install remove 7.3-no-dtb > "$proof/candidate-remove-refused.log" 2>&1
 [[ $(cat /tmp/after-remove.log) == 'remove 7.3-no-dtb' ]]
 [[ ! -L /boot/dtb && ! -e /boot/dtb ]]
@@ -194,7 +198,7 @@ ln -s "dtb-$new" /boot/dtb
 rm -r /usr/lib/modules/7.3-no-dtb
 # Kernels from before the marker count as generation 1, the first declared
 # one, so they no longer hold back the new kernel's trees.
-update-m1n1 > "$proof/candidate-retained-legacy.log" 2>&1
+update-aura > "$proof/candidate-retained-legacy.log" 2>&1
 if grep -F 'generation 0' "$proof/candidate-retained-legacy.log"; then
   echo 'Expected kernels without a marker to count as generation 1' >&2; exit 1
 fi
@@ -210,14 +214,14 @@ if cmp -s "/usr/lib/modules/$old/dtb/apple/t8112-j413.dtb" "/usr/lib/modules/$ne
   echo 'Expected different DTBs for the same-generation retained kernels' >&2
   exit 1
 fi
-update-m1n1 > "$proof/candidate-same-generation.log" 2>&1
+update-aura > "$proof/candidate-same-generation.log" 2>&1
 rpm -q kernel-aurora-core > "$proof/same-generation-kernels.txt"
 [[ $(wc -l < "$proof/same-generation-kernels.txt") == 2 ]]
 [[ $(readlink /boot/dtb) == "dtb-$new" ]]
 before=$(sha256sum /boot/efi/m1n1/boot.bin)
 backup=$(sha256sum /boot/efi/m1n1/boot.bin.old)
 printf '2\n' > "/usr/lib/modules/$new/dtb-abi"
-if update-m1n1 > "$proof/candidate-generation-bump.log" 2>&1; then
+if update-aura > "$proof/candidate-generation-bump.log" 2>&1; then
   echo 'Expected generation 2 to refuse retained generation 1' >&2; exit 1
 fi
 grep -F "$old (generation 1)" "$proof/candidate-generation-bump.log"
@@ -232,7 +236,7 @@ grep -F '7.3.0-5.fc44.aurora' "$proof/remove-command-preview.log"
 dnf remove -y "kernel-aurora-core-$old" 2>&1 | tee "$proof/dnf-remove-fallback.log"
 rpm -q kernel-aurora-core > "$proof/remaining-kernel.txt"
 [[ $(cat "$proof/remaining-kernel.txt") == "kernel-aurora-core-$new" ]]
-update-m1n1 > "$proof/candidate-success.log" 2>&1
+update-aura > "$proof/candidate-success.log" 2>&1
 cp /boot/efi/m1n1/boot.bin "$proof/candidate-boot.bin"
 cp /boot/efi/m1n1/boot.bin.old "$proof/candidate-boot.bin.old"
 [[ $(readlink /boot/dtb) == "dtb-$new" && -d /boot/dtb ]]
@@ -257,7 +261,7 @@ assert gzip.decompress(payload[offset:]) == Path('/usr/share/uboot/apple_m1/u-bo
 print('Candidate Stage 2:', count, 'complete FDT records and matching U-Boot')
 PY
 sha256sum /boot/efi/m1n1/boot.bin.old > /tmp/bootchain-backup.sha256
-update-m1n1 > "$proof/parallel-1.log" 2>&1 & first=$!
+update-aura > "$proof/parallel-1.log" 2>&1 & first=$!
 update-m1n1 > "$proof/parallel-2.log" 2>&1 & second=$!
 wait "$first"
 wait "$second"

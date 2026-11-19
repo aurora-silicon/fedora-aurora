@@ -19,7 +19,7 @@ pin, so both releases build the same aurora-wip commit and release. Fedora 45 ad
 epoch 1 (Provides, Obsoletes and the guest's host Requires carry it) for coherent
 upgrades, and `pkgconfig(libclc)`. The Flatpak GL extension uses the Fedora 44
 recipe unchanged. Fedora 45 exports also retain `aurora_dri.so` as a relative alias
-to the Asahi loader in the candidate's DRIL layout; all payload checks remain
+to the Aurora loader in the candidate's DRIL layout; all payload checks remain
 required.
 
 The Mutter overlay reuses `packages/mutter/f45` from [PR #74](https://github.com/aurora-silicon/fedora-aurora/pull/74),

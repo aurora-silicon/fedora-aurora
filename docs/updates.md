@@ -44,10 +44,10 @@ switch in one go.
 
 A kernel update runs `kernel-install`: dracut builds the initramfs (with `dracut-asahi` and
 `98aurora-peripherals`, which read this Mac's firmware from the ESP at boot), and grubby adds the boot
-entry. The `15-update-m1n1.install` plugin runs `update-m1n1` with the kernel version
+entry. The `15-update-aura.install` plugin runs `update-aura` with the kernel version
 being added or removed. It prepares the versioned DTB directory and changes `/boot/dtb` only after
 validating the shared Stage 2 update. aura and U-Boot updates use the same updater through RPM file
-triggers on `/usr/lib64/m1n1` and `/usr/share/uboot/apple_m1`.
+triggers on `/usr/lib64/aura` and `/usr/share/uboot/apple_m1`.
 
 ## Device trees and the next boot
 
@@ -80,7 +80,7 @@ If Stage 1 fell back, the commit service writes one journal line saying so, keep
 and leaves `.next` and `.next.json` for inspection. Before arming the marker, the updater records the
 attempt under `/var/lib/aurora-stage2/attempts/<candidate sha256>`. Package triggers and later boots
 never automatically try a candidate that fell back or whose arming was interrupted. Any change to the
-Stage 2 inputs (kernel device trees, aura, U-Boot or `/etc/m1n1.conf`) is a new candidate with its own
+Stage 2 inputs (kernel device trees, aura, U-Boot or `/etc/aura.conf`) is a new candidate with its own
 trial, including on the kernel already in use; the previous candidate and receipt are kept beside the
 target as `.failed-<sha256>` files. A commit marks its record `committed`, so reverting to that exact
 image later is trialled again. An already armed marker, another trial's marker, or a running trial
@@ -122,7 +122,7 @@ checks using pinned historical input RPMs. Both paths require container isolatio
 
 ## CTXR Stage 2 slots
 
-`update-m1n1` is Aurora's package (`packages/update-m1n1`). The `priority=1` repository and vendor
+`update-aura` is Aurora's package (`packages/update-aura`). The `priority=1` repository and vendor
 policies move an installed system to it, and `aura` requires its trial-aware version. The same generation
 and trial checks apply to the CTXR slot described below.
 
@@ -135,7 +135,7 @@ Such an aura moves the kernel into the CTXR window, which only a kernel built wi
 `CONFIG_ARM64_CTXR_EXECMEM` keeps its code inside. With `monitor_free` 1, aura requires
 `aurora-ctxr-execmem`, which `kernel-aurora-core` provides when `kernel-aurora.spec` sets `ctxr_execmem` 1.
 Its `%build` checks that against the resolved configuration, so it can be set only with a kernel pin that
-has aurora-silicon/linux#985. `tests/test_update_m1n1.py` fails if `monitor_free` is set without it.
+has aurora-silicon/linux#985. `tests/test_update_aura.py` fails if `monitor_free` is set without it.
 RPM checks this per package, not per boot: `kernel-aurora` is install-only, so any installed
 `kernel-aurora-core` that provides `aurora-ctxr-execmem` satisfies aura, while older kernels without it stay
 installed and in the GRUB menu. Booting one of those with an aura that has no monitor would hit the faults
@@ -144,13 +144,13 @@ Every kernel pin since 4731456 has it, and `packages/kernel-aurora/config` turns
 
 With the marker, a Mac that boots a Mach-O Stage 1 (`/proc/device-tree/compatible` names one of the chips
 in the installer's `AuraStage1Format.usesMachO`: T8130 and later, T6040 and later) gets
-`m1n1/boot-ctxr.bin` instead, with only this board's DTBs. A trial uses `boot-ctxr.bin.next` and a `.prev`
+`aurora/boot-ctxr.bin` instead, with only this board's DTBs. A trial uses `boot-ctxr.bin.next` and a `.prev`
 backup on commit; older Stage 1 uses direct replacement and `.old`. It leaves `boot.bin` untouched,
 because the padded Stage 1 these Macs enroll chainloads `boot-ctxr.bin`. Earlier chips continue to
 target `boot.bin`. Missing board trees and candidates above the 16 MiB
 CTXR slot limit are refused before either live image or the boot link changes.
 
-Image builds set `AURORA_DEVICE_TREE_COMPATIBLE=/nonexistent`, so `update-m1n1` writes `boot.bin` as before
+Image builds set `AURORA_DEVICE_TREE_COMPATIBLE=/nonexistent`, so `update-aura` writes `boot.bin` as before
 whichever Mac builds the image. If the image's aura has the marker, `scripts/prepare-ctxr-stage2.py` then
 adds `boot-ctxr.bin`, a copy of it, to the image's ESP, and `boot-ctxr-<board>.bin`, a copy of
 `boot-<board>.bin`, for each Mach-O board. The installer picks the board's file over the combined one. The

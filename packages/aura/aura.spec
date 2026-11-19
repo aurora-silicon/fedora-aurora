@@ -13,10 +13,11 @@ URL: https://github.com/aurora-silicon/aura
 Source0: aura-%{commit}.tar.gz
 ExclusiveArch: aarch64
 BuildRequires: clang llvm lld rust rust-src cargo make python3
+# aura replaces the Fedora Asahi Remix m1n1 package (an external package name).
 Provides: m1n1 = 1.6.1
 Conflicts: m1n1
-# A Mach-O Mac needs the update-m1n1 that leaves boot.bin alone.
-Requires: update-m1n1 >= 20261107
+# A Mach-O Mac needs the update-aura that leaves boot.bin alone.
+Requires: update-aura >= 20261107
 Requires: aurora-stage2-ctxr-slot uboot-aurora
 %if %{monitor_free}
 Requires: aurora-ctxr-execmem
@@ -53,9 +54,9 @@ make clean
 make %{?_smp_mflags} BUILDSTD=1 RELEASE=1 CHAINLOADING=1 ESP_STAGE2=1 USE_CLANG=1 BUILTIN_LOGO=aurora %{?release_tag:AURA_VERSION_TAG=%{release_tag}}
 
 %install
-install -Dm644 build/aura.bin %{buildroot}%{_libdir}/m1n1/m1n1.bin
-install -Dm644 build/aura.bin %{buildroot}/usr/lib/asahi-boot/m1n1.bin
-# An aura without the monitor: update-m1n1 then stops writing boot.bin on Mach-O Macs.
+install -Dm644 build/aura.bin %{buildroot}%{_libdir}/aura/aura.bin
+install -Dm644 build/aura.bin %{buildroot}/usr/lib/aurora-boot/aura.bin
+# An aura without the monitor: update-aura then stops writing boot.bin on Mach-O Macs.
 %if %{monitor_free}
 install -Dm644 /dev/null %{buildroot}%{_datadir}/aura/monitor-free
 %endif
@@ -71,8 +72,8 @@ install -Dm644 tools/recovery/enroll-stage1.sh %{buildroot}%{_datadir}/aura/tool
 
 %files
 %license LICENSE 3rdparty_licenses/*
-%{_libdir}/m1n1/
-/usr/lib/asahi-boot/m1n1.bin
+%{_libdir}/aura/
+/usr/lib/aurora-boot/aura.bin
 %{_datadir}/aura/
 
 %changelog
