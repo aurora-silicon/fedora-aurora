@@ -92,7 +92,7 @@ ExcludeArch: i686
 %if 0%{?rhel}
 %global use_bundled_cbindgen  1
 %else
-%global use_bundled_cbindgen  1
+%global use_bundled_cbindgen  0
 %endif
 %if %{debug_build}
 %global release_build     0
@@ -193,14 +193,14 @@ ExcludeArch: i686
 
 Summary:        Mozilla Firefox Web browser
 Name:           firefox
-Version:        160.0
+Version:        160.0.1
 Release:        1%{?dist}.aurora2
 URL:            https://www.mozilla.org/firefox/
 # Automatically converted from old format: MPLv1.1 or GPLv2+ or LGPLv2+ - review is highly recommended.
 License:        LicenseRef-Callaway-MPLv1.1 OR GPL-2.0-or-later OR LicenseRef-Callaway-LGPLv2+
 Source0:        https://archive.mozilla.org/pub/firefox/releases/%{version}%{?pre_version}/source/firefox-%{version}%{?pre_version}.source.tar.xz
 %if %{with langpacks}
-Source1:        firefox-langpacks-%{version}%{?pre_version}-20261106.tar.xz
+Source1:        firefox-langpacks-%{version}%{?pre_version}-20261118.tar.xz
 %endif
 Source2:        cbindgen-vendor.tar.xz
 Source3:        dump_syms-vendor.tar.xz
@@ -1063,9 +1063,6 @@ cp failures-* %{buildroot}/%{version}-%{release}/ || true
 # Default
 cp %{SOURCE12} %{buildroot}%{mozappdir}/browser/defaults/preferences
 
-# Disabled session restore due to mzbz#2059617.
-echo 'pref("widget.wayland.session-management.enabled", false);' >> %{buildroot}%{mozappdir}/browser/defaults/preferences/firefox-redhat-default-prefs.js
-
 %if %{?use_pipewire_camera}
 echo 'pref("media.webrtc.camera.allow-pipewire", true);' >> %{buildroot}%{mozappdir}/browser/defaults/preferences/firefox-redhat-default-prefs.js
 %endif
@@ -1198,13 +1195,20 @@ fi
 #---------------------------------------------------------------------
 
 %changelog
-* Wed Nov 11 2026 Aurora Silicon <hey@djdev.me> - 160.0-1.aurora2
-- Rebuild of Fedora's firefox-160.0-1.
+* Wed Nov 18 2026 Aurora Silicon <hey@djdev.me> - 160.0.1-1.aurora2
+- Rebuild of Fedora's firefox-160.0.1-1.
 - Allow V4L2 stateless (Request API) decoders in the RDD sandbox.
 - Allow sysinfo in the RDD sandbox, so Mesa's zink driver can create the
   GBM device behind VA-API DMABuf surfaces.
 - No debuginfo, no Rust debug info and no WASI SDK build, to fit the native
   builder.
+- Build with Fedora's cbindgen package instead of the bundled copy.
+
+* Wed Nov 18 2026 Martin Stransky <stransky@redhat.com> - 160.0.1-1
+- Update to latest upstream (160.0.1)
+
+* Wed Nov 11 2026 Dave Vasilevsky <dave@vasilevsky.ca> - 160.0-2
+- Re-enable session management after fixes in Firefox 158
 
 * Fri Nov 06 2026 Martin Stransky <stransky@redhat.com> - 160.0-1
 - Update to latest upstream (160.0)
