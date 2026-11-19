@@ -35,7 +35,6 @@ Source24: aurora-sep-modprobe.conf
 Source25: aurora-sep
 Source26: sleep-aurora-sep.conf
 Source27: 20-aurora-suspend.conf
-Source28: aurora-sep-greeter-refresh.service
 BuildArch: noarch
 BuildRequires: systemd-rpm-macros fprintd authselect-libs
 BuildRequires: selinux-policy-devel make bzip2
@@ -101,7 +100,6 @@ unit() {
 unit %{SOURCE0} %{SOURCE1} aurora-sep-load
 unit %{SOURCE5} %{SOURCE6} aurora-sep-ready
 unit %{SOURCE16} %{SOURCE17} aurora-sep-greeter-fingerprint
-unit %{SOURCE16} %{SOURCE28} aurora-sep-greeter-fingerprint
 install -Dpm0644 %{SOURCE11} %{buildroot}%{_unitdir}/aurora-sep.timer
 install -Dpm0644 %{SOURCE12} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep-load.conf
 install -Dpm0644 %{SOURCE24} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep.conf
@@ -153,15 +151,10 @@ install -Dpm0644 %{modulename}.pp.bz2 \
 %{_libexecdir}/aurora/authselect-vendor-local || :
 
 %post
-%systemd_post aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service aurora-sep-greeter-refresh.service
-# The greeter unit enables the refresh unit with it (Also=). A greeter unit
-# enabled before the refresh unit existed gets it here, once.
-if [ "$1" -gt 1 ] && systemctl --quiet is-enabled aurora-sep-greeter-fingerprint.service 2>/dev/null; then
-    systemctl --no-reload enable aurora-sep-greeter-refresh.service >/dev/null 2>&1 || :
-fi
+%systemd_post aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service
 
 %preun
-%systemd_preun aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service aurora-sep-greeter-refresh.service
+%systemd_preun aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service
 
 %postun
 if [ "$1" -eq 0 ] && [ -e %{_sysconfdir}/authselect/authselect.conf ]; then
@@ -173,7 +166,7 @@ if [ "$1" -eq 0 ] && [ -e %{_sysconfdir}/authselect/authselect.conf ]; then
     authselect apply-changes >/dev/null 2>&1 || :
 fi
 # The handoff is once per boot, so do not restart the loader on upgrade.
-%systemd_postun aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service aurora-sep-greeter-refresh.service
+%systemd_postun aurora-sep.timer aurora-sep.service aurora-sep-ready.service aurora-touchid-setup.service aurora-sep-greeter-fingerprint.service
 
 %pre selinux
 %selinux_relabel_pre -s %{selinuxtype}
@@ -240,7 +233,6 @@ fi
 %{_unitdir}/aurora-sep-ready.service
 %{_unitdir}/aurora-touchid-setup.service
 %{_unitdir}/aurora-sep-greeter-fingerprint.service
-%{_unitdir}/aurora-sep-greeter-refresh.service
 %{_unitdir}/aurora-sep.timer
 %dir %{_unitdir}/fprintd.service.d
 %{_unitdir}/fprintd.service.d/aurora-sep.conf
@@ -262,9 +254,9 @@ fi
 %changelog
 * Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-31
 - The login screen fingerprint unit no longer holds gdm until Touch ID is
-  ready (aurora-silicon/linux a06251263367). aurora-sep-greeter-refresh.service
-  shows the login screen again once Touch ID is up while nobody is logged in.
-  Upgrades enable the refresh unit where the greeter unit is already enabled.
+  ready. The login screen after boot takes the password anyway
+  (require_password_after_boot, as on macOS); later login screens and the
+  lock screen find the reader.
 
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-30
 - aurora-touchid-setup reads the M5 (T8142) factory seal, whose MANB holds
