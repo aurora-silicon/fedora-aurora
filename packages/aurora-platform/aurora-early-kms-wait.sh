@@ -10,29 +10,25 @@
 # has no DRM master to defer to, light every output with its own empty
 # buffer: the panel flashes black before the splash comes back.
 #
-# Wait, briefly, for the device and for udev to initialize it, so Plymouth
-# opens it (and holds DRM master) while the initramfs udevd still runs. No
-# wait without the display subsystem or its driver, or once the device exists.
+# Wait for udev to announce the display subsystem's card, so Plymouth opens
+# it (and holds DRM master) while the initramfs udevd still runs. udevadm
+# wait returns on udev's own event for the card, or at once if udev has
+# announced it already; nothing polls. No wait without the display
+# subsystem, or when no driver is bound to it (appledrm absent or
+# blacklisted): then nothing will register a card. The wait is bounded at
+# 2 s; how long it lasts is how late the kernel registers the card.
 
 aurora_early_kms_wait() {
-    local dev card tries=0
+    local dev
 
     for dev in /sys/bus/platform/devices/*display-subsystem; do
-        [ -e "$dev" ] && break
+        [ -e "$dev/driver" ] && break
     done
-    [ -e "$dev" ] || return 0
+    [ -e "$dev/driver" ] || return 0
 
-    # 2 s at most, in 50 ms steps; 1 s if no driver bound to the subsystem.
-    while [ "$tries" -lt 40 ]; do
-        for card in "$dev"/drm/card*; do
-            [ -e "$card" ] || continue
-            udevadm wait --timeout=1 "/dev/dri/${card##*/}" 2>/dev/null
-            return 0
-        done
-        [ -e "$dev/driver" ] || [ "$tries" -lt 20 ] || return 0
-        sleep 0.05
-        tries=$((tries + 1))
-    done
+    # 60-drm.rules links each platform card as
+    # /dev/dri/by-path/platform-<device>-card.
+    udevadm wait --timeout=2 "/dev/dri/by-path/platform-${dev##*/}-card" 2>/dev/null
     return 0
 }
 

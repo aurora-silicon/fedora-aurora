@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 41%{?dist}
+Release: 42%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -256,6 +256,15 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Thu Nov 19 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-42
+- 91aurora-early-kms: the pre-pivot wait for appledrm's card is one
+  udevadm wait on the card's by-path link (60-drm.rules, now in the
+  initramfs) instead of a 50 ms sleep loop, and it does not wait at all
+  when no driver is bound to the display subsystem (it used to wait 1 s).
+- 91aurora-early-kms carries every Apple PHY driver (drivers/phy/apple)
+  instead of naming phy-apple-atc only: the external DCPs' PHYs differ by
+  SoC (T6041 adds a USB2 and a DPTX PHY).
+
 * Sun Nov 15 2026 AxxzyWasTaken <axxzytte@gmail.com> - 44-41
 - M4 Max (T6041) power defaults (aurora-t6041-power.service): PCIe ASPM
   policy powersupersave, so the Wi-Fi/Bluetooth and SD reader links use the
