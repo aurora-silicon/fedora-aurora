@@ -308,26 +308,39 @@ class SpecTests(unittest.TestCase):
             # An owner's crashkernel= is kept on enable and on disable.
             cmdline.write_text('root=UUID=x ro crashkernel=512M\n')
             self.assertEqual(run('enable').returncode, 0)
-            self.assertEqual(log.read_text(), 'systemctl enable kdump.service\n')
+            self.assertEqual(log.read_text(), 'systemctl enable --quiet kdump.service\n')
             self.assertFalse(state.exists())
             log.write_text('')
             run('disable')
-            self.assertEqual(log.read_text(), 'systemctl disable kdump.service\n')
+            self.assertEqual(log.read_text(), 'systemctl disable --quiet kdump.service\n')
             self.assertEqual(cmdline.read_text(), 'root=UUID=x ro crashkernel=512M\n')
             # Without one, enable sets kdump-utils' default and disable removes it.
             log.write_text('')
             cmdline.write_text('root=UUID=x ro\n')
             run('enable')
-            self.assertEqual(log.read_text(), 'systemctl enable kdump.service\ngrubby --update-kernel=ALL --args=crashkernel=512M\n')
+            self.assertEqual(log.read_text(), 'systemctl enable --quiet kdump.service\ngrubby --update-kernel=ALL --args=crashkernel=512M\n')
             self.assertEqual(cmdline.read_text(), 'root=UUID=x ro crashkernel=512M\n')
             self.assertTrue(state.exists())
             cmdline.write_text('root=UUID=x ro crashkernel=512M quiet\n')
             log.write_text('')
             run('disable')
-            self.assertEqual(log.read_text(), 'systemctl disable kdump.service\ngrubby --update-kernel=ALL --remove-args=crashkernel\n')
+            self.assertEqual(log.read_text(), 'systemctl disable --quiet kdump.service\ngrubby --update-kernel=ALL --remove-args=crashkernel\n')
             self.assertEqual(cmdline.read_text(), 'root=UUID=x ro quiet\n')
             self.assertFalse(state.exists())
             self.assertEqual(run().returncode, 2)
+            # A failed enable or disable is reported, not hidden; the rest still runs.
+            for tool in ('systemctl', 'grubby'):
+                (bindir / tool).write_text(f'#!/bin/sh\necho {tool} "$@" >> "{log}"\nexit 1\n')
+            cmdline.write_text('root=UUID=x ro\n')
+            result = run('enable')
+            self.assertEqual(result.returncode, 0)
+            self.assertIn('could not enable kdump.service', result.stderr)
+            self.assertIn('grubby failed', result.stderr)
+            state.parent.mkdir(exist_ok=True)
+            state.touch()
+            result = run('disable')
+            self.assertIn('could not disable kdump.service', result.stderr)
+            self.assertIn('grubby failed; remove crashkernel=', result.stderr)
 
     def test_grub_uuid_refresh_replaces_only_stale_uuid_searches(self):
         script = ROOT / 'packages' / 'aurora-platform' / 'aurora-grub-uuid'
