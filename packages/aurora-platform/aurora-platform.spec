@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 41%{?dist}
+Release: 42%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -62,8 +62,10 @@ Obsoletes: asahi-platform-metapackage-core < 1
 Obsoletes: asahi-platform-metapackage-audio < 1
 Conflicts: asahi-platform-metapackage < 1
 Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
-# Use the established protection daemons; v2 is not shipped in images.
+# The established protection daemons stay installed as the fallback;
+# aurora-speaker-upgrade moves a Mac to v2 only when its self-check passes.
 Requires: speakersafetyd speakerguardd
+Requires: speakerguardd-v2 >= 1.0.0~alpha.1-0.50 aurora-speaker-upgrade >= 0.1-0.17
 Requires: aurora-audio >= 4.1-12
 Requires: alsa-ucm-conf-aurora
 # BlueZ 5.86 attempts an empty default-parameter transaction at startup.
@@ -256,6 +258,12 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-42
+- aurora-platform-core requires speakerguardd-v2 and aurora-speaker-upgrade,
+  whose preset moves each Mac to v2 at boot when its self-check passes.
+  speakersafetyd and speakerguardd 0.1 stay installed and keep any Mac the
+  self-check refuses.
+
 * Sun Nov 15 2026 AxxzyWasTaken <axxzytte@gmail.com> - 44-41
 - M4 Max (T6041) power defaults (aurora-t6041-power.service): PCIe ASPM
   policy powersupersave, so the Wi-Fi/Bluetooth and SD reader links use the
