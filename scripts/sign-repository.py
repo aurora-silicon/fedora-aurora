@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
+import edgelib  # noqa: E402
 import fedoralib
 
 
@@ -33,12 +34,21 @@ def asset_name(filename):
     return re.sub(r'[^A-Za-z0-9._-]', '.', filename)
 
 
-def archive_metadata(site, snapshot, fedora=44):
+def validate_snapshot(snapshot, fedora=44, channel='testing'):
+    """Testing snapshots are testing-*; Edge snapshots (Fedora 44 only) are edge-YYYYMMDD.N."""
+    if channel == 'edge':
+        return edgelib.snapshot(snapshot, fedora)
+    if channel != 'testing':
+        raise ValueError('snapshots are published on testing or edge')
+    return fedoralib.snapshot(snapshot, fedora)
+
+
+def archive_metadata(site, snapshot, fedora=44, channel='testing'):
     """Retain the exact signed DNF metadata without duplicating package assets."""
-    fedoralib.snapshot(snapshot, fedora)
-    repository = site / f'{fedora}/testing/aarch64'
+    validate_snapshot(snapshot, fedora, channel)
+    repository = site / f'{fedora}/{channel}/aarch64'
     repodata = repository / 'repodata'
-    if any(path.is_symlink() for path in (site, site / str(fedora), site / f'{fedora}/testing', repository, repodata)):
+    if any(path.is_symlink() for path in (site, site / str(fedora), site / f'{fedora}/{channel}', repository, repodata)):
         raise ValueError('Metadata directories must not be links')
     files = [site / 'RPM-GPG-KEY-aurora', repository / 'manifest.json',
              repodata / 'repomd.xml', repodata / 'repomd.xml.asc']
@@ -90,7 +100,9 @@ def main():
     parser.add_argument("--rpms", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--asset-base", required=True)
-    parser.add_argument("--snapshot", help="Immutable testing tag whose signed metadata should be retained")
+    parser.add_argument("--snapshot", help="Immutable snapshot tag whose signed metadata should be retained")
+    parser.add_argument("--channel", choices=("testing", "edge"), default="testing",
+                        help="publication lane: edge snapshots carry one aurora-edge kernel and Mesa pair")
     parser.add_argument("--credentials-stdin", action="store_true")
     parser.add_argument("--dry-run-public-key", type=Path,
                         help="sign with a throwaway key whose public half is given here (dry runs only)")
@@ -99,7 +111,7 @@ def main():
         parser.error("output exists; use a fresh repository snapshot")
     if args.snapshot:
         try:
-            fedoralib.snapshot(args.snapshot, args.fedora_release)
+            validate_snapshot(args.snapshot, args.fedora_release, args.channel)
         except ValueError as error:
             parser.error(str(error))
     url = urllib.parse.urlsplit(args.asset_base)
@@ -135,7 +147,9 @@ def main():
             ["gpg", "--batch", "--with-colons", "--import-options", "show-only", "--import", str(public_key)],
             text=True).split("fpr:::::::::", 1)[1].split(":", 1)[0]
     args.output.mkdir(parents=True)
-    destination = args.output / f"{args.fedora_release}/testing/aarch64"
+    if args.channel == "edge" and not args.snapshot:
+        parser.error("an Edge repository is always an immutable snapshot")
+    destination = args.output / f"{args.fedora_release}/{args.channel}/aarch64"
     destination.mkdir(parents=True)
     with tempfile.TemporaryDirectory(prefix="aurora-signing-") as directory:
         home = Path(directory)
@@ -169,12 +183,12 @@ def main():
         run(*gpg, "--verify", str(repomd) + ".asc", str(repomd))
         shutil.copyfile(public_key, args.output / "RPM-GPG-KEY-aurora")
         (destination / "manifest.json").write_text(json.dumps({
-            "schema": 1, "channel": "testing", "fedora": args.fedora_release, "architecture": "aarch64",
+            "schema": 1, "channel": args.channel, "fedora": args.fedora_release, "architecture": "aarch64",
             "signing_key": expected, "asset_base": args.asset_base, "dry_run": bool(args.dry_run_public_key),
             "packages": manifest,
         }, indent=2) + "\n")
         if args.snapshot:
-            archive = archive_metadata(args.output, args.snapshot, args.fedora_release)
+            archive = archive_metadata(args.output, args.snapshot, args.fedora_release, args.channel)
             run(*gpg, "--local-user", expected, "--armor", "--detach-sign", str(archive))
             run(*gpg, "--verify", str(archive) + ".asc", str(archive))
         run("gpgconf", "--homedir", str(home), "--kill", "gpg-agent")

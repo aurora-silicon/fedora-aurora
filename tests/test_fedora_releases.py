@@ -173,10 +173,11 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(old['check-firmware.py'].read_bytes(), new['check-firmware.py'].read_bytes())
         self.assertIn('python3 %{SOURCE1} build', new['avd-fw.spec'].read_text())
 
-    def test_pages_preserve_all_three_channels_when_either_testing_channel_changes(self):
+    def test_pages_preserve_every_channel_when_either_testing_channel_changes(self):
         site = module('channel-site')
         state = updatelib.empty_channels('aurora-silicon/fedora-aurora')
-        for key, tag in [('testing', 'testing-old.1'), ('stable', 'testing-old.1'), ('45/testing', 'testing-f45-old.1')]:
+        for key, tag in [('testing', 'testing-old.1'), ('stable', 'testing-old.1'), ('45/testing', 'testing-f45-old.1'),
+                         ('edge', 'edge-20261121.1')]:
             state = updatelib.record_channel(state, key, {'tag': tag})
         for fedora in (44, 45):
             with self.subTest(fedora=fedora), tempfile.TemporaryDirectory() as temporary:

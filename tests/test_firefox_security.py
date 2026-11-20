@@ -211,7 +211,8 @@ class EndToEndTests(unittest.TestCase):
         argv = ['check-firefox-security.py', '--release', '44', '--now', now,
                 '--bodhi', f'44={FIXTURES / "bodhi-f44.json"}',
                 '--served', f'44/testing={FIXTURES / "primary-44-testing.xml"}',
-                '--served', f'44/stable={FIXTURES / "absent.xml"}']
+                '--served', f'44/stable={FIXTURES / "absent.xml"}',
+                '--served', f'44/edge={FIXTURES / "absent.xml"}']
         out = io.StringIO()
         with mock.patch('sys.argv', argv), \
                 mock.patch.object(sla.GitHub, 'issues', return_value=list(issues)), \
