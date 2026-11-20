@@ -19,7 +19,7 @@
 
 Name:       fex-emu
 Version:    2610
-Release:    5%{?dist}.aurora
+Release:    6%{?dist}.aurora
 Summary:    Fast usermode x86 and x86-64 emulator for ARM64
 
 # FEX itself is MIT, see below for the bundled libraries
@@ -51,6 +51,8 @@ Source12:   compatibilitytool.vdf
 # The global config: FEX uses fex-emu-rootfs-fedora's image unless a user's
 # own Config.json names another RootFS.
 Source13:   Config.json
+# Points FEX's global RootFS at the Aurora Mesa provider while it is mounted.
+Source14:   aurora-fex-rootfs
 SourceLicense: %{fex_license} %{sysroot_license}
 
 # Bundled dependencies are git submodules upstream; each is pinned in
@@ -71,6 +73,9 @@ Patch0:     0001-FEXInterpreter-name-the-distribution-RootFS-package.patch
 # erofsfuse can't serve /dev/fuse from a 4 KiB page tree; FEXServer starts it
 # with native pages.
 Patch1:     0002-FEXServer-run-the-RootFS-image-FUSE-helper-with-native-pages.patch
+# /run/fex-emu/Config.json overrides the global config: aurora-fex-rootfs
+# names the Aurora Mesa provider there while it is mounted.
+Patch2:     0003-Config-read-a-runtime-system-config-over-the-global-one.patch
 Provides:   bundled(cpp-optparse) = 0
 Provides:   bundled(kernel) = 6.17
 Provides:   bundled(jemalloc) = 5.3.0
@@ -124,6 +129,14 @@ Requires:       aurora-userpages
 # The default RootFS. A weak dependency: dnf installs it by default, and users
 # with another RootFS can remove its 1.9 GB.
 Recommends:     fex-emu-rootfs-fedora
+# Aurora's x86 Mesa, which the global RootFS uses while it is mounted, on
+# systems with Aurora's host Mesa (the guest driver must match it). Rich, so
+# systems with Fedora's own Mesa pull nothing, and dnf5's weak dependency
+# autodetection (which skips rich ones) doesn't exclude the guest for good
+# after a transaction that couldn't install it.
+Recommends:     (mesa-aurora-fex-guest if mesa-aurora-dri-drivers)
+# aurora-fex-rootfs mounts and checks the provider's bind.
+Requires:       util-linux-core
 # FEXServer mounts .erofs RootFS images with erofsfuse; fusermount3 lets it do
 # that as an ordinary user and unmount them again.
 Requires:       erofs-fuse
@@ -259,6 +272,7 @@ install -Dm644 '%{SOURCE9}' '%{buildroot}%{_unitdir}/usr-share-guestos-fex\x2dme
 install -Dm644 %{SOURCE10} %{buildroot}%{_unitdir}/aurora-fex-mesa.service.d/50-aurora-fex-rootfs.conf
 install -d %{buildroot}%{_datadir}/guestos/fex-mesa
 install -Dm755 %{SOURCE11} %{buildroot}%{_libexecdir}/fex-emu/aurora-fex-provider-up
+install -Dm755 %{SOURCE14} %{buildroot}%{_libexecdir}/fex-emu/aurora-fex-rootfs
 DESTDIR=%{buildroot}%{steamtool} cmake --install steam-build
 install -Dm644 %{SOURCE12} %{buildroot}%{steamtool}/compatibilitytool.vdf
 install -Dm644 %{SOURCE13} %{buildroot}%{_datadir}/fex-emu/Config.json
@@ -278,10 +292,15 @@ for f in %{buildroot}%{_binfmtdir}/FEX-x86.conf %{buildroot}%{_binfmtdir}/FEX-x8
 done
 # The missing-RootFS error names the package.
 grep -qaF fex-emu-rootfs-fedora %{buildroot}%{_bindir}/FEX
+# FEX reads the runtime config aurora-fex-rootfs writes.
+grep -qaF /run/fex-emu/Config.json %{buildroot}%{_bindir}/FEX
 
 %postun
 if [ $1 -eq 0 ]; then
 /bin/systemctl try-restart systemd-binfmt.service
+# Nothing reads the runtime config or the provider's bind without FEX.
+rm -f /run/fex-emu/Config.json
+umount /run/fex-emu/rootfs 2>/dev/null || :
 fi
 
 %posttrans
@@ -290,6 +309,10 @@ fi
 %{_libexecdir}/fex-emu/aurora-fex-provider-up
 %triggerin -- mesa-aurora-fex-guest
 [ $2 -gt 1 ] || %{_libexecdir}/fex-emu/aurora-fex-provider-up
+# The guest is gone: its service's stop already moved FEX back to the stock
+# image unless the provider stayed mounted in use. Check again without it.
+%triggerpostun -- mesa-aurora-fex-guest
+[ $2 -gt 0 ] || %{_libexecdir}/fex-emu/aurora-fex-rootfs || :
 
 %files
 %license LICENSE
@@ -340,6 +363,21 @@ fi
 %endif
 
 %changelog
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 2610-6.aurora
+- x86 programs use Aurora's x86 Mesa by default, not only Steam's FEX
+  titles: while mesa-aurora-fex-guest's provider is mounted, FEX's global
+  RootFS is a bind of it at /run/fex-emu/rootfs, named in a runtime config
+  (/run/fex-emu/Config.json) that FEX now reads over the global one.
+  Otherwise FEX uses the stock image as before. A user's Config.json and
+  FEX_ROOTFS still override it.
+  The runtime config is renamed into place only once written in full and
+  checked; otherwise none is left (a full /run) and FEX stays on the stock
+  image.
+- Recommend mesa-aurora-fex-guest on systems with Aurora's host Mesa, so
+  installs and upgrades add it.
+- Bring the provider up before user sessions start, and mount it again once
+  the stock image is there if it came up without it.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 2610-5.aurora
 - FEX from aurora-silicon/fex at 0c08727 (main's tree): c2c22c6 plus the
   timed futex-wait unit tests allowing for clock slew. FEX itself is
