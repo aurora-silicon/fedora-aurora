@@ -7,10 +7,13 @@ from pathlib import Path
 import subprocess
 import sys
 
-KREL = "7.3.0-42.fc44.aurora.aarch64"
+KREL = "7.3.0-43.fc44.aurora.aarch64"
+KERNEL_DIGEST = "701ed7f29d693e439083508546d96c4917431e35f725465a154c855008c2c5bf"
+SIGNING_RUN = 44694386531
+MESA = "418bf795a98c0cfe044f87d724a5db7b6b980b56"
 FILES = {
-    f"root:usr/lib/modules/{KREL}/vmlinuz": "d6903588ce991dec6b65beafede9f6b0361d3904af8fd989b6c4bf143bb00fea",
-    f"boot:vmlinuz-{KREL}": "d6903588ce991dec6b65beafede9f6b0361d3904af8fd989b6c4bf143bb00fea",
+    f"root:usr/lib/modules/{KREL}/vmlinuz": KERNEL_DIGEST,
+    f"boot:vmlinuz-{KREL}": KERNEL_DIGEST,
 }
 REQUIRED = {"kernel-aurora-core.aarch64", "kernel-aurora-modules-extra.aarch64",
             "mesa-aurora-vulkan-drivers.aarch64", "mesa-aurora-dri-drivers.aarch64"}
@@ -18,10 +21,9 @@ REQUIRED = {"kernel-aurora-core.aarch64", "kernel-aurora-modules-extra.aarch64",
 
 def proof(root, boot, input_receipt):
     roots = {"root": root.resolve(strict=True), "boot": boot.resolve(strict=True)}
-    if (input_receipt["replacement_mesa"] != "ef112c2b86e4e19b2317cd88918e673de7fd55cf"
-            or type(input_receipt["replacement_signing_run"]) is not int
-            or input_receipt["replacement_signing_run"] <= 0):
-        raise ValueError("Expected the corrected Mesa signing receipt")
+    if (input_receipt["replacement_mesa"] != MESA
+            or input_receipt["replacement_signing_run"] != SIGNING_RUN):
+        raise ValueError("Expected the single kernel and Mesa signing receipt")
     mesa_files = input_receipt["mesa_files"]
     if set(mesa_files) != {"usr/lib64/libvulkan_asahi.so", "usr/share/vulkan/icd.d/asahi_icd.aarch64.json"}:
         raise ValueError("Replacement Mesa file inventory is incomplete")
@@ -37,10 +39,10 @@ def proof(root, boot, input_receipt):
             if hashlib.file_digest(stream, "sha256").hexdigest() != expected:
                 raise ValueError(f"Image member differs from the candidate RPM bytes: {name}")
     signed = input_receipt["signed_rpms"]
-    if input_receipt["signing_run"] != 44329906984 or not REQUIRED <= signed.keys():
+    if input_receipt["signing_run"] != SIGNING_RUN or not REQUIRED <= signed.keys():
         raise ValueError("Image RPM input does not cover the tested package set")
     for key in ("mesa-aurora-vulkan-drivers.aarch64", "mesa-aurora-dri-drivers.aarch64"):
-        if "-26.3.0-33.fc44.aurora.aarch64.rpm" not in signed[key]["filename"]:
+        if "-26.3.0-34.fc44.aurora.aarch64.rpm" not in signed[key]["filename"]:
             raise ValueError(f"Image candidate contains stale Mesa: {key}")
     installed = subprocess.check_output(
         ["rpm", "--root", str(root), "-qa", "--qf", "%{NAME}.%{ARCH}\t%{NEVRA}\n"], text=True)

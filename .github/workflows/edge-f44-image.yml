@@ -1,16 +1,20 @@
-name: Assemble the replacement F44 Neo Edge image artifact
+name: Assemble the F44 Neo Edge image artifact (linux e0ee46a1, mesa 418bf795)
 on:
   push:
-    branches: [edge/neo-f44-image-ef112c2b]
-    paths: [.github/neo-edge-replacement-signing.json]
+    branches: [edge/neo-f44-image-e0ee46a1]
+    paths: [.github/neo-edge-signing.json]
 permissions:
   contents: read
   actions: read
   attestations: write
   id-token: write
+env:
+  SIGNING_RUN: '44694386531'
+  SIGNING_HEAD: '86ac3540dc87048ae91c4fae28c659529256e34f'
+  PACKAGE_HEAD: aa7aca2e85e0ccee36fb5df45921804726538cb6
 jobs:
   image:
-    if: github.repository == 'aurora-silicon/fedora-aurora' && github.ref == 'refs/heads/edge/neo-f44-image-ef112c2b'
+    if: github.repository == 'aurora-silicon/fedora-aurora' && github.ref == 'refs/heads/edge/neo-f44-image-e0ee46a1'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 180
     steps:
@@ -22,38 +26,31 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh api repos/aurora-silicon/fedora-aurora/actions/runs/44329906984 |
-            jq -e '.conclusion=="success" and .head_sha=="c24f6f11cafe6cf659c02a6a5f0d3574fe58250e"
-                    and .path==".github/workflows/edge-f44-sign-rpms.yml"'
-          gh run download 44329906984 -R aurora-silicon/fedora-aurora -n f44-edge-signed-rpms -D signed
+          config=.github/neo-edge-signing.json
+          jq -e --arg run "$SIGNING_RUN" --arg head "$SIGNING_HEAD" \
+            '(.run|tostring)==$run and .head==$head' "$config"
+          gh api "repos/aurora-silicon/fedora-aurora/actions/runs/$SIGNING_RUN" |
+            jq -e --arg head "$SIGNING_HEAD" '.conclusion=="success" and .head_sha==$head
+                    and .head_branch=="main" and .path==".github/workflows/edge-f44-sign-rpms.yml"'
+          gh run download "$SIGNING_RUN" -R aurora-silicon/fedora-aurora -n f44-edge-signed-rpms -D signed
           for subject in signed/equivalence.json signed/rpms/*.rpm; do
             gh attestation verify "$subject" --repo aurora-silicon/fedora-aurora \
               --signer-workflow aurora-silicon/fedora-aurora/.github/workflows/edge-f44-sign-rpms.yml \
-              --source-digest c24f6f11cafe6cf659c02a6a5f0d3574fe58250e --deny-self-hosted-runners
+              --source-digest "$SIGNING_HEAD" --deny-self-hosted-runners
           done
-          config=.github/neo-edge-replacement-signing.json
-          replacement_run=$(jq -er '.run | select(type == "number")' "$config")
-          replacement_head=$(jq -er '.head | select(test("^[a-f0-9]{40}$"))' "$config")
-          [[ $replacement_run =~ ^[1-9][0-9]*$ ]]
-          gh api "repos/aurora-silicon/fedora-aurora/actions/runs/$replacement_run" |
-            jq -e --arg head "$replacement_head" '.conclusion=="success" and .head_sha==$head
-              and .head_branch=="main" and .path==".github/workflows/edge-f44-sign-mesa-replacement.yml"'
-          gh run download "$replacement_run" -R aurora-silicon/fedora-aurora -n f44-edge-signed-mesa-ef112c2b -D replacement
-          for subject in replacement/equivalence.json replacement/sources.json replacement/build-run.json replacement/rpms/*.rpm; do
-            gh attestation verify "$subject" --repo aurora-silicon/fedora-aurora \
-              --signer-workflow aurora-silicon/fedora-aurora/.github/workflows/edge-f44-sign-mesa-replacement.yml \
-              --source-digest "$replacement_head" --deny-self-hosted-runners
-          done
-          printf 'REPLACEMENT_SIGNING_RUN=%s\n' "$replacement_run" >> "$GITHUB_ENV"
+          # The signer pins the package run to PACKAGE_HEAD; check the source pair it packaged.
+          jq -e --arg head "$PACKAGE_HEAD" '.head_sha==$head and .path==".github/workflows/rpms.yml"' signed/build-run.json
+          gh api "repos/aurora-silicon/fedora-aurora/contents/sources.json?ref=$PACKAGE_HEAD" \
+            -H 'Accept: application/vnd.github.raw+json' > signed-sources.json
       - name: Assemble from the frozen local RPM repository
         run: |
           set -euo pipefail
           mkdir -p out
           docker run --rm --privileged -v /dev:/dev -v /run/udev:/run/udev:ro -v "$PWD:/src" -w /src \
-            -e REPLACEMENT_SIGNING_RUN -e AURORA_EDGE_REPOSITORY=/src/out/edge-repo \
+            -e SIGNING_RUN -e AURORA_EDGE_REPOSITORY=/src/out/edge-repo \
             registry.fedoraproject.org/fedora:44@sha256:b96f024cecbe9515eb049107d2856e7ad923f7aac09a3c90e7a0d52a46fa3454 bash -euo pipefail -c '
               dnf install -y kiwi-cli kiwi-systemdeps distribution-gpg-keys git gnupg2 python3 xz zstd btrfs-progs cryptsetup util-linux cpio e2fsprogs createrepo_c curl rpm cpio
-              python3 .github/scripts/edge-f44-repository.py signed replacement out/edge-repo out/edge-repository-receipt.json "$REPLACEMENT_SIGNING_RUN"
+              python3 .github/scripts/edge-f44-repository.py signed signed-sources.json out/edge-repo out/edge-repository-receipt.json "$SIGNING_RUN"
               bash scripts/build-image fedora-kde
             ' 2>&1 | tee image-build.log
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
@@ -71,3 +68,11 @@ jobs:
             out/fedora-kde-installer/image.json
             out/edge-repository-receipt.json
             image-build.log
+      # The proof alone, so later steps can read its digest without the 5 GB candidate.
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fedora-kde-edge-image-proof
+          path: |
+            out/fedora-kde-installer/edge-image-proof.json
+            out/edge-repository-receipt.json
+          if-no-files-found: error
