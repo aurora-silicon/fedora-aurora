@@ -1,6 +1,6 @@
 %global majorversion 1
 %global minorversion 6
-%global microversion 9
+%global microversion 11
 
 %global apiversion   0.3
 %global spaversion   0.2
@@ -74,7 +74,7 @@ Version:        %{majorversion}.%{minorversion}.%{microversion}
 # Fedora's release plus a suffix, so this sorts above the Fedora 1.6.9 build
 # it replaces (1.fc44 < 1.fc44.aurora5). Hold it with a versionlock: a newer
 # Fedora PipeWire would replace it and drop these patches.
-Release:        %{baserelease}%{?snapdate:.%{snapdate}git%{shortcommit}}%{?dist}.aurora9
+Release:        %{baserelease}%{?snapdate:.%{snapdate}git%{shortcommit}}%{?dist}.aurora1
 Vendor:         Aurora Silicon
 # PipeWire is generally MIT but includes plugins using libraries under other licenses.
 # See the module specific License for details.
@@ -982,6 +982,10 @@ systemctl --no-reload preset --global pipewire.socket >/dev/null 2>&1 || :
 %{_datadir}/pipewire/pipewire.conf.d/50-raop.conf
 
 %changelog
+* Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.6.11-1.aurora1
+- Update to 1.6.11 (Fedora 1.6.10-1, 1.6.11-1); the eleven Aurora patches
+  apply unchanged
+
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.6.9-1.aurora9
 - libs: provide pipewire-speaker-graph = 2 (Patch1006-1008, Patch1010), so
   speakerguardd-v2 can require this build instead of any PipeWire
