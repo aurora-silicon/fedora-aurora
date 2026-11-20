@@ -1,16 +1,17 @@
-%global commit bbd9ed30ac43ff4fee3a8b279ff994180d8148cb
+%global commit dafc508877e3100b4dc2edf6727243ee4eef193d
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261117
+%global snapdate 20261120
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.16.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.18.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
 License: MIT
 URL: https://github.com/aurora-silicon/speakerguardd/tree/v2/packaging/upgrade
 Source0: aurora-speaker-upgrade-%{commit}.tar.gz
+Source1: 50-aurora-speaker-upgrade.preset
 BuildArch: noarch
 BuildRequires: make systemd-rpm-macros python3 python3-cryptography lzfse-libs
 Requires: python3 python3-cryptography lzfse-libs util-linux alsa-utils systemd
@@ -27,7 +28,8 @@ bundle from Linux: from an installer bundle of this unit, the installed
 macOS's System volume, Apple's restore image of that build by HTTP ranges, or
 a collection made on macOS. It stores the bundle root-only, lets v2's silent
 self-check prove it, and switches the kernel's speaker interface only on a
-pass. The legacy stack stays installed. The service ships disabled.
+pass. The legacy stack stays installed and keeps any Mac whose self-check
+refuses. The service is enabled by preset.
 
 %prep
 %autosetup -n speakerguardd-%{commit}
@@ -39,6 +41,7 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 
 %install
 %make_install -C packaging/upgrade PREFIX=%{_prefix} UNITDIR=%{_unitdir} V2UNIT=speakerguardd-v2.service
+install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.preset
 
 %post
 %systemd_post aurora-speaker-upgrade.service
@@ -56,10 +59,18 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 %{_prefix}/lib/aurora-speaker-upgrade/
 %{_datadir}/aurora-speaker-upgrade/restore-images.json
 %{_unitdir}/aurora-speaker-upgrade.service
+%{_presetdir}/50-aurora-speaker-upgrade.preset
 %dir %{_unitdir}/speakerguardd-v2.service.d
 %{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.18.20261120gitdafc508877e3
+- Enable aurora-speaker-upgrade.service by preset: at the next boot each
+  Mac moves its speakers to speakerguardd v2 when its own tuning passes the
+  silent self-check; a refused Mac keeps speakersafetyd and is not retried
+  until the kernel, speakerguardd or the tool changes.
+- Rebuilt from speakerguardd 1.0.0-alpha.2 (main dafc5088).
+
 * Tue Nov 17 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.16.20261117gitbbd9ed30ac43
 - Release candidate 9 (speakerguardd#144): switch without the preview
   confirmation; --i-understand-preview is still accepted and has no effect.

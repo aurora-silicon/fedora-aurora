@@ -40,6 +40,7 @@ CHANGELOG = """\
   GBM device behind VA-API DMABuf surfaces.
 - No debuginfo, no Rust debug info and no WASI SDK build, to fit the native
   builder.
+- Build with Fedora's cbindgen package instead of the bundled copy.
 
 """
 
@@ -71,6 +72,13 @@ def edit_spec(text, commit, date):
     # without debug info on its smaller architectures.
     text = once(text, r'^%ifarch %\{ix86\} s390x ppc64le\n(export RUSTFLAGS="-Cdebuginfo=0")$',
                 r'%ifarch %{ix86} s390x ppc64le aarch64\n\g<1>', 'Rust debug info')
+    # Fedora's cbindgen package is the version Firefox vendors, and building
+    # the vendored copy fails with Fedora 45's cargo ("failed to select a
+    # version for the requirement `clap`": the crate's lock file and the
+    # vendor tarball disagree).  Use the package on Fedora, as the spec's own
+    # comment suggests when one is available.
+    text = once(text, r'^(%else\n)%global use_bundled_cbindgen  1$', r'\g<1>%global use_bundled_cbindgen  0',
+                'bundled cbindgen')
     text = once(text, r'^(Release:\s+\S+%\{\?dist\})$', r'\g<1>' + AURORA_RELEASE, 'Release')
     patches = list(re.finditer(r'^Patch\d+:.*$', text.split('\n%description', 1)[0], re.M))
     if not patches:

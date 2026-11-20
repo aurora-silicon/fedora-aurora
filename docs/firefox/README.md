@@ -105,6 +105,11 @@ merges it once both passed and starts publication for both releases. A failed
 proposal build fails the workflow. `TRACK_FIREFOX=false` stops the tracker and
 `AUTO_MERGE_FIREFOX=false` keeps proposals unmerged.
 
+Fedora security updates have a deadline: Aurora's testing channel must serve
+the rebuild within 72 hours of Fedora's push and stable within 7 days. The
+owners, escalation, how freshness is checked and the stock Fedora Firefox
+fallback for users are in [security-updates.md](security-updates.md).
+
 To import by hand:
 
 ```sh
