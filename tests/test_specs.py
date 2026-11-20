@@ -621,25 +621,35 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(text, r'(?m)^Source\d+: 60-aurora-t6041-trackpad\.quirks$')
         core_files = text.split('%files core', 1)[1].split('%files kdump', 1)[0]
         self.assertIn('%{_datadir}/libinput/60-aurora-t6041-trackpad.quirks', core_files)
-    def test_t6041_power_defaults_apply_on_the_t6041_only(self):
+    def test_power_defaults_apply_on_every_apple_silicon_mac(self):
+        # Same unit as ALARM's aurora-system-fixes: neither setting depends on
+        # the SoC, so one unit, skipped by ConditionFirmware off Apple silicon.
         d = ROOT / 'packages' / 'aurora-platform'
+        self.assertFalse((d / 'aurora-t6041-power.service').exists())
+        text = (d / 'aurora-power-defaults.service').read_text()
         unit = configparser.ConfigParser(interpolation=None, strict=False)
         unit.optionxform = str
-        unit.read_string((d / 'aurora-t6041-power.service').read_text())
-        self.assertEqual(unit['Unit']['ConditionFirmware'], 'device-tree-compatible(apple,t6041)')
+        unit.read_string(text)
+        self.assertEqual(unit['Unit']['ConditionFirmware'], 'device-tree-compatible(apple,arm-platform)')
+        # aurora-power-modes takes the values it finds at start as the boot
+        # baseline that Balanced restores, so these must be in place first.
+        self.assertIn('aurora-power-modes.service', unit['Unit']['Before'].split())
+        self.assertIn('sysinit.target', unit['Unit']['Before'].split())
         self.assertEqual(unit['Service']['Type'], 'oneshot')
-        lines = (d / 'aurora-t6041-power.service').read_text().splitlines()
-        self.assertEqual([l for l in lines if l.startswith('ExecStart=')], [
-            "ExecStart=/bin/sh -c 'echo powersupersave > /sys/module/pcie_aspm/parameters/policy'",
-            'ExecStart=/usr/sbin/sysctl -q -w kernel.sched_util_clamp_min_rt_default=0'])
         self.assertNotIn('Install', unit)
-        text = (d / 'aurora-platform.spec').read_text()
-        self.assertRegex(text, r'(?m)^Source\d+: aurora-t6041-power\.service$')
-        self.assertIn('ln -s ../aurora-t6041-power.service '
-                      '%{buildroot}%{_unitdir}/sysinit.target.wants/aurora-t6041-power.service', text)
-        core_files = text.split('%files core', 1)[1].split('%files kdump', 1)[0]
-        self.assertIn('%{_unitdir}/aurora-t6041-power.service', core_files)
-        self.assertIn('%{_unitdir}/sysinit.target.wants/aurora-t6041-power.service', core_files)
+        # "-": a kernel booted with pcie_aspm=off refuses the policy and
+        # must still get the sysctl.
+        self.assertEqual([l for l in text.splitlines() if l.startswith('ExecStart=')], [
+            "ExecStart=-/bin/sh -c 'echo powersupersave > /sys/module/pcie_aspm/parameters/policy'",
+            'ExecStart=/usr/sbin/sysctl -q -w kernel.sched_util_clamp_min_rt_default=0'])
+        spec = (d / 'aurora-platform.spec').read_text()
+        self.assertNotIn('aurora-t6041-power.service', spec.split('%changelog', 1)[0])
+        self.assertRegex(spec, r'(?m)^Source\d+: aurora-power-defaults\.service$')
+        self.assertIn('ln -s ../aurora-power-defaults.service '
+                      '%{buildroot}%{_unitdir}/sysinit.target.wants/aurora-power-defaults.service', spec)
+        core_files = spec.split('%files core', 1)[1].split('%files kdump', 1)[0]
+        self.assertIn('%{_unitdir}/aurora-power-defaults.service', core_files)
+        self.assertIn('%{_unitdir}/sysinit.target.wants/aurora-power-defaults.service', core_files)
     def test_platform_core_carries_no_kernel_or_boot_chain(self):
         d = ROOT / 'packages' / 'aurora-platform'
         text = (d / 'aurora-platform.spec').read_text()
