@@ -11,6 +11,12 @@ if systemctl -q is-enabled aurora-fex-mesa.service 2>/dev/null; then
 	if systemctl -q is-active "$lower"; then
 		# A replaced image needs a fresh loop mount; the overlay holds it busy.
 		systemctl stop aurora-fex-mesa.service "$lower" || :
+	elif systemctl -q is-active aurora-fex-mesa.service &&
+		[ -e /usr/share/fex-emu/RootFS/default.erofs ] &&
+		[ -z "$(ls -A /usr/share/guestos/fex-mesa 2>/dev/null)" ]; then
+		# Up before the image arrived, over an empty lower directory: only
+		# Mesa. Mount it again with the image below it.
+		systemctl stop aurora-fex-mesa.service || :
 	fi
 	systemctl start aurora-fex-mesa.service || :
 fi

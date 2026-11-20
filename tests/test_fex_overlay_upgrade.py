@@ -292,25 +292,34 @@ class FexProviderUpTests(unittest.TestCase):
     """aurora-fex-provider-up restarts an enabled provider and always lets the
     RootFS follow the provider's state."""
 
-    def run_up(self, systemd=True, enabled=True, lower_active=False):
+    def run_up(self, systemd=True, enabled=True, lower_active=False, provider_active=False, image=True,
+               lower_tree=True):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / 'log').touch()
             if systemd:
                 (root / 'system').mkdir()
-            for flag, name in ((enabled, 'enabled'), (lower_active, 'lower-active')):
+            for flag, name in ((enabled, 'enabled'), (lower_active, 'lower-active'),
+                               (provider_active, 'provider-active'), (image, 'default.erofs')):
                 if flag:
                     (root / name).touch()
+            (root / 'fex-mesa').mkdir()
+            if lower_tree:
+                (root / 'fex-mesa/usr').mkdir()
             write_doubles(root, {'systemctl': '''#!/bin/bash
 printf 'systemctl %s\\n' "$*" >> "$TEST_ROOT/log"
 case "$*" in
   *is-enabled*) test -e "$TEST_ROOT/enabled" ;;
-  *is-active*) test -e "$TEST_ROOT/lower-active" ;;
+  *is-active*.mount) test -e "$TEST_ROOT/lower-active" ;;
+  *is-active*.service) test -e "$TEST_ROOT/provider-active" ;;
   *) exit 0 ;;
 esac
 ''', 'rootfs': '#!/bin/bash\necho rootfs >> "$TEST_ROOT/log"\n'})
             script = (FEX / 'aurora-fex-provider-up').read_text()
-            script = script.replace('/run/systemd/system', str(root / 'system'))
+            for path, name in (('/run/systemd/system', 'system'), ('/usr/share/fex-emu/RootFS/default.erofs', 'default.erofs'),
+                               ('/usr/share/guestos/fex-mesa', 'fex-mesa')):
+                self.assertIn(path, script)
+                script = script.replace(path, str(root / name))
             self.assertIn('/usr/libexec/fex-emu/aurora-fex-rootfs', script)
             script = script.replace('/usr/libexec/fex-emu/aurora-fex-rootfs', str(root / 'rootfs'))
             env = dict(os.environ, PATH=f'{tmp}:{os.environ["PATH"]}', TEST_ROOT=tmp)
@@ -332,6 +341,22 @@ esac
         log = self.run_up(enabled=False)
         self.assertFalse([line for line in log if 'start' in line or 'stop' in line])
         self.assertEqual(log[-1], 'rootfs')
+
+    def test_provider_up_without_its_image_below_is_remounted(self):
+        # The guest's service started before fex-emu-rootfs-fedora's image was
+        # there: the overlay holds only Mesa. Once the image is in, remount.
+        log = self.run_up(provider_active=True, lower_tree=False)
+        stop = log.index('systemctl stop aurora-fex-mesa.service')
+        self.assertLess(stop, log.index('systemctl start aurora-fex-mesa.service'))
+        self.assertEqual(log[-1], 'rootfs')
+
+    def test_provider_is_left_up_over_a_tree_or_without_an_image(self):
+        # A provider tree put there by hand, or still no image to mount.
+        for kwargs in ({'lower_tree': True}, {'lower_tree': False, 'image': False}):
+            with self.subTest(**kwargs):
+                log = self.run_up(provider_active=True, **kwargs)
+                self.assertNotIn('systemctl stop aurora-fex-mesa.service', log)
+                self.assertEqual(log[-2:], ['systemctl start aurora-fex-mesa.service', 'rootfs'])
 
     def test_nothing_runs_without_systemd(self):
         self.assertEqual(self.run_up(systemd=False), [])

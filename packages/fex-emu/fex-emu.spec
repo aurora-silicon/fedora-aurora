@@ -370,9 +370,13 @@ fi
   (/run/fex-emu/Config.json) that FEX now reads over the global one.
   Otherwise FEX uses the stock image as before. A user's Config.json and
   FEX_ROOTFS still override it.
+  The runtime config is renamed into place only once written in full and
+  checked; otherwise none is left (a full /run) and FEX stays on the stock
+  image.
 - Recommend mesa-aurora-fex-guest on systems with Aurora's host Mesa, so
   installs and upgrades add it.
-- Bring the provider up before user sessions start.
+- Bring the provider up before user sessions start, and mount it again once
+  the stock image is there if it came up without it.
 
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 2610-5.aurora
 - FEX from aurora-silicon/fex at 0c08727 (main's tree): c2c22c6 plus the
