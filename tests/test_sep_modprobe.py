@@ -112,8 +112,7 @@ class SepWritesAlwaysOnTests(unittest.TestCase):
             for name in REMOVED:
                 self.assertNotIn(f'{name}=0', text)
         self.assertIn('"xART writes are disabled: the store is read-only this boot', status)
-        self.assertIn('echo "xART writes are disabled (the gigalocker did not validate for writing)',
-                      ready)
+        self.assertIn('echo "xART writes are disabled (the store is read-only this boot', ready)
 
     @unittest.skipUnless(sys.platform == 'linux' and MODPROBE, 'needs kmod')
     def test_kmod_sees_no_write_option(self):

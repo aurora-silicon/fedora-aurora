@@ -255,7 +255,8 @@ fi
   that /etc/modprobe.d/aurora-sep.conf could replace it with a read-only
   setting, which is no longer offered. apple_sep has no xart_writes or
   provision_keybag parameter (aurora-silicon/linux#2591) and ignores a stale
-  value; on older kernels both default to 1, so writes stay on.
+  value; on older kernels both default to 1, so writes stay on, but a
+  leftover 0 still applies there and should be removed (XART-SAFETY.md).
 - aurora-sep status and aurora-sep-ready name the cases in which the xART
   store is read-only (the key-store-only initrd phase, a failed writable
   reopen, a gigalocker that did not validate) instead of xart_writes=0.
