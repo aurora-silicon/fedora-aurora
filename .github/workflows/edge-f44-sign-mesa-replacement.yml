@@ -1,11 +1,9 @@
 name: Sign the replacement F44 Edge Mesa RPMs
 on:
+  pull_request:
+    paths: [.github/workflows/edge-f44-sign-mesa-replacement.yml, .github/scripts/edge-rpm-content.py]
   workflow_dispatch:
     inputs:
-      package-run:
-        description: Successful isolated F44 replacement RPM run
-        type: string
-        required: true
       sign:
         description: Sign with the Fedora package key and retain the RPM artifact
         type: boolean
@@ -15,6 +13,10 @@ permissions: {}
 
 env:
   FEDORA_IMAGE: registry.fedoraproject.org/fedora:44@sha256:b96f024cecbe9515eb049107d2856e7ad923f7aac09a3c90e7a0d52a46fa3454
+  # Mesa-only rpms.yml run on edge-staging/linuxe0ee46a1-mesa15fe5010c149. The kernel of the pair
+  # (7.3.0-43, e0ee46a1) stays the one edge-f44-sign-rpms.yml run 44694386531 signed.
+  EDGE_RUN: '44825473029'
+  EDGE_DISTRIBUTION_HEAD: d97890916800c4df4c8d018ce25a7b2a3eb9f764
 
 jobs:
   verify:
@@ -31,21 +33,18 @@ jobs:
       - name: Verify the source run and built RPMs
         env:
           GH_TOKEN: ${{ github.token }}
-          EDGE_RUN: ${{ inputs.package-run }}
         run: |
           set -euo pipefail
-          [[ $EDGE_RUN =~ ^[1-9][0-9]*$ ]]
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$EDGE_RUN" > build-run.json
-          jq -e '.status=="completed" and .conclusion=="success" and .path==".github/workflows/rpms.yml"
-                 and .head_branch=="edge-staging/f44-mesa-ef112c2b" and .event=="workflow_dispatch"
-                 and .head_repository.full_name=="aurora-silicon/fedora-aurora"' build-run.json
-          EDGE_DISTRIBUTION_HEAD=$(jq -r .head_sha build-run.json)
-          [[ $EDGE_DISTRIBUTION_HEAD =~ ^[a-f0-9]{40}$ ]]
+          jq -e --arg sha "$EDGE_DISTRIBUTION_HEAD" \
+            '.status=="completed" and .conclusion=="success" and .path==".github/workflows/rpms.yml"
+             and .head_branch=="edge-staging/linuxe0ee46a1-mesa15fe5010c149" and .event=="workflow_dispatch"
+             and .head_sha==$sha and .head_repository.full_name=="aurora-silicon/fedora-aurora"' build-run.json
           gh api "repos/$GITHUB_REPOSITORY/contents/sources.json?ref=$EDGE_DISTRIBUTION_HEAD" \
             -H 'Accept: application/vnd.github.raw+json' > sources.json
-          jq -e '.["kernel-aurora"].commit=="6020f67d5ce13e7aae6820cd51ab70826404932c"
-                 and .["mesa-aurora"].commit=="ef112c2b86e4e19b2317cd88918e673de7fd55cf"
-                 and .["mesa-aurora-fex-guest"].commit=="ef112c2b86e4e19b2317cd88918e673de7fd55cf"' sources.json
+          jq -e '.["kernel-aurora"].commit=="e0ee46a18e33f859f6ad6863757a4650ff687ab6"
+                 and .["mesa-aurora"].commit=="15fe5010c149c79de98b869e91ac11aa38acff4a"
+                 and .["mesa-aurora-fex-guest"].commit=="15fe5010c149c79de98b869e91ac11aa38acff4a"' sources.json
           mkdir -p candidate/rpms candidate/receipts
           for package in mesa-aurora mesa-aurora-fex-guest aurora-flatpak-gl; do
             gh run download "$EDGE_RUN" --repo "$GITHUB_REPOSITORY" -n "rpm-$package" -D "download/$package"
@@ -66,14 +65,19 @@ jobs:
               cp "$file" candidate/rpms/
             done < "download/$package/runtime.tsv"
           done
-          test -f candidate/rpms/mesa-aurora-vulkan-drivers-26.3.0-33.fc44.aurora.aarch64.rpm
-          test -f candidate/rpms/mesa-aurora-dri-drivers-26.3.0-33.fc44.aurora.aarch64.rpm
+          (
+            cd candidate/rpms
+            sha256sum -c <<'SUMS'
+          89b2eee70d7f72a03863e4a148eabf4a10913c7bffb0ac16239e060a7d2c9e69  mesa-aurora-vulkan-drivers-26.3.0-35.fc44.aurora.aarch64.rpm
+          e6daf6d3155a658b31b68aabc254058d4decf5e07647cf23f14b7b66be65331f  mesa-aurora-dri-drivers-26.3.0-35.fc44.aurora.aarch64.rpm
+          SUMS
+          )
           cp sources.json candidate/
           python3 .github/scripts/edge-rpm-content.py candidate/rpms candidate/unsigned.json
           cp build-run.json candidate/
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: f44-edge-verified-mesa-ef112c2b
+          name: f44-edge-verified-mesa-15fe5010
           path: candidate
           compression-level: 0
           if-no-files-found: error
@@ -93,7 +97,7 @@ jobs:
           persist-credentials: false
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
-          name: f44-edge-verified-mesa-ef112c2b
+          name: f44-edge-verified-mesa-15fe5010
           path: candidate
       - name: Sign and verify package equivalence
         env:
@@ -133,7 +137,7 @@ jobs:
             signed/sources.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: f44-edge-signed-mesa-ef112c2b
+          name: f44-edge-signed-mesa-15fe5010
           path: signed
           compression-level: 0
           if-no-files-found: error
