@@ -256,7 +256,8 @@ programs() { # MODE
   run "$1" ./prog64 ./prog64 --flag
   run "$1" ./prog64-pie prog64-pie
   run "$1" ./prog32 custom32 a b
-  RUN_VIA_SH=1 run "$1" ./prog64 from-a-shell c d
+  # (bash's exec hands execve an absolute path for ./prog64.)
+  RUN_VIA_SH=1 run "$1" /var/tmp/fex-binfmt/x86/prog64 from-a-shell c d
 }
 
 echo '== fex-emu 2610-6 beside binfmt-dispatcher (an Asahi upgrade): binfmt-dispatcher wins'
