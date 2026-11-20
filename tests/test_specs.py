@@ -18,6 +18,67 @@ def distgit_inputs(directory):
         return set()
     names = set(json.loads((directory / 'distgit.json').read_text()).get('fetch', {}))
     return names | set(re.findall(r'^SHA512 \(([^)]+)\) = ', (directory / 'sources').read_text(), re.M))
+
+
+# systemd-binfmt's configuration directories, the first winning a file name.
+BINFMT_DIRS = ('/etc/binfmt.d', '/run/binfmt.d', '/usr/local/lib/binfmt.d', '/usr/lib/binfmt.d')
+
+
+def binfmt_registrations(tree):
+    """binfmt_misc's handlers, newest first, as systemd-binfmt leaves them.
+
+    tree maps a directory to {file name: text}. systemd-binfmt flushes every
+    handler, then reads the files in file-name order, each name from the
+    first directory that has it, and registers each rule after removing a
+    handler of the same name. The kernel puts a new handler first and runs
+    the first that matches, so the last registered wins.
+    """
+    files = {}
+    for directory in reversed(BINFMT_DIRS):
+        files.update(tree.get(directory, {}))
+    handlers = []
+    for name in sorted(files):
+        for line in files[name].splitlines():
+            line = line.strip()
+            if not line or line[0] in '#;':
+                continue
+            rule, kind, offset, magic, mask, interpreter, flags = line[1:].split(line[0])[:7]
+            assert kind == 'M', line
+            # binfmt_misc reads \xHH as that byte, any other character as itself.
+            unescape = lambda s: re.sub(rb'\\x([0-9a-fA-F]{2})', lambda m: bytes([int(m[1], 16)]), s.encode())
+            handlers = [h for h in handlers if h['name'] != rule]
+            handlers.insert(0, {'name': rule, 'offset': int(offset or 0), 'magic': unescape(magic),
+                                'mask': unescape(mask), 'interpreter': interpreter, 'flags': flags})
+    return handlers
+
+
+def binfmt_handler(handlers, header):
+    """The handler binfmt_misc runs for a file that starts with header."""
+    for h in handlers:
+        data = header[h['offset']:h['offset'] + len(h['magic'])]
+        if len(data) == len(h['magic']) and all((d ^ m) & k == 0 for d, m, k in zip(data, h['magic'], h['mask'])):
+            return h
+    return None
+
+
+def x86_elf_header(bits, e_type=2):
+    """The ELF header of an x86 (32) or x86-64 (64) executable, up to e_machine."""
+    ident = b'\x7fELF' + bytes([1 if bits == 32 else 2, 1, 1]) + bytes(9)
+    return ident + struct.pack('<HH', e_type, 3 if bits == 32 else 62)
+
+
+def fex_guest_argv(args, fd, at_flags=0):
+    """The arguments FEX gives the x86 program: FEX's own argv after argv[0].
+
+    FEX loads the program from fd (binfmt_misc's AT_EXECFD, or FEX_EXECVEFD)
+    when there is one, else from args[0]; the program's argv is args, without
+    args[0] when it loaded from an fd or binfmt_misc preserved argv[0]
+    (AT_FLAGS_PRESERVE_ARGV0), the layout binfmt_misc's P flag gives (FEX's
+    ELFCodeLoader).
+    """
+    return args[1:] if fd or at_flags & 1 else args
+
+
 class SpecTests(unittest.TestCase):
     def test_declared_local_sources_and_patches_are_present(self):
         pins = json.loads((ROOT / 'sources.json').read_text())
@@ -940,6 +1001,139 @@ class SpecTests(unittest.TestCase):
         spec = (d / 'fex-emu.spec').read_text()
         self.assertIn('%{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml\n', spec.split('%files\n', 1)[1])
         self.assertRegex(spec, r'(?m)^Requires:\s+aurora-userpages$')
+
+    def test_fex_is_the_only_x86_binfmt_handler(self):
+        # Fixtures: FEX's handlers from the fork's Data/binfmts at the pinned
+        # commit (prefix /usr), and binfmt-dispatcher's from Fedora 44's and
+        # 45's aarch64 binfmt-dispatcher 0.1.2, which Fedora Asahi Remix
+        # installs. Both match the same programs; binfmt-dispatcher's file
+        # names sort after FEX's.
+        d = ROOT / 'packages' / 'fex-emu'
+        fixtures = ROOT / 'tests' / 'fixtures' / 'binfmt'
+        spec = (d / 'fex-emu.spec').read_text()
+        fex = {f'FEX-{arch}.conf': (fixtures / f'FEX-{arch}.conf').read_text() for arch in ('x86', 'x86_64')}
+        dispatcher = {f.name: f.read_text() for f in fixtures.glob('zz-binfmt-dispatcher-*.conf')}
+        self.assertEqual(sorted(dispatcher), ['zz-binfmt-dispatcher-x86.conf', 'zz-binfmt-dispatcher-x86_64.conf'])
+        for arch in ('x86', 'x86_64'):
+            ours = binfmt_registrations({'/usr/lib/binfmt.d': {'a.conf': fex[f'FEX-{arch}.conf']}})[0]
+            theirs = binfmt_registrations({'/usr/lib/binfmt.d': {'a.conf': dispatcher[f'zz-binfmt-dispatcher-{arch}.conf']}})[0]
+            self.assertEqual((ours['magic'], ours['mask']), (theirs['magic'], theirs['mask']))
+        # fex-emu installs one file under each of binfmt-dispatcher's names in
+        # /etc/binfmt.d, which systemd-binfmt reads instead of /usr/lib's.
+        source = re.search(r'(?m)^Source(\d+):\s+binfmt-dispatcher-x86-off\.conf$', spec).group(1)
+        names = re.search(r'(?m)^for f in (.+); do\n  install -Dm644 %\{SOURCE' + source +
+                          r'\} %\{buildroot\}%\{_sysconfdir\}/binfmt\.d/\$f\ndone$', spec).group(1).split()
+        self.assertEqual(sorted(names), sorted(dispatcher))
+        files = spec.split('%files\n', 1)[1].split('%files', 1)[0]
+        for name in names:
+            self.assertIn(f'%config(noreplace) %{{_sysconfdir}}/binfmt.d/{name}\n', files)
+        mask = (d / 'binfmt-dispatcher-x86-off.conf').read_text()
+        for line in mask.splitlines():
+            self.assertTrue(line == '' or line.startswith('#'), line)
+        self.assertIn('sudo cp /usr/lib/binfmt.d/zz-binfmt-dispatcher-x86*.conf /etc/binfmt.d/', mask)
+        masks = dict.fromkeys(names, mask)
+        programs = {'FEX-x86_64': [x86_elf_header(64, t) for t in (2, 3)],
+                    'FEX-x86': [x86_elf_header(32, t) for t in (2, 3)]}
+        # A fresh install, and an Asahi upgrade (or binfmt-dispatcher installed
+        # later: rpm's binfmt.d trigger reruns all of systemd-binfmt).
+        for case, tree in (('fresh install', {'/usr/lib/binfmt.d': fex}),
+                           ('beside binfmt-dispatcher', {'/usr/lib/binfmt.d': {**fex, **dispatcher}, '/etc/binfmt.d': masks})):
+            with self.subTest(case=case):
+                handlers = binfmt_registrations(tree)
+                self.assertEqual(sorted(h['name'] for h in handlers), ['FEX-x86', 'FEX-x86_64'])
+                for name, headers in programs.items():
+                    for header in headers:
+                        h = binfmt_handler(handlers, header)
+                        self.assertEqual((h['name'], h['interpreter'], h['flags']), (name, '/usr/bin/FEX', 'POCF'))
+                aarch64 = b'\x7fELF\x02\x01\x01' + bytes(9) + struct.pack('<HH', 2, 183)
+                self.assertIsNone(binfmt_handler(handlers, aarch64))
+        # Without the masks (fex-emu 2610-6), binfmt-dispatcher's handlers won.
+        handlers = binfmt_registrations({'/usr/lib/binfmt.d': {**fex, **dispatcher}})
+        self.assertEqual(binfmt_handler(handlers, x86_elf_header(64))['name'], 'binfmt-dispatcher-x86_64')
+        # An owner's copy of binfmt-dispatcher's files turns them back on.
+        handlers = binfmt_registrations({'/usr/lib/binfmt.d': {**fex, **dispatcher}, '/etc/binfmt.d': dict(dispatcher)})
+        self.assertEqual(binfmt_handler(handlers, x86_elf_header(32))['name'], 'binfmt-dispatcher-x86')
+        # The build checks its own handlers against the same fields.
+        self.assertIn('grep -Eqx ":FEX-$arch:M:0:[^:]+:[^:]+:%{_bindir}/FEX:POCF" %{buildroot}%{_binfmtdir}/FEX-$arch.conf\n', spec)
+        for text in fex.values():
+            self.assertRegex(text, r'\A:FEX-x86(_64)?:M:0:[^:]+:[^:]+:/usr/bin/FEX:POCF\n\Z')
+        self.assertIn('/etc/binfmt.d', (d / 'README.aurora').read_text())
+
+    def test_fex_userpages_passes_the_programs_own_arguments(self):
+        d = ROOT / 'packages' / 'fex-emu'
+        script = (d / 'fex-userpages').read_text()
+        subprocess.run(['sh', '-n', str(d / 'fex-userpages')], check=True)
+        # fex-emu 2610-6's fex-userpages.
+        old = ('#!/bin/sh\n[ "$(getconf PAGE_SIZE)" = 4096 ] && exec /usr/bin/FEX "$@"\n'
+               'exec /usr/bin/userpages 4k /usr/bin/FEX "$@"\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            log, bindir = root / 'fex.log', root / 'bin'
+            fex, userpages, getconf = root / 'FEX', root / 'userpages', bindir / 'getconf'
+            bindir.mkdir()
+            # FEX's stand-in: its arguments, FEX_EXECVEFD(_PATH) and the file on that fd.
+            fex.write_text('#!/bin/sh\n'
+                           '{ for a in "$@"; do printf "arg %s\\n" "$a"; done\n'
+                           '  printf "fd %s\\npath %s\\n" "${FEX_EXECVEFD-}" "${FEX_EXECVEFD_PATH-}"\n'
+                           '  [ -z "${FEX_EXECVEFD-}" ] || printf "target %s\\n" "$(readlink "/proc/$$/fd/$FEX_EXECVEFD")"\n'
+                           '} > "$FEX_LOG"\n')
+            userpages.write_text('#!/bin/sh\necho "$1" > "$FEX_LOG.userpages"\nshift\nexec "$@"\n')
+            getconf.write_text('#!/bin/sh\n[ "$1" = PAGE_SIZE ] && echo "$TEST_PAGE_SIZE"\n')
+            program = root / 'x86 programs' / 'prog'
+            program.parent.mkdir()
+            program.write_bytes(x86_elf_header(64))
+            for f in (fex, userpages, getconf, program):
+                f.chmod(0o755)
+
+            def run(text, args, page, fd3=None):
+                for path in ('/usr/bin/userpages', '/usr/bin/FEX'):
+                    self.assertIn(path, text)
+                wrapper = root / 'fex-userpages'
+                wrapper.write_text(text.replace('/usr/bin/userpages', str(userpages)).replace('/usr/bin/FEX', str(fex)))
+                for f in (log, root / 'fex.log.userpages'):
+                    f.unlink(missing_ok=True)
+                env = {k: v for k, v in os.environ.items() if not k.startswith('FEX_')}
+                env.update(PATH=f'{bindir}:{os.environ["PATH"]}', FEX_LOG=str(log), TEST_PAGE_SIZE=str(page))
+                cmd = ['sh', str(wrapper), *args]
+                if fd3 is not None:
+                    # As binfmt_misc leaves it for binfmt-dispatcher: the program on fd 3.
+                    cmd = ['sh', '-c', 'exec 3<"$1"; shift; exec "$@"', 'sh', str(fd3), *cmd]
+                subprocess.run(cmd, env=env, check=True, cwd=root, stdin=subprocess.DEVNULL)
+                record = {'args': []}
+                for line in log.read_text().splitlines():
+                    key, _, value = line.partition(' ')
+                    if key == 'arg':
+                        record['args'].append(value)
+                    else:
+                        record[key] = value
+                up = root / 'fex.log.userpages'
+                record['userpages'] = up.read_text().strip() if up.exists() else None
+                return record
+
+            # binfmt-dispatcher runs its interpreter as INTERPRETER PROGRAM PATH
+            # ARGV0 [ARG...]: PROGRAM is the file on fd 3, and PATH and ARGV0
+            # what execve was given (its handlers' P flag).
+            path, argv0, args = './x86 programs/prog', 'custom-argv0', ['one', 'two words', '']
+            dispatched = [str(program), path, argv0, *args]
+            for page, launcher in ((16384, '4k'), (4096, None)):
+                with self.subTest(page=page, via='binfmt-dispatcher'):
+                    r = run(script, dispatched, page, fd3=program)
+                    self.assertEqual(r['args'], [path, argv0, *args])
+                    self.assertEqual((r['fd'], r['path'], r.get('target')), ('3', '1', str(program)))
+                    self.assertEqual(fex_guest_argv(r['args'], int(r['fd'])), [argv0, *args])
+                    self.assertEqual(r['userpages'], launcher)
+                with self.subTest(page=page, via='fex-userpages PROGRAM [ARG...]'):
+                    r = run(script, [path, *args], page)
+                    self.assertEqual((r['args'], r['fd']), ([path, *args], ''))
+                    self.assertEqual(fex_guest_argv(r['args'], 0), [path, *args])
+                    self.assertEqual(r['userpages'], launcher)
+            with self.subTest(case='fd 3 open on another file'):
+                r = run(script, dispatched, 4096, fd3='/dev/null')
+                self.assertEqual((r['args'], r['fd']), (dispatched, ''))
+            with self.subTest(case='fex-emu 2610-6'):
+                # The program got its own path as argv[1], and ARGV0 as argv[2].
+                r = run(old, dispatched, 4096, fd3=program)
+                self.assertEqual(fex_guest_argv(r['args'], int(r['fd'] or 0)), [str(program), path, argv0, *args])
 
     def test_fex_mounts_the_stock_guest_rootfs_below_the_aurora_mesa_layer(self):
         d = ROOT / 'packages' / 'fex-emu'
