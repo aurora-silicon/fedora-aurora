@@ -21,7 +21,8 @@ MODPROBE = shutil.which('modprobe', path=os.environ.get('PATH', '') + ':/usr/sbi
 
 def options(root, argv=()):
     """apple_sep's parameters as modprobe passes them: modprobe.d by file
-    name, then its own command line. The kernel keeps the last value."""
+    name, then its own command line. The kernel refuses a second value of a
+    parameter (EEXIST) and then does not load the driver."""
     files = {}
     for d in DIRS:
         for path in sorted((root / d).glob('*.conf')):
@@ -32,7 +33,12 @@ def options(root, argv=()):
             w = shlex.split(line, comments=True)
             if w[:2] == ['options', 'apple_sep']:
                 words += w[2:]
-    return dict(w.split('=', 1) for w in [*words, *argv])
+    given = [w.split('=', 1) for w in [*words, *argv]]
+    names = [name for name, _ in given]
+    twice = sorted({name for name in names if names.count(name) > 1})
+    if twice:
+        raise ValueError(f"apple_sep would not load: {', '.join(twice)} given twice")
+    return dict(given)
 
 
 def load_driver_argv():
@@ -68,9 +74,10 @@ class SepModprobeTests(unittest.TestCase):
         self.install('etc/modprobe.d/aurora-sep.conf', READ_ONLY)
         self.assertEqual(options(self.root, load_driver_argv()),
                          {'xart_writes': '0', 'provision_keybag': '0'})
-        # The options load-driver used to pass overrode it.
-        self.assertEqual(options(self.root, ['xart_writes=1', 'provision_keybag=1']),
-                         {'xart_writes': '1', 'provision_keybag': '1'})
+        # Options given to modprobe would come on top of it, and the kernel
+        # would refuse the second values: so load-driver passes none.
+        with self.assertRaisesRegex(ValueError, 'given twice'):
+            options(self.root, ['xart_writes=1', 'provision_keybag=1'])
 
     def test_the_package_installs_the_defaults(self):
         spec = (SEP / 'aurora-sep.spec').read_text()

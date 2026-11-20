@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 31%{?dist}
+Release: 32%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -252,6 +252,18 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 1-32
+- SEP writes off by default on the M5 Pro and Max (T6050). On a device tree
+  that names apple,t6050, load-driver puts "options apple_sep xart_writes=0
+  provision_keybag=0" in /run/modprobe.d/aurora-sep.conf, which replaces the
+  packaged defaults for the boot, checks with modprobe -c that the driver
+  gets exactly those values, and does not load it otherwise. xART is shared
+  with macOS and its write paths have had no trial on a T6050; every M5 Pro
+  gate ran read-only. The owner opts in with /etc/modprobe.d/aurora-sep.conf
+  (XART-SAFETY.md). There, without that file, load-driver does not finish an
+  attach the initrd started, since the initrd chose its options. No other
+  Mac changes.
+
 * Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-31
 - load-driver probes trusted keys once, after diag/keystore says the
   enclave's bring-up has ended, instead of retrying every 0.1 s for up to
