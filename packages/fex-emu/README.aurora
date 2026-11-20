@@ -75,8 +75,9 @@ bind-mounts it read-only at /run/fex-emu/rootfs and writes
       }
     }
 
-It writes the file only if the provider has Aurora's Mesa layer and an x86-64
-dynamic loader from the image below it. The provider is a kernel mount, so
+It writes the file only if the provider has Aurora's Mesa layer, the image's
+x86-64 dynamic loader below it, and the layer's x86-64 Vulkan driver in the
+same directory. The provider is a kernel mount, so
 FEXServer starts no FUSE helper for it, and it works from a 4 KiB page tree as
 the image does. When the service stops, or the
 provider can't be used, the file goes, and FEX uses the stock image through

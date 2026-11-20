@@ -129,7 +129,9 @@ guest_mesa() {
 %install
 L=%{buildroot}/usr/share/guestos/aurora-fex-mesa-layer
 mkdir -p \$L/usr/lib64 %{buildroot}/usr/share/guestos/aurora-fex-mesa
-echo "aurora $evr" > \$L/usr/lib64/libvulkan_asahi.so
+# An x86-64 ELF header, then the release.
+printf '\\177ELF\\002\\001\\001\\000\\n' > \$L/usr/lib64/libvulkan_asahi.so
+echo "aurora $evr" >> \$L/usr/lib64/libvulkan_asahi.so
 echo "$evr" > \$L/.aurora-mesa-commit
 install -Dm644 $guest/aurora-fex-mesa.service %{buildroot}%{_unitdir}/aurora-fex-mesa.service
 install -Dm644 $guest/80-aurora-fex-mesa.preset %{buildroot}%{_presetdir}/80-aurora-fex-mesa.preset
@@ -296,7 +298,7 @@ rpm -q fex-emu-2610-6.aurora mesa-aurora-fex-guest-26.3.0-30.aurora
 systemctl is-active aurora-fex-mesa.service
 systemctl show -P ExecStartPost aurora-fex-mesa.service | grep -F /usr/libexec/fex-emu/aurora-fex-rootfs
 selected
-grep -qx 'aurora 26.3.0-30.aurora' "$rootfs/usr/lib64/libvulkan_asahi.so"
+grep -aqx 'aurora 26.3.0-30.aurora' "$rootfs/usr/lib64/libvulkan_asahi.so"
 grep -qx stock "$rootfs/usr/lib64/ld-linux-x86-64.so.2"
 cp "$config" "$proof/Config.json"
 findmnt "$rootfs" > "$proof/rootfs-mount.txt"
@@ -329,7 +331,7 @@ rpm -V mesa-aurora-fex-guest
 [[ ! -e /run/aurora-fex-mesa.upgrade ]]
 systemctl is-active aurora-fex-mesa.service fex-busy.service
 selected
-grep -qx 'aurora 26.3.0-31.aurora' "$rootfs/usr/lib64/libvulkan_asahi.so"
+grep -aqx 'aurora 26.3.0-31.aurora' "$rootfs/usr/lib64/libvulkan_asahi.so"
 # The running program keeps its tree, below the new one.
 [[ $(binds) == 2 ]]
 systemctl stop fex-busy.service

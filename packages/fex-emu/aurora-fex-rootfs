@@ -20,14 +20,19 @@ dir=/run/fex-emu
 rootfs=$dir/rootfs
 config=$dir/Config.json
 
-# The provider, mounted, with Aurora's Mesa layer and an x86-64 dynamic loader
-# (where Fedora and Arch keep it) from the stock guest root filesystem below
-# it. Without a lower layer the overlay holds only Mesa.
+# The provider, mounted, with Aurora's Mesa layer over the stock guest root
+# filesystem: the x86-64 dynamic loader (where Fedora or Arch keep it) and, in
+# the same directory, an x86-64 (64-bit ELF) Vulkan driver from the layer.
+# Without a lower layer the overlay holds only Mesa, and a layer laid out for
+# another distribution's directories puts its i686 driver there.
 usable() {
-	mountpoint -q "$provider" &&
-		[ -e "$provider/.aurora-mesa-commit" ] &&
-		{ [ -e "$provider/usr/lib64/ld-linux-x86-64.so.2" ] ||
-			[ -e "$provider/usr/lib/ld-linux-x86-64.so.2" ]; }
+	mountpoint -q "$provider" && [ -e "$provider/.aurora-mesa-commit" ] || return 1
+	for lib in usr/lib64 usr/lib; do
+		[ -e "$provider/$lib/ld-linux-x86-64.so.2" ] || continue
+		[ "$(od -An -N5 -tx1 "$provider/$lib/libvulkan_asahi.so" 2>/dev/null | tr -d ' \n')" = 7f454c4602 ]
+		return
+	done
+	return 1
 }
 
 # Unmount the binds nothing uses, newest first; one in use is busy and stays,

@@ -116,19 +116,24 @@ def write_doubles(directory, doubles):
         path.chmod(0o755)
 
 
+ELF64 = b'\x7fELF\x02\x01\x01\x00'
+ELF32 = b'\x7fELF\x01\x01\x01\x00'
+FEDORA_TREE = {'.aurora-mesa-commit': b'', 'usr/lib64/ld-linux-x86-64.so.2': ELF64,
+               'usr/lib64/libvulkan_asahi.so': ELF64, 'usr/lib/libvulkan_asahi.so': ELF32}
+
+
 class FexRootfsTests(unittest.TestCase):
     """aurora-fex-rootfs points FEX's global RootFS at the provider only while
     it is a usable tree, through a bind that FEX's programs can keep busy."""
 
-    def run_select(self, mounts=(), files=('.aurora-mesa-commit', 'usr/lib64/ld-linux-x86-64.so.2'),
-                   config=False, mount_fails=False):
+    def run_select(self, mounts=(), files=FEDORA_TREE, config=False, mount_fails=False):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
         provider, run = root / 'provider', root / 'run/fex-emu'
-        for name in files:
+        for name, data in (files if isinstance(files, dict) else dict.fromkeys(files, b'')).items():
             (provider / name).parent.mkdir(parents=True, exist_ok=True)
-            (provider / name).touch()
+            (provider / name).write_bytes(data)
         provider.mkdir(exist_ok=True)
         if config:
             run.mkdir(parents=True)
@@ -167,9 +172,23 @@ class FexRootfsTests(unittest.TestCase):
         self.assertEqual([p.name for p in run.iterdir() if p.name.startswith('.')], [])
 
     def test_arch_guest_layout_is_usable(self):
-        _, _, cfg, _, rootfs, _ = self.run_select(
-            mounts=[('provider', 'ovl1', 0)], files=('.aurora-mesa-commit', 'usr/lib/ld-linux-x86-64.so.2'))
+        _, _, cfg, _, rootfs, _ = self.run_select(mounts=[('provider', 'ovl1', 0)], files={
+            '.aurora-mesa-commit': b'', 'usr/lib/ld-linux-x86-64.so.2': ELF64,
+            'usr/lib/libvulkan_asahi.so': ELF64, 'usr/lib32/libvulkan_asahi.so': ELF32})
         self.assert_selected(cfg, rootfs)
+
+    def test_fedora_layer_over_an_arch_guest_is_not_used(self):
+        # i686 Mesa in Arch's x86-64 usr/lib; x86-64 Mesa in a usr/lib64 the
+        # guest's loader never searches (alarm-aurora#335).
+        _, _, cfg, _, _, _ = self.run_select(mounts=[('provider', 'ovl1', 0)], files={
+            '.aurora-mesa-commit': b'', 'usr/lib/ld-linux-x86-64.so.2': ELF64,
+            'usr/lib/libvulkan_asahi.so': ELF32, 'usr/lib64/libvulkan_asahi.so': ELF64}, config=True)
+        self.assertIsNone(cfg)
+
+    def test_layer_without_its_x86_64_driver_is_not_used(self):
+        tree = {k: v for k, v in FEDORA_TREE.items() if k != 'usr/lib64/libvulkan_asahi.so'}
+        _, _, cfg, _, _, _ = self.run_select(mounts=[('provider', 'ovl1', 0)], files=tree)
+        self.assertIsNone(cfg)
 
     def test_without_the_provider_fex_keeps_the_stock_image(self):
         status, stack, cfg, log, _, _ = self.run_select(config=True)
@@ -180,14 +199,14 @@ class FexRootfsTests(unittest.TestCase):
 
     def test_provider_without_its_lower_layer_is_not_used(self):
         # The overlay mounted over an empty lower directory holds only Mesa.
-        _, stack, cfg, _, _, _ = self.run_select(mounts=[('provider', 'ovl1', 0)], files=('.aurora-mesa-commit',),
-                                                 config=True)
+        tree = {k: v for k, v in FEDORA_TREE.items() if 'ld-linux' not in k}
+        _, stack, cfg, _, _, _ = self.run_select(mounts=[('provider', 'ovl1', 0)], files=tree, config=True)
         self.assertIsNone(cfg)
         self.assertEqual(stack, [('provider', 'ovl1', '0')])
 
     def test_tree_without_the_aurora_layer_is_not_used(self):
-        _, _, cfg, _, _, _ = self.run_select(mounts=[('provider', 'ovl1', 0)],
-                                             files=('usr/lib64/ld-linux-x86-64.so.2',))
+        tree = {k: v for k, v in FEDORA_TREE.items() if k != '.aurora-mesa-commit'}
+        _, _, cfg, _, _, _ = self.run_select(mounts=[('provider', 'ovl1', 0)], files=tree)
         self.assertIsNone(cfg)
 
     def test_current_bind_is_kept(self):
