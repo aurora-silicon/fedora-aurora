@@ -1,6 +1,6 @@
 Name:    kwin
 Version: 6.8.2
-Release: 3%{?dist}.aurora1
+Release: 3%{?dist}.aurora2
 Summary: KDE Window manager
 
 License: BSD-2-Clause AND BSD-3-Clause AND CC0-1.0 AND GPL-2.0-only AND GPL-2.0-or-later AND GPL-3.0-only AND GPL-3.0-or-later AND LGPL-2.0-only AND LGPL-2.0-or-later AND LGPL-2.1-only AND LGPL-2.1-or-later AND LGPL-3.0-only AND (GPL-2.0-only OR GPL-3.0-only) AND (LGPL-2.1-only OR LGPL-3.0-only) AND MIT
@@ -20,7 +20,8 @@ Patch1: c9d720793bbcef9483ab290673032d39441c0e6f.patch
 
 ## proposed patches
 
-# Aurora: opt-in ambient white point in Night Light, off by default
+# Aurora: ambient white point in Night Light, on by default where a light
+# sensor reports colour
 Patch0: 0001-nightlight-ambient-white-point.patch
 
 
@@ -297,6 +298,10 @@ sed -i \
 
 
 %changelog
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 6.8.2-3.aurora2
+- Turn the ambient white point on by default (AmbientWhitePoint in kwinrc);
+  it only acts where a light sensor reports the colour of the light
+
 * Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 6.8.2-3.aurora1
 - Rebase onto Fedora 6.8.2-3: take the compositor fix for a missing render
   device (kwin_wayland crash with DisplayLink/evdi outputs), from Fedora

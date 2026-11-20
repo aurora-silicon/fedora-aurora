@@ -11,14 +11,15 @@
 
 Name:           gnome-settings-daemon
 Version:        51.1
-Release:        1%{?dist}.aurora1
+Release:        1%{?dist}.aurora2
 Summary:        The daemon sharing settings from GNOME to GTK+/KDE applications
 
 License:        GPL-2.0-or-later AND LGPL-2.1-or-later
 URL:            https://gitlab.gnome.org/GNOME/gnome-settings-daemon
 Source0:        https://download.gnome.org/sources/%{name}/%{gnome_major_version}/%{name}-%{gnome_tarball_version}.tar.xz
 
-# Aurora: opt-in ambient white point (colour plugin), off by default
+# Aurora: ambient white point (colour plugin), on by default where a light
+# sensor reports colour
 Patch0:         0001-color-ambient-white-point.patch
 
 # gsetting overrides for RHEL in general
@@ -206,6 +207,10 @@ cp %{SOURCE1} %{SOURCE100} $RPM_BUILD_ROOT%{_datadir}/glib-2.0/schemas
 %endif
 
 %changelog
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-1.aurora2
+- Turn the ambient white point on by default; it only acts where a light
+  sensor reports the colour of the light
+
 * Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-1.aurora1
 - Fedora 45: rebase the opt-in ambient white point onto GNOME 51.1
   (51 already names the compiled test schemas target, so that hunk is gone)
