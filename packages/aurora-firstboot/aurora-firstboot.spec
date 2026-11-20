@@ -1,8 +1,8 @@
-%global commit ddf5285e116b3551ed2b025112f86effaadf299d
+%global commit 625caef794d0dc71b5d7efa175dd2460535158c7
 %global selinuxtype targeted
 Name: aurora-firstboot
 Version: 0.1.13
-Release: 6%{?dist}
+Release: 7%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-platform
@@ -32,6 +32,10 @@ Mode: every 100 ms a budget from the device tree energy model is spent on
 the frequency steps that buy the most CPU capacity per milliwatt, and each
 cluster is capped to its share.
 Balanced and Performance are untouched.
+On Macs whose kernel has its own power modes (apple-clpc on the M5 Pro
+and Max and the M4 Max) every profile is handed to the kernel instead,
+which tuned-ppd does not do on device tree boots; the CPU is capped here
+only while the kernel does not hold Power Saver.
 
 %package -n aurora-gamemode
 Summary: GameMode defaults for Apple silicon: games on the P cores, schedutil kept
@@ -77,6 +81,9 @@ enable aurora-firstboot.service
 enable aurora-initrd-keymap.path
 EOF
 make install-power DESTDIR=%{buildroot} PREFIX=%{_prefix}
+# aurora-power-modes (aurora-platform#20) is not shipped here yet: see
+# fedora-aurora#404.
+rm %{buildroot}%{_libexecdir}/aurora/aurora-power-modes %{buildroot}%{_unitdir}/aurora-power-modes.service
 install -Dm644 /dev/stdin %{buildroot}/usr/lib/systemd/system-preset/90-aurora-power-budget.preset <<'EOF'
 enable aurora-power-budget.service
 EOF
@@ -177,6 +184,18 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/aurora_secboot.pp
 
 %changelog
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 0.1.13-7
+- Pin aurora-platform 625caef7 (aurora-platform#35): aurora-power-budget
+  hands each profile to the kernel's apple-clpc platform profile and caps
+  the CPU itself only while that does not hold Power Saver. tuned-ppd
+  drives only /sys/firmware/acpi/platform_profile, which device tree boots
+  lack, so with kernel-aurora 7.3.0-44 Power Saver would otherwise cap
+  nothing on the M5 Pro and Max and the M4 Max. Without a class device
+  (7.3.0-43, the other SoCs) nothing changes. Also brings aurora-platform
+  #28 (the budget wakes on D-Bus instead of a timer) and #23 (secboot's
+  execute-window chip table, same ranges). aurora-power-modes is not
+  shipped yet (#404).
+
 * Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-6
 - New subpackage aurora-gamemode: /etc/gamemode.ini pins games started
   with GameMode to the P cores and keeps schedutil (aurora-platform

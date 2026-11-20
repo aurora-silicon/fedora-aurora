@@ -64,6 +64,17 @@ untouched, and outside Power Saver the daemon only waits on D-Bus. The GPU,
 ANE, display and fan legs of Low Power Mode are not covered yet. Measurements
 are in the aurora-platform README.
 
+On the M5 Pro and Max (T6050) and the M4 Max (T6041), kernel-aurora 7.3.0-44
+and later register apple-clpc's power modes as a platform profile
+(`/sys/class/platform-profile/*/name` is `apple-clpc`). tuned's `acpi`
+plugin drives only `/sys/firmware/acpi/platform_profile`, which a device tree
+boot does not have, so `aurora-power-budget` hands each profile to that class
+device, using the names its `choices` file lists. It does not cap the CPU
+while the kernel holds `low-power`, and caps it as before if the kernel
+refuses. Without a class device nothing changes. `journalctl -u
+aurora-power-budget` logs each hand-over, and
+`/run/aurora-power-budget/status.json` shows `kernel_profiles`.
+
 ## Distribution parity
 
 ALARM and NixOS use power-profiles-daemon rather than tuned-ppd. Its current
