@@ -260,9 +260,17 @@ fi
   gets exactly those values, and does not load it otherwise. xART is shared
   with macOS and its write paths have had no trial on a T6050; every M5 Pro
   gate ran read-only. The owner opts in with /etc/modprobe.d/aurora-sep.conf
-  (XART-SAFETY.md). There, without that file, load-driver does not finish an
-  attach the initrd started, since the initrd chose its options. No other
-  Mac changes.
+  (XART-SAFETY.md), which there must set xart_writes and provision_keybag
+  once each, to 0 or 1: an empty or partial file would leave the kernel's
+  writes-on defaults, so load-driver checks it the same way and does not
+  load the driver, or finish an attach the initrd started, otherwise.
+  Without that file it does not finish such an attach either. With
+  provisioning off and no keybag, it ends without a failure instead of
+  probing for a trusted key that cannot be sealed. A driver loaded before
+  it must report the read-only options in diag/policy. No other Mac
+  changes.
+- aurora-sep-ready and XART-SAFETY.md name a file of its own for the
+  xart_guard=0 opt-out (/etc/modprobe.d/aurora-sep-guard.conf).
 
 * Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-31
 - load-driver probes trusted keys once, after diag/keystore says the
