@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 43%{?dist}
+Release: 44%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -17,6 +17,10 @@ Requires: iwlwifi-dvm-firmware iwlwifi-mvm-firmware realtek-firmware
 Requires: aurora-sep libfprint(aurora-sep) = 4
 Requires: aurora-firstboot avd-fw upower >= 1.91.4
 Requires: kernel-aurora aura uboot-aurora aurora-release aurora-logos aurora-firmware aurora-bless aurora-neo-platform-config tiny-dfr
+# GameMode with Aurora's settings on Plasma and GNOME installs, new and
+# upgraded (images also list both). Weak: `dnf remove aurora-gamemode gamemode`
+# keeps them off.
+Recommends: (aurora-gamemode if (plasma-workspace or gnome-shell))
 
 Source100: README
 Source101: aurora-platform-core.conf
@@ -261,6 +265,13 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-44
+- Recommend aurora-gamemode (and with it gamemode) on Plasma and GNOME
+  installs, so existing desktops get GameMode with Aurora's settings on
+  upgrade. Measured on J616s and Neo: -9 to -11 % frame time at two frames
+  in flight at the same energy per frame where GameMode pins (four or more
+  P cores), unchanged where it does not.
+
 * Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-43
 - aurora-platform-core requires speakerguardd-v2 and aurora-speaker-upgrade,
   whose preset moves each Mac to v2 at boot when its self-check passes.
