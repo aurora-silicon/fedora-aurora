@@ -1,11 +1,11 @@
 {
   "kernel-aurora": {
     "repository": "https://github.com/aurora-silicon/linux",
-    "commit": "9125b31475836ce0a6634df45b539c6d604f36a5",
+    "commit": "e0ee46a18e33f859f6ad6863757a4650ff687ab6",
     "version": "7.3.0",
-    "source_url": "https://codeload.github.com/aurora-silicon/linux/tar.gz/9125b31475836ce0a6634df45b539c6d604f36a5",
-    "archive_root": "linux-9125b31475836ce0a6634df45b539c6d604f36a5",
-    "sha256": "9a3969b52c6f41017b36e8bc805b63b0215fddf31b91fc5d45dd7854ab3c4f7b"
+    "source_url": "https://codeload.github.com/aurora-silicon/linux/tar.gz/e0ee46a18e33f859f6ad6863757a4650ff687ab6",
+    "archive_root": "linux-e0ee46a18e33f859f6ad6863757a4650ff687ab6",
+    "sha256": "c3df01235e2caba1fcf78a3f1663e72f9758152096168839be8c451e60c43009"
   },
   "aura": {
     "repository": "https://github.com/aurora-silicon/aura",
@@ -25,11 +25,11 @@
   },
   "mesa-aurora": {
     "repository": "https://github.com/aurora-silicon/mesa",
-    "commit": "d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614",
+    "commit": "418bf795a98c0cfe044f87d724a5db7b6b980b56",
     "version": "26.3.0",
-    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614",
-    "archive_root": "mesa-d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614",
-    "sha256": "6f8d930b3d846af6416dab55c82a9ccf8ec0d4cbbbe739016262268d7dc9ec4b"
+    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/418bf795a98c0cfe044f87d724a5db7b6b980b56",
+    "archive_root": "mesa-418bf795a98c0cfe044f87d724a5db7b6b980b56",
+    "sha256": "a51e23f661f558c5dd12651d7c6f0ca5620e77b4c4d105bcfa1a854f1667903c"
   },
   "speakerguardd": {
     "repository": "https://github.com/aurora-silicon/speakerguardd",
@@ -130,11 +130,11 @@
   },
   "mesa-aurora-fex-guest": {
     "repository": "https://github.com/aurora-silicon/mesa",
-    "commit": "d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614",
+    "commit": "418bf795a98c0cfe044f87d724a5db7b6b980b56",
     "version": "26.3.0",
-    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614",
-    "archive_root": "mesa-d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614",
-    "sha256": "6f8d930b3d846af6416dab55c82a9ccf8ec0d4cbbbe739016262268d7dc9ec4b"
+    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/418bf795a98c0cfe044f87d724a5db7b6b980b56",
+    "archive_root": "mesa-418bf795a98c0cfe044f87d724a5db7b6b980b56",
+    "sha256": "a51e23f661f558c5dd12651d7c6f0ca5620e77b4c4d105bcfa1a854f1667903c"
   },
   "alsa-utils": {
     "repository": "https://github.com/alsa-project/alsa-utils",
