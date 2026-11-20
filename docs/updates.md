@@ -233,7 +233,7 @@ Edge is the qualified channel for every M1, M2 and M3 Mac and the MacBook Neo ([
 | Step | How |
 |---|---|
 | Edge RPMs | `edge-staging/<pair>` branch with the kernel and Mesa pins (never merged), `rpms.yml` dispatched on it, then `edge-f44-sign-rpms.yml` on main (`sign=true`) |
-| Edge snapshot | `publish-edge.yml -f signing-run=<signer run> -f base-release=testing-YYYYMMDD.N`: the Testing snapshot with its kernel and Mesa RPMs replaced by the signer's exact RPMs (`scripts/edge-snapshot.py`), repository metadata signed in `testing-signing`, release `edge-YYYYMMDD.N` with `edge-sources.json` |
+| Edge snapshot | `publish-edge.yml -f signing-run=<signer run> -f base-release=testing-YYYYMMDD.N` (add `-f mesa-signing-run=<edge-f44-sign-mesa-replacement.yml run>` when the pair's Mesa was re-signed separately, as for the alpha.2 respin): the Testing snapshot with its kernel and Mesa RPMs replaced by the signer's exact RPMs (`scripts/edge-snapshot.py`), repository metadata signed in `testing-signing`, release `edge-YYYYMMDD.N` with `edge-sources.json` |
 | Images | `images.yml -f channel=edge -f edge-snapshot=edge-YYYYMMDD.N -f profile=…`: KIWI installs from the snapshot's signed metadata (packages are its release assets); the installed `aurora.repo` follows the Edge feed; `edge-image-proof.json` (schema 2) is attested and shipped |
 | Payloads | `publish-edge-payload.yml` per profile, after the train record is on aurora-distributions main |
 | Feed | `deploy-snapshot.yml -f channel=edge -f release-tag=edge-…`: serves only the snapshot the adopted train names, or a refresh carrying the very same signed kernel and Mesa RPMs (newer Testing userspace; `channel-site.py edge_gate`) |

@@ -9,6 +9,9 @@ on:
       signing-run:
         description: Successful edge-f44-sign-rpms.yml run on main (sign=true) holding the Edge RPMs
         required: true
+      mesa-signing-run:
+        description: Optional edge-f44-sign-mesa-replacement.yml run on main whose Mesa replaces the signing run's
+        default: ''
       base-release:
         description: Testing snapshot (testing-YYYYMMDD.N) supplying every other package
         required: true
@@ -90,6 +93,36 @@ jobs:
           jq -n --arg linux "$(gh api "repos/aurora-silicon/linux/git/commits/$linux" --jq .tree.sha)" \
                 --arg mesa "$(gh api "repos/aurora-silicon/mesa/git/commits/$mesa" --jq .tree.sha)" \
                 '{linux: $linux, mesa: $mesa}' > edge-trees.json
+      - name: Authenticate the Mesa replacement signer
+        if: inputs.mesa-signing-run != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MESA_SIGNING_RUN: ${{ inputs.mesa-signing-run }}
+        run: |
+          set -euo pipefail
+          [[ $MESA_SIGNING_RUN =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$MESA_SIGNING_RUN" > mesa-signing-run.json
+          jq -e '.conclusion=="success" and .head_branch=="main" and .path==".github/workflows/edge-f44-sign-mesa-replacement.yml"
+                 and .head_repository.full_name=="aurora-silicon/fedora-aurora"' mesa-signing-run.json
+          head=$(jq -r .head_sha mesa-signing-run.json)
+          artifact=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$MESA_SIGNING_RUN/artifacts" \
+            --jq '[.artifacts[] | select(.expired == false and (.name | startswith("f44-edge-signed-mesa-")))] | if length == 1 then .[0].name else error("expected one signed Mesa artifact") end')
+          gh run download "$MESA_SIGNING_RUN" --repo "$GITHUB_REPOSITORY" -n "$artifact" -D signed-mesa
+          for subject in signed-mesa/equivalence.json signed-mesa/rpms/*.rpm; do
+            gh attestation verify "$subject" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/edge-f44-sign-mesa-replacement.yml" \
+              --source-digest "$head" --deny-self-hosted-runners
+          done
+          package_head=$(jq -r .head_sha signed-mesa/build-run.json)
+          jq -e '.path==".github/workflows/rpms.yml" and .conclusion=="success"' signed-mesa/build-run.json
+          gh api "repos/$GITHUB_REPOSITORY/contents/sources.json?ref=$package_head" \
+            -H 'Accept: application/vnd.github.raw+json' > edge-mesa-sources.json
+          mesa=$(jq -r '.["mesa-aurora"].commit' edge-mesa-sources.json)
+          [[ $mesa =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/aurora-silicon/mesa/compare/$mesa...aurora-edge" --jq .status | grep -Eqx 'ahead|identical'
+          jq --arg mesa "$(gh api "repos/aurora-silicon/mesa/git/commits/$mesa" --jq .tree.sha)" '.mesa = $mesa' \
+            edge-trees.json > edge-trees.next && mv edge-trees.next edge-trees.json
+          echo "MESA_ARGS=--mesa-edge signed-mesa/rpms --mesa-sources edge-mesa-sources.json --mesa-signing-run $MESA_SIGNING_RUN" >> "$GITHUB_ENV"
       - name: Authenticate the Testing base snapshot
         env:
           GH_TOKEN: ${{ github.token }}
@@ -121,15 +154,16 @@ jobs:
           SIGNING_RUN: ${{ inputs.signing-run }}
         run: |
           set -euo pipefail
-          docker run --rm -e BASE_RELEASE -e SIGNING_RUN -v "$PWD:/src" -w /src "$FEDORA_IMAGE" bash -euo pipefail -c '
+          docker run --rm -e BASE_RELEASE -e SIGNING_RUN -e MESA_ARGS -v "$PWD:/src" -w /src "$FEDORA_IMAGE" bash -euo pipefail -c '
             dnf install -y python3 rpm
             rpmkeys --import keys/RPM-GPG-KEY-aurora
-            for rpm in base/*.rpm signed/rpms/*.rpm; do
+            for rpm in base/*.rpm signed/rpms/*.rpm signed-mesa/rpms/*.rpm; do
+              [[ -e $rpm ]] || continue
               [[ $(rpmkeys --checksig "$rpm") == *"digests signatures OK"* ]] || { echo "unsigned: $rpm" >&2; exit 1; }
             done
             python3 scripts/edge-snapshot.py --base base --edge signed/rpms --sources edge-build-sources.json \
               --trees edge-trees.json --record candidate/edge-sources.json --output candidate/complete-rpms \
-              --base-release "$BASE_RELEASE" --signing-run "$SIGNING_RUN"
+              --base-release "$BASE_RELEASE" --signing-run "$SIGNING_RUN" ${MESA_ARGS:-}
           '
           sudo chown -R "$(id -u):$(id -g)" candidate
           tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf candidate.tar -C candidate .

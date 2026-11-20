@@ -66,7 +66,7 @@ def edge_gate(record, tag, sources, adopted=None):
     if tag == entry['snapshot']:
         return 'train'
     if (not adopted or adopted.get('packaged_sources') != record.get('pair')
-            or any(sources.get(key) != adopted.get(key) for key in ('signing_run', 'edge_rpms'))):
+            or any(sources.get(key) != adopted.get(key) for key in ('signing_run', 'mesa_signing_run', 'edge_rpms'))):
         raise ValueError(f'{tag} is neither the adopted Edge train snapshot nor a refresh of its kernel and Mesa RPMs')
     return 'refresh'
 

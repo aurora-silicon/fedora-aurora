@@ -29,8 +29,18 @@ def version(key, filename):
     return filename[len(name) + 1:-len(suffix)]
 
 
-def plan(base, edge):
-    """`base` and `edge` are (NAME.ARCH, file name) rows. Returns the base files kept and the Edge files added."""
+def plan(base, edge, mesa=None, sources=False):
+    """`base` and `edge` are (NAME.ARCH, file name) rows; `mesa`, when given, are the Mesa
+    replacement signer's rows, which supply the whole Mesa family instead of `edge`.
+    Returns the base files kept and the Edge files added (and, with `sources`, which
+    signer artifact each added file comes from)."""
+    origin = {}
+    if mesa is not None:
+        if any(edgelib.family(key.rsplit('.', 1)[0]) != 'mesa' for key, _ in mesa):
+            raise ValueError('the Mesa replacement signer carries something that is not a Mesa package')
+        edge = [row for row in edge if edgelib.family(row[0].rsplit('.', 1)[0]) != 'mesa']
+        origin.update({filename: 'mesa' for _, filename in mesa})
+        edge = edge + list(mesa)
     families = {}
     replaced = set()
     for key, filename in edge:
@@ -46,12 +56,16 @@ def plan(base, edge):
     keep = sorted(filename for key, filename in base if key not in replaced)
     if len(keep) + len(replaced & {key for key, _ in base}) != len(base):
         raise ValueError('duplicate base package identity')
-    return keep, sorted(filename for _, filename in edge)
+    add = sorted(filename for _, filename in edge)
+    if sources:
+        return keep, add, {filename: origin.get(filename, 'edge') for filename in add}
+    return keep, add
 
 
-def packaged_sources(sources, trees):
+def packaged_sources(sources, trees, mesa_sources=None):
     kernel = sources['kernel-aurora']['commit']
-    mesa = {sources[name]['commit'] for name in ('mesa-aurora', 'mesa-aurora-fex-guest') if name in sources}
+    mesa_pins = mesa_sources or sources
+    mesa = {mesa_pins[name]['commit'] for name in ('mesa-aurora', 'mesa-aurora-fex-guest') if name in mesa_pins}
     if len(mesa) != 1:
         raise ValueError('the Edge build must package one Mesa revision')
     return {'linux': edgelib.source('linux', kernel, trees['linux']),
@@ -63,6 +77,9 @@ def main():
     parser.add_argument('--base', type=Path, required=True, help='downloaded Testing snapshot RPMs')
     parser.add_argument('--edge', type=Path, required=True, help='the Edge signer RPMs')
     parser.add_argument('--sources', type=Path, required=True, help='sources.json the Edge RPMs were packaged from')
+    parser.add_argument('--mesa-edge', type=Path, help='the Mesa replacement signer RPMs, when the pair has one')
+    parser.add_argument('--mesa-sources', type=Path, help='sources.json the replacement Mesa was packaged from')
+    parser.add_argument('--mesa-signing-run', type=int)
     parser.add_argument('--trees', type=Path, required=True, help='{"linux": tree, "mesa": tree} resolved from GitHub')
     parser.add_argument('--record', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
@@ -74,16 +91,22 @@ def main():
     base = [(identity(path), path.name) for path in sorted(args.base.glob('*.rpm'))]
     edge = [(identity(path), path.name) for path in sorted(args.edge.glob('*.rpm'))
             if not path.name.endswith(('.src.rpm', '.nosrc.rpm'))]
-    keep, add = plan(base, edge)
+    if bool(args.mesa_edge) != bool(args.mesa_sources) or bool(args.mesa_edge) != bool(args.mesa_signing_run):
+        parser.error('a Mesa replacement needs its RPMs, sources and signing run together')
+    mesa = None if not args.mesa_edge else [
+        (identity(path), path.name) for path in sorted(args.mesa_edge.glob('*.rpm'))
+        if not path.name.endswith(('.src.rpm', '.nosrc.rpm'))]
+    keep, add, origin = plan(base, edge, mesa, sources=True)
     args.output.mkdir(parents=True)
     for name in keep:
         shutil.copyfile(args.base / name, args.output / name)
     for name in add:
-        shutil.copyfile(args.edge / name, args.output / name)
+        shutil.copyfile((args.mesa_edge if origin[name] == 'mesa' else args.edge) / name, args.output / name)
     record = {'schema': 1, 'channel': 'edge', 'base_release': args.base_release,
-              'signing_run': args.signing_run,
-              'packaged_sources': packaged_sources(json.loads(args.sources.read_text()),
-                                                   json.loads(args.trees.read_text())),
+              'signing_run': args.signing_run, 'mesa_signing_run': args.mesa_signing_run,
+              'packaged_sources': packaged_sources(
+                  json.loads(args.sources.read_text()), json.loads(args.trees.read_text()),
+                  json.loads(args.mesa_sources.read_text()) if args.mesa_sources else None),
               'edge_rpms': add}
     args.record.write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')
     print(f'Edge snapshot: {len(keep)} Testing RPMs from {args.base_release}, {len(add)} Edge RPMs')

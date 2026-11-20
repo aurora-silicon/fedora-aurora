@@ -92,6 +92,7 @@ class ChannelSiteTests(unittest.TestCase):
         adopted = self.sources()
         self.assertEqual(site.edge_gate(self.record(), 'edge-20261128.1', self.sources(), adopted), 'refresh')
         for changed in (self.sources(signing_run=44800000000), self.sources(rpms=('kernel-aurora-core-7.3.0-44.rpm',)),
+                        dict(self.sources(), mesa_signing_run=44832807927),
                         self.sources(mesa=dict(MESA, revision='5' * 40))):
             with self.subTest(changed=changed):
                 with self.assertRaisesRegex(ValueError, 'adopted Edge train'):
@@ -121,6 +122,22 @@ class EdgeSnapshotTests(unittest.TestCase):
         keep, add = snapshot.plan(self.base, self.edge)
         self.assertEqual(keep, ['aura-1.0.0.b13.1-2.fc44.aarch64.rpm', 'aurora-platform-core-44-46.fc44.noarch.rpm'])
         self.assertEqual(add, sorted(name for _, name in self.edge))
+
+    def test_a_mesa_replacement_signer_supplies_the_mesa_family(self):
+        stale = self.edge + [('mesa-aurora-dri-drivers.aarch64', 'mesa-aurora-dri-drivers-26.3.0-34.fc44.aurora.aarch64.rpm')]
+        stale = [row if not row[0].startswith('mesa-aurora-vulkan') else
+                 (row[0], 'mesa-aurora-vulkan-drivers-26.3.0-34.fc44.aurora.aarch64.rpm') for row in stale]
+        mesa = [('mesa-aurora-vulkan-drivers.aarch64', 'mesa-aurora-vulkan-drivers-26.3.0-35.fc44.aurora.aarch64.rpm'),
+                ('mesa-aurora-dri-drivers.aarch64', 'mesa-aurora-dri-drivers-26.3.0-35.fc44.aurora.aarch64.rpm'),
+                ('aurora-flatpak-gl.aarch64', 'aurora-flatpak-gl-26.3.0-35.fc44.aurora.aarch64.rpm')]
+        keep, add, sources = snapshot.plan(self.base, stale, mesa, sources=True)
+        self.assertNotIn('mesa-aurora-vulkan-drivers-26.3.0-34.fc44.aurora.aarch64.rpm', add)
+        self.assertIn('mesa-aurora-vulkan-drivers-26.3.0-35.fc44.aurora.aarch64.rpm', add)
+        self.assertIn('kernel-aurora-core-7.3.0-43.fc44.aurora.aarch64.rpm', add)
+        self.assertEqual(sources['mesa-aurora-dri-drivers-26.3.0-35.fc44.aurora.aarch64.rpm'], 'mesa')
+        self.assertEqual(sources['kernel-aurora-core-7.3.0-43.fc44.aurora.aarch64.rpm'], 'edge')
+        with self.assertRaisesRegex(ValueError, 'not a Mesa package'):
+            snapshot.plan(self.base, stale, mesa + [self.edge[0]])
 
     def test_only_kernel_and_mesa_packages_may_come_from_the_edge_build(self):
         with self.assertRaisesRegex(ValueError, 'not a kernel or Mesa'):
