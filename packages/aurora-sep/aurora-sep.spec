@@ -263,8 +263,12 @@ fi
   (XART-SAFETY.md), which there must set xart_writes and provision_keybag
   once each, to 0 or 1: an empty or partial file would leave the kernel's
   writes-on defaults, so load-driver checks it the same way and does not
-  load the driver, or finish an attach the initrd started, otherwise.
-  Without that file it does not finish such an attach either. With
+  load the driver otherwise. It finishes an attach the initrd started
+  only when that file sets both to 1: the initrd loaded the driver with
+  its own options (on NixOS always the kernel's defaults), which a file
+  read later cannot lower. A non-regular file at that path, a bare -- or
+  a quote in an apple_sep option, or an install command for apple_sep
+  also stops it, since the driver would not take what the check saw. With
   provisioning off and no keybag, it ends without a failure instead of
   probing for a trusted key that cannot be sealed. A driver loaded before
   it must report the read-only options in diag/policy. No other Mac
