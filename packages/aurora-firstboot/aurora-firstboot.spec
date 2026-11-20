@@ -1,4 +1,4 @@
-%global commit 625caef794d0dc71b5d7efa175dd2460535158c7
+%global commit 0c44cbbc4d504b76db28ac1c9981eb1acc04908b
 %global selinuxtype targeted
 Name: aurora-firstboot
 Version: 0.1.13
@@ -185,7 +185,7 @@ fi
 
 %changelog
 * Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 0.1.13-7
-- Pin aurora-platform 625caef7 (aurora-platform#35): aurora-power-budget
+- Pin aurora-platform 0c44cbbc (aurora-platform#35): aurora-power-budget
   hands each profile to the kernel's apple-clpc platform profile and caps
   the CPU itself only while that does not hold Power Saver. tuned-ppd
   drives only /sys/firmware/acpi/platform_profile, which device tree boots
