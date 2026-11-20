@@ -17,9 +17,9 @@
 #
 # Source10 is mandatory. scripts/build-rpm builds it for both supported
 # runtimes (or consumes AURORA_FLATPAK_GL_REPO_TAR). Never publish settings alone.
-%{!?commit:%global commit 418bf795a98c0cfe044f87d724a5db7b6b980b56}
+%{!?commit:%global commit 15fe5010c149c79de98b869e91ac11aa38acff4a}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 34%{?dist}.aurora}
+%{!?host_release:%global host_release 35%{?dist}.aurora}
 %global shortcommit %{sub %{commit} 1 12}
 %global debug_package %{nil}
 %global __requires_exclude_from ^%{_datadir}/aurora-flatpak-gl/

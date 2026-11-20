@@ -1,9 +1,9 @@
-%global commit 418bf795a98c0cfe044f87d724a5db7b6b980b56
+%global commit 15fe5010c149c79de98b869e91ac11aa38acff4a
 %global debug_package %{nil}
 Name: mesa-aurora
 Epoch: 1
 Version: 26.3.0
-Release: 34%{?dist}.aurora
+Release: 35%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -202,6 +202,11 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 26.3.0-35
+- Pin the Neo Edge candidate Mesa 15fe5010 (418bf795 plus hk: report 16 mesh
+  multiview views until the CTS view mask is fixed, for
+  dEQP-VK.mesh_shader.ext.properties.max_view_index on G17P).
+
 * Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 26.3.0-34
 - Pin the Neo Edge candidate Mesa 418bf795 (aurora-wip 45963937 plus the
   #447 geometry-copy NIR free; aurora-silicon/mesa#566).
