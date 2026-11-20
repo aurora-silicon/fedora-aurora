@@ -1,10 +1,10 @@
-%global commit dafc508877e3100b4dc2edf6727243ee4eef193d
+%global commit f573f605401123cebbe0e80cbb2ddf1ceebaf8ce
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261120
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.18.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.19.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -60,10 +60,17 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.pr
 %{_datadir}/aurora-speaker-upgrade/restore-images.json
 %{_unitdir}/aurora-speaker-upgrade.service
 %{_presetdir}/50-aurora-speaker-upgrade.preset
-%dir %{_unitdir}/speakerguardd-v2.service.d
-%{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
 
 %changelog
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 0.1-0.19.20261120gitf573f6054011
+- Rebuilt from speakerguardd main f573f605: a collection that carries the
+  installer collector's buzzkill_quadrature record, which speakerguardd v2
+  does not read yet, is stored without it instead of being refused
+  (speakerguardd#213); reverting to a v2-only kernel restarts the
+  supervisor when its own wants link starts it (#215); the
+  speakerguardd-v2.service drop-in is gone, as the supervisor unit applies
+  the kernel interface itself (#205).
+
 * Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.18.20261120gitdafc508877e3
 - Enable aurora-speaker-upgrade.service by preset: at the next boot each
   Mac moves its speakers to speakerguardd v2 when its own tuning passes the

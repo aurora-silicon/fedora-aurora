@@ -1,4 +1,4 @@
-%global commit dafc508877e3100b4dc2edf6727243ee4eef193d
+%global commit f573f605401123cebbe0e80cbb2ddf1ceebaf8ce
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261120
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.2
-Release: 0.51.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.52.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -248,6 +248,15 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 1.0.0~alpha.2-0.52.20261120gitf573f6054011
+- Rebuilt from speakerguardd main f573f605: a speaker transport without
+  V/I sense is proven for one amp, the M4 Mac mini's (speakerguardd#212);
+  the supervisor and session start no refused stream and take one grant
+  per graph change (#202); provisioning at the first seat0 login counts a
+  unit its own wants link starts as enabled (#215; Fedora enables through
+  presets and keeps its behaviour); the supervisor unit applies the kernel
+  interface itself, without aurora-speaker-upgrade's drop-in (#205).
+
 * Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.2-0.51.20261120gitdafc508877e3
 - speakerguardd 1.0.0-alpha.2 (dafc5088), the first release from main now
   that v2 is speakerguardd's main line: the voicing chain stops after a long
