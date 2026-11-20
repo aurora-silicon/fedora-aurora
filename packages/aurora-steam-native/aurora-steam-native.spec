@@ -5,7 +5,7 @@
 %global lib %{_libexecdir}/aurora-steam-native
 Name: aurora-steam-native
 Version: 0
-Release: 1.gitc06f610%{?dist}
+Release: 3.gitc06f610%{?dist}
 Summary: Valve's native ARM64 Steam client in a 4 KiB page process tree
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-steam-native
@@ -18,6 +18,11 @@ Requires: aurora-userpages
 Requires: python3
 # Steam's UI modules link against GTK 2.
 Requires: gtk2
+# Valve's runtime carries libibus and lsof for x86 only; the ARM64 client takes
+# them from the host (steamwebhelper links libibus-1.0.so.5, the client runs
+# lsof for its web UI transport).
+Requires: ibus-libs
+Requires: lsof
 # x86 Linux titles run through FEX; their GPU driver is the guest Mesa.
 Requires: fex-emu
 Recommends: fex-emu-thunks
@@ -36,12 +41,19 @@ launcher for the installed games.
 %package -n steam
 Summary: Steam for Aurora (native ARM64 client)
 Requires: %{name} = %{version}-%{release}
+# `steam` registers each process Steam tracks for a game with GameMode (an
+# inotify watcher on the client's gameprocess_log.txt, busctl from systemd);
+# aurora-gamemode brings gamemoded and Aurora's settings.
+# AURORA_STEAM_GAMEMODE=0 turns it off.
+Recommends: aurora-gamemode
 
 %description -n steam
 `steam` for Aurora on Apple Silicon. The first start installs Valve's native
 ARM64 Linux client for the current user from Valve's CDN, checked against
 Valve's manifest, then starts it in a 4 KiB page process tree. The kernel
 must be booted with user4k=on (the default on Aurora images).
+Games it starts run under GameMode when gamemoded is available; set
+AURORA_STEAM_GAMEMODE=0 in the environment to start them without it.
 
 %prep
 %autosetup -n aurora-steam-native-%{commit}
@@ -91,6 +103,18 @@ done
 %{_datadir}/applications/steam.desktop
 
 %changelog
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 0-3.gitc06f610
+- `steam` runs games under GameMode: a watcher follows the client's
+  logs/gameprocess_log.txt through inotify and registers every PID Steam
+  tracks for a game with gamemoded (RegisterGameByPID), so GameMode is on
+  only while a game runs. Recommends aurora-gamemode.
+  AURORA_STEAM_GAMEMODE=0 turns it off.
+
+* Thu Nov 19 2026 Ryan Murray <ryan@aurorasilicon.org> - 0-2.gitc06f610
+- Require ibus-libs and lsof: the native client needs libibus-1.0.so.5 for
+  steamwebhelper and lsof for its web UI transport, and Valve's runtime
+  carries them for x86 only (aurora-silicon/aurora-steam-native#13).
+
 * Tue Nov 03 2026 Ryan Murray <ryan@aurorasilicon.org> - 0-1.gitc06f610
 - Package aurora-steam-native at c06f610 and ship `steam`, which installs
   Valve's native ARM64 client per user and starts it in a 4 KiB page tree.

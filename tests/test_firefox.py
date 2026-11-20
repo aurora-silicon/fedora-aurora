@@ -23,6 +23,11 @@ FEDORA_SPEC = """\
   %bcond wasi_sdk 1
 %endif
 %endif
+%if 0%{?rhel}
+%global use_bundled_cbindgen  1
+%else
+%global use_bundled_cbindgen  1
+%endif
 Version:        161.0
 Release:        2%{?dist}
 Source24:       mozilla-api-key
@@ -53,6 +58,8 @@ class FirefoxRecipeTests(unittest.TestCase):
         self.assertIn('Patch900:       rdd-v4l2-request.patch\n', text)
         self.assertIn('%patch -P900 -p1 -b .rdd-v4l2-request\n\nrm -f .mozconfig\n', text)
         self.assertIn('%global create_debuginfo  0\n', text)
+        self.assertIn('%if 0%{?rhel}\n%global use_bundled_cbindgen  1\n'
+                      '%else\n%global use_bundled_cbindgen  0\n%endif\n', text)
         self.assertIn('%else\n  %bcond wasi_sdk 0\n%endif\n%endif', text)
         self.assertIn('%ifarch %{ix86} s390x ppc64le aarch64\nexport RUSTFLAGS="-Cdebuginfo=0"\n', text)
         self.assertIn('%changelog\n* Wed Nov 11 2026 Aurora Silicon <hey@djdev.me> - 161.0-2.aurora2\n'
@@ -62,7 +69,8 @@ class FirefoxRecipeTests(unittest.TestCase):
     def test_spec_edit_refuses_a_recipe_it_does_not_recognise(self):
         for old, new in [('rm -f .mozconfig\n', ''), ('  %bcond wasi_sdk 1\n', ''),
                          ('Release:        2%{?dist}', 'Release:        2'),
-                         ('export RUSTFLAGS="-Cdebuginfo=0"\n', '')]:
+                         ('export RUSTFLAGS="-Cdebuginfo=0"\n', ''),
+                         ('%else\n%global use_bundled_cbindgen  1\n', '%else\n')]:
             with self.subTest(removed=old), self.assertRaises(SystemExit):
                 importer.edit_spec(FEDORA_SPEC.replace(old, new), '0' * 40, 'Wed Nov 11 2026')
 

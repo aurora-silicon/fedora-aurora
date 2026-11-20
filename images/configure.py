@@ -49,7 +49,12 @@ PACKAGES = {
         "aurora-sep-sk",
     ]),
     # Desktop images boot to the Aurora splash: aura's logo, kept still, with a spinner.
-    "components/desktop-environments.xml": ("DesktopCommon", ["plymouth-theme-aurora"]),
+    "components/desktop-environments.xml": ("DesktopCommon", [
+        "plymouth-theme-aurora",
+        # GameMode with Aurora's settings (P cores where a Mac has four or
+        # more, schedutil kept); Aurora's `steam` starts every game under it.
+        "gamemode", "aurora-gamemode",
+    ]),
 }
 # Fedora's imsettings turns itself off on GNOME and Plasma, but its autostart
 # entry still runs there and fails on every login. Both desktops configure

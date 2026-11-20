@@ -183,11 +183,11 @@
   },
   "omarchy-ane-tools": {
     "repository": "https://github.com/joshuaswarren/omarchy-ane",
-    "commit": "68e92712bbffa08f5002dcc542434fe1393f0578",
-    "version": "0.5.7",
-    "source_url": "https://codeload.github.com/joshuaswarren/omarchy-ane/tar.gz/68e92712bbffa08f5002dcc542434fe1393f0578",
-    "archive_root": "omarchy-ane-68e92712bbffa08f5002dcc542434fe1393f0578",
-    "sha256": "09fee8d386728939d4752acb21a3ff99192809bf608f8d1bca6cd426b460aea6",
+    "commit": "a0acd9af12346c870ee1538947cbe9f2740cb7fe",
+    "version": "0.5.13",
+    "source_url": "https://codeload.github.com/joshuaswarren/omarchy-ane/tar.gz/a0acd9af12346c870ee1538947cbe9f2740cb7fe",
+    "archive_root": "omarchy-ane-a0acd9af12346c870ee1538947cbe9f2740cb7fe",
+    "sha256": "e7a6d40a1735952eb06aebdca358ac3cee94184da48aebf8aa7cbf3ea2a9ed22",
     "redistribute_source": false
   },
   "mil-hwx-compiler": {
@@ -267,21 +267,21 @@
   },
   "lsp-plugins": {
     "repository": "https://github.com/lsp-plugins/lsp-plugins",
-    "commit": "4c5da8224af1abc279adcb959d9e932130024333",
-    "version": "1.2.29",
-    "source_url": "https://github.com/lsp-plugins/lsp-plugins/releases/download/1.2.29/lsp-plugins-src-1.2.29.tar.gz",
+    "commit": "5dc3474fa7ff74fa43ae3bb3df5e25f093787c87",
+    "version": "1.2.37",
+    "source_url": "https://github.com/lsp-plugins/lsp-plugins/releases/download/1.2.37/lsp-plugins-src-1.2.37.tar.gz",
     "archive_root": "lsp-plugins",
-    "archive_file": "lsp-plugins-src-1.2.29.tar.gz",
-    "sha256": "404297c3add879c508db06d5119e11efc1d0473527d2a69ed39ec77c1d1972f2"
+    "archive_file": "lsp-plugins-src-1.2.37.tar.gz",
+    "sha256": "ae7f22b249b41a37db965229ae2ab7237330f83279369f9961277d8bf10d2df4"
   },
   "pipewire": {
     "repository": "https://gitlab.freedesktop.org/pipewire/pipewire",
-    "commit": "8fa27cabdc6c0c1350c69c026af5850ef0af1e26",
-    "version": "1.6.9",
-    "source_url": "https://gitlab.freedesktop.org/pipewire/pipewire/-/archive/1.6.9/pipewire-1.6.9.tar.gz",
-    "archive_root": "pipewire-1.6.9",
-    "archive_file": "pipewire-1.6.9.tar.gz",
-    "sha256": "dbc3624cf71215c26a22fc98f6f71f7b8599f5f6b415eab4a5c90ca96c170c7c"
+    "commit": "4287f31510771fc999f8a58a024c81ca10b8d55f",
+    "version": "1.6.11",
+    "source_url": "https://gitlab.freedesktop.org/pipewire/pipewire/-/archive/1.6.11/pipewire-1.6.11.tar.gz",
+    "archive_root": "pipewire-1.6.11",
+    "archive_file": "pipewire-1.6.11.tar.gz",
+    "sha256": "f3f70c4af173cc93d05070a9d412efe3ef5889bdf4ac32298e2c0d9ae1350559"
   },
   "fex-emu": {
     "repository": "https://github.com/aurora-silicon/fex",
@@ -462,19 +462,19 @@
   },
   "aurora-speaker-upgrade": {
     "repository": "https://github.com/aurora-silicon/speakerguardd",
-    "commit": "bbd9ed30ac43ff4fee3a8b279ff994180d8148cb",
+    "commit": "f573f605401123cebbe0e80cbb2ddf1ceebaf8ce",
     "version": "0.1",
-    "source_url": "https://codeload.github.com/aurora-silicon/speakerguardd/tar.gz/bbd9ed30ac43ff4fee3a8b279ff994180d8148cb",
-    "archive_root": "speakerguardd-bbd9ed30ac43ff4fee3a8b279ff994180d8148cb",
-    "sha256": "fe81a2aae7c0d58b335ee5650db872c77b0de975fb369c323ddee303b29de83f"
+    "source_url": "https://codeload.github.com/aurora-silicon/speakerguardd/tar.gz/f573f605401123cebbe0e80cbb2ddf1ceebaf8ce",
+    "archive_root": "speakerguardd-f573f605401123cebbe0e80cbb2ddf1ceebaf8ce",
+    "sha256": "e318a30b87b8c4e7f61fead42f7d8214e74257a956cb125e6377e0d526a11a2d"
   },
   "speakerguardd-v2": {
     "repository": "https://github.com/aurora-silicon/speakerguardd",
-    "commit": "bbd9ed30ac43ff4fee3a8b279ff994180d8148cb",
-    "version": "1.0.0-alpha.1",
-    "source_url": "https://codeload.github.com/aurora-silicon/speakerguardd/tar.gz/bbd9ed30ac43ff4fee3a8b279ff994180d8148cb",
-    "archive_root": "speakerguardd-bbd9ed30ac43ff4fee3a8b279ff994180d8148cb",
-    "sha256": "fe81a2aae7c0d58b335ee5650db872c77b0de975fb369c323ddee303b29de83f"
+    "commit": "f573f605401123cebbe0e80cbb2ddf1ceebaf8ce",
+    "version": "1.0.0-alpha.2",
+    "source_url": "https://codeload.github.com/aurora-silicon/speakerguardd/tar.gz/f573f605401123cebbe0e80cbb2ddf1ceebaf8ce",
+    "archive_root": "speakerguardd-f573f605401123cebbe0e80cbb2ddf1ceebaf8ce",
+    "sha256": "e318a30b87b8c4e7f61fead42f7d8214e74257a956cb125e6377e0d526a11a2d"
   },
   "aurora-sep-luks": {
     "repository": "https://github.com/aurora-silicon/aurora-sep-userspace",

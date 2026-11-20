@@ -70,6 +70,82 @@ class RepositoryTests(unittest.TestCase):
         self.assertEqual(result, ['mesa-new.rpm'])
 
 
+class RequiredFirefoxTests(unittest.TestCase):
+    """A snapshot carries Aurora's firefox and firefox-langpacks together, or fails."""
+    SOURCE = 'firefox-160.0-1.fc44.aurora2.src.rpm'
+    MESA = 'mesa-aurora-26.3-1.src.rpm'
+
+    setUp = RepositoryTests.setUp
+
+    def rpm(self, directory, filename, name, source, arch='aarch64'):
+        (directory / filename).write_text(filename)
+        self.rows[filename] = (name, arch, source)
+
+    def assemble(self, expected=(SOURCE, MESA), base=None):
+        self.rpm(self.candidates, 'mesa.rpm', 'mesa-aurora', self.MESA)
+        return assembly.assemble(base, self.candidates, self.root / 'result', set(expected))
+
+    def assert_refused(self, pattern, **kwargs):
+        with self.assertRaisesRegex(ValueError, pattern) as caught:
+            self.assemble(**kwargs)
+        self.assertFalse((self.root / 'result').exists())
+        return caught.exception
+
+    def test_an_aurora_pair_is_published(self):
+        self.rpm(self.candidates, 'firefox.rpm', 'firefox', self.SOURCE)
+        self.rpm(self.candidates, 'langpacks.rpm', 'firefox-langpacks', self.SOURCE)
+        self.assertEqual(self.assemble(), ['firefox.rpm', 'langpacks.rpm', 'mesa.rpm'])
+
+    def test_a_pair_reused_from_the_base_snapshot_is_published(self):
+        self.rpm(self.base, 'firefox.rpm', 'firefox', self.SOURCE)
+        self.rpm(self.base, 'langpacks.rpm', 'firefox-langpacks', self.SOURCE)
+        self.assertEqual(self.assemble(base=self.base), ['firefox.rpm', 'langpacks.rpm', 'mesa.rpm'])
+
+    def test_omitting_either_package_fails(self):
+        for present, absent in (('firefox', 'firefox-langpacks'), ('firefox-langpacks', 'firefox')):
+            with self.subTest(absent=absent):
+                for path in self.candidates.glob('*.rpm'):
+                    path.unlink()
+                self.rpm(self.candidates, 'present.rpm', present, self.SOURCE)
+                error = self.assert_refused(f'Snapshot lacks {absent}.aarch64 from {self.SOURCE}')
+                self.assertEqual(error.recipe, 'firefox')
+
+    def test_omitting_both_fails_as_an_incomplete_snapshot(self):
+        self.assert_refused('Incomplete or stale snapshot.*firefox-160.0-1.fc44.aurora2')
+
+    def test_source_and_debuginfo_packages_do_not_count(self):
+        self.rpm(self.candidates, 'langpacks.rpm', 'firefox-langpacks', self.SOURCE)
+        self.rpm(self.candidates, 'debuginfo.rpm', 'firefox-debuginfo', self.SOURCE)
+        (self.candidates / self.SOURCE).write_text('source')
+        self.assert_refused('Snapshot lacks firefox.aarch64')
+
+    def test_another_architecture_does_not_count(self):
+        self.rpm(self.candidates, 'firefox.rpm', 'firefox', self.SOURCE, arch='noarch')
+        self.rpm(self.candidates, 'langpacks.rpm', 'firefox-langpacks', self.SOURCE)
+        self.assert_refused('Snapshot lacks firefox.aarch64')
+
+    def test_a_stock_build_cannot_stand_in(self):
+        stock = 'firefox-159.0.1-1.fc44.src.rpm'
+        self.rpm(self.candidates, 'firefox.rpm', 'firefox', stock)
+        self.rpm(self.candidates, 'langpacks.rpm', 'firefox-langpacks', self.SOURCE)
+        self.assert_refused('Duplicate|Incomplete|comes from')
+        # Nor as the recipe's expected source.
+        for path in self.candidates.glob('*.rpm'):
+            path.unlink()
+        self.rpm(self.candidates, 'firefox.rpm', 'firefox', stock)
+        self.rpm(self.candidates, 'langpacks.rpm', 'firefox-langpacks', stock)
+        self.assert_refused(f'firefox: {stock} is not an Aurora build', expected=(stock, self.MESA))
+
+    def test_mismatched_versions_fail(self):
+        # A fresh firefox with the previous build's langpacks left in the base.
+        self.rpm(self.base, 'langpacks-old.rpm', 'firefox-langpacks', 'firefox-159.0-1.fc44.aurora1.src.rpm')
+        self.rpm(self.candidates, 'firefox.rpm', 'firefox', self.SOURCE)
+        self.assert_refused('Snapshot lacks firefox-langpacks.aarch64', base=self.base)
+
+    def test_a_release_without_the_recipe_is_not_affected(self):
+        self.assertEqual(self.assemble(expected=(self.MESA,)), ['mesa.rpm'])
+
+
 class BaseSnapshotNameTests(unittest.TestCase):
     """testing-20261030.5's manifest lists aura-1.0.0~b1-..., but GitHub
     stored and downloads that asset as aura-1.0.0.b1-...."""

@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 41%{?dist}
+Release: 44%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -17,6 +17,10 @@ Requires: iwlwifi-dvm-firmware iwlwifi-mvm-firmware realtek-firmware
 Requires: aurora-sep libfprint(aurora-sep) = 4
 Requires: aurora-firstboot avd-fw upower >= 1.91.4
 Requires: kernel-aurora aura uboot-aurora aurora-release aurora-logos aurora-firmware aurora-bless aurora-neo-platform-config tiny-dfr
+# GameMode with Aurora's settings on Plasma and GNOME installs, new and
+# upgraded (images also list both). Weak: `dnf remove aurora-gamemode gamemode`
+# keeps them off.
+Recommends: (aurora-gamemode if (plasma-workspace or gnome-shell))
 
 Source100: README
 Source101: aurora-platform-core.conf
@@ -46,6 +50,7 @@ Source124: aurora-kdump-clock-module-setup.sh
 Source125: aurora-kdump-clock.sh
 Source126: 60-aurora-t6041-trackpad.quirks
 Source127: aurora-t6041-power.service
+Source128: aurora-irq-steerable
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -62,8 +67,10 @@ Obsoletes: asahi-platform-metapackage-core < 1
 Obsoletes: asahi-platform-metapackage-audio < 1
 Conflicts: asahi-platform-metapackage < 1
 Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
-# Use the established protection daemons; v2 is not shipped in images.
+# The established protection daemons stay installed as the fallback;
+# aurora-speaker-upgrade moves a Mac to v2 only when its self-check passes.
 Requires: speakersafetyd speakerguardd
+Requires: speakerguardd-v2 >= 1.0.0~alpha.2-0.51 aurora-speaker-upgrade >= 0.1-0.18
 Requires: aurora-audio >= 4.1-12
 Requires: alsa-ucm-conf-aurora
 # BlueZ 5.86 attempts an empty default-parameter transaction at startup.
@@ -148,6 +155,7 @@ install -Dm644 %{SOURCE100} %{buildroot}%{_docdir}/aurora-platform/README
 install -Dm644 %{SOURCE101} %{buildroot}%{_sysconfdir}/dnf/protected.d/aurora-platform-core.conf
 install -Dm644 %{SOURCE102} %{buildroot}%{_unitdir}/var-swap-swapfile2.swap.d/50-after-swapfile.conf
 install -Dm644 %{SOURCE110} %{buildroot}%{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf
+install -Dm755 %{SOURCE128} %{buildroot}%{_libexecdir}/aurora/aurora-irq-steerable
 install -Dm644 %{SOURCE103} %{buildroot}%{_udevrulesdir}/61-aurora-dmi-id.rules
 install -Dm644 %{SOURCE111} %{buildroot}%{_udevrulesdir}/62-aurora-gpu-render-only.rules
 install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
@@ -225,6 +233,7 @@ fi
 %{_unitdir}/var-swap-swapfile2.swap.d/
 %dir %{_unitdir}/irqbalance.service.d
 %{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf
+%{_libexecdir}/aurora/aurora-irq-steerable
 %{_unitdir}/aurora-t6041-power.service
 %{_unitdir}/sysinit.target.wants/aurora-t6041-power.service
 %{_udevrulesdir}/61-aurora-dmi-id.rules
@@ -256,6 +265,26 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-44
+- Recommend aurora-gamemode (and with it gamemode) on Plasma and GNOME
+  installs, so existing desktops get GameMode with Aurora's settings on
+  upgrade. Measured on J616s and Neo: -9 to -11 % frame time at two frames
+  in flight at the same energy per frame where GameMode pins (four or more
+  P cores), unchanged where it does not.
+
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-43
+- aurora-platform-core requires speakerguardd-v2 and aurora-speaker-upgrade,
+  whose preset moves each Mac to v2 at boot when its self-check passes.
+  speakersafetyd and speakerguardd 0.1 stay installed and keep any Mac the
+  self-check refuses.
+
+* Thu Nov 19 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-42
+- irqbalance runs on an Apple silicon Mac when its device tree's interrupt
+  controller is the first AIC (compatible apple,aic), which can steer
+  interrupts, instead of when the SoC is the T8103: an ExecCondition
+  (aurora-irq-steerable) replaces the SoC check. Same result on every Mac
+  supported today.
+
 * Sun Nov 15 2026 AxxzyWasTaken <axxzytte@gmail.com> - 44-41
 - M4 Max (T6041) power defaults (aurora-t6041-power.service): PCIe ASPM
   policy powersupersave, so the Wi-Fi/Bluetooth and SD reader links use the

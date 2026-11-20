@@ -7,6 +7,7 @@ import shutil
 import struct
 import subprocess
 import tempfile
+import time
 import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -555,9 +556,28 @@ class SpecTests(unittest.TestCase):
     def test_irqbalance_runs_only_where_the_aic_can_steer(self):
         d = ROOT / 'packages' / 'aurora-platform'
         conf = (d / '50-aurora-irqbalance.conf').read_text()
-        lines = [l for l in conf.splitlines() if l.startswith('Condition')]
-        self.assertEqual(lines, ['ConditionFirmware=|!device-tree-compatible(apple,arm-platform)',
-                                 'ConditionFirmware=|device-tree-compatible(apple,t8103)'])
+        # Keyed on the interrupt controller's compatible, not on a SoC.
+        self.assertEqual([l for l in conf.splitlines() if l and not l.startswith('#')],
+                         ['[Service]', 'ExecCondition=/usr/libexec/aurora/aurora-irq-steerable'])
+        script = d / 'aurora-irq-steerable'
+        subprocess.run(['sh', '-n', str(script)], check=True)
+        def run(root_compat, aic_compat):
+            with tempfile.TemporaryDirectory() as tmp:
+                # Like /proc/device-tree, the tree is reached through a symlink.
+                dt = Path(tmp) / 'base'
+                dt.mkdir()
+                (Path(tmp) / 'device-tree').symlink_to(dt)
+                (dt / 'compatible').write_bytes(root_compat)
+                if aic_compat is not None:
+                    node = dt / 'soc' / 'interrupt-controller@23b100000'
+                    node.mkdir(parents=True)
+                    (node / 'compatible').write_bytes(aic_compat)
+                text = script.read_text().replace('dt=/proc/device-tree', f'dt={tmp}/device-tree')
+                return subprocess.run(['sh', '-c', text]).returncode
+        self.assertEqual(run(b'apple,j293\0apple,t8103\0apple,arm-platform\0', b'apple,t8103-aic\0apple,aic\0'), 0)
+        self.assertEqual(run(b'apple,j316s\0apple,t6000\0apple,arm-platform\0', b'apple,t6000-aic\0apple,aic2\0'), 1)
+        self.assertEqual(run(b'apple,j700\0apple,t8140\0apple,arm-platform\0', b'apple,t8140-aic3\0apple,t8122-aic3\0'), 1)
+        self.assertEqual(run(b'radxa,rock-5b\0rockchip,rk3588\0', None), 0)
         text = (d / 'aurora-platform.spec').read_text()
         core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
         self.assertIn('%{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf', core_files)
@@ -629,9 +649,10 @@ class SpecTests(unittest.TestCase):
                      'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise',
                      'aurora-kbd-light']:
             self.assertIn(name, requires)
-        # Ship the established protection stack without the v2 preview.
+        # The established protection stack stays as the fallback; v2 comes with
+        # the upgrade tool, whose preset switches a Mac only on a passing self-check.
         self.assertRegex(core, r'(?m)^Requires: speakersafetyd speakerguardd$')
-        self.assertNotIn('speakerguardd-v2', core)
+        self.assertRegex(core, r'(?m)^Requires: speakerguardd-v2 >= 1\.0\.0~alpha\.2-0\.51 aurora-speaker-upgrade >= 0\.1-0\.18$')
         for name in requires:
             self.assertFalse(name.startswith(('kernel', 'uboot', 'm1n1')) or name == 'aura', name)
         self.assertNotIn('aurora-release', requires)
@@ -641,9 +662,10 @@ class SpecTests(unittest.TestCase):
         self.assertEqual((d / 'aurora-platform-core.conf').read_text().split(), ['aurora-platform-core'])
         self.assertIn('protected.d/aurora-platform-core.conf', text.split('%files core', 1)[1])
         self.assertRegex(text, r'(?m)^Requires: aurora-platform-core = %\{version\}-%\{release\}$')
-    def test_audio_keeps_legacy_profiles_and_v2_is_opt_in(self):
-        # v2 is back as release candidate 8, installable by hand only: no
-        # default package pulls it, and aurora-audio retires only RC7 and older.
+    def test_audio_keeps_legacy_profiles_and_v2_switches_by_preset(self):
+        # aurora-platform-core pulls v2 and the upgrade tool, whose preset moves
+        # a Mac to v2 at boot on a passing self-check; aurora-audio and the
+        # kernel keep the legacy stack as the fallback and retire only RC7 and older.
         spec = (ROOT / 'packages/speakerguardd-v2/speakerguardd-v2.spec').read_text()
         self.assertRegex(spec, r'(?m)^Release: 0\.(3[3-9]|[4-9][0-9])\.')
         self.assertIn('install -Dm644 packaging/session/parity.json', spec)
@@ -654,9 +676,13 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(libs, r'(?m)^Provides:\s+pipewire-speaker-graph = 2$')
         for n in ('1006', '1007', '1008', '1010'):
             self.assertRegex(pw, rf'(?m)^Patch{n}:')
-        for name in ('aurora-platform', 'aurora-audio', 'kernel-aurora'):
+        for name in ('aurora-audio', 'kernel-aurora'):
             text = (ROOT / 'packages' / name / f'{name}.spec').read_text()
             self.assertNotRegex(text, r'(?m)^(Requires|Recommends):.*\b(speakerguardd-v2|aurora-speaker-upgrade)\b', name)
+        upgrade = (ROOT / 'packages/aurora-speaker-upgrade/aurora-speaker-upgrade.spec').read_text()
+        self.assertIn('%{_presetdir}/50-aurora-speaker-upgrade.preset', upgrade)
+        preset = (ROOT / 'packages/aurora-speaker-upgrade/50-aurora-speaker-upgrade.preset').read_text()
+        self.assertRegex(preset, r'(?m)^enable aurora-speaker-upgrade\.service$')
         audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
         self.assertRegex(audio, r'(?m)^Requires: speakersafetyd speakerguardd$')
         self.assertIn('Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33\n', audio)
@@ -960,7 +986,8 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(spec, r'(?m)^%package -n steam$')
         files = spec.split('%files -n steam', 1)[1].split('%changelog', 1)[0]
         self.assertIn('%{_bindir}/steam\n', files)
-        for requirement in ('aurora-userpages', 'fex-emu', 'gtk2'):
+        # libibus and lsof come from the host (aurora-silicon/aurora-steam-native#13).
+        for requirement in ('aurora-userpages', 'fex-emu', 'gtk2', 'ibus-libs', 'lsof'):
             self.assertRegex(spec, rf'(?m)^Requires: {requirement}$')
         # Fedora installs the launcher on PATH, not where the upstream default looks.
         self.assertIn("s,@USERPAGES@,%{_bindir}/userpages,", spec)
@@ -969,6 +996,12 @@ class SpecTests(unittest.TestCase):
         self.assertIn('"$userpages" 4k true', wrapper)
         self.assertIn('exec "$lib/bin/steam-native4k" "$@"', wrapper)
         subprocess.run(['bash', '-n', str(d / 'steam')], check=True)
+        # Games run under GameMode; desktops get it on upgrade too.
+        steam = spec.split('%package -n steam', 1)[1].split('%description', 1)[0]
+        self.assertRegex(steam, r'(?m)^Recommends: aurora-gamemode$')
+        platform = (ROOT / 'packages/aurora-platform/aurora-platform.spec').read_text().split('%package core', 1)[0]
+        self.assertRegex(platform, r'(?m)^Recommends: \(aurora-gamemode if \(plasma-workspace or gnome-shell\)\)$')
+        self.assertIn('AURORA_STEAM_GAMEMODE', wrapper)
 
     def test_steam_wrapper_installs_once_then_starts_the_client(self):
         d = ROOT / 'packages' / 'aurora-steam-native'
@@ -1003,6 +1036,98 @@ class SpecTests(unittest.TestCase):
             result = subprocess.run([str(wrapper)], env={**env, 'NO_USER4K': '1'}, capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
             self.assertIn('user4k=on', result.stderr)
+
+    def test_steam_registers_each_game_process_with_gamemode(self):
+        # The watcher follows the client's logs/gameprocess_log.txt through
+        # inotify, registers every tracked PID and sleeps in between.
+        def watchers(root):
+            found = []
+            for proc in Path('/proc').iterdir():
+                try:
+                    argv = (proc / 'cmdline').read_bytes().split(b'\0')
+                except OSError:
+                    continue
+                if argv[0] == b'aurora-steam-gamemode' and str(root).encode() in b' '.join(argv):
+                    found.append(proc)
+            return found
+
+        def wait(condition):
+            deadline = time.monotonic() + 10
+            while not condition():
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.05)
+
+        def switches(proc):
+            status = (proc / 'status').read_text()
+            return int(re.search(r'(?m)^voluntary_ctxt_switches:\s+(\d+)$', status)[1])
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            lib, home, stubs, client = root / 'lib', root / 'home', root / 'stubs', root / 'client'
+            for path in (lib / 'bin', client / 'steamrtarm64', client / 'logs', stubs, home / '.steam'):
+                path.mkdir(parents=True)
+            (home / '.steam/root').symlink_to(client)
+            gamelog, log = client / 'logs/gameprocess_log.txt', root / 'busctl.log'
+            gamelog.write_text('[2026-11-17 19:14:50] AppID 9 adding PID 999 as a tracked process\n')
+            log.write_text('')
+            bash = shutil.which('bash')
+
+            def script(path, body):
+                path.write_text(f'#!{bash}\n' + body)
+                path.chmod(0o755)
+            script(client / 'steamrtarm64/steam', '')
+            script(lib / 'bin/steam-native4k', 'exec sleep 60\n')
+            script(root / 'userpages', '')
+            script(stubs / 'busctl', f'echo "busctl $*" >> {log}\n'
+                   'case "$*" in *ListActivatableNames*) echo \'as 2 "org.freedesktop.DBus" "com.feralinteractive.GameMode"\';; esac\n')
+            wrapper = root / 'steam'
+            wrapper.write_text((ROOT / 'packages' / 'aurora-steam-native' / 'steam').read_text().replace('@LIBDIR@', str(lib))
+                               .replace('@USERPAGES@', str(root / 'userpages')).replace('@USER4K_HINT@', 'hint'))
+            wrapper.chmod(0o755)
+            env = {'HOME': str(home), 'PATH': f'{stubs}:{os.environ["PATH"]}', 'USER': 'test'}
+
+            def registered():
+                return [line.split()[-1] for line in log.read_text().splitlines() if 'RegisterGameByPID ii' in line]
+
+            steam = subprocess.Popen([bash, str(wrapper)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                wait(lambda: len(watchers(client)) == 1)
+                watcher = watchers(client)[0]
+                wait(lambda: (watcher / 'stat').read_text().rsplit(')', 1)[1].split()[0] == 'S')
+                with gamelog.open('a') as f:
+                    f.write('[2026-11-20 10:00:00] AppID 383870 adding PID 4242 as a tracked process "x"\n'
+                            '[2026-11-20 10:00:00] AppID 383870 adding PID 4243 as a')
+                wait(lambda: registered() == ['4242'])
+                with gamelog.open('a') as f:
+                    f.write(' tracked process\n')
+                wait(lambda: registered() == ['4242', '4243'])
+                # Idle: blocked in select(), no wake-ups at all.
+                time.sleep(0.5)
+                before = switches(watcher)
+                time.sleep(2)
+                self.assertEqual(switches(watcher), before)
+                # Steam rotates the log and starts a new one.
+                gamelog.rename(gamelog.with_name('gameprocess_log.previous.txt'))
+                gamelog.write_text('[2026-11-20 10:05:00] AppID 1 adding PID 5000 as a tracked process\n')
+                wait(lambda: registered() == ['4242', '4243', '5000'])
+                self.assertIn('busctl --user call com.feralinteractive.GameMode /com/feralinteractive/GameMode '
+                              'com.feralinteractive.GameMode RegisterGameByPID ii', log.read_text())
+            finally:
+                steam.kill()
+                steam.wait()
+            # The watcher ends with Steam.
+            wait(lambda: not watchers(client))
+            # Opt-out: no watcher while Steam runs.
+            steam = subprocess.Popen([bash, str(wrapper)], env={**env, 'AURORA_STEAM_GAMEMODE': '0'},
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                wait(lambda: (Path('/proc') / str(steam.pid) / 'cmdline').read_bytes().startswith(b'sleep'))
+                time.sleep(0.5)
+                self.assertEqual(watchers(client), [])
+            finally:
+                steam.kill()
+                steam.wait()
+            self.assertEqual(registered(), ['4242', '4243', '5000'])
     def test_touch_id_security_key_is_installed_off(self):
         text = (ROOT / 'packages/aurora-fido/aurora-fido.spec').read_text()
         files = text.split('%files', 1)[1]

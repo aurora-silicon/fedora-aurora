@@ -1,0 +1,12 @@
+#!/bin/sh
+# ExecCondition for irqbalance (50-aurora-irqbalance.conf): succeed unless this
+# is an Apple silicon Mac whose interrupt controller cannot steer interrupts.
+# The first AIC (compatible "apple,aic") honours smp_affinity; AICv2
+# ("apple,aic2") and AICv3 ("apple,t8122-aic3") hand each interrupt to any CPU
+# that accepts one. Exit 1 skips the unit without failing it.
+dt=/proc/device-tree
+tr '\0' '\n' < "$dt/compatible" 2>/dev/null | grep -qx 'apple,arm-platform' || exit 0
+# /proc/device-tree is a symlink: -H makes find descend it.
+find -H "$dt" -maxdepth 3 -path '*/interrupt-controller@*/compatible' -exec cat {} + 2>/dev/null |
+    tr '\0' '\n' | grep -qx 'apple,aic' && exit 0
+exit 1
