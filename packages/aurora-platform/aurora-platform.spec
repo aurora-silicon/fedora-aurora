@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 45%{?dist}
+Release: 46%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -20,7 +20,7 @@ Requires: aurora-firstboot avd-fw upower >= 1.91.4
 # whose device tree reserves no MTE tag storage; aura 1.0.0~b13 reserves it.
 Requires: kernel-aurora >= 7.3.0-37
 Requires: aura >= 1.0.0~b13
-Requires: kernel-aurora aura uboot-aurora aurora-release aurora-logos aurora-firmware aurora-bless aurora-neo-platform-config tiny-dfr
+Requires: kernel-aurora aura uboot-aurora aurora-release aurora-logos aurora-firmware aurora-bless aurora-neo-platform-config aurora-m5-platform-config tiny-dfr
 # GameMode with Aurora's settings on Plasma and GNOME installs, new and
 # upgraded (images also list both). Weak: `dnf remove aurora-gamemode gamemode`
 # keeps them off.
@@ -280,6 +280,11 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 44-46
+- Require aurora-m5-platform-config, the MacBook Pro (M5 Pro, J714s) deep
+  sleep configuration, as aurora-neo-platform-config is required for the
+  Neo. It does nothing on any other Mac.
+
 * Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 44-45
 - MTE on the M5 Pro and Max (T6050): add arm64.nomte only on the M5
   (T8142), and take back out, once on the update from 44-44 or older, the
