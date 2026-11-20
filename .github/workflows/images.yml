@@ -95,9 +95,11 @@ jobs:
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         if: success()
         with:
-          subject-path: |
-            out/*-filesystems.tar.zst
-            out/*-installer/edge-image-proof.json
+          subject-path: out/*-filesystems.tar.zst
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: success() && inputs.channel == 'edge'
+        with:
+          subject-path: out/*-installer/edge-image-proof.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
