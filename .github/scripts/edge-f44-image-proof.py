@@ -10,7 +10,8 @@ import sys
 KREL = "7.3.0-43.fc44.aurora.aarch64"
 KERNEL_DIGEST = "701ed7f29d693e439083508546d96c4917431e35f725465a154c855008c2c5bf"
 SIGNING_RUN = 44694386531
-MESA = "418bf795a98c0cfe044f87d724a5db7b6b980b56"
+MESA_SIGNING_RUN = 44832807927
+MESA = "15fe5010c149c79de98b869e91ac11aa38acff4a"
 FILES = {
     f"root:usr/lib/modules/{KREL}/vmlinuz": KERNEL_DIGEST,
     f"boot:vmlinuz-{KREL}": KERNEL_DIGEST,
@@ -22,8 +23,8 @@ REQUIRED = {"kernel-aurora-core.aarch64", "kernel-aurora-modules-extra.aarch64",
 def proof(root, boot, input_receipt):
     roots = {"root": root.resolve(strict=True), "boot": boot.resolve(strict=True)}
     if (input_receipt["replacement_mesa"] != MESA
-            or input_receipt["replacement_signing_run"] != SIGNING_RUN):
-        raise ValueError("Expected the single kernel and Mesa signing receipt")
+            or input_receipt["replacement_signing_run"] != MESA_SIGNING_RUN):
+        raise ValueError("Expected the 26.3.0-35 Mesa signing receipt")
     mesa_files = input_receipt["mesa_files"]
     if set(mesa_files) != {"usr/lib64/libvulkan_asahi.so", "usr/share/vulkan/icd.d/asahi_icd.aarch64.json"}:
         raise ValueError("Replacement Mesa file inventory is incomplete")
@@ -42,7 +43,7 @@ def proof(root, boot, input_receipt):
     if input_receipt["signing_run"] != SIGNING_RUN or not REQUIRED <= signed.keys():
         raise ValueError("Image RPM input does not cover the tested package set")
     for key in ("mesa-aurora-vulkan-drivers.aarch64", "mesa-aurora-dri-drivers.aarch64"):
-        if "-26.3.0-34.fc44.aurora.aarch64.rpm" not in signed[key]["filename"]:
+        if "-26.3.0-35.fc44.aurora.aarch64.rpm" not in signed[key]["filename"]:
             raise ValueError(f"Image candidate contains stale Mesa: {key}")
     installed = subprocess.check_output(
         ["rpm", "--root", str(root), "-qa", "--qf", "%{NAME}.%{ARCH}\t%{NEVRA}\n"], text=True)
