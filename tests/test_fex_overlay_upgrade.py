@@ -109,6 +109,22 @@ echo "${dev:-root}"
 }
 
 
+def read_config(path):
+    """The runtime config as JSON, None if absent, or what is wrong with it.
+    Never follows a link or reads without bound (the write-failure double
+    points the temporary file at /dev/full)."""
+    if path.is_symlink():
+        return ('symlink', os.readlink(path))
+    if not path.exists():
+        return None
+    with path.open('rb') as f:
+        data = f.read(65536)
+    try:
+        return json.loads(data)
+    except ValueError:
+        return ('invalid', data[:64])
+
+
 def write_doubles(directory, doubles):
     for name, text in doubles.items():
         path = Path(directory) / name
@@ -116,8 +132,14 @@ def write_doubles(directory, doubles):
         path.chmod(0o755)
 
 
-ELF64 = b'\x7fELF\x02\x01\x01\x00'
-ELF32 = b'\x7fELF\x01\x01\x01\x00'
+def elf(bits, machine):
+    """An ELF header up to e_machine: class, little-endian, ET_DYN."""
+    return b'\x7fELF' + bytes([bits // 32, 1, 1]) + bytes(9) + b'\x03\x00' + machine.to_bytes(2, 'little')
+
+
+ELF64 = elf(64, 62)          # x86-64
+ELF32 = elf(32, 3)           # i386
+AARCH64 = elf(64, 183)       # the host's own libraries
 FEDORA_TREE = {'.aurora-mesa-commit': b'', 'usr/lib64/ld-linux-x86-64.so.2': ELF64,
                'usr/lib64/libvulkan_asahi.so': ELF64, 'usr/lib/libvulkan_asahi.so': ELF32}
 
@@ -126,7 +148,7 @@ class FexRootfsTests(unittest.TestCase):
     """aurora-fex-rootfs points FEX's global RootFS at the provider only while
     it is a usable tree, through a bind that FEX's programs can keep busy."""
 
-    def run_select(self, mounts=(), files=FEDORA_TREE, config=False, mount_fails=False):
+    def run_select(self, mounts=(), files=FEDORA_TREE, config=False, mount_fails=False, write_fails=False):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         root = Path(tmp.name)
@@ -144,6 +166,9 @@ class FexRootfsTests(unittest.TestCase):
         bin_dir = root / 'bin'
         bin_dir.mkdir()
         write_doubles(bin_dir, MOUNT_DOUBLES)
+        if write_fails:
+            # /run is full: the temporary file takes no more data (/dev/full).
+            write_doubles(bin_dir, {'mktemp': '#!/bin/bash\np="${1%/*}/.Config.json.full"\nln -s /dev/full "$p" && echo "$p"\n'})
         script = (FEX / 'aurora-fex-rootfs').read_text()
         self.assertIn(f'provider={PROVIDER}\n', script)
         self.assertIn('dir=/run/fex-emu\n', script)
@@ -151,12 +176,12 @@ class FexRootfsTests(unittest.TestCase):
         script = script.replace('dir=/run/fex-emu\n', f'dir={run}\n')
         env = dict(os.environ, PATH=f'{bin_dir}:{os.environ["PATH"]}', TEST_ROOT=str(root),
                    MOUNT_FAILS='yes' if mount_fails else 'no')
-        result = subprocess.run(['sh', '-c', script], env=env)
+        result = subprocess.run(['sh', '-c', script], env=env, stderr=subprocess.PIPE, text=True)
+        self.stderr = result.stderr
         stack = [line.split() for line in (root / 'mounts').read_text().splitlines()]
         reverse = {v: k for k, v in names.items()}
         stack = [(reverse[p], d, b) for p, d, b in stack]
-        cfg = run / 'Config.json'
-        rootfs_config = json.loads(cfg.read_text()) if cfg.exists() else None
+        rootfs_config = read_config(run / 'Config.json')
         return result.returncode, stack, rootfs_config, (root / 'log').read_text(), str(run / 'rootfs'), run
 
     def assert_selected(self, rootfs_config, rootfs):
@@ -240,6 +265,26 @@ class FexRootfsTests(unittest.TestCase):
     def test_failed_bind_leaves_the_stock_image(self):
         status, _, cfg, _, _, _ = self.run_select(mounts=[('provider', 'ovl1', 0)], config=True, mount_fails=True)
         self.assertNotEqual(status, 0)
+        self.assertIsNone(cfg)
+        self.assertIn('FEX keeps the stock RootFS', self.stderr)
+
+    def test_full_run_leaves_no_config(self):
+        # An empty or partial Config.json would stop every x86 program: FEX
+        # refuses to parse it. A failed write must leave none, old or new.
+        for config in (False, True):
+            with self.subTest(old_config=config):
+                status, _, cfg, _, _, run = self.run_select(mounts=[('provider', 'ovl1', 0)], config=config,
+                                                            write_fails=True)
+                self.assertNotEqual(status, 0)
+                self.assertIsNone(cfg)
+                self.assertEqual(sorted(p.name for p in run.iterdir()), ['rootfs'])
+                self.assertIn("can't write", self.stderr)
+                self.assertIn('FEX keeps the stock RootFS', self.stderr)
+
+    def test_host_architecture_driver_is_not_used(self):
+        # A 64-bit ELF for the host (aarch64), not x86-64, beside the loader.
+        tree = dict(FEDORA_TREE, **{'usr/lib64/libvulkan_asahi.so': AARCH64})
+        _, _, cfg, _, _, _ = self.run_select(mounts=[('provider', 'ovl1', 0)], files=tree)
         self.assertIsNone(cfg)
 
 

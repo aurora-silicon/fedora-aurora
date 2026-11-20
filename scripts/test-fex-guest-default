@@ -129,8 +129,8 @@ guest_mesa() {
 %install
 L=%{buildroot}/usr/share/guestos/aurora-fex-mesa-layer
 mkdir -p \$L/usr/lib64 %{buildroot}/usr/share/guestos/aurora-fex-mesa
-# An x86-64 ELF header, then the release.
-printf '\\177ELF\\002\\001\\001\\000\\n' > \$L/usr/lib64/libvulkan_asahi.so
+# An x86-64 ELF header up to e_machine (62), then the release.
+printf '\\177ELF\\002\\001\\001\\000\\000\\000\\000\\000\\000\\000\\000\\000\\003\\000\\076\\000\\n' > \$L/usr/lib64/libvulkan_asahi.so
 echo "aurora $evr" >> \$L/usr/lib64/libvulkan_asahi.so
 echo "$evr" > \$L/.aurora-mesa-commit
 install -Dm644 $guest/aurora-fex-mesa.service %{buildroot}%{_unitdir}/aurora-fex-mesa.service
@@ -324,6 +324,22 @@ systemctl is-active aurora-fex-mesa.service
 stock
 systemctl stop aurora-fex-mesa.service
 mv /var/tmp/ld-linux-x86-64.so.2 /usr/share/guestos/fex-mesa/usr/lib64/
+systemctl start aurora-fex-mesa.service
+selected
+
+# A runtime config that can't be written in full must not land: FEX refuses
+# to start on an empty or partial one.
+echo '== A full /run leaves no runtime config, and FEX on the stock image'
+systemctl stop aurora-fex-mesa.service
+mount -t tmpfs -o size=4k fex-full /run/fex-emu
+dd if=/dev/zero of=/run/fex-emu/fill bs=1k count=64 2>/dev/null || :
+systemctl start aurora-fex-mesa.service
+systemctl is-active aurora-fex-mesa.service
+stock
+[[ -z $(find /run/fex-emu -name '.Config.json.*') ]]
+journalctl -b -u aurora-fex-mesa.service | grep -F "can't write"
+systemctl stop aurora-fex-mesa.service
+umount /run/fex-emu
 systemctl start aurora-fex-mesa.service
 selected
 
