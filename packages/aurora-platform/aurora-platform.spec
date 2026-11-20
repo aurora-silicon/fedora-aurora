@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 45%{?dist}
+Release: 47%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -16,7 +16,11 @@ Requires: linux-firmware amd-gpu-firmware intel-gpu-firmware nvidia-gpu-firmware
 Requires: iwlwifi-dvm-firmware iwlwifi-mvm-firmware realtek-firmware
 Requires: aurora-sep libfprint(aurora-sep) = 4
 Requires: aurora-firstboot avd-fw upower >= 1.91.4
-Requires: kernel-aurora aura uboot-aurora aurora-release aurora-logos aurora-firmware aurora-bless aurora-neo-platform-config tiny-dfr
+# T6050 boots without arm64.nomte: 7.3.0-37 keeps MTE off on an Apple SoC
+# whose device tree reserves no MTE tag storage; aura 1.0.0~b13 reserves it.
+Requires: kernel-aurora >= 7.3.0-37
+Requires: aura >= 1.0.0~b13
+Requires: kernel-aurora aura uboot-aurora aurora-release aurora-logos aurora-firmware aurora-bless aurora-neo-platform-config aurora-m5-platform-config tiny-dfr
 # GameMode with Aurora's settings on Plasma and GNOME installs, new and
 # upgraded (images also list both). Weak: `dnf remove aurora-gamemode gamemode`
 # keeps them off.
@@ -191,10 +195,21 @@ install -Dm755 %{SOURCE125} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora
 # A grub.cfg whose only stale lines are partition UUID searches; see the script.
 %{_libexecdir}/aurora/aurora-grub-uuid || :
 %{_libexecdir}/aurora/aurora-ppd-config || :
-# MTE stays off on chips whose tag storage no boot loader reserves yet.
-if tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -qxE 'apple,(t6050|t8142)' &&
+# MTE stays off on the M5 (T8142) until it is qualified there. The M5 Pro
+# and Max (T6050) run with MTE: aura reserves the tag storage, and without
+# that reservation the kernel keeps MTE off by itself.
+if tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -qx 'apple,t8142' &&
     ! grep -qE '(^|[[:space:]])arm64\.nomte([[:space:]]|$)' /etc/kernel/cmdline 2>/dev/null; then
   grubby --update-kernel=ALL --args=arm64.nomte || :
+fi
+
+# 44-37 to 44-44 also added arm64.nomte on T6050 Macs, with grubby, which
+# writes it to every boot entry, /etc/default/grub and /etc/kernel/cmdline.
+# Take it back out once, on the update from one of those releases.
+%triggerpostun core -- aurora-platform-core < 44-45
+if tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -qx 'apple,t6050' &&
+    grep -qsE '(^|[[:space:]"])arm64\.nomte([[:space:]"]|$)' /etc/kernel/cmdline /etc/default/grub /boot/loader/entries/*.conf; then
+  grubby --update-kernel=ALL --remove-args=arm64.nomte || :
 fi
 
 # Also cover tuned-ppd installed/upgraded without an aurora-platform update.
@@ -266,15 +281,31 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
-* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-45
+* Sat Nov 21 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-47
 - Power defaults on every Apple silicon Mac (aurora-power-defaults.service,
   ConditionFirmware=device-tree-compatible(apple,arm-platform)), replacing
   the M4 Max-only aurora-t6041-power.service: PCIe ASPM policy
   powersupersave and kernel.sched_util_clamp_min_rt_default=0. The ASPM
   write may fail (pcie_aspm=off) without skipping the sysctl. Ordered before
   aurora-power-modes, so its boot baseline is these values. Same unit as
-  ALARM (alarm-aurora#332 by AxxzyWasTaken). Idle power -14 to -19 % on the
-  T8140, T6040 and T6000 with no xruns or Wi-Fi/Bluetooth drops.
+  ALARM (alarm-aurora#332 by AxxzyWasTaken). Idle power -14 to -31 % on the
+  T8140, T6040, T6000 and T8112 with no xruns or Wi-Fi/Bluetooth drops.
+
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 44-46
+- Require aurora-m5-platform-config, the MacBook Pro (M5 Pro, J714s) deep
+  sleep configuration, as aurora-neo-platform-config is required for the
+  Neo. It does nothing on any other Mac.
+
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 44-45
+- MTE on the M5 Pro and Max (T6050): add arm64.nomte only on the M5
+  (T8142), and take back out, once on the update from 44-44 or older, the
+  arm64.nomte that 44-37 to 44-44 added on T6050 Macs. aura 1.0.0~b13
+  reserves the T6050 tag storage, and kernel-aurora 7.3.0-37 and later
+  keep MTE off by themselves on an Apple SoC whose device tree reserves
+  none (aurora-silicon/linux#1639); aurora-platform requires both.
+  Measured on the MacBook Pro (M5 Pro, J714s): the M5 default has run
+  with MTE on since 11-12 (tagged stress, mtesuite and the deep-sleep
+  gates); T8142 has had no MTE trial yet.
 
 * Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-44
 - Recommend aurora-gamemode (and with it gamemode) on Plasma and GNOME

@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 31%{?dist}
+Release: 32%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -31,7 +31,6 @@ Source20: aurora-touchid-setup.service
 Source21: touchid-setup-needed
 Source22: authselect-vendor-local
 Source23: powerdevilrc
-Source24: aurora-sep-modprobe.conf
 Source25: aurora-sep
 Source26: sleep-aurora-sep.conf
 Source27: 20-aurora-suspend.conf
@@ -102,7 +101,6 @@ unit %{SOURCE5} %{SOURCE6} aurora-sep-ready
 unit %{SOURCE16} %{SOURCE17} aurora-sep-greeter-fingerprint
 install -Dpm0644 %{SOURCE11} %{buildroot}%{_unitdir}/aurora-sep.timer
 install -Dpm0644 %{SOURCE12} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep-load.conf
-install -Dpm0644 %{SOURCE24} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep.conf
 install -Dpm0755 %{SOURCE25} %{buildroot}%{_bindir}/aurora-sep
 install -Dpm0755 %{SOURCE8} %{buildroot}%{_sbindir}/aurora-touchid-setup
 install -Dpm0755 %{SOURCE21} %{buildroot}%{_libexecdir}/aurora/touchid-setup-needed
@@ -228,7 +226,6 @@ fi
 %{_libexecdir}/aurora-sep-sensor-present
 %{_prefix}/lib/dracut/dracut.conf.d/90-aurora-sep.conf
 %{_prefix}/lib/modprobe.d/aurora-sep-load.conf
-%{_prefix}/lib/modprobe.d/aurora-sep.conf
 %{_unitdir}/aurora-sep.service
 %{_unitdir}/aurora-sep-ready.service
 %{_unitdir}/aurora-touchid-setup.service
@@ -252,6 +249,20 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 1-32
+- SEP writes are always on: drop /usr/lib/modprobe.d/aurora-sep.conf
+  (options apple_sep xart_writes=1 provision_keybag=1). It existed only so
+  that /etc/modprobe.d/aurora-sep.conf could replace it with a read-only
+  setting, which is no longer offered. apple_sep has no xart_writes or
+  provision_keybag parameter (aurora-silicon/linux#2591) and ignores a stale
+  value; on older kernels both default to 1, so writes stay on, but a
+  leftover 0 still applies there and should be removed (XART-SAFETY.md).
+- aurora-sep status and aurora-sep-ready name the cases in which the xART
+  store is read-only (the key-store-only initrd phase, a failed writable
+  reopen, or a leftover xart_writes setting under an older kernel) instead
+  of offering xart_writes=0 as a setting.
+  XART-SAFETY.md and README.md no longer describe a read-only install.
+
 * Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-31
 - load-driver probes trusted keys once, after diag/keystore says the
   enclave's bring-up has ended, instead of retrying every 0.1 s for up to
