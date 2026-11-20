@@ -183,11 +183,11 @@
   },
   "omarchy-ane-tools": {
     "repository": "https://github.com/joshuaswarren/omarchy-ane",
-    "commit": "68e92712bbffa08f5002dcc542434fe1393f0578",
-    "version": "0.5.7",
-    "source_url": "https://codeload.github.com/joshuaswarren/omarchy-ane/tar.gz/68e92712bbffa08f5002dcc542434fe1393f0578",
-    "archive_root": "omarchy-ane-68e92712bbffa08f5002dcc542434fe1393f0578",
-    "sha256": "09fee8d386728939d4752acb21a3ff99192809bf608f8d1bca6cd426b460aea6",
+    "commit": "a0acd9af12346c870ee1538947cbe9f2740cb7fe",
+    "version": "0.5.13",
+    "source_url": "https://codeload.github.com/joshuaswarren/omarchy-ane/tar.gz/a0acd9af12346c870ee1538947cbe9f2740cb7fe",
+    "archive_root": "omarchy-ane-a0acd9af12346c870ee1538947cbe9f2740cb7fe",
+    "sha256": "e7a6d40a1735952eb06aebdca358ac3cee94184da48aebf8aa7cbf3ea2a9ed22",
     "redistribute_source": false
   },
   "mil-hwx-compiler": {
