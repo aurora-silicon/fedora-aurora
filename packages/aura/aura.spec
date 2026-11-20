@@ -1,12 +1,12 @@
 %global debug_package %{nil}
-%global commit 82ee5d6fdbdf9ce54a820eb673a9e546191db092
+%global commit 2f487f26ded59852c5348be0f46513d2e6bb1fe1
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
 %global monitor_free 1
 Name: aura
 Version: 1.0.0~b13.1
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -26,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-82ee5d6fdbdf9ce54a820eb673a9e546191db092
+%autosetup -n aura-2f487f26ded59852c5348be0f46513d2e6bb1fe1
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -76,10 +76,18 @@ install -Dm644 tools/recovery/enroll-stage1.sh %{buildroot}%{_datadir}/aura/tool
 %{_datadir}/aura/
 
 %changelog
-* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b13.1-2
-- Pin aura main 82ee5d6f, labelled 1.0.0b13-g82ee5d6f from the archive
-  directory as it is not a release tag. Main already carries b13.1's one
-  fix (aura#213, as 21325c85), so nothing of 5dcf62d0 is dropped.
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b13.1-3
+- Pin aura 2f487f26 (branch djdev/mcc-count-width-on-82ee5d6f), labelled
+  1.0.0b13-g2f487f26 from the archive directory as it is not a release
+  tag: aura main 82ee5d6f plus aura#384 (4f44e1f6) and the aura#392 MCC
+  fix, which differ from 82ee5d6f only in the MCC code. Main already
+  carries b13.1's one fix (aura#213, as 21325c85), so nothing of 5dcf62d0
+  is dropped.
+- aura#392: the MCC counts are read at 4 or 8 bytes, and an ADT that does
+  not describe the MCC leaves it undriven instead of failing. 82ee5d6f
+  alone (aura#320) resets every M4 base Mac (T8132) about 44 ms into
+  Stage 2, so Release 2, the unmerged 82ee5d6f draft, is skipped and that
+  release never names a build of this package.
 - For the M5 Pro (J714s) deep sleep: the T6050 SIO tables, and the sleep
   controller's wake sources (apple,wake-enable) and skipped pins
   (apple,pinctrl-skip-pins) from the ADT (aura#214, 76f6d953). Every
@@ -93,9 +101,10 @@ install -Dm644 tools/recovery/enroll-stage1.sh %{buildroot}%{_datadir}/aura/tool
   DCP and GPU on 27.2 (#304, #373, #265), dcpext3 (#212), T6040 USB2
   device tunables (#340), M4 ANE preload (#260); RVBAR lock fixes (#312,
   #217); the SPTM virtualization tools (#70, #257, #277, #181).
-- The 11-20 fail-closed sweep for every chip: CPU handoff, MCC and
-  carve-out, display device and SEPFW bounds checks refuse instead of
-  continuing (#317, #320, #330, #331); a device-tree margin (#332); iBoot's
+- The 11-20 fail-closed sweep for every chip: CPU handoff, carve-out,
+  display device and SEPFW bounds checks refuse instead of continuing
+  (#317, #320, #330, #331), and an MCC that the ADT does not describe is
+  left undriven (#384, #392); a device-tree margin (#332); iBoot's
   failed-boot count cleared (#321); the speaker safety profile, the radio
   and ISP17a chosen from the ADT or compatible (#328, #314, #329); one
   cpufreq cluster path (#319); USB, CDC, NVMe, SIO, watchdog and AIC
