@@ -279,6 +279,11 @@ stock() {
 }
 binds() { findmnt -n -o TARGET --list | grep -cx "$rootfs" || :; }
 
+# This test restarts the provider more often than systemd's default start
+# limit allows (a real upgrade starts it once or twice).
+mkdir -p /run/systemd/system/aurora-fex-mesa.service.d
+printf '[Unit]\nStartLimitIntervalSec=0\n' > /run/systemd/system/aurora-fex-mesa.service.d/90-test-start-limit.conf
+systemctl daemon-reload
 # The stock image's tree, where fex-emu's loop mount would put it (the mount
 # unit then stands aside for the tree that is already there).
 mkdir -p /usr/share/guestos/fex-mesa/usr/lib64
