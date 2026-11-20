@@ -1,12 +1,12 @@
 %global debug_package %{nil}
-%global commit 2f487f26ded59852c5348be0f46513d2e6bb1fe1
+%global commit 7c3e778e50514b6a88c8d42cf188383243b86463
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
 %global monitor_free 1
 Name: aura
-Version: 1.0.0~b13.1
-Release: 3%{?dist}
+Version: 1.0.0~b14
+Release: 1%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -26,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-2f487f26ded59852c5348be0f46513d2e6bb1fe1
+%autosetup -n aura-7c3e778e50514b6a88c8d42cf188383243b86463
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -76,6 +76,25 @@ install -Dm644 tools/recovery/enroll-stage1.sh %{buildroot}%{_datadir}/aura/tool
 %{_datadir}/aura/
 
 %changelog
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b14-1
+- Update to aura 1.0.0b14 (release commit 7c3e778e on release/1.0.0b14,
+  aura#406: main afc8ec1d plus VERSION, the release notes and the release
+  workflow fix), labelled 1.0.0b14-g7c3e778e from the archive directory.
+  The release is for its Stage 1. A 1.0.0b13 or 1.0.0b13.1 Stage 1 can't
+  power ANS off on the MacBook Air M5 (T8142) and starts no Stage 2 there;
+  b14 powers it through T8142's storage gates (aura#250, #255).
+- ANS handoff (aura#410, #412): T8132 always hands ANS on powered off with
+  nvme.sart=. T6040 and T6041 hand on live only a session that came running,
+  and never report a live session off. A b14 Stage 1 behind a b13 Stage 1
+  reset the J713 when it handed ANS on live.
+- Since 2f487f26: the T6040/T6041 live handoff and its adoption (#305), T8132
+  external displays by default (#299), the J873g's spare DCPEXT0/1 (#300),
+  the hyphenated usb4-N-pcie alias (#302), AOP motion calibration (#306),
+  the J713 ISP firmware window on 27.2 (#397), the T8122 GPU on 27.2 (#393,
+  #396), the mcc,t6041 layout by geometry (#253), the CTXR_D read before a
+  secondary probe (#280), the M5 Ultra displays and CPUs (#264, #262), a
+  J613 __OS_LOG description (#151), HV hooks (#223, #224) and the BRINGUP
+  refusal message (#385).
 * Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b13.1-3
 - Pin aura 2f487f26 (branch djdev/mcc-count-width-on-82ee5d6f), labelled
   1.0.0b13-g2f487f26 from the archive directory as it is not a release
