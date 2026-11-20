@@ -259,7 +259,8 @@ fi
   leftover 0 still applies there and should be removed (XART-SAFETY.md).
 - aurora-sep status and aurora-sep-ready name the cases in which the xART
   store is read-only (the key-store-only initrd phase, a failed writable
-  reopen, a gigalocker that did not validate) instead of xart_writes=0.
+  reopen, or a leftover xart_writes setting under an older kernel) instead
+  of offering xart_writes=0 as a setting.
   XART-SAFETY.md and README.md no longer describe a read-only install.
 
 * Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-31
