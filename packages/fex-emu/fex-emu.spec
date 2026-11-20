@@ -19,7 +19,7 @@
 
 Name:       fex-emu
 Version:    2610
-Release:    6%{?dist}.aurora
+Release:    7%{?dist}.aurora
 Summary:    Fast usermode x86 and x86-64 emulator for ARM64
 
 # FEX itself is MIT, see below for the bundled libraries
@@ -37,8 +37,11 @@ Source3:    fex-sysroot-%{sysroot_version}.tar.gz
 Source4:    toolchain_x86_32.cmake
 Source5:    toolchain_x86_64.cmake
 Source6:    build-fex-sysroot.sh
-# binfmt-dispatcher (Fedora Asahi Remix) registers last and would send x86
-# programs to FEXInterpreter in muvm; Aurora runs FEX in a 4 KiB page tree.
+# binfmt-dispatcher (Fedora Asahi Remix) registers its x86 handlers after
+# FEX's, so they would take x86 programs from FEX's. fex-emu turns them off
+# with same-named files in /etc/binfmt.d (Source15). If an owner turns them
+# back on, they run FEX in a 4 KiB page tree with the program's own
+# arguments, not FEXInterpreter in muvm.
 Source7:    fex-userpages
 Source8:    50-aurora-fex.toml
 # The stock guest root filesystem (fex-emu-rootfs-fedora) mounted below the
@@ -53,6 +56,7 @@ Source12:   compatibilitytool.vdf
 Source13:   Config.json
 # Points FEX's global RootFS at the Aurora Mesa provider while it is mounted.
 Source14:   aurora-fex-rootfs
+Source15:   binfmt-dispatcher-x86-off.conf
 SourceLicense: %{fex_license} %{sysroot_license}
 
 # Bundled dependencies are git submodules upstream; each is pinned in
@@ -268,6 +272,11 @@ rm %{buildroot}%{_datadir}/fex-emu/ThunksDB.json
 %endif
 install -Dm755 %{SOURCE7} %{buildroot}%{_libexecdir}/fex-emu/fex-userpages
 install -Dm644 %{SOURCE8} %{buildroot}%{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml
+# Under the names of binfmt-dispatcher's files, so that systemd-binfmt reads
+# these instead.
+for f in zz-binfmt-dispatcher-x86.conf zz-binfmt-dispatcher-x86_64.conf; do
+  install -Dm644 %{SOURCE15} %{buildroot}%{_sysconfdir}/binfmt.d/$f
+done
 install -Dm644 '%{SOURCE9}' '%{buildroot}%{_unitdir}/usr-share-guestos-fex\x2dmesa.mount'
 install -Dm644 %{SOURCE10} %{buildroot}%{_unitdir}/aurora-fex-mesa.service.d/50-aurora-fex-rootfs.conf
 install -d %{buildroot}%{_datadir}/guestos/fex-mesa
@@ -287,8 +296,12 @@ grep -q '%{fex_describe}' %{buildroot}%{steamtool}/VERSIONS.txt
 # The installed tools report the fork's identity.
 LD_LIBRARY_PATH=%{buildroot}%{_libdir} %{buildroot}%{_bindir}/FEXGetConfig --version | tee version.txt
 grep -qx '%{fex_describe}' version.txt
-for f in %{buildroot}%{_binfmtdir}/FEX-x86.conf %{buildroot}%{_binfmtdir}/FEX-x86_64.conf; do
-  grep -q ':%{_bindir}/FEX:' "$f"
+# FEX's own x86 handlers: FEX itself, which is handed the program open (O),
+# keeps its argv[0] (P) and takes its credentials (C).
+for arch in x86 x86_64; do
+  grep -Eqx ":FEX-$arch:M:0:[^:]+:[^:]+:%{_bindir}/FEX:POCF" %{buildroot}%{_binfmtdir}/FEX-$arch.conf
+  # binfmt-dispatcher's handler of the same name registers nothing.
+  test -z "$(grep -Ev '^(#.*)?$' %{buildroot}%{_sysconfdir}/binfmt.d/zz-binfmt-dispatcher-$arch.conf)"
 done
 # The missing-RootFS error names the package.
 grep -qaF fex-emu-rootfs-fedora %{buildroot}%{_bindir}/FEX
@@ -336,6 +349,8 @@ fi
 %dir %{_datadir}/guestos
 %dir %{_datadir}/guestos/fex-mesa
 %{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml
+%config(noreplace) %{_sysconfdir}/binfmt.d/zz-binfmt-dispatcher-x86.conf
+%config(noreplace) %{_sysconfdir}/binfmt.d/zz-binfmt-dispatcher-x86_64.conf
 
 %files steam
 %{steamtool}/
@@ -363,6 +378,16 @@ fi
 %endif
 
 %changelog
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 2610-7.aurora
+- Turn off binfmt-dispatcher's x86 handlers, which Fedora Asahi Remix
+  installs, with same-named files in /etc/binfmt.d. They registered after
+  FEX's and took every x86 program, including those started from FEXBash,
+  and through fex-userpages each one got its own path as its first
+  argument. FEX's own handlers now run x86 programs, as on a fresh install.
+- fex-userpages: when binfmt-dispatcher runs it, hand FEX the program on
+  the fd binfmt_misc opened, so the program gets its own arguments if an
+  owner turns the dispatcher back on.
+
 * Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 2610-6.aurora
 - x86 programs use Aurora's x86 Mesa by default, not only Steam's FEX
   titles: while mesa-aurora-fex-guest's provider is mounted, FEX's global
