@@ -1007,6 +1007,47 @@ class SpecTests(unittest.TestCase):
         self.assertIn('\n%autopatch -p1\n', prep)
         self.assertIn('    -DROOTFS_PACKAGE=fex-emu-rootfs-fedora \\\n', spec.split('%cmake -G Ninja', 1)[1])
 
+    def test_fex_uses_the_aurora_mesa_provider_while_it_is_mounted(self):
+        d = ROOT / 'packages' / 'fex-emu'
+        spec = (d / 'fex-emu.spec').read_text()
+        main = spec.split('%package', 1)[0]
+        # Pulled in where Aurora's host Mesa is (the guest requires its exact
+        # build); rich, so Fedora's own Mesa pulls nothing and dnf5's weak
+        # dependency autodetection never excludes it.
+        self.assertRegex(main, r'(?m)^Recommends:\s+\(mesa-aurora-fex-guest if mesa-aurora-dri-drivers\)$')
+        self.assertNotRegex(main, r'(?m)^Requires:.*mesa-aurora-fex-guest')
+        guest = (ROOT / 'packages/mesa-aurora-fex-guest/mesa-aurora-fex-guest.spec').read_text()
+        self.assertRegex(guest, r'(?m)^Requires: mesa-dri-drivers = %\{version\}-%\{release\}$')
+        host = (ROOT / 'packages/mesa-aurora/mesa-aurora.spec').read_text()
+        self.assertRegex(host, r'(?m)^%package -n mesa-aurora-dri-drivers$')
+        self.assertRegex(main, r'(?m)^Requires:\s+util-linux-core$')
+        # FEX reads the runtime config over the global one, in the global layer only.
+        patch = (d / re.search(r'(?m)^Patch2:\s+(\S+)$', spec).group(1)).read_text()
+        self.assertIn('+++ b/Source/Common/Config.cpp', patch)
+        self.assertIn('+  if (GetLayerType() == FEXCore::Config::LayerType::LAYER_GLOBAL_MAIN) {', patch)
+        self.assertIn('+    const fextl::string RuntimeConfig {"/run/fex-emu/Config.json"};', patch)
+        self.assertIn('grep -qaF /run/fex-emu/Config.json %{buildroot}%{_bindir}/FEX\n', spec)
+        # The provider's service drives the selection.
+        source = re.search(r'(?m)^Source(\d+):\s+aurora-fex-rootfs$', spec).group(1)
+        self.assertIn(f'install -Dm755 %{{SOURCE{source}}} %{{buildroot}}%{{_libexecdir}}/fex-emu/aurora-fex-rootfs\n', spec)
+        unit = configparser.ConfigParser(strict=False)
+        unit.optionxform = str
+        unit.read_string((d / '50-aurora-fex-rootfs.conf').read_text())
+        for key in ('ExecStartPost', 'ExecStopPost'):
+            self.assertEqual(unit['Service'][key], '-/usr/libexec/fex-emu/aurora-fex-rootfs')
+        self.assertEqual(unit['Unit']['Before'], 'systemd-user-sessions.service')
+        script = (d / 'aurora-fex-rootfs').read_text()
+        for line in ('provider=/usr/share/guestos/aurora-fex-mesa\n', 'rootfs=$dir/rootfs\n',
+                     'config=$dir/Config.json\n'):
+            self.assertIn(line, script)
+        subprocess.run(['sh', '-n', str(d / 'aurora-fex-rootfs')], check=True)
+        self.assertIn('/usr/libexec/fex-emu/aurora-fex-rootfs || :\n', (d / 'aurora-fex-provider-up').read_text())
+        self.assertIn('%triggerpostun -- mesa-aurora-fex-guest\n'
+                      '[ $2 -gt 0 ] || %{_libexecdir}/fex-emu/aurora-fex-rootfs || :\n', spec)
+        # The installed global config still names the stock image.
+        self.assertEqual(json.loads((d / 'Config.json').read_text()),
+                         {'Config': {'RootFS': '/usr/share/fex-emu/RootFS/default.erofs'}})
+
     def test_fex_submodules_are_pinned_with_the_fork(self):
         spec = (ROOT / 'packages' / 'fex-emu' / 'fex-emu.spec').read_text()
         pin = json.loads((ROOT / 'sources.json').read_text())['fex-emu']

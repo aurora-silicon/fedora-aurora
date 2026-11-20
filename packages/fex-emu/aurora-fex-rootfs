@@ -1,0 +1,61 @@
+#!/bin/sh
+# Point FEX's global RootFS at Aurora's FEX guest graphics provider while the
+# provider is mounted, and back at the installed default when it isn't.
+# aurora-fex-mesa.service (mesa-aurora-fex-guest) runs this after it mounts and
+# after it unmounts the provider; aurora-fex-provider-up and the package
+# scripts run it too. See README.aurora.
+#
+# FEX reads /run/fex-emu/Config.json over the installed global config, and a
+# user's own Config.json and FEX_ROOTFS override both. Without that file FEX
+# uses the stock image, through FEXServer's erofsfuse mount.
+#
+# FEX gets a bind mount of the provider, /run/fex-emu/rootfs, rather than the
+# provider's own mount point. Running x86 programs keep their RootFS busy, and
+# the provider must unmount when mesa-aurora-fex-guest upgrades. A bind still
+# in use stays mounted for those programs, below a new one if the provider
+# comes back; nothing new is pointed at it.
+set -u
+provider=/usr/share/guestos/aurora-fex-mesa
+dir=/run/fex-emu
+rootfs=$dir/rootfs
+config=$dir/Config.json
+
+# The provider, mounted, with Aurora's Mesa layer and an x86-64 dynamic loader
+# (where Fedora and Arch keep it) from the stock guest root filesystem below
+# it. Without a lower layer the overlay holds only Mesa.
+usable() {
+	mountpoint -q "$provider" &&
+		[ -e "$provider/.aurora-mesa-commit" ] &&
+		{ [ -e "$provider/usr/lib64/ld-linux-x86-64.so.2" ] ||
+			[ -e "$provider/usr/lib/ld-linux-x86-64.so.2" ]; }
+}
+
+# Unmount the binds nothing uses, newest first; one in use is busy and stays,
+# with any below it.
+release() {
+	while mountpoint -q "$rootfs"; do
+		umount "$rootfs" 2>/dev/null || break
+	done
+}
+
+if ! usable; then
+	rm -f "$config"
+	release
+	exit 0
+fi
+
+mkdir -p "$rootfs"
+chmod 755 "$dir"
+# The same file system on both paths: the bind already shows this mount.
+if ! mountpoint -q "$rootfs" || [ "$(stat -c %d "$rootfs")" != "$(stat -c %d "$provider")" ]; then
+	release
+	if ! mount --bind -o ro "$provider" "$rootfs"; then
+		rm -f "$config"
+		exit 1
+	fi
+fi
+tmp=$(mktemp "$dir/.Config.json.XXXXXX") || exit 1
+printf '{\n  "Config": {\n    "RootFS": "%s"\n  }\n}\n' "$rootfs" >"$tmp"
+chmod 644 "$tmp"
+# Renamed into place: FEX refuses to start on a partly written config.
+mv -f "$tmp" "$config"
