@@ -175,6 +175,12 @@ stand-in
 %files
 SPEC
 # Shared: base, mesa31. Resolution cases: a-*; systemd cases: b-*.
+# An empty installroot has none of the system's packages.
+stub util-linux-core 2.41 1 a-base <<'SPEC'
+%description
+stand-in
+%files
+SPEC
 fex_emu 5.aurora a-base "$old"
 fex_emu 6.aurora a-update "$new"
 guest_mesa 30.aurora a-update
