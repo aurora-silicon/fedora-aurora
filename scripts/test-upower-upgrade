@@ -3,7 +3,8 @@
 set -euo pipefail
 candidate=${1:?directory containing upower RPMs}
 packages=(upower upower-libs upower-devel)
-dnf install -y python3-rpm "${packages[@]}"
+# asahi-battery is the charge-limit helper the candidate replaces.
+dnf install -y python3-rpm asahi-battery "${packages[@]}"
 rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' "${packages[@]}" > /tmp/upower-stock.txt
 cat /tmp/upower-stock.txt
 python3 - "$candidate" <<'PY'
@@ -34,6 +35,12 @@ dnf install -y "${rpms[@]}"
 for package in "${packages[@]}"; do
   test "$(rpm -q --qf '%{EPOCHNUM}:%{VERSION}' "$package")" = 1:1.91.5
 done
+# UPower is the only owner of the charge limit: asahi-battery is gone and the
+# one-time hand-over of its saved limit runs before upowerd.
+if rpm -q asahi-battery; then exit 1; fi
+test -x /usr/libexec/aurora/upower-charge-limit-migrate
+test "$(readlink /usr/lib/systemd/system/upower.service.wants/upower-charge-limit-migrate.service)" = \
+  ../upower-charge-limit-migrate.service
 sha256sum --check /tmp/upower-state.sha256
 # The CLI version query requires a running system bus and daemon.
 # Runtime D-Bus behavior is covered by the full umockdev suite in %check.
