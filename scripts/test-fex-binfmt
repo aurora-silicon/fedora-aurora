@@ -1,0 +1,303 @@
+#!/bin/bash
+# Disposable Fedora CI container booted with systemd on an arm64 runner;
+# never a fleet installer. Checks which binfmt_misc handler runs x86
+# programs, and with what arguments, using Fedora's own binfmt-dispatcher
+# package (which Fedora Asahi Remix installs), systemd-binfmt, rpm's binfmt.d
+# file trigger and the runner's kernel:
+#
+#  - fex-emu 2610-6 beside binfmt-dispatcher, as on an Asahi upgrade:
+#    binfmt-dispatcher's handlers win and a program gets its own path as
+#    argv[1];
+#  - dnf upgrade to this recipe: FEX's handlers are the only x86 handlers,
+#    without a reboot, and programs get their own arguments. That holds when
+#    binfmt-dispatcher is reinstalled, and when fex-emu is installed afresh
+#    beside it;
+#  - an owner turns binfmt-dispatcher's handlers back on: they run FEX
+#    through fex-userpages, and programs still get their own arguments.
+#
+# /usr/bin/FEX is a stand-in that records what it is handed: its arguments,
+# AT_EXECFD, AT_FLAGS and FEX_EXECVEFD. No x86 code runs; FEX's own rule
+# (ELFCodeLoader) gives the arguments the program would get. The container
+# shares the runner's binfmt_misc and replaces its handlers.
+#
+# usage: test-fex-binfmt <fex-emu 2610-6 recipe dir> <packages dir> <proof dir>
+set -euo pipefail
+here=$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}")")
+source "$here/testlib.sh"
+[[ -e /.dockerenv && -d /run/systemd/system && $(uname -m) == aarch64 ]]
+old=${1:?fex-emu 2610-6 recipe directory}
+packages=${2:?packages directory}
+proof=${3:?evidence directory}
+mkdir -p "$proof"
+exec > >(tee "$proof/fex-binfmt.log") 2>&1
+release() { sed -n 's/^Release:[[:space:]]*\([0-9]*\)%.*/\1/p' "$1/fex-emu.spec"; }
+[[ $(release "$old") == 6 ]]
+new=$packages/fex-emu
+new_release=$(release "$new")
+[[ $new_release -gt 6 ]]
+fixtures=$here/../tests/fixtures/binfmt
+binfmt=/proc/sys/fs/binfmt_misc
+
+# binfmt_misc where a booted system has it (systemd's automount, else by hand).
+timeout 20 ls "$binfmt" >/dev/null || :
+[[ $(stat -f -c %T "$binfmt") == binfmt_misc ]] || mount -t binfmt_misc binfmt_misc "$binfmt"
+[[ $(stat -f -c %T "$binfmt") == binfmt_misc ]]
+
+top=/var/tmp/fex-binfmt
+rm -rf "$top"
+mkdir -p "$top/SPECS" "$top/x86"
+
+# FEX's stand-in.
+cat > "$top/fex-stub.c" <<'C'
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <sys/auxv.h>
+#include <unistd.h>
+
+static void target(FILE *f, const char *key, long fd)
+{
+	char link[64], path[PATH_MAX];
+	ssize_t n;
+
+	snprintf(link, sizeof(link), "/proc/self/fd/%ld", fd);
+	n = readlink(link, path, sizeof(path) - 1);
+	path[n < 0 ? 0 : n] = 0;
+	fprintf(f, "%s=%s\n", key, path);
+}
+
+int main(int argc, char **argv)
+{
+	const char *log = getenv("FEX_STUB_LOG"), *fd = getenv("FEX_EXECVEFD");
+	const char *path = getenv("FEX_EXECVEFD_PATH");
+	long execfd = (long)getauxval(AT_EXECFD);
+	FILE *f = log ? fopen(log, "w") : NULL;
+
+	if (!f)
+		return 127;
+	fprintf(f, "at_execfd=%ld\nat_flags=%lu\n", execfd, getauxval(AT_FLAGS));
+	if (execfd)
+		target(f, "at_execfd_target", execfd);
+	fprintf(f, "fex_execvefd=%s\nfex_execvefd_path=%s\n", fd ? fd : "", path ? path : "");
+	if (fd)
+		target(f, "fex_execvefd_target", strtol(fd, NULL, 10));
+	for (int i = 0; i < argc; i++)
+		fprintf(f, "argv=%s\n", argv[i]);
+	return fclose(f) ? 1 : 0;
+}
+C
+gcc -O2 -Wall -Werror -o "$top/FEX" "$top/fex-stub.c"
+
+# x86-64 (an executable and a PIE) and x86 programs: an ELF header to
+# e_machine, which is all binfmt_misc reads.
+python3 - "$top/x86" <<'PY'
+import os, struct, sys
+for name, bits, e_type in (('prog64', 64, 2), ('prog64-pie', 64, 3), ('prog32', 32, 2)):
+    ident = b'\x7fELF' + bytes([1 if bits == 32 else 2, 1, 1]) + bytes(9)
+    path = os.path.join(sys.argv[1], name)
+    with open(path, 'wb') as f:
+        f.write((ident + struct.pack('<HH', e_type, 3 if bits == 32 else 62)).ljust(64, b'\0'))
+    os.chmod(path, 0o755)
+PY
+
+# stub NAME VERSION RELEASE REPO: a stand-in; the spec body comes on stdin.
+stub() {
+  local spec=$top/SPECS/$1-$2-$3.spec
+  {
+    printf 'Name: %s\nVersion: %s\nRelease: %s\nSummary: stand-in\nLicense: MIT\nAutoReqProv: no\n' "$1" "$2" "$3"
+    printf '%%global debug_package %%{nil}\n'
+    cat
+  } > "$spec"
+  mkdir -p "$top/$4"
+  rpmbuild -bb --quiet --define "_topdir $top" --define "_rpmdir $top/$4" "$spec"
+}
+
+# mask_names RECIPE: the binfmt.d file names the recipe masks (none in 2610-6).
+mask_names() {
+  python3 - "$1/fex-emu.spec" <<'PY'
+import re, sys
+spec = open(sys.argv[1]).read()
+m = re.search(r'(?m)^for f in (.+); do\n  install -Dm644 %\{SOURCE\d+\} %\{buildroot\}%\{_sysconfdir\}/binfmt\.d/\$f\n', spec)
+print(m.group(1) if m else '')
+PY
+}
+
+# fex_emu RELEASE REPO RECIPE: FEX's handlers (as FEX installs them), FEX's
+# stand-in, the recipe's binfmt-dispatcher config, fex-userpages, masks and
+# erase scriptlet.
+fex_emu() {
+  local recipe=$3 names
+  names=$(mask_names "$recipe")
+  {
+    printf 'Requires: aurora-userpages\n%%description\nstand-in\n%%install\n'
+    printf 'install -Dm755 %s %%{buildroot}%%{_bindir}/FEX\n' "$top/FEX"
+    for arch in x86 x86_64; do
+      printf 'install -Dm644 %s %%{buildroot}%%{_binfmtdir}/FEX-%s.conf\n' "$fixtures/FEX-$arch.conf" "$arch"
+    done
+    printf 'install -Dm755 %s %%{buildroot}%%{_libexecdir}/fex-emu/fex-userpages\n' "$recipe/fex-userpages"
+    printf 'install -Dm644 %s %%{buildroot}%%{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml\n' "$recipe/50-aurora-fex.toml"
+    for name in $names; do
+      printf 'install -Dm644 %s %%{buildroot}%%{_sysconfdir}/binfmt.d/%s\n' "$recipe/binfmt-dispatcher-x86-off.conf" "$name"
+    done
+    # The recipe's %postun, up to its first blank line.
+    python3 - "$recipe/fex-emu.spec" <<'PY'
+import sys
+print('%postun\n' + open(sys.argv[1]).read().split('\n%postun\n', 1)[1].split('\n\n', 1)[0])
+PY
+    printf '%%files\n%%{_bindir}/FEX\n%%{_binfmtdir}/FEX-x86.conf\n%%{_binfmtdir}/FEX-x86_64.conf\n'
+    printf '%%{_libexecdir}/fex-emu/\n%%{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml\n'
+    for name in $names; do
+      printf '%%config(noreplace) %%{_sysconfdir}/binfmt.d/%s\n' "$name"
+    done
+  } | stub fex-emu 2610 "$1" "$2"
+}
+
+stub aurora-userpages 0 1 base <<'SPEC'
+BuildArch: noarch
+%description
+stand-in: the runner's kernel has 4 KiB pages
+%install
+mkdir -p %{buildroot}%{_bindir}
+printf '#!/bin/sh\nshift\nexec "$@"\n' > %{buildroot}%{_bindir}/userpages
+chmod 755 %{buildroot}%{_bindir}/userpages
+%files
+%{_bindir}/userpages
+SPEC
+fex_emu 6.aurora base "$old"
+fex_emu "$new_release.aurora" update "$new"
+[[ -n $(mask_names "$new") ]]
+for repo in base update; do
+  createrepo_c -q "$top/$repo"
+  printf '[stub-%s]\nname=stand-ins %s\nbaseurl=file://%s\ngpgcheck=0\nenabled=0\n' \
+    "$repo" "$repo" "$top/$repo" > "/etc/yum.repos.d/stub-$repo.repo"
+done
+
+# handlers: the registered handlers, one per line.
+handlers() { find "$binfmt" -maxdepth 1 -type f ! -name register ! -name status -printf '%f\n' | sort; }
+expect_handlers() {
+  local want
+  want=$(printf '%s\n' "$@" | sort)
+  if [[ $(handlers) != "$want" ]]; then
+    printf 'handlers: %s, expected %s\n' "$(handlers | xargs)" "$*" >&2
+    exit 1
+  fi
+}
+snapshot() { # NAME
+  {
+    for f in "$binfmt"/*; do
+      [[ $f == */register ]] && continue
+      printf '== %s\n' "$f"
+      cat "$f"
+    done
+    printf '== systemd-binfmt --cat-config\n'
+    /usr/lib/systemd/systemd-binfmt --cat-config
+  } > "$proof/binfmt-$1.txt"
+}
+fex_handlers_only() {
+  expect_handlers FEX-x86 FEX-x86_64
+  for arch in x86 x86_64; do
+    grep -qx enabled "$binfmt/FEX-$arch"
+    grep -qx 'interpreter /usr/bin/FEX' "$binfmt/FEX-$arch"
+    grep -qx 'flags: POCF' "$binfmt/FEX-$arch"
+  done
+}
+
+# run MODE PATH ARGV0 [ARG...]: execs PATH from $top/x86 with that argv[0]
+# and only fds 0-2, as a program starting another one does, then checks what
+# FEX was handed. MODE says who started FEX:
+#   fex         binfmt_misc, through FEX's handler;
+#   dispatcher  binfmt-dispatcher, through fex-userpages;
+#   old         binfmt-dispatcher, through 2610-6's fex-userpages (the bug).
+# With RUN_VIA_SH=1 a shell execs it.
+run() {
+  python3 - "$@" <<'PY'
+import json, os, subprocess, sys
+mode, path, argv0, *args = sys.argv[1:]
+cwd, log = '/var/tmp/fex-binfmt/x86', '/var/tmp/fex-binfmt/fex.log'
+if os.path.exists(log):
+    os.unlink(log)
+env = {k: v for k, v in os.environ.items() if not k.startswith('FEX_')}
+env['FEX_STUB_LOG'] = log
+if os.environ.get('RUN_VIA_SH') == '1':
+    subprocess.run(['/bin/sh', '-c', 'exec -a "$0" "$@"', argv0, path, *args], cwd=cwd, env=env,
+                   check=True, stdin=subprocess.DEVNULL)
+else:
+    subprocess.run([argv0, *args], executable=path, cwd=cwd, env=env, check=True, stdin=subprocess.DEVNULL)
+fex = {'argv': []}
+for line in open(log).read().splitlines():
+    key, _, value = line.partition('=')
+    if key == 'argv':
+        fex['argv'].append(value)
+    else:
+        fex[key] = value
+# FEX's rule: the program comes from AT_EXECFD, or FEX_EXECVEFD over it, or
+# else from its first argument; its argv is FEX's arguments, without the
+# first when it came from an fd or binfmt_misc preserved argv[0].
+fexargs = fex['argv'][1:]
+execfd, envfd = int(fex['at_execfd']), fex['fex_execvefd']
+fd = int(envfd) if envfd else execfd
+guest = fexargs[1:] if fd or int(fex['at_flags']) & 1 else fexargs
+real = os.path.realpath(os.path.join(cwd, path))
+loaded = fex.get('fex_execvefd_target' if envfd else 'at_execfd_target') if fd else os.path.realpath(os.path.join(cwd, fexargs[0]))
+print(json.dumps({'mode': mode, 'exec': [path, argv0, *args], 'fex': fex, 'program_argv': guest, 'program': loaded}))
+if mode == 'fex':
+    ok = execfd and not envfd and int(fex['at_flags']) & 1 and fexargs[:2] == [path, argv0]
+elif mode == 'dispatcher':
+    ok = not execfd and envfd == '3' and fex['fex_execvefd_path'] == '1' and fexargs[:2] == [path, argv0]
+else:
+    ok = not fd and fexargs[:3] == [real, path, argv0]
+want = [real, path, argv0, *args] if mode == 'old' else [argv0, *args]
+if not ok or guest != want or loaded != real:
+    sys.exit(f'{mode}: the program would get {guest} from {loaded}, expected {want} from {real}')
+PY
+}
+programs() { # MODE
+  run "$1" /var/tmp/fex-binfmt/x86/prog64 custom-argv0 one 'two words' ''
+  run "$1" ./prog64 ./prog64 --flag
+  run "$1" ./prog64-pie prog64-pie
+  run "$1" ./prog32 custom32 a b
+  # (bash's exec hands execve an absolute path for ./prog64.)
+  RUN_VIA_SH=1 run "$1" /var/tmp/fex-binfmt/x86/prog64 from-a-shell c d
+}
+
+echo '== fex-emu 2610-6 beside binfmt-dispatcher (an Asahi upgrade): binfmt-dispatcher wins'
+dnf -y -q install binfmt-dispatcher
+dnf -y -q --repo=stub-base install fex-emu-2610-6.aurora
+rpm -q binfmt-dispatcher fex-emu-2610-6.aurora | tee "$proof/packages-before.txt"
+# Started as on a booted system, so that erase scriptlets can restart it.
+systemctl start systemd-binfmt.service
+systemctl is-active systemd-binfmt.service
+expect_handlers FEX-x86 FEX-x86_64 binfmt-dispatcher-x86 binfmt-dispatcher-x86_64
+snapshot before
+programs old | tee "$proof/programs-before.txt"
+
+echo "== dnf upgrade to fex-emu 2610-$new_release: FEX's handlers alone, without a reboot"
+dnf -y --repo=stub-base --repo=stub-update upgrade fex-emu | tee "$proof/upgrade.txt"
+rpm -q "fex-emu-2610-$new_release.aurora" binfmt-dispatcher
+fex_handlers_only
+snapshot after
+/usr/lib/systemd/systemd-binfmt --cat-config | grep -F '# /etc/binfmt.d/zz-binfmt-dispatcher-x86_64.conf'
+programs fex | tee "$proof/programs-after.txt"
+
+echo '== A binfmt-dispatcher reinstall (its own update) keeps FEX the handler'
+dnf -y -q reinstall binfmt-dispatcher
+fex_handlers_only
+programs fex > /dev/null
+
+echo '== fex-emu installed afresh beside binfmt-dispatcher'
+dnf -y -q remove fex-emu
+[[ ! -e /etc/binfmt.d/zz-binfmt-dispatcher-x86_64.conf ]]
+# fex-emu's erase restarted systemd-binfmt: binfmt-dispatcher's handlers are back.
+expect_handlers binfmt-dispatcher-x86 binfmt-dispatcher-x86_64
+dnf -y -q --repo=stub-base --repo=stub-update install fex-emu
+rpm -q "fex-emu-2610-$new_release.aurora"
+fex_handlers_only
+programs fex > /dev/null
+
+echo "== An owner turns binfmt-dispatcher's handlers back on: fex-userpages hands FEX the program"
+cp /usr/lib/binfmt.d/zz-binfmt-dispatcher-x86*.conf /etc/binfmt.d/
+systemctl restart systemd-binfmt.service
+expect_handlers FEX-x86 FEX-x86_64 binfmt-dispatcher-x86 binfmt-dispatcher-x86_64
+snapshot dispatcher-on
+programs dispatcher | tee "$proof/programs-dispatcher-on.txt"
+echo FEX-BINFMT-PASS

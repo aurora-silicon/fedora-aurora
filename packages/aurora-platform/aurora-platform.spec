@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 46%{?dist}
+Release: 48%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -53,8 +53,9 @@ Source123: aurora-kdump-setup
 Source124: aurora-kdump-clock-module-setup.sh
 Source125: aurora-kdump-clock.sh
 Source126: 60-aurora-t6041-trackpad.quirks
-Source127: aurora-t6041-power.service
+Source127: aurora-power-defaults.service
 Source128: aurora-irq-steerable
+Source129: 60_aurora-apple-keys.gschema.override
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -176,11 +177,13 @@ install -Dm755 %{SOURCE115} %{buildroot}%{_libexecdir}/aurora/aurora-wake-for-ne
 install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-network.rules
 install -Dm644 %{SOURCE120} %{buildroot}%{_udevrulesdir}/64-aurora-trackpad-clicks.rules
 install -Dm644 %{SOURCE126} %{buildroot}%{_datadir}/libinput/60-aurora-t6041-trackpad.quirks
-install -Dm644 %{SOURCE127} %{buildroot}%{_unitdir}/aurora-t6041-power.service
+install -Dm644 %{SOURCE129} %{buildroot}%{_datadir}/glib-2.0/schemas/60_aurora-apple-keys.gschema.override
+install -Dm644 %{SOURCE127} %{buildroot}%{_unitdir}/aurora-power-defaults.service
 # Wanted by sysinit.target itself: a preset would not reach Macs that
-# already have aurora-platform-core. ConditionFirmware skips other Macs.
+# already have aurora-platform-core. ConditionFirmware skips machines that
+# are not Apple silicon Macs.
 install -d %{buildroot}%{_unitdir}/sysinit.target.wants
-ln -s ../aurora-t6041-power.service %{buildroot}%{_unitdir}/sysinit.target.wants/aurora-t6041-power.service
+ln -s ../aurora-power-defaults.service %{buildroot}%{_unitdir}/sysinit.target.wants/aurora-power-defaults.service
 install -Dm644 %{SOURCE118} %{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 install -Dm644 %{SOURCE121} %{buildroot}%{_prefix}/lib/kdump/dracut.conf.d/99-zz-aurora.conf
 install -Dm644 %{SOURCE122} %{buildroot}%{_unitdir}/kdump.service.d/50-aurora-kdump.conf
@@ -249,13 +252,14 @@ fi
 %dir %{_unitdir}/irqbalance.service.d
 %{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf
 %{_libexecdir}/aurora/aurora-irq-steerable
-%{_unitdir}/aurora-t6041-power.service
-%{_unitdir}/sysinit.target.wants/aurora-t6041-power.service
+%{_unitdir}/aurora-power-defaults.service
+%{_unitdir}/sysinit.target.wants/aurora-power-defaults.service
 %{_udevrulesdir}/61-aurora-dmi-id.rules
 %{_udevrulesdir}/62-aurora-gpu-render-only.rules
 %{_udevrulesdir}/63-aurora-wake-for-network.rules
 %{_udevrulesdir}/64-aurora-trackpad-clicks.rules
 %{_datadir}/libinput/60-aurora-t6041-trackpad.quirks
+%{_datadir}/glib-2.0/schemas/60_aurora-apple-keys.gschema.override
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 %{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
@@ -280,6 +284,21 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sat Nov 21 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-48
+- The Mission Control key (F3, keysym XF86LaunchA) opens and closes the
+  GNOME Activities overview, as Mission Control does on macOS
+  (60_aurora-apple-keys.gschema.override). GNOME bound nothing to it.
+
+* Sat Nov 21 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-47
+- Power defaults on every Apple silicon Mac (aurora-power-defaults.service,
+  ConditionFirmware=device-tree-compatible(apple,arm-platform)), replacing
+  the M4 Max-only aurora-t6041-power.service: PCIe ASPM policy
+  powersupersave and kernel.sched_util_clamp_min_rt_default=0. The ASPM
+  write may fail (pcie_aspm=off) without skipping the sysctl. Ordered before
+  aurora-power-modes, so its boot baseline is these values. Same unit as
+  ALARM (alarm-aurora#332 by AxxzyWasTaken). Idle power -14 to -31 % on the
+  T8140, T6040, T6000 and T8112 with no xruns or Wi-Fi/Bluetooth drops.
+
 * Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 44-46
 - Require aurora-m5-platform-config, the MacBook Pro (M5 Pro, J714s) deep
   sleep configuration, as aurora-neo-platform-config is required for the

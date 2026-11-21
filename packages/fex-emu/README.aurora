@@ -126,3 +126,22 @@ your config to go back to Aurora's.
 
 Fedora Asahi Remix ran FEX in muvm, which set the RootFS only inside its VM.
 On Aurora FEX runs on the host and uses the global config.
+
+## binfmt_misc
+
+FEX's own binfmt_misc handlers, FEX-x86 and FEX-x86_64 (in /usr/lib/binfmt.d),
+run x86 programs: the kernel starts FEX with the program open and with the
+arguments the program was given. FEX also hands the x86 programs it starts,
+for example from FEXBash, to the kernel, so they go through the same
+handlers. To list the registered handlers:
+
+    grep -Hs interpreter /proc/sys/fs/binfmt_misc/*
+
+The handler registered last wins. Fedora Asahi Remix installs
+binfmt-dispatcher, whose x86 handlers register after FEX's. fex-emu turns
+them off with files of the same names in /etc/binfmt.d, which register
+nothing; their comments say how to turn them back on. binfmt-dispatcher
+then runs x86 programs through /usr/libexec/fex-emu/fex-userpages, which
+starts FEX in a 4 KiB page tree even from a 16 KiB process and hands FEX
+the program as binfmt_misc opened it. Another package's x86 handler, such
+as qemu-user-static's, takes x86 programs from FEX in the same way.
