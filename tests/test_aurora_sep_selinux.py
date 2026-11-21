@@ -61,8 +61,9 @@ class SelinuxModuleTests(unittest.TestCase):
             self.assertEqual(len(hits), 1, path)
             self.assertEqual(hits[0][0], kind, path)
             self.assertIn(':aurora_sep_state_t,', hits[0][1], path)
-        self.assertIn('type_transition unconfined_service_t var_lib_t:dir aurora_sep_state_t '
-                      '"aurora-sep-quarantine";', self.te)
+        for domain in ('unconfined_service_t', 'unconfined_t'):
+            self.assertIn('type_transition %s var_lib_t:dir aurora_sep_state_t '
+                          '"aurora-sep-quarantine";' % domain, self.te)
         post = self.spec[self.spec.index('%posttrans selinux'):self.spec.index('%files')]
         self.assertIn('restorecon -RF /var/lib/aurora-sep-quarantine', post)
     def test_no_access_to_generic_var_lib(self):

@@ -319,11 +319,20 @@ optional_policy(`
 # damaged host-state store in /var/lib/aurora-sep-quarantine. They hold the
 # same enclave secrets as the store, so the directory it creates gets the
 # state type, and the copies made in it inherit it. The helper runs as an
-# unconfined service, which needs no allow rule for that type.
+# unconfined service, or as an unconfined administrator who starts it by hand;
+# neither needs an allow rule for that type.
 optional_policy(`
 	gen_require(`
 		type unconfined_service_t;
 	')
 
 	type_transition unconfined_service_t var_lib_t:dir aurora_sep_state_t "aurora-sep-quarantine";
+')
+
+optional_policy(`
+	gen_require(`
+		type unconfined_t;
+	')
+
+	type_transition unconfined_t var_lib_t:dir aurora_sep_state_t "aurora-sep-quarantine";
 ')
