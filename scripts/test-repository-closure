@@ -1,0 +1,82 @@
+#!/bin/bash
+# Inside a disposable Fedora container: check-repository-closure refuses a set
+# whose kernel needs an avd-fw the set does not carry, and passes the set that
+# carries this release's avd-fw recipe. The probe kernel takes its avd-fw
+# floor from kernel-aurora.spec and also needs a Fedora package, so the
+# release's own repositories take part. The fleet's boot-chain exclude stays
+# configured throughout: it hides the kernel from dnf, but not from the check.
+# usage: test-repository-closure
+set -euo pipefail
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+source "$root/scripts/testlib.sh"
+dnf install -y rpm-build createrepo_c dnf5-plugins >/dev/null
+fedora=$(rpm --eval '%{fedora}')
+dist=$(rpm --eval '%{dist}')
+top=$(mktemp -d)
+trap 'rm -rf "$top"' EXIT
+
+# kernel-aurora-core's requirement for this release, such as "avd-fw >= 0.1-5".
+floor=$(rpmspec -q --requires "$root/packages/kernel-aurora/kernel-aurora.spec" | grep -E '^avd-fw ' | sort -u)
+[[ $floor =~ ^avd-fw\ \>=\ [0-9] ]]
+# The avd-fw this release builds; Fedora 45 uses its overlay (fedoralib.recipe_files).
+recipe=$root/packages/avd-fw/avd-fw.spec
+if (( fedora != 44 )) && [[ -f $root/packages/avd-fw/f$fedora/avd-fw.spec ]]; then
+  recipe=$root/packages/avd-fw/f$fedora/avd-fw.spec
+fi
+current=$(rpmspec -q --srpm --qf '%{VERSION}-%{RELEASE}' "$recipe")
+# The avd-fw each testing feed served before the ea8ae7c8 firmware.
+case $fedora in
+  44) published=0.1-3$dist.aurora ;;
+  45) published=0.1-4$dist.aurora ;;
+  *) echo "No published avd-fw recorded for Fedora $fedora" >&2; exit 1 ;;
+esac
+echo "Fedora $fedora: kernel needs '$floor'; recipe builds avd-fw $current; feed served $published"
+
+probe() { # name version release [requirement...]
+  local name=$1 version=$2 release=$3
+  shift 3
+  {
+    printf 'Name: %s\nVersion: %s\nRelease: %s\n' "$name" "$version" "$release"
+    printf 'Summary: repository closure probe\nLicense: MIT\nBuildArch: noarch\n'
+    for requirement in "$@"; do printf 'Requires: %s\n' "$requirement"; done
+    printf '%%description\nprobe\n%%files\n'
+  } > "$top/$name.spec"
+  rpmbuild -bb --quiet --define "_topdir $top/build" --define "_rpmdir $top/pool" "$top/$name.spec"
+}
+probe kernel-aurora-core 7.3.0 "41$dist.aurora" "$floor" coreutils
+probe avd-fw "${published%%-*}" "${published#*-}"
+probe avd-fw "${current%%-*}" "${current#*-}"
+mkdir "$top/old" "$top/new"
+cp "$top/pool/noarch/kernel-aurora-core-7.3.0-41$dist.aurora.noarch.rpm" "$top/old/"
+cp "$top/pool/noarch/kernel-aurora-core-7.3.0-41$dist.aurora.noarch.rpm" "$top/new/"
+cp "$top/pool/noarch/avd-fw-$published.noarch.rpm" "$top/old/"
+cp "$top/pool/noarch/avd-fw-$current.noarch.rpm" "$top/new/"
+
+# The exclude the fleet upgrade test configures; dnf no longer sees the kernel.
+exclude=$(grep -m1 '^excludepkgs=' "$root/scripts/test-fedora-repository")
+[[ $exclude == *kernel-aurora\** ]]
+mkdir -p /etc/dnf/libdnf5.conf.d
+printf '[main]\n%s\n' "$exclude" > /etc/dnf/libdnf5.conf.d/90-aurora-fleet-bootchain.conf
+mkdir "$top/index"
+createrepo_c --quiet --outputdir "$top/index" "$top/old"
+query() { dnf5 -q --repofrompath=probe,"$top/index" --repo=probe repoquery --available "$1"; }
+visible=$(query avd-fw)
+hidden=$(query kernel-aurora-core)
+grep -F "$published" <<< "$visible"
+nomatch -F kernel-aurora-core <<< "$hidden"
+
+# Red: the set still carries the avd-fw the feed served before.
+status=0
+bash "$root/scripts/check-repository-closure" "$top/old" > "$top/old.log" 2>&1 || status=$?
+cat "$top/old.log"
+if (( ! status )); then
+  echo "FAIL: a kernel needing '$floor' passed beside avd-fw $published" >&2
+  exit 1
+fi
+grep -E "kernel-aurora-core-(0:)?7\.3\.0-41" "$top/old.log"
+grep -F "$floor" "$top/old.log"
+
+# Green: the set carries this release's avd-fw recipe. The set is left as it was.
+bash "$root/scripts/check-repository-closure" "$top/new"
+[[ ! -e $top/new/repodata ]]
+echo "Fedora $fedora repository closure: refuses avd-fw $published, accepts $current: PASS"

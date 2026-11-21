@@ -235,6 +235,15 @@ jobs:
             fi
           fi
           echo "status=$status" >> "$GITHUB_OUTPUT"
+      - name: Refuse a package whose Requires the repository cannot satisfy
+        # dnf skips such a package on upgrade without an error, so a kernel
+        # whose avd-fw floor the set does not meet would leave the fleet on
+        # the old kernel. Every package is checked, the boot chain included.
+        if: steps.assemble.outputs.status == 'complete'
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/src:ro" -w /src "$FEDORA_IMAGE" \
+            bash scripts/check-repository-closure complete-rpms
       - id: bundle
         if: steps.assemble.outputs.status == 'complete'
         run: |
