@@ -14,7 +14,7 @@
 
 Name:           gnome-settings-daemon
 Version:        50.1
-Release:        1%{?dist}.aurora1
+Release:        2%{?dist}.aurora1
 Summary:        The daemon sharing settings from GNOME to GTK+/KDE applications
 
 License:        GPL-2.0-or-later AND LGPL-2.1-or-later
@@ -207,6 +207,14 @@ cp %{SOURCE1} %{SOURCE100} $RPM_BUILD_ROOT%{_datadir}/glib-2.0/schemas
 %endif
 
 %changelog
+* Fri Nov 14 2026 Ryan Murray <ryan@aurorasilicon.org> - 50.1-2.aurora1
+- Turn automatic screen brightness on by default (ambient-enabled=true in the
+  power gschema override), matching macOS where "Automatically adjust
+  brightness" ships on. The Apple AOP ambient light sensor already feeds
+  iio-sensor-proxy out of the box (stock 80-iio-sensor-proxy.rules tags any
+  in_illuminance_input device iio-poll-als), so no udev change is needed; this
+  only flips the default. Users can still toggle it in Settings > Power.
+
 * Sun Nov 01 2026 Ryan Murray <ryan@aurorasilicon.org> - 50.1-1.aurora1
 - Add an opt-in ambient white point to the colour plugin: the display
   white point follows the ambient light's colour temperature from

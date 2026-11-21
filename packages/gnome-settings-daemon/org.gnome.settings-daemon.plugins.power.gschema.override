@@ -1,5 +1,10 @@
 [org.gnome.settings-daemon.plugins.power]
 sleep-inactive-ac-timeout=0
+# Aurora: match macOS, which ships "Automatically adjust brightness" on. The
+# ambient light sensor already feeds iio-sensor-proxy out of the box, so turn
+# GNOME's automatic screen brightness on by default (users can still toggle it
+# in Settings > Power). macOS-parity default.
+ambient-enabled=true
 
 [org.gnome.settings-daemon.plugins.power]
 power-button-action=nothing
