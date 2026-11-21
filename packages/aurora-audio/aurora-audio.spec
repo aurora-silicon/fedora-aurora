@@ -1,7 +1,7 @@
 %global commit c967141161bea3badc7754e23d80b39ffb1bdafd
 Name: aurora-audio
 Version: 4.1
-Release: 16%{?dist}
+Release: 17%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
@@ -61,6 +61,14 @@ install -Dm644 %{SOURCE3} %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d
 %{_libexecdir}/aurora-audio/
 
 %changelog
+* Thu Nov 19 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-17
+- The built-in speaker PCM of every Mac wakes on its period interrupts
+  (api.alsa.disable-tsched), matched as PCM 1 of any AppleJ<board> card
+  instead of a list of 25 boards: every macaudio speaker front-end is a
+  cyclic DMA PCM with an interrupt per period, the MCA on M1-M3 and the AOP
+  speaker services from the M4 on. Newly covered: the M4 Macs other than
+  the J616, the M5 Macs and the MacBook Neo.
+
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 4.1-16
 - Retire only the speakerguardd v2 previews up to release candidate 7
   (1.0.0~alpha.1-0.32 and older), so release candidate 8 can be installed by
