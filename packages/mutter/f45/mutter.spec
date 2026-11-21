@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       22%{?dist}.aurora
+Release:       23%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -89,6 +89,12 @@ Patch54:       0054-wayland-session-lock-Keep-the-lock-above-restacked-s.patch
 Patch55:       0055-wayland-foreign-toplevel-Freeze-the-toplevel-list-wh.patch
 Patch56:       0056-wayland-session-lock-Keep-captures-from-showing-what.patch
 Patch57:       0057-tests-Add-session-lock-capture-window-list-and-grab-.patch
+# Upstream MR !5339 (open): sync with the X server before comparing the
+# X server stacking with the stack tracker. Without it the stacking tests
+# race the X events they compare against; workspace-maximized flakes this
+# way on the shared CI runners and upstream.
+# https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/5339
+Patch58:       0058-tests-stacking-Sync-with-the-X-server-before-comparin.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -307,6 +313,12 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Thu Nov 19 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-23.aurora
+- Carry upstream MR !5339 for the workspace-maximized stacking race: the
+  stacking tests now wait for mutter to handle the pending X events before
+  comparing the X server stacking with the stack tracker, so the test
+  keeps gating the build instead of being skipped.
+
 * Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-22.aurora
 - Keep what is behind a session lock out of every capture and window
   list: window screen casts and window screenshots get transparent
