@@ -1,0 +1,5 @@
+{
+  "repository": "https://src.fedoraproject.org/rpms/ffmpeg.git",
+  "branch": "f44",
+  "commit": "30a2e0d3c7866ac633780e47e4ddaefd6476e142"
+}
