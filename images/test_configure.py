@@ -220,6 +220,8 @@ class ConfigureTests(unittest.TestCase):
                 names = {n.get("name") for p in out.rglob("*.xml")
                          for n in ET.parse(p).getroot().iter("package")}
                 self.assertIn("openssh-server", names)
+                # USB4 and Thunderbolt PCIe tunnels need bolt on every profile.
+                self.assertIn("bolt", names)
         # Run the image's SSH check against stand-in rpm and systemctl.
         script = (self.root / "sshd-fedora-kde/config.sh").read_text()
         check = script[script.index("# Every profile ships the SSH server"):script.rindex("\nexit 0\n")]
