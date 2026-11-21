@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 32%{?dist}
+Release: 33%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -45,6 +45,9 @@ Requires: fprintd(aurora-sep) = 1
 Requires: aurora-touchid-rearm
 # aurora-xart reset-touchid starts Touch ID over when its keybag is stuck.
 Requires: aurora-xart
+# Recovers a host-state store that a power cut left short, before the loader
+# starts apple_sep; the driver refuses such a file and Touch ID stays dead.
+Requires: aurora-sep-host-state
 # Holds the packaged kernel to one with the module-based SEP driver, and
 # leaves a kernel installed outside RPM alone; the units skip a kernel
 # without a loadable apple_sep.
@@ -249,6 +252,12 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sat Nov 21 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-33
+- Require aurora-sep-host-state: its repair unit runs before aurora-sep.service
+  and recovers /var/lib/aurora-sep-host-state.bin when a power cut left a
+  prefix of it (aurora-sep-userspace#36). Without it the driver refuses the
+  short file and Touch ID stays dead until it is recovered by hand.
+
 * Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 1-32
 - SEP writes are always on: drop /usr/lib/modprobe.d/aurora-sep.conf
   (options apple_sep xart_writes=1 provision_keybag=1). It existed only so
