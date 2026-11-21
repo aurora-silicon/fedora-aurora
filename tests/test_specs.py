@@ -908,26 +908,22 @@ class SpecTests(unittest.TestCase):
             self.grubby = (tmp / 'grubby.log').read_text() if (tmp / 'grubby.log').exists() else ''
             return state.read_text(), log.read_text() if log.exists() else ''
 
-    def test_theme_keeps_a_serial_console_from_forcing_the_text_view(self):
-        # The Neo's device tree names its DockChannel UART as stdout-path; with it as a
-        # console Plymouth shows only its details view, passphrase prompt included.
-        for cmdline, expected in (
-                ('root=UUID=x ro rhgb quiet user4k=on', '--update-kernel=ALL --args=plymouth.ignore-serial-consoles'),
-                ('root=UUID=x ro rhgb quiet plymouth.ignore-serial-consoles', ''),
-                ('root=UUID=x ro quiet', ''),
-                (None, '')):
-            with self.subTest(cmdline=cmdline):
-                self.run_theme_post('aurora', cmdline)
+    def test_theme_takes_the_old_serial_console_argument_out_once(self):
+        # aura drops a debug UART's stdout-path on normal boots, so the argument
+        # earlier releases added is gone from every entry, once.
+        fix = '--update-kernel=ALL --remove-args=plymouth.ignore-serial-consoles'
+        for cmdline, entries, expected in (
+                ('root=UUID=x ro rhgb quiet plymouth.ignore-serial-consoles', None, fix),
+                ('root=UUID=x ro rhgb quiet', 'args="ro rhgb quiet plymouth.ignore-serial-consoles"\n', fix),
+                ('root=UUID=x ro rhgb quiet', 'args="ro rhgb quiet"\n', ''),
+                (None, None, '')):
+            with self.subTest(cmdline=cmdline, entries=entries):
+                self.run_theme_post('aurora', cmdline, entries)
                 self.assertEqual(self.grubby.strip(), expected)
-        # Entries made before the argument reached /etc/kernel/cmdline still get it.
-        fix = '--update-kernel=ALL --args=plymouth.ignore-serial-consoles'
-        for entries, expected in (
-                ('kernel="/boot/vmlinuz-a"\nargs="ro rhgb quiet"\n', fix),
-                ('args="ro rhgb quiet plymouth.ignore-serial-consoles"\n', ''),
-                ('args="ro quiet"\n', '')):
-            with self.subTest(entries=entries):
-                self.run_theme_post('aurora', 'root=UUID=x ro rhgb quiet plymouth.ignore-serial-consoles', entries)
-                self.assertEqual(self.grubby.strip(), expected)
+        spec = (ROOT / 'packages' / 'plymouth-theme-aurora' / 'plymouth-theme-aurora.spec').read_text()
+        posttrans = spec.split('\n%posttrans\n', 1)[1].split('\n%postun\n', 1)[0]
+        self.assertNotIn('--args=plymouth', posttrans)
+        self.assertIn('if [ ! -e $removed ]; then', posttrans)
 
     def test_theme_replaces_only_a_stock_default_and_rebuilds_the_initramfs(self):
         for stock in ('', 'bgrt', 'spinner', 'charge'):
