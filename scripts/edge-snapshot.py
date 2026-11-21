@@ -56,6 +56,12 @@ def plan(base, edge, mesa=None, sources=False):
     keep = sorted(filename for key, filename in base if key not in replaced)
     if len(keep) + len(replaced & {key for key, _ in base}) != len(base):
         raise ValueError('duplicate base package identity')
+    # Every kernel and Mesa family package of the base must come from the Edge build;
+    # a base-only subpackage would ship at the Testing version beside it.
+    stale = sorted(filename for key, filename in base
+                   if key not in replaced and edgelib.family(key.rsplit('.', 1)[0]) is not None)
+    if stale:
+        raise ValueError('Testing kernel or Mesa packages the Edge build has not replaced: ' + ', '.join(stale))
     add = sorted(filename for _, filename in edge)
     if sources:
         return keep, add, {filename: origin.get(filename, 'edge') for filename in add}

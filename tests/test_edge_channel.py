@@ -139,6 +139,16 @@ class EdgeSnapshotTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'not a Mesa package'):
             snapshot.plan(self.base, stale, mesa + [self.edge[0]])
 
+    def test_a_base_only_family_package_is_refused(self):
+        # A Testing subpackage the Edge build lacks would ship at the Testing version
+        # beside the Edge Mesa or kernel.
+        base = self.base + [('mesa-aurora-extra.aarch64', 'mesa-aurora-extra-26.3.0-30.fc44.aurora.aarch64.rpm')]
+        with self.assertRaisesRegex(ValueError, 'mesa-aurora-extra'):
+            snapshot.plan(base, self.edge)
+        base = self.base + [('kernel-aurora-devel.aarch64', 'kernel-aurora-devel-7.3.0-41.fc44.aurora.aarch64.rpm')]
+        with self.assertRaisesRegex(ValueError, 'not replaced'):
+            snapshot.plan(base, self.edge)
+
     def test_only_kernel_and_mesa_packages_may_come_from_the_edge_build(self):
         with self.assertRaisesRegex(ValueError, 'not a kernel or Mesa'):
             snapshot.plan(self.base, self.edge + [('aura.aarch64', 'aura-1.0.0.b14-1.fc44.aarch64.rpm')])
@@ -191,6 +201,26 @@ class ImageProofTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'Edge feed'):
                     proof.proof(self.root, 'fedora-gnome', 'edge-20261121.1', self.sources)
 
+    def test_lab_only_kernel_arguments_are_refused(self):
+        kiwi = self.root.parent / 'config.xml'
+        clean = '<image><preferences><type image="oem" kernelcmdline="quiet loglevel=3 user4k=on"/></preferences></image>'
+        kiwi.write_text(clean)
+        (self.root / 'etc/kernel').mkdir(parents=True)
+        (self.root / 'etc/kernel/cmdline').write_text('root=UUID=x ro quiet user4k=on\n')
+        proof.proof(self.root, 'fedora-kde', 'edge-20261121.1', self.sources, kiwi)
+        for argument in ('systemd.debug_shell', 'systemd.debug_shell=1', 'panic=30', 'systemd.watchdog_sec=60',
+                         'rd.break', 'rd.break=pre-mount'):
+            with self.subTest(argument=argument, source='cmdline'):
+                (self.root / 'etc/kernel/cmdline').write_text('root=UUID=x ro ' + argument + '\n')
+                with self.assertRaisesRegex(ValueError, 'lab-only'):
+                    proof.proof(self.root, 'fedora-kde', 'edge-20261121.1', self.sources, kiwi)
+            with self.subTest(argument=argument, source='kiwi'):
+                (self.root / 'etc/kernel/cmdline').write_text('root=UUID=x ro quiet\n')
+                kiwi.write_text(clean.replace('user4k=on', 'user4k=on ' + argument))
+                with self.assertRaisesRegex(ValueError, 'lab-only'):
+                    proof.proof(self.root, 'fedora-kde', 'edge-20261121.1', self.sources, kiwi)
+                kiwi.write_text(clean)
+
     def test_two_kernels_are_refused(self):
         (self.root / 'usr/lib/modules/7.3.0-41.fc44.aurora.aarch64').mkdir()
         (self.root / 'usr/lib/modules/7.3.0-41.fc44.aurora.aarch64/vmlinuz').write_bytes(b'old')
@@ -225,6 +255,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn('--channel edge', sign)
         collect = text.split('\n  sign:\n', 1)[0]
         self.assertNotIn('secrets.', collect)
+        # The packaged sources come from the API's record of each package run, never from
+        # the signer artifact's own build-run.json.
+        self.assertEqual(collect.count('jq -r .id signed/build-run.json'), 1)
+        self.assertEqual(collect.count('jq -r .id signed-mesa/build-run.json'), 1)
+        self.assertEqual(collect.count('(.head_branch | startswith("edge-staging/"))'), 2)
 
     def test_edge_deploys_read_the_adopted_train(self):
         text = (ROOT / '.github/workflows/deploy-snapshot.yml').read_text()

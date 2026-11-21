@@ -79,8 +79,14 @@ jobs:
               --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/edge-f44-sign-rpms.yml" \
               --source-digest "$head" --deny-self-hosted-runners
           done
-          package_head=$(jq -r .head_sha signed/build-run.json)
-          jq -e '.path==".github/workflows/rpms.yml" and .conclusion=="success"' signed/build-run.json
+          # The attestation covers only the RPMs and equivalence.json: read the package run
+          # from the API by its id, never from the artifact's own build-run.json.
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$(jq -r .id signed/build-run.json)" > package-run.json
+          jq -e '.conclusion=="success" and .path==".github/workflows/rpms.yml"
+                 and (.head_branch | startswith("edge-staging/"))
+                 and .head_repository.full_name=="aurora-silicon/fedora-aurora"' package-run.json
+          package_head=$(jq -r .head_sha package-run.json)
+          [[ $package_head == "$(jq -r .head_sha signed/build-run.json)" ]]
           gh api "repos/$GITHUB_REPOSITORY/contents/sources.json?ref=$package_head" \
             -H 'Accept: application/vnd.github.raw+json' > edge-build-sources.json
           linux=$(jq -r '.["kernel-aurora"].commit' edge-build-sources.json)
@@ -113,8 +119,12 @@ jobs:
               --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/edge-f44-sign-mesa-replacement.yml" \
               --source-digest "$head" --deny-self-hosted-runners
           done
-          package_head=$(jq -r .head_sha signed-mesa/build-run.json)
-          jq -e '.path==".github/workflows/rpms.yml" and .conclusion=="success"' signed-mesa/build-run.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$(jq -r .id signed-mesa/build-run.json)" > mesa-package-run.json
+          jq -e '.conclusion=="success" and .path==".github/workflows/rpms.yml"
+                 and (.head_branch | startswith("edge-staging/"))
+                 and .head_repository.full_name=="aurora-silicon/fedora-aurora"' mesa-package-run.json
+          package_head=$(jq -r .head_sha mesa-package-run.json)
+          [[ $package_head == "$(jq -r .head_sha signed-mesa/build-run.json)" ]]
           gh api "repos/$GITHUB_REPOSITORY/contents/sources.json?ref=$package_head" \
             -H 'Accept: application/vnd.github.raw+json' > edge-mesa-sources.json
           mesa=$(jq -r '.["mesa-aurora"].commit' edge-mesa-sources.json)

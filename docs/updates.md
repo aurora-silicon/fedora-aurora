@@ -228,7 +228,7 @@ gh workflow run promote.yml -R aurora-silicon/fedora-aurora --ref main
 
 ## Edge
 
-Edge is the qualified channel for every M1, M2 and M3 Mac and the MacBook Neo ([aurora-distributions docs/edge-train.md](https://github.com/aurora-silicon/aurora-distributions/blob/main/docs/edge-train.md)). Its feed is `https://aurorasilicon.org/fedora-aurora/44/edge/aarch64` (Fedora 44 only), and it moves only with the adopted aurora-distributions Edge train.
+Edge is offered to the Macs whose chip family the adopted Edge train's rows qualify, one named machine per family; every other Mac stays on Nightly. The [Edge train document](https://github.com/aurora-silicon/aurora-distributions/blob/main/docs/edge-train.md) lists the families and machines. Its feed is `https://aurorasilicon.org/fedora-aurora/44/edge/aarch64` (Fedora 44 only), and it moves only with the adopted aurora-distributions Edge train.
 
 | Step | How |
 |---|---|

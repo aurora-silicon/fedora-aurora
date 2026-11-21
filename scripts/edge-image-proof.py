@@ -16,6 +16,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import edgelib  # noqa: E402
 
 PROFILES = ('fedora-kde', 'fedora-gnome', 'fedora-minimal')
+# Lab-only kernel arguments: never in an image that owners boot.
+LAB_ONLY = ('systemd.debug_shell', 'panic', 'systemd.watchdog_sec', 'rd.break')
+
+
+def kernel_arguments(root, kiwi=None):
+    """The image's kernel command line: /etc/kernel/cmdline and every KIWI kernelcmdline."""
+    arguments = []
+    cmdline = root / 'etc/kernel/cmdline'
+    if cmdline.is_file():
+        arguments += cmdline.read_text().split()
+    if kiwi is not None:
+        import xml.etree.ElementTree as ET
+        for node in ET.parse(kiwi).iter():
+            arguments += node.get('kernelcmdline', '').split()
+    return arguments
+
+
+def refuse_lab_arguments(arguments):
+    found = sorted({argument for argument in arguments if argument.split('=', 1)[0] in LAB_ONLY})
+    if found:
+        raise ValueError('the image carries lab-only kernel arguments: ' + ' '.join(found))
 
 
 def file_digest(path):
@@ -23,11 +44,12 @@ def file_digest(path):
         return 'sha256:' + hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def proof(root, profile, tag, sources):
+def proof(root, profile, tag, sources, kiwi=None):
     root = Path(root).resolve(strict=True)
     if profile not in PROFILES:
         raise ValueError('not a Fedora profile: ' + profile)
     edgelib.snapshot(tag)
+    refuse_lab_arguments(kernel_arguments(root, kiwi))
     repo = (root / 'etc/yum.repos.d/aurora.repo').read_text().splitlines()
     if ('baseurl=' + edgelib.REPOSITORY_URL) not in repo or 'enabled=1' not in repo:
         raise ValueError('the image does not follow the Edge feed')
@@ -54,9 +76,11 @@ if __name__ == '__main__':
     parser.add_argument('--snapshot', required=True)
     parser.add_argument('--edge-sources', type=Path, required=True, help="the snapshot's edge-sources.json")
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--kiwi-description', type=Path, help="the image description's config.xml")
     args = parser.parse_args()
     record = json.loads(args.edge_sources.read_text())
     if record.get('channel') != 'edge' or record.get('schema') != 1:
         parser.error('not an Edge snapshot record')
-    args.output.write_text(json.dumps(proof(args.root, args.profile, args.snapshot, record['packaged_sources']),
+    args.output.write_text(json.dumps(proof(args.root, args.profile, args.snapshot, record['packaged_sources'],
+                                            args.kiwi_description),
                                       indent=2, sort_keys=True) + '\n')
