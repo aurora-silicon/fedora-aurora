@@ -1238,6 +1238,15 @@ class KernelTransactionTests(unittest.TestCase):
                  + start + b' 0 0\n')
         self.update(AURORA_RPM_TRANSACTION_PID='4242').begin_transaction()
         self.assertTrue(self.record.exists())
+        # Its remove phases run under it: dnf5 -> %preun -> kernel-install -> this hook.
+        self.run_under(4242)
+
+    def run_under(self, parent):
+        """Make this test process a child of kernel-install (pid 5000), a child of parent."""
+        self.put('/proc/5000/stat', f'5000 (kernel-install) S {parent} 5000 5000 0 -1 0 0 0 0 0 0 0 0 0 '
+                 '20 0 1 0 987700 0 0\n'.encode())
+        self.put(f'/proc/{os.getpid()}/stat', f'{os.getpid()} (python3) R 5000 5000 5000 0 -1 0 0 0 0 0 '
+                 '0 0 0 0 20 0 1 0 987800 0 0\n'.encode())
 
     def end(self):
         """The transaction's closing file triggers."""
@@ -1408,6 +1417,44 @@ class KernelTransactionTests(unittest.TestCase):
                              b'111 0 0\n')
                 self.assertFalse(self.update('remove', self.DEFAULT).defer_remove())
                 self.assertFalse(self.record.exists())
+
+    def test_a_live_record_defers_only_removals_run_under_its_process(self):
+        # A daemon such as packagekitd ran a transaction that stopped before
+        # its closing triggers, and is still running: its record stays live.
+        self.boot_setup()
+        self.begin()
+        self.run_under(1)  # kernel-install run from a shell, not by the daemon.
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.remove_default_for_good()
+        self.assertNotIn('removed inside a package transaction', out.getvalue())
+        # Acted at once: GRUB's next kernel gets its own trees, nothing waits for a refresh.
+        self.assert_trial_for(self.OLDER)
+        # The record is the daemon's transaction's, and stays for its own phases.
+        self.assertEqual(json.loads(self.record.read_text())['deferred'], [])
+        self.run_under(4242)
+        self.assertTrue(self.update('remove', self.OLDER).defer_remove())
+        self.assertEqual(json.loads(self.record.read_text())['deferred'], [self.OLDER])
+
+    def test_a_removal_run_under_the_recorded_process_defers(self):
+        self.boot_setup()
+        self.begin()
+        self.assertTrue(self.update('remove', self.DEFAULT).defer_remove())
+        self.assertEqual(json.loads(self.record.read_text())['deferred'], [self.DEFAULT])
+
+    def test_runs_under_follows_the_parent_chain(self):
+        self.boot_setup()
+        self.run_under(4242)
+        update = self.update()
+        self.assertTrue(update.runs_under(5000))
+        self.assertTrue(update.runs_under(4242))
+        self.assertFalse(update.runs_under(4343))
+        # A broken chain (a parent that has exited) is not a descendant.
+        (self.root / 'proc/5000/stat').unlink()
+        self.assertFalse(update.runs_under(4242))
+        # A cycle ends the walk.
+        self.put('/proc/5000/stat', f'5000 (x) S {os.getpid()} 0 0 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 1 0 0\n'.encode())
+        self.assertFalse(update.runs_under(4242))
 
     def leave_record_of_a_downgrade(self):
         # Erasing this updater runs its pre-transaction trigger but not its

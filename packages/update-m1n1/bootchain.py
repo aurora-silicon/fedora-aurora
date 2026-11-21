@@ -966,13 +966,31 @@ class Update:
     def transaction_record(self):
         return self.path('/run/update-m1n1/transaction')
 
-    def process_start(self, pid):
-        """A running process's start time, which tells it from a later one with its pid."""
+    def process_stat(self, pid):
+        """The fields of /proc/<pid>/stat after the command name, or None."""
         try:
-            fields = self.path(f'/proc/{int(pid)}/stat').read_text().rpartition(')')[2].split()
+            return self.path(f'/proc/{int(pid)}/stat').read_text().rpartition(')')[2].split()
         except (OSError, ValueError):
             return None
-        return fields[19] if len(fields) > 19 else None
+
+    def process_start(self, pid):
+        """A running process's start time, which tells it from a later one with its pid."""
+        fields = self.process_stat(pid)
+        return fields[19] if fields and len(fields) > 19 else None
+
+    def runs_under(self, ancestor):
+        """True when this process descends from the process with pid ancestor."""
+        pid, seen = os.getpid(), set()
+        while pid > 1 and pid not in seen:
+            if pid == ancestor:
+                return True
+            seen.add(pid)
+            fields = self.process_stat(pid)
+            try:
+                pid = int(fields[1])
+            except (TypeError, IndexError, ValueError):
+                return False
+        return False
 
     def begin_transaction(self):
         """Record the package transaction that is about to remove kernels."""
@@ -1009,6 +1027,13 @@ class Update:
             raise Refused('deferring requires a remove action')
         record = self.transaction()
         if record is None:
+            return False
+        # Only the transaction's own remove phases (rpm, its scriptlet,
+        # kernel-install, this hook) leave Stage 2 to it. A record whose process
+        # outlived the transaction without its closing triggers, as in a daemon
+        # such as packagekitd, must not defer a removal run from elsewhere: no
+        # refresh would follow it. The record stays for its own transaction.
+        if not self.runs_under(int(record['pid'])):
             return False
         # kernel-install removes /boot/dtb-<version> next.
         self.drop_removed_link()
