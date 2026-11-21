@@ -102,6 +102,26 @@ class FlatpakGlHelperTests(unittest.TestCase):
         self.assertIn(f'{ID}/aarch64/25.08', self.installed())
         self.assertNotEqual(self.run_helper('disable').returncode, 0)
 
+    def test_disable_query_failure_changes_nothing_and_retries(self):
+        # A failed query is not an empty installation: disable must stop before
+        # it touches the overrides, the runtimes or the remote, and a retry works.
+        self.package_repo('25.08')
+        self.assertEqual(self.run_helper('enable').returncode, 0)
+        before = (self.overrides.read_text(), self.installed(), (self.state / 'remotes').read_text())
+        for query in ('list', 'remotes'):
+            with self.subTest(query=query):
+                self.env['FAKE_FLATPAK_FAIL'] = query
+                result = self.run_helper('disable')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(f'error: {query} failed', result.stderr)
+                self.assertEqual((self.overrides.read_text(), self.installed(),
+                                  (self.state / 'remotes').read_text()), before)
+        del self.env['FAKE_FLATPAK_FAIL']
+        self.assertEqual(self.run_helper('disable').returncode, 0)
+        self.assertEqual(self.installed(), [])
+        self.assertNotIn('aurora-gl', (self.state / 'remotes').read_text().split())
+        self.assertNotIn('LIBGL_DRIVERS_PATH=', self.overrides.read_text() if self.overrides.exists() else '')
+
     def test_a_failed_pin_is_reported(self):
         # An unpinned GL.aurora is removed by "flatpak uninstall --unused".
         self.package_repo('26.08')
