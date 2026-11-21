@@ -65,9 +65,10 @@ done
 python3 %{SOURCE3} "$repo" %{commit} 25.08 26.08
 
 %posttrans
+# Report a failed setup with the retry command, but don't fail the transaction:
+# image builds and offline installs may have no usable flatpak yet (as ALARM).
 if ! %{_libexecdir}/aurora-flatpak-gl/aurora-flatpak-gl enable >/dev/null; then
     echo 'aurora-flatpak-gl: setup failed; run %{_libexecdir}/aurora-flatpak-gl/aurora-flatpak-gl enable to retry' >&2
-    exit 1
 fi
 
 %preun
