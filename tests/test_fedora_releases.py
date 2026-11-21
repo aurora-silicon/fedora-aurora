@@ -28,6 +28,30 @@ def module(name):
     return result
 
 
+def for_fedora(text, fedora):
+    """TEXT's lines with its %if 0%{?fedora} OP N blocks resolved for FEDORA.
+
+    Other conditionals are left unresolved: both of their branches are kept.
+    """
+    tests = {'==': int.__eq__, '!=': int.__ne__, '>=': int.__ge__,
+             '<=': int.__le__, '>': int.__gt__, '<': int.__lt__}
+    keep, stack, lines = True, [], []
+    for line in text.splitlines():
+        if line.startswith('%if'):
+            m = re.fullmatch(r'%if\s+0%\{\?fedora\}\s*(==|!=|>=|<=|>|<)\s*(\d+)\s*', line)
+            condition = tests[m.group(1)](fedora, int(m.group(2))) if m else None
+            stack.append((keep, condition))
+            keep = keep and condition is not False
+        elif line.startswith('%else') and stack:
+            outer, condition = stack[-1]
+            keep = outer and condition is not True
+        elif line.startswith('%endif') and stack:
+            keep = stack.pop()[0]
+        elif keep:
+            lines.append(line)
+    return '\n'.join(lines)
+
+
 def plan_fixture(resolver, fedora=44):
     names = ['aurora-repos', 'mesa-aurora']
     artifacts = {fedoralib.artifact(n, f): {'id': i, 'digest': 'sha256:fixture', 'size_in_bytes': 10}
@@ -172,6 +196,27 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn('export PATH=%{_libdir}/llvm22/bin:$PATH', new['avd-fw.spec'].read_text())
         self.assertEqual(old['check-firmware.py'].read_bytes(), new['check-firmware.py'].read_bytes())
         self.assertIn('python3 %{SOURCE1} build', new['avd-fw.spec'].read_text())
+
+    def test_kernel_requires_the_avd_firmware_that_fits_the_t8122_sram_window(self):
+        # linux#2586 maps the T8122 (M3) CM3 SRAM at +0x90000, which only the
+        # 64 KiB v4 image of avd-fw ea8ae7c8 fits; the older 0x12000-byte image
+        # fails the probe (-EINVAL). Fedora 45 numbers that build 0.1-5: its
+        # 0.1-4 is the older image rebuilt with LLVM 22.
+        evr = module('check-published-evr')
+        spec = (ROOT / 'packages/kernel-aurora/kernel-aurora.spec').read_text()
+        core = spec.split('\n%package core\n', 1)[1].split('\n%description core\n', 1)[0]
+        for fedora, required, older in ((44, '0.1-4', '0.1-3'), (45, '0.1-5', '0.1-4')):
+            with self.subTest(fedora=fedora):
+                floors = re.findall(r'(?m)^Requires: avd-fw >= (\S+)$', for_fedora(core, fedora))
+                self.assertEqual(floors, [required])
+                floor = ('0', *required.split('-'))
+                # The build of the older image, dist tag included, stays below it.
+                version, release = older.split('-')
+                self.assertLess(evr.vercmp_evr(('0', version, f'{release}.fc{fedora}.aurora'), floor), 0)
+                # This release's recipe builds a 64 KiB v4 image at or above it.
+                files = fedoralib.recipe_files(ROOT, 'avd-fw', fedora)
+                self.assertIn("('v4-t0', 0x10000, '", files['check-firmware.py'].read_text())
+                self.assertGreaterEqual(evr.vercmp_evr(evr.spec_evr(files['avd-fw.spec'], fedora), floor), 0)
 
     def test_pages_preserve_all_three_channels_when_either_testing_channel_changes(self):
         site = module('channel-site')
