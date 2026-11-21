@@ -19,8 +19,6 @@ Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
 Source0: kernel-aurora-%{commit}.tar.gz
-Source1: config
-Source4: fedora.config
 Source5: validate-config.py
 Source6: dtb-abi
 ExclusiveArch: aarch64
@@ -89,9 +87,6 @@ line; an owner's user4k=off is kept.
 
 %prep
 %autosetup -p1 -n linux-%{commit}
-cp %{SOURCE1} .config
-scripts/kconfig/merge_config.sh -m .config arch/arm64/configs/asahi.config %{SOURCE4}
-scripts/config --set-str LOCALVERSION '' --disable LOCALVERSION_AUTO --set-str SYSTEM_TRUSTED_KEYS '' --set-str SYSTEM_REVOCATION_KEYS ''
 
 %build
 export ARCH=arm64 RUSTC_BOOTSTRAP=1
@@ -99,8 +94,10 @@ export RUST_LIB_SRC=/usr/lib/rustlib/src/rust/library
 # Build the pinned, corrected generator. It independently compiles its fixtures.
 python3 tools/aurora-bindgen/build.py --output-dir "$PWD/private-bindgen"
 export BINDGEN="$PWD/private-bindgen/rust-bindgen-0.73.2/target/release/bindgen"
-make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" olddefconfig
-python3 %{SOURCE5} arch/arm64/configs/asahi.config %{SOURCE4} .config
+# The kernel source owns the one configuration every Aurora kernel uses
+# (aurora-base.config with asahi.config merged over it); nothing is added here.
+make LLVM=1 LOCALVERSION=-%{release}.aarch64 BINDGEN="$BINDGEN" aurora_defconfig
+python3 %{SOURCE5} arch/arm64/configs/aurora-base.config arch/arm64/configs/asahi.config .config
 ctxr=0
 if grep -qx 'CONFIG_ARM64_CTXR_EXECMEM=y' .config; then ctxr=1; fi
 if [ "$ctxr" != %{ctxr_execmem} ]; then
