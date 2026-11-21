@@ -1,10 +1,10 @@
-%global commit f573f605401123cebbe0e80cbb2ddf1ceebaf8ce
+%global commit 29263b5cfa8dbe393bb67b5dadfc51e9df2b6b03
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261120
+%global snapdate 20261121
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.19.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.20.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -62,6 +62,13 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.pr
 %{_presetdir}/50-aurora-speaker-upgrade.preset
 
 %changelog
+* Sat Nov 21 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.20.20261121git29263b5cfa8d
+- Rebuilt from speakerguardd main 29263b5c with speakerguardd-v2: the
+  self-check it relies on refuses V/I sense that a bit-clock misframe
+  corrupts (speakerguardd#225), and a pass is bound to the speaker card's
+  device-tree node and the sound modules' build IDs, so a changed audio
+  stack runs the switch test again (#226). No change to the tool itself.
+
 * Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 0.1-0.19.20261120gitf573f6054011
 - Rebuilt from speakerguardd main f573f605: a collection that carries the
   installer collector's buzzkill_quadrature record, which speakerguardd v2
