@@ -17,7 +17,8 @@ Provides: m1n1 = 1.6.1
 Conflicts: m1n1
 # A Mach-O Mac needs the update-m1n1 that leaves boot.bin alone.
 Requires: update-m1n1 >= 20261107
-Requires: aurora-stage2-ctxr-slot uboot-aurora
+# aura powers ANS off after use; only a U-Boot that starts it from off can then use NVMe (u-boot#38).
+Requires: aurora-stage2-ctxr-slot uboot-aurora >= 2026.07-10
 %if %{monitor_free}
 Requires: aurora-ctxr-execmem
 %endif
