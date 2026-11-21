@@ -35,7 +35,11 @@ PACKAGES = {
     ]),
     "components/base.xml": ("Common", [
         "aurora-release", "aurora-repos", "aurora-logos", "aurora-platform", "aurora-remix-scripts",
-        "aurora-firstboot", "aurora-sep", "libfprint", "mesa-aurora-dri-drivers", "mesa-aurora-vulkan-drivers",
+        "aurora-firstboot", "aurora-sep",
+        # Secure Enclave disk passwords: first boot seals an encrypted root to
+        # the owner's password where the enclave can open it at boot.
+        "aurora-sep-luks",
+        "libfprint", "mesa-aurora-dri-drivers", "mesa-aurora-vulkan-drivers",
         # Flatpak apps load GL and Vulkan from the runtime's GL extension, not
         # the host: without GL.aurora they run Flathub's GL.default Mesa.
         "aurora-flatpak-gl",
