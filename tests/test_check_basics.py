@@ -1,4 +1,6 @@
 from pathlib import Path
+import hashlib
+import importlib.util
 import os
 import shutil
 import struct
@@ -10,6 +12,21 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / 'scripts/check-basics.py'
 BOOT = '2025cecd-807c-5835-9ad4-e547cfdeb279'
+ROOT_UUID = 'eb688499-cc41-4c4c-b00b-dbf33e05427c'
+# The modules built into the signed grubaa64.efi of payload-fedora-minimal-43698398946 (also
+# -kde-43698407877 and -gnome-43698417200), as grub_core_modules() read them from that file.
+SIGNED_CORE_SHA256 = 'c403bc8b58aa6462f13258b5b7229578f9b616045e776d50a77cf06dafeddd7c'
+SIGNED_CORE_MODULES = tuple('''
+afsplitter all_video archelp bitmap bitmap_scale bli blscfg blsuki boot btrfs bufio cat configfile
+connectefi crypto cryptodisk datetime disk diskfilter echo efi_gop efi_netfs efifwsetup efinet ext2
+extcmd f2fs fat fdt font fshelp gcry_crc gcry_rijndael gcry_rsa gcry_serpent gcry_sha1 gcry_sha256
+gcry_sha512 gcry_twofish gcry_whirlpool gettext gfxmenu gfxterm gzio halt hfsplus http increment
+iso9660 jpeg json linux loadenv loopback lsefi lsefimmap luks luks2 lvm lzopio mdraid09 mdraid1x
+memdisk minicmd mpi net normal part_apple part_gpt part_msdos password_pbkdf2 pbkdf2 pgp pkcs1_v15
+png priority_queue procfs raid6rec reboot regexp search search_fs_file search_fs_uuid search_label
+serial sleep squash4 syslinuxcfg terminal terminfo test tftp trig version video video_colors
+video_fb xfs xzio zstd
+'''.split())
 PREAMBLE = '# Aurora: look for this installation only on the disk GRUB started from.\n'
 MESA = 'c208afc352e9d4c10ee71c883a369a9079dd7d84'
 
@@ -235,8 +252,7 @@ class CheckBasicsTests(unittest.TestCase):
                                                          f'search --no-floppy --fs-uuid --set=root {BOOT}\n'),
                           'without a hint')
 
-    # The video lines nixpkgs' install-grub.pl writes for every EFI GRUB (the
-    # NixOS images' "efi_uga.mod not found").
+    # The video lines nixpkgs' install-grub.pl writes for every EFI GRUB.
     NIXOS_VIDEO = ('if [ "${grub_platform}" = "efi" ]; then\n  insmod efi_gop\n  insmod efi_uga\n'
                    'else\n  insmod vbe\nfi\n')
 
@@ -251,7 +267,7 @@ class CheckBasicsTests(unittest.TestCase):
             write(self.base / 'boot' / name)
         if core is not None:
             write(self.base / 'esp/EFI/BOOT/BOOTAA64.EFI', grub_core(*core))
-        return self.check('--profile', 'minimal', *arguments, '--efi-uuid', '1E08-14ED')
+        return self.check('--profile', 'minimal', *arguments, '--efi-uuid', '1E08-14ED', '--root-uuid', ROOT_UUID)
 
     def assert_grub_fails(self, expected, *arguments, **options):
         result = self.grub(*arguments, **options)
@@ -265,6 +281,7 @@ class CheckBasicsTests(unittest.TestCase):
         self.fresh()
 
     def test_grub_module_missing_from_arm64_efi_fails(self):
+        # The NixOS images until now: arm64-efi GRUB has no efi_uga module.
         self.assert_grub_fails('insmod efi_uga: /grub/arm64-efi/efi_uga.mod is not on the boot filesystem',
                                self.NIXOS_VIDEO)
         self.assert_grub_passes(self.NIXOS_VIDEO.replace('  insmod efi_uga\n', ''))
@@ -302,9 +319,64 @@ class CheckBasicsTests(unittest.TestCase):
 
     def test_grub_environment_block_must_exist_unless_tested(self):
         self.assert_grub_passes('if [ -s $prefix/grubenv ]; then\n  load_env\nfi\n')
-        self.assert_grub_fails('save_env: /grub/grubenv', 'if [ "${next_entry}" ]; then\n  save_env next_entry\nfi\n')
-        self.assert_grub_passes('if [ "${next_entry}" ]; then\n  save_env next_entry\nfi\n',
-                                files=('grub/grubenv',))
+        savedefault = 'function savedefault {\n  saved_entry="${chosen}"\n  save_env saved_entry\n}\n'
+        self.assert_grub_fails('save_env: /grub/grubenv', savedefault)
+        self.assert_grub_passes(savedefault, files=('grub/grubenv',))
+
+    def test_grub_reads_the_environment_block_it_loads(self):
+        # next_entry is unset in the image's grubenv: that branch cannot run
+        # on the first boot. With it set, the branch runs and is checked.
+        main = ('if [ -s $prefix/grubenv ]; then\n  load_env\nfi\n'
+                'if [ "${next_entry}" ]; then\n  linux /vmlinuz-once\nfi\n')
+        write(self.base / 'boot/grub/grubenv', '# GRUB Environment Block\nsaved_entry=0\n')
+        self.assert_grub_passes(main)
+        write(self.base / 'boot/grub/grubenv', '# GRUB Environment Block\nnext_entry=1\n')
+        self.assert_grub_fails('linux: /vmlinuz-once is not on the boot filesystem', main)
+
+    def test_grub_reference_it_cannot_resolve_fails_closed(self):
+        missing = 'linux /vmlinuz-missing root=fstab\n'
+        for search, why in (('--label --set=root --hint="x" BOOT', '$root is only known when GRUB runs'),
+                            ('--file --set=root --hint="x" /vmlinuz', '$root is only known when GRUB runs'),
+                            (f'--fs-uuid --set=root --hint="${{aurora_disk}}," {ROOT_UUID}',
+                             'this check cannot read the root filesystem')):
+            with self.subTest(search=search):
+                self.assert_grub_fails(f'linux: cannot resolve /vmlinuz-missing: {why}',
+                                       f'search --no-floppy {search}\n' + missing)
+        self.assert_grub_fails('linux: cannot resolve (hd0,gpt2)/vmlinuz-missing: (hd0,gpt2) is not a filesystem',
+                               'linux (hd0,gpt2)/vmlinuz-missing\n')
+        found = 'regexp --set=1:dir \'^(.*)/[^/]*$\' "$cmdpath"\n'
+        self.assert_grub_fails('linux: cannot resolve $dir/vmlinuz: $dir is only known when GRUB runs',
+                               found + 'linux $dir/vmlinuz\n')
+        # Tested first, GRUB never loads it when it is missing.
+        self.assert_grub_passes(found + 'if [ -f $dir/vmlinuz ]; then\n  linux $dir/vmlinuz\nfi\n')
+
+    def test_grub_entry_and_function_variables_stay_inside(self):
+        for opener in ("menuentry 'Aurora' {", "submenu 'More' {", 'function choose {'):
+            with self.subTest(opener=opener):
+                self.assert_grub_fails('linux: /vmlinuz-missing is not on the boot filesystem',
+                                       f'{opener}\n  search --no-floppy --fs-uuid --set=root --hint="x" {ROOT_UUID}\n}}\n'
+                                       'linux /vmlinuz-missing\n')
+        # An entry runs with the variables the configuration ends with.
+        self.assert_grub_fails('linux: cannot resolve /vmlinuz: this check cannot read the root filesystem',
+                               "menuentry 'Aurora' {\n  linux /vmlinuz\n}\n"
+                               f'search --no-floppy --fs-uuid --set=root --hint="x" {ROOT_UUID}\n')
+
+    def test_grub_sourced_and_chained_configurations_are_checked(self):
+        write(self.base / 'boot/grub/extra.cfg', 'insmod not_there\n')
+        self.assert_grub_fails('/boot/grub/extra.cfg:1: insmod not_there: /grub/arm64-efi/not_there.mod',
+                               'source $prefix/extra.cfg\n')
+        write(self.base / 'boot/grub/next.cfg', 'source ${config_directory}/extra.cfg\n')
+        write(self.base / 'boot/grub/extra.cfg', 'linux /vmlinuz-missing\n')
+        self.assert_grub_fails('/boot/grub/extra.cfg:1: linux: /vmlinuz-missing is not on the boot filesystem',
+                               'configfile $prefix/next.cfg\n')
+        write(self.base / 'boot/grub/loop.cfg', 'source $prefix/loop.cfg\n')
+        self.assert_grub_fails('sources nest deeper than', 'source $prefix/loop.cfg\n')
+
+    def test_grub_braces_on_their_own_lines(self):
+        self.assert_grub_fails('linux: /vmlinuz-missing is not on the boot filesystem',
+                               "menuentry 'Aurora'\n{\n  linux /vmlinuz-missing\n}\n")
+        self.assert_grub_fails('} closes nothing', '}\n')
+        self.assert_grub_fails('{ is never closed', "menuentry 'Aurora' {\n  linux /vmlinuz\n")
 
     def test_grub_optional_files_tested_first_pass(self):
         self.assert_grub_passes('if [ -f  ${config_directory}/custom.cfg ]; then\n'
@@ -379,6 +451,36 @@ class CheckBasicsTests(unittest.TestCase):
         # Fedora's /boot/grub2 has no arm64-efi directory: modules must be built in.
         result = self.fedora(main, entry, files, core=('part_gpt', 'ext2'))
         self.assertIn('insmod blscfg: /grub2/arm64-efi/blscfg.mod is not on the boot filesystem', result.stdout)
+
+    def test_signed_core_module_list(self):
+        # grub_core_modules() reads back exactly the captured list, in grub-mkimage's layout.
+        spec = importlib.util.spec_from_file_location('check_basics', SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(module.grub_core_modules(grub_core(*SIGNED_CORE_MODULES)), set(SIGNED_CORE_MODULES))
+        # With the real file (AURORA_SIGNED_GRUB_CORE=path), the same list.
+        path = os.environ.get('AURORA_SIGNED_GRUB_CORE')
+        if not path:
+            self.skipTest('AURORA_SIGNED_GRUB_CORE is not set')
+        data = Path(path).read_bytes()
+        self.assertEqual(hashlib.sha256(data).hexdigest(), SIGNED_CORE_SHA256)
+        self.assertEqual(module.grub_core_modules(data), set(SIGNED_CORE_MODULES))
+
+    def test_fedora_configuration_needs_only_the_signed_cores_modules(self):
+        # The modules the published Fedora grub.cfg loads, in its own structure.
+        main = ('function load_video {\n  if [ x$feature_all_video_module = xy ]; then\n    insmod all_video\n'
+                '  else\n    insmod efi_gop\n    insmod efi_uga\n  fi\n}\n'
+                'insmod increment\ninsmod part_gpt\ninsmod ext2\ninsmod part_gpt\ninsmod fat\n'
+                'insmod blscfg\nblscfg\n'
+                'if [ "$grub_platform" = "efi" ]; then\n  if [ ! insmod bli ]; then\n    echo "bli module not available"\n'
+                '  fi\nfi\n')
+        entry = {'a-7.3.0.conf': 'linux /vmlinuz-7.3.0\ninitrd /initramfs-7.3.0.img $tuned_initrd\n'}
+        files = ('vmlinuz-7.3.0', 'initramfs-7.3.0.img')
+        result = self.fedora(main, entry, files, core=SIGNED_CORE_MODULES)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.fresh()
+        result = self.fedora(main, entry, files, core=[name for name in SIGNED_CORE_MODULES if name != 'increment'])
+        self.assertIn('insmod increment: /grub2/arm64-efi/increment.mod is not on the boot filesystem', result.stdout)
 
     def test_stub_must_name_the_boot_uuid(self):
         self.assert_fails('minimal', lambda root: write(self.base / 'esp/EFI/BOOT/grub.cfg', PREAMBLE),
