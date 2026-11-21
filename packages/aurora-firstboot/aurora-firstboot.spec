@@ -1,8 +1,8 @@
-%global commit ddf5285e116b3551ed2b025112f86effaadf299d
+%global commit 47fe4781412d93a0a1333d2b9a54ef2a822f14c2
 %global selinuxtype targeted
 Name: aurora-firstboot
 Version: 0.1.13
-Release: 6%{?dist}
+Release: 7%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-platform
@@ -31,7 +31,12 @@ Gives the Power Saver profile a real CPU power limit, like macOS Low Power
 Mode: every 100 ms a budget from the device tree energy model is spent on
 the frequency steps that buy the most CPU capacity per milliwatt, and each
 cluster is capped to its share.
-Balanced and Performance are untouched.
+aurora-power-modes drives the rest of each profile: in Power Saver the
+realtime threads lose their top-clock floor and the PCIe links use L1.1/L1.2;
+every kernel platform-profile handler follows the profile (tuned-ppd does
+not drive them on device tree boots); and macOS's "Low Power Mode on
+battery" setting is available in /etc/aurora/power-modes.conf (off by
+default, as on macOS).
 
 %package -n aurora-gamemode
 Summary: GameMode defaults for Apple silicon: games on the P cores, schedutil kept
@@ -79,6 +84,7 @@ EOF
 make install-power DESTDIR=%{buildroot} PREFIX=%{_prefix}
 install -Dm644 /dev/stdin %{buildroot}/usr/lib/systemd/system-preset/90-aurora-power-budget.preset <<'EOF'
 enable aurora-power-budget.service
+enable aurora-power-modes.service
 EOF
 make install-gamemode DESTDIR=%{buildroot} PREFIX=%{_prefix} SYSCONFDIR=%{_sysconfdir}
 make install-secboot install-selinux-secboot DESTDIR=%{buildroot} PREFIX=%{_prefix} SYSCONFDIR=%{_sysconfdir} LOCALSTATEDIR=%{_localstatedir}
@@ -87,11 +93,18 @@ enable aurora-secboot-adopt.service
 EOF
 
 %post -n aurora-power-budget
-%systemd_post aurora-power-budget.service
+%systemd_post aurora-power-budget.service aurora-power-modes.service
+# aurora-power-modes is new in 0.1.13-7 and %%systemd_post presets units only
+# on a first install: preset it once on the upgrade that brings it, and never
+# again, so an administrator's later disable sticks.
+if [ $1 -gt 1 ] && [ ! -e %{_sharedstatedir}/aurora/power-modes-preset-done ]; then
+  systemctl --no-reload preset aurora-power-modes.service >/dev/null 2>&1 || :
+fi
+mkdir -p %{_sharedstatedir}/aurora && touch %{_sharedstatedir}/aurora/power-modes-preset-done || :
 %preun -n aurora-power-budget
-%systemd_preun aurora-power-budget.service
+%systemd_preun aurora-power-budget.service aurora-power-modes.service
 %postun -n aurora-power-budget
-%systemd_postun_with_restart aurora-power-budget.service
+%systemd_postun_with_restart aurora-power-budget.service aurora-power-modes.service
 
 %post -n aurora-secboot
 # Keep the owner's signing keys away from confined services.
@@ -156,8 +169,11 @@ fi
 %license LICENSE
 %{_libexecdir}/aurora/aurora-power-budget
 %{_unitdir}/aurora-power-budget.service
+%{_libexecdir}/aurora/aurora-power-modes
+%{_unitdir}/aurora-power-modes.service
 /usr/lib/systemd/system-preset/90-aurora-power-budget.preset
 %{_datadir}/doc/aurora-power-budget/
+%ghost %{_sharedstatedir}/aurora/power-modes-preset-done
 
 %files -n aurora-gamemode
 %license LICENSE
@@ -177,6 +193,17 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/aurora_secboot.pp
 
 %changelog
+* Wed Nov 18 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-7
+- aurora-power-budget also ships aurora-power-modes (aurora-platform
+  47fe4781, enabled by preset). In Power Saver it lowers
+  sched_util_clamp_min_rt_default to 0 and sets the PCIe ASPM policy
+  to powersupersave. Every kernel platform-profile handler follows the
+  profile, which tuned-ppd does not do on device tree boots. It also
+  adds an optional macOS-style "Low Power Mode on battery" setting.
+  On a MacBook Pro M4 Pro, Power Saver idle goes from 5.10 to 4.55 W
+  and load rows are unchanged. The upgrade that brings it presets the
+  service once.
+
 * Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-6
 - New subpackage aurora-gamemode: /etc/gamemode.ini pins games started
   with GameMode to the P cores and keeps schedutil (aurora-platform
