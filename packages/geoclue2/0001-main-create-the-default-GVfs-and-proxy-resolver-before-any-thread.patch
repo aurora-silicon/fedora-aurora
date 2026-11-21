@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <ryan@aurorasilicon.org>
+Date: Fri, 13 Nov 2026 21:30:00 +1100
+Subject: [PATCH] main: create the default GVfs and proxy resolver before any thread
+
+geoclue sometimes never takes its bus name at boot, so systemd kills it
+after the 45 s start timeout ("geoclue.service: start operation timed
+out") and GNOME's colour, date/time and shell clients time out too. A
+core taken at the timeout shows a deadlock in GIO:
+
+- the main thread, in on_bus_acquired() -> gclue_locator_new() ->
+  g_file_new_for_path(), is inside the default-VFS once-init and blocks
+  on GIO's module lock in _g_io_module_get_default();
+- a GNetworkMonitor can_reach worker holds that lock while
+  g_proxy_resolver_get_default() constructs the libproxy resolver,
+  whose sysconfig plugin calls g_file_new_for_path() and waits for the
+  default-VFS once-init the main thread is in.
+
+Create both singletons at the top of main(), before any other thread
+exists, so neither initialisation can run while the other waits.
+
+Assisted-by: LLM
+Signed-off-by: Ryan Murray <ryan@aurorasilicon.org>
+---
+--- a/src/gclue-main.c	2026-11-13 21:25:47
++++ b/src/gclue-main.c	2026-11-13 21:26:18
+@@ -22,6 +22,7 @@
+ #include <config.h>
+ 
+ #include <glib.h>
++#include <gio/gio.h>
+ #include <locale.h>
+ #include <glib/gi18n.h>
+ #include <stdlib.h>
+@@ -190,6 +191,18 @@
+         if (nmea_socket != NULL)
+                 gclue_config_set_nmea_socket (config, nmea_socket);
+ 
++        /* Set up GIO's default VFS and proxy resolver now, while this is
++         * the only thread. Both are created by _g_io_module_get_default(),
++         * which holds GIO's module lock while it constructs the
++         * implementation, and the libproxy resolver creates a GFile (so it
++         * needs the default VFS) while it is constructed. Left to first use,
++         * a GNetworkMonitor worker thread creating the resolver and this
++         * thread creating the VFS (gclue_locator_new() -> g_file_new_for_path())
++         * can each wait for the other forever, and the service never takes
++         * its bus name. */
++        g_vfs_get_default ();
++        g_proxy_resolver_get_default ();
++
+         owner_id = g_bus_own_name (G_BUS_TYPE_SYSTEM,
+                                    BUS_NAME,
+                                    G_BUS_NAME_OWNER_FLAGS_NONE,

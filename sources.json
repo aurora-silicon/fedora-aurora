@@ -526,5 +526,14 @@
     "source_url": "https://codeload.github.com/aurora-silicon/aurora-installer/tar.gz/afdd3215189cb5badb85d22bdb255df4a7b3a9fa",
     "archive_root": "aurora-installer-afdd3215189cb5badb85d22bdb255df4a7b3a9fa",
     "sha256": "f7bcac6cb4713c3d8925c727cee154cc58e9c20546f0c1fe046344e6cf06199c"
+  },
+  "geoclue2": {
+    "repository": "https://gitlab.freedesktop.org/geoclue/geoclue",
+    "commit": "97df14726a95a06e0e3f1b3c9c4388ed1aff7e8c",
+    "version": "2.8.2",
+    "source_url": "https://gitlab.freedesktop.org/geoclue/geoclue/-/archive/2.8.2/geoclue-2.8.2.tar.bz2",
+    "archive_root": "geoclue-2.8.2",
+    "archive_file": "geoclue-2.8.2.tar.bz2",
+    "sha256": "d4d65933b704d4c8d4ca9747dc511b883e35099abe534c8560f2aab3017e4cd4"
   }
 }
