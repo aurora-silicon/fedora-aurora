@@ -60,6 +60,18 @@ modules. Firmware for Intel Wi-Fi and AMD/Intel/NVIDIA GPUs is a hard platform
 dependency so minimal images do not silently omit it with weak dependencies
 disabled. Physical dock, storage and external GPU qualification remains pending.
 
+USB4 and Thunderbolt devices get their PCIe tunnel (an NVMe enclosure, the PCIe
+devices of a dock) only once userspace authorizes them: the kernel's USB4 domain
+is at security level `user`. `aurora-platform-core` requires `bolt` on every
+profile. boltd starts at the first Thunderbolt device and, where the domain
+reports `iommu_dma_protection` = 1, enrolls a new device itself with bolt's
+`iommu` policy, so its tunnel comes up before a USB4 enclosure gives up and
+falls back to USB 3 (about 10 s). `boltctl list` shows the enrolled devices and
+`boltctl forget` removes one; Plasma's Thunderbolt settings and GNOME Settings
+(Privacy & Security) show the same list. A drive already plugged in at power-on
+may fall back before boltd runs, for example while the disk passphrase prompt
+waits; plug it in again after login and it comes up over USB4.
+
 SEP initialization is supplied by `aurora-sep` and the Aurora `libfprint` build.
 The boot timer defers probing until persistent state is available, extracts local
 calibration where present and verifies trusted-key sealing and unsealing. No

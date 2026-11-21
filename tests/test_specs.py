@@ -256,6 +256,12 @@ class SpecTests(unittest.TestCase):
         self.assertIn('%{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf', install)
         core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
         self.assertIn('%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf\n', core_files)
+    def test_core_requires_bolt_for_usb4_pcie_tunnels(self):
+        # The domain's security level is user: bolt authorizes a device's PCIe
+        # tunnel. Minimal installs have no desktop group that brings it.
+        text = (ROOT / 'packages' / 'aurora-platform' / 'aurora-platform.spec').read_text()
+        core = text.split('%package core', 1)[1].split('%description core', 1)[0]
+        self.assertRegex(core, r'(?m)^Requires: bolt$')
     def test_initramfs_carries_the_usb4_router_with_the_type_c_controllers(self):
         # dracut-asahi brings tps6598x and sn201202x; their router must come too.
         d = ROOT / 'packages' / 'aurora-platform'
