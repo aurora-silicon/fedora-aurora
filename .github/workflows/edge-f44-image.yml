@@ -1,8 +1,8 @@
-name: Assemble the F44 Neo Edge image artifact (linux e0ee46a1, mesa 15fe5010)
+name: Assemble the F44 Neo Edge image artifact (linux e0ee46a1, mesa 15fe5010, aura 2f487f26)
 on:
   push:
     branches: [edge/neo-f44-image-e0ee46a1-15fe5010]
-    paths: [.github/neo-edge-signing.json, .github/neo-edge-mesa-signing.json]
+    paths: [.github/neo-edge-signing.json, .github/neo-edge-mesa-signing.json, .github/neo-edge-stage2.json]
 permissions:
   contents: read
   actions: read
