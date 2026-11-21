@@ -1,6 +1,6 @@
-%global commit f573f605401123cebbe0e80cbb2ddf1ceebaf8ce
+%global commit 29263b5cfa8dbe393bb67b5dadfc51e9df2b6b03
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261120
+%global snapdate 20261121
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.2
-Release: 0.52.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.53.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -248,6 +248,14 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sat Nov 21 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.53.20261121git29263b5cfa8d
+- Rebuilt from speakerguardd main 29263b5c: the self-check refuses V/I
+  sense that a bit-clock misframe corrupts, where idle noise reads near
+  full scale (speakerguardd#225); a passing self-check is bound to the
+  speaker card's device-tree node and the sound modules' build IDs, so a
+  changed audio stack runs the switch test again (#226). v2 stays a
+  preview and opt-in.
+
 * Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 1.0.0~alpha.2-0.52.20261120gitf573f6054011
 - Rebuilt from speakerguardd main f573f605: a speaker transport without
   V/I sense is proven for one amp, the M4 Mac mini's (speakerguardd#212);
