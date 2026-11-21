@@ -11,9 +11,30 @@
 # %posttrans.
 set -u
 entries=${AURORA_BLS_ENTRIES:-/boot/loader/entries}
+# Due until a run finishes: %posttrans creates it, and the unit runs at boot while it stays.
+marker=${AURORA_REPAIR_MARKER:-/var/lib/update-m1n1/repair-pending}
+
+# --after-transaction: started through systemd by update-m1n1's %posttrans.
+# That rpm transaction still holds the database lock, and every query fails
+# until it ends ("can't create transaction lock"), so wait for it first.
+if [ "${1:-}" = --after-transaction ]; then
+    limit=${AURORA_RPM_WAIT_SECONDS:-900}
+    step=${AURORA_RPM_WAIT_STEP:-2}
+    waited=0
+    until rpm -q --quiet rpm 2>/dev/null; do
+        if [ "$waited" -ge "$limit" ]; then
+            echo "update-m1n1: the rpm database stayed locked for $limit s; no kernel was repaired" >&2
+            exit 1
+        fi
+        sleep "$step"
+        waited=$((waited + step))
+    done
+fi
 modules=${AURORA_MODULES_DIR:-/usr/lib/modules}
 
-rpm -q kernel-aurora-core >/dev/null 2>&1 || exit 0
+# Still locked (run inside a transaction): the marker keeps the repair due.
+rpm -q --quiet rpm 2>/dev/null || exit 0
+rpm -q kernel-aurora-core >/dev/null 2>&1 || { rm -f -- "$marker"; exit 0; }
 own=$(rpm -q --qf '%{INSTALLTID}\n' update-m1n1 2>/dev/null | sort -n | tail -n 1)
 kernels=$(rpm -q --qf '%{INSTALLTID} %{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-aurora-core |
     sort -k2,2V)
@@ -28,7 +49,7 @@ for krel in $(printf '%s\n' "$kernels" | cut -d' ' -f2); do
 done
 
 # Oldest first: each add makes its kernel the default, so the newest wins.
-printf '%s\n' "$kernels" | while read -r tid krel; do
+printf '%s\n' "$kernels" | { status=0; while read -r tid krel; do
     [ -n "$krel" ] && [ "$tid" != "$own" ] || continue
     if [ ! -f "$modules/$krel/vmlinuz" ] || has_entry "$krel"; then continue; fi
     if [ -n "$newest" ] &&
@@ -37,6 +58,6 @@ printf '%s\n' "$kernels" | while read -r tid krel; do
     fi
     echo "update-m1n1: kernel $krel has no boot entry; finishing its kernel-install" >&2
     kernel-install add "$krel" "$modules/$krel/vmlinuz" ||
-        echo "update-m1n1: kernel-install add $krel failed" >&2
-done
+        { echo "update-m1n1: kernel-install add $krel failed" >&2; status=1; }
+done; exit "$status"; } && rm -f -- "$marker"
 exit 0
