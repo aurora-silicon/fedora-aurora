@@ -27,7 +27,7 @@ jobs:
           python3 images/test_configure.py
           python3 -m compileall -q scripts images
           for script in scripts/build-rpm scripts/build-flatpak-gl-repo \
-            packages/aurora-flatpak-gl/build-extension.sh scripts/test-graphics-upgrade scripts/test-fex-overlay-upgrade scripts/test-fex-guest-default scripts/test-fex-binfmt scripts/test-touchid-upgrade scripts/test-fedora-repository scripts/test-fedora44-compatibility scripts/test-system-upgrade scripts/test-vendor-change scripts/test-repo-trust scripts/test-bootchain-upgrade packages/update-m1n1/update-m1n1 packages/update-m1n1/aurora-stage2-commit scripts/fleet-kit/*.sh; do
+            packages/aurora-flatpak-gl/build-extension.sh scripts/test-graphics-upgrade scripts/test-fex-overlay-upgrade scripts/test-fex-guest-default scripts/test-fex-binfmt scripts/test-touchid-upgrade scripts/test-fedora-repository scripts/check-repository-closure scripts/test-repository-closure scripts/test-fedora44-compatibility scripts/test-system-upgrade scripts/test-vendor-change scripts/test-repo-trust scripts/test-bootchain-upgrade packages/update-m1n1/update-m1n1 packages/update-m1n1/aurora-stage2-commit scripts/fleet-kit/*.sh; do
             bash -n "$script"
           done
           git diff --check
@@ -54,6 +54,22 @@ jobs:
                 bash /src/scripts/test-fedora44-compatibility
               fi
             '
+  repository-closure:
+    # The publish check (publish.yml, publish-edge.yml) on probe packages: a
+    # kernel whose avd-fw floor the set does not meet is refused, also with the
+    # fleet's exclude and in an Edge snapshot over a Testing base.
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      matrix:
+        release: ['44', '45']
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: The closure check refuses a kernel whose Requires the set cannot satisfy
+        run: |
+          docker run --rm -v "$PWD:/src:ro" registry.fedoraproject.org/fedora:${{ matrix.release }} \
+            bash /src/scripts/test-repository-closure
   repo-trust:
     runs-on: ubuntu-24.04
     strategy:
