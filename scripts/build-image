@@ -20,7 +20,15 @@ if [[ ! -e $upstream ]]; then
   git clone "$repository" "$upstream"
 fi
 git -C "$upstream" checkout --detach "$revision"
-python3 "$root/images/configure.py" --upstream "$upstream" \
+# An Edge image installs from its immutable Edge snapshot (AURORA_EDGE_REPOSITORY,
+# the snapshot's signed metadata; AURORA_EDGE_SNAPSHOT, its tag; AURORA_EDGE_SOURCES,
+# its edge-sources.json) and follows the Edge feed (AURORA_REPOSITORY_URL).
+edge_args=()
+if [[ -n ${AURORA_EDGE_SNAPSHOT:-} ]]; then
+  [[ -d ${AURORA_EDGE_REPOSITORY:?} && -f ${AURORA_EDGE_SOURCES:?} ]]
+  edge_args=(--build-repository "$AURORA_EDGE_REPOSITORY")
+fi
+python3 "$root/images/configure.py" "${edge_args[@]}" --upstream "$upstream" \
   --output "$root/out/$profile-description" --profile "$profile" \
   --repository-url "${AURORA_REPOSITORY_URL:-https://aurorasilicon.org/fedora-aurora/\$releasever/testing/aarch64}" \
   --signing-key "$root/keys/RPM-GPG-KEY-aurora" \
@@ -61,6 +69,12 @@ if (( basics == 0 )); then
   python3 "$root/scripts/check-basics.py" --profile "${profile#fedora-}" --root "$basics_root" \
     --esp "$installer/esp" --boot-image "$installer/boot.img" --boot-uuid "$boot_uuid" --grub-flavor fedora \
     --flatpak-gl || basics=$?
+fi
+if (( basics == 0 )) && [[ -n ${AURORA_EDGE_SNAPSHOT:-} ]]; then
+  python3 "$root/scripts/edge-image-proof.py" --root "$basics_root" --profile "$profile" \
+    --snapshot "$AURORA_EDGE_SNAPSHOT" --edge-sources "$AURORA_EDGE_SOURCES" \
+    --kiwi-description "$root/out/$profile-description/config.xml" \
+    --output "$installer/edge-image-proof.json" || basics=$?
 fi
 umount "$basics_root"
 rmdir "$basics_root"

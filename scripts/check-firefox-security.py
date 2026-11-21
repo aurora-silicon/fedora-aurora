@@ -49,8 +49,11 @@ BODHI = 'https://bodhi.fedoraproject.org'
 SITE = 'https://aurorasilicon.org/fedora-aurora'
 DOC = 'docs/firefox/security-updates.md'
 # The channels the site serves per Fedora release (scripts/channel-site.py SLOTS).
-CHANNELS = {44: ('testing', 'stable'), 45: ('testing',)}
-DUE = {'testing': datetime.timedelta(hours=72), 'stable': datetime.timedelta(days=7)}
+CHANNELS = {44: ('testing', 'stable', 'edge'), 45: ('testing',)}
+# Edge refreshes its Testing userspace under the qualified kernel and Mesa
+# (channel-site.py edge_gate), so it carries the same deadline as stable.
+DUE = {'testing': datetime.timedelta(hours=72), 'stable': datetime.timedelta(days=7),
+       'edge': datetime.timedelta(days=7)}
 ESCALATE = datetime.timedelta(hours=48)
 ESCALATING_SEVERITY = {'urgent', 'high'}
 PACKAGES = ('firefox', 'firefox-langpacks')
