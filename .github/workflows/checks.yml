@@ -55,8 +55,9 @@ jobs:
               fi
             '
   repository-closure:
-    # The publish check (publish.yml) on probe packages: a kernel whose avd-fw
-    # floor the set does not meet is refused, also with the fleet's exclude.
+    # The publish check (publish.yml, publish-edge.yml) on probe packages: a
+    # kernel whose avd-fw floor the set does not meet is refused, also with the
+    # fleet's exclude and in an Edge snapshot over a Testing base.
     runs-on: ubuntu-24.04-arm
     strategy:
       matrix:

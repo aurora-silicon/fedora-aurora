@@ -4,8 +4,10 @@ dnf skips such a package on upgrade without an error: a kernel needing an
 avd-fw the set does not carry leaves the fleet on the old kernel. The fleet
 upgrade test excludes the boot chain, so scripts/check-repository-closure
 checks every package of the set being published with dnf5 repoclosure,
-excludes switched off. Here dnf5 is a stub; scripts/test-repository-closure
-(checks.yml) runs the real one on probe packages for Fedora 44 and 45.
+excludes switched off; publish-edge.yml runs the same check on each Edge
+snapshot. Here dnf5 is a stub; scripts/test-repository-closure (checks.yml)
+runs the real one on probe packages for Fedora 44 and 45, and on an Edge
+snapshot that edge-snapshot.py assembles over a Testing base.
 """
 import os
 from pathlib import Path
@@ -144,6 +146,18 @@ class WiringTests(unittest.TestCase):
         # The assembled set is what the sign jobs receive.
         self.assertIn('mv complete-rpms candidate/', steps[bundle])
 
+    def test_every_edge_snapshot_is_checked_after_assembly_and_before_signing(self):
+        collect = job((ROOT / '.github/workflows/publish-edge.yml').read_text(), 'collect')
+        step = next(s for s in collect.split('\n      - ') if s.startswith('id: candidate\n'))
+        assembly = step.index('python3 scripts/edge-snapshot.py')
+        closure = step.index('bash scripts/check-repository-closure candidate/complete-rpms\n')
+        # Inside the release container, before the candidate is bundled for the signer.
+        self.assertLess(step.index('"$FEDORA_IMAGE" bash -euo pipefail -c'), assembly)
+        self.assertLess(assembly, closure)
+        self.assertLess(closure, step.index("\n          '\n"))
+        self.assertLess(closure, step.index('tar --sort=name'))
+        self.assertNotIn('continue-on-error', step)
+
     def test_fedora_45_publication_runs_the_same_collect_job(self):
         follow = (ROOT / '.github/workflows/publish-fedora45.yml').read_text()
         self.assertIn('gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref main -f fedora-release=45', follow)
@@ -155,6 +169,10 @@ class WiringTests(unittest.TestCase):
         self.assertIn("release: ['44', '45']", closure)
         self.assertIn('registry.fedoraproject.org/fedora:${{ matrix.release }}', closure)
         self.assertIn('bash /src/scripts/test-repository-closure', closure)
+        # The probe test assembles its Edge case with the publisher's own script.
+        probe = (ROOT / 'scripts/test-repository-closure').read_text()
+        self.assertIn('python3 "$root/scripts/edge-snapshot.py"', probe)
+        self.assertIn('"$top/edge-$published"', probe)
         # The probe test configures the fleet's exclude, taken from the upgrade test.
         self.assertRegex((ROOT / 'scripts/test-fedora-repository').read_text(),
                          r'(?m)^excludepkgs=kernel-aurora\*,')

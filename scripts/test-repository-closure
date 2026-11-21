@@ -3,13 +3,14 @@
 # whose kernel needs an avd-fw the set does not carry, and passes the set that
 # carries this release's avd-fw recipe. The probe kernel takes its avd-fw
 # floor from kernel-aurora.spec and also needs a Fedora package, so the
-# release's own repositories take part. The fleet's boot-chain exclude stays
-# configured throughout: it hides the kernel from dnf, but not from the check.
+# release's own repositories take part. On Fedora 44 the same holds for an
+# Edge snapshot assembled by edge-snapshot.py. The fleet's boot-chain exclude
+# stays configured throughout: it hides the kernel from dnf, but not from the check.
 # usage: test-repository-closure
 set -euo pipefail
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 source "$root/scripts/testlib.sh"
-dnf install -y rpm-build createrepo_c dnf5-plugins >/dev/null
+dnf install -y rpm-build createrepo_c dnf5-plugins python3 >/dev/null
 fedora=$(rpm --eval '%{fedora}')
 dist=$(rpm --eval '%{dist}')
 top=$(mktemp -d)
@@ -79,4 +80,43 @@ grep -F "$floor" "$top/old.log"
 # Green: the set carries this release's avd-fw recipe. The set is left as it was.
 bash "$root/scripts/check-repository-closure" "$top/new"
 [[ ! -e $top/new/repodata ]]
+
+# Edge (a Fedora 44 channel): edge-snapshot.py keeps every package of the
+# Testing base except the kernel and Mesa, which come from the Edge build. An
+# Edge kernel whose avd-fw floor the kept base does not meet must be refused.
+edge=$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import edgelib; print(edgelib.FEDORA)' "$root/scripts")
+if (( fedora == edge )); then
+  probe kernel-aurora-core 7.3.0 "43$dist.aurora" "$floor" coreutils
+  probe mesa-aurora-vulkan-drivers 26.3.0 "30$dist.aurora"
+  probe mesa-aurora-vulkan-drivers 26.3.0 "35$dist.aurora"
+  mkdir "$top/edge"
+  cp "$top/pool/noarch/kernel-aurora-core-7.3.0-43$dist.aurora.noarch.rpm" \
+    "$top/pool/noarch/mesa-aurora-vulkan-drivers-26.3.0-35$dist.aurora.noarch.rpm" "$top/edge/"
+  revision=$(printf '%040d' 1)
+  tree=$(printf '%040d' 2)
+  printf '{"kernel-aurora": {"commit": "%s"}, "mesa-aurora": {"commit": "%s"}}\n' "$revision" "$revision" > "$top/edge-sources.json"
+  printf '{"linux": "%s", "mesa": "%s"}\n' "$tree" "$tree" > "$top/edge-trees.json"
+  for base in "$published" "$current"; do
+    mkdir "$top/base-$base"
+    cp "$top/pool/noarch/kernel-aurora-core-7.3.0-41$dist.aurora.noarch.rpm" \
+      "$top/pool/noarch/mesa-aurora-vulkan-drivers-26.3.0-30$dist.aurora.noarch.rpm" \
+      "$top/pool/noarch/avd-fw-$base.noarch.rpm" "$top/base-$base/"
+    python3 "$root/scripts/edge-snapshot.py" --base "$top/base-$base" --edge "$top/edge" \
+      --sources "$top/edge-sources.json" --trees "$top/edge-trees.json" --record "$top/edge-$base.json" \
+      --output "$top/edge-$base" --base-release testing-20261121.1 --signing-run 1
+  done
+  # Red: the Testing base still carries the avd-fw the feed served before.
+  status=0
+  bash "$root/scripts/check-repository-closure" "$top/edge-$published" > "$top/edge-old.log" 2>&1 || status=$?
+  cat "$top/edge-old.log"
+  if (( ! status )); then
+    echo "FAIL: an Edge kernel needing '$floor' passed beside the base's avd-fw $published" >&2
+    exit 1
+  fi
+  grep -E "kernel-aurora-core-(0:)?7\.3\.0-43" "$top/edge-old.log"
+  grep -F "$floor" "$top/edge-old.log"
+  # Green: the base carries this release's avd-fw recipe.
+  bash "$root/scripts/check-repository-closure" "$top/edge-$current"
+  echo "Fedora $fedora Edge snapshot closure: refuses an Edge kernel beside avd-fw $published, accepts $current"
+fi
 echo "Fedora $fedora repository closure: refuses avd-fw $published, accepts $current: PASS"
