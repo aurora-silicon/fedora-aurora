@@ -1,8 +1,8 @@
 %global debug_package %{nil}
-%global commit 250385f8c8aaafd47a8f7990f6efe0443c28d0b5
+%global commit 5445237f1dcb0d30213741f85158816d04d65aa7
 Name: uboot-aurora
 Version: 2026.07
-Release: 13%{?dist}
+Release: 14%{?dist}
 Summary: Aurora U-Boot for Apple Silicon
 License: GPL-2.0-or-later
 URL: https://github.com/aurora-silicon/u-boot
@@ -16,7 +16,7 @@ BuildRequires: gcc make bc bison flex dtc python3 python3-pyelftools swig openss
 Aurora U-Boot for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n u-boot-250385f8c8aaafd47a8f7990f6efe0443c28d0b5
+%autosetup -n u-boot-5445237f1dcb0d30213741f85158816d04d65aa7
 
 %build
 make O=build-aurora apple_m1_defconfig
@@ -32,6 +32,16 @@ install -Dm644 build-aurora/u-boot-nodtb.bin %{buildroot}/usr/lib/asahi-boot/u-b
 /usr/lib/asahi-boot/u-boot-nodtb.bin
 
 %changelog
+* Sun Nov 22 2026 Ryan Murray <ryan@aurorasilicon.org> - 2026.07-14
+- Track U-Boot aurora-wip at 5445237. U-Boot binds the T8140 and T8142
+  NVMe controllers (u-boot#47) and picks the ESP on every Apple NVMe
+  controller (u-boot#50), so an M5 MacBook Air boots from its internal
+  disk instead of stopping at the prompt (aurora-installer#143). Also in
+  this range: the trackpad and keyboard are handed over running where
+  the device tree says so (u-boot#67), the J713 ISP address filter
+  (u-boot#52), the DockChannel named data window (u-boot#59) and power
+  state changes bounded in milliseconds (u-boot#64).
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 2026.07-13
 - Track U-Boot aurora-wip at 250385f. On a normal boot U-Boot stays
   quiet on screen and keeps the loader's picture, so the aura logo stays
