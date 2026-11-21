@@ -33,13 +33,25 @@ repo_refs() {
 }
 
 installed_refs() {
-  flatpak list --system --runtime --columns=ref 2>/dev/null | grep "^$id/" | sed 's|^|runtime/|'
+  local refs
+  refs=$(flatpak list --system --runtime --columns=ref) || {
+    echo "aurora-flatpak-gl: failed to query installed runtimes" >&2
+    return 1
+  }
+  printf '%s\n' "$refs" | grep "^$id/" | sed 's|^|runtime/|'
 }
 
 remove_ref() {
   # A ref that was never pinned has no pattern to remove; that is fine.
   flatpak pin --system --remove "$1" >/dev/null 2>&1 || true
   flatpak uninstall --system --noninteractive -y "$1"
+}
+
+remote_names() {
+  flatpak remotes --system --columns=name || {
+    echo "aurora-flatpak-gl: failed to query remotes" >&2
+    return 1
+  }
 }
 
 enable() {
@@ -68,22 +80,71 @@ enable() {
   return $rc
 }
 
-disable() {
-  local ref rc=0
-  if [ -f "$overrides" ]; then
-    local line
-    for line in "$env_vk" "$env_egl" "$env_dri"; do
-      grep -vxF "$line" "$overrides" > "$overrides.tmp" || true
-      cat "$overrides.tmp" > "$overrides"
-      rm -f "$overrides.tmp"
-    done
-    # Drop the file if nothing but empty groups is left in it.
-    grep -qvE '^(\[.*\]|[[:space:]]*)$' "$overrides" || rm -f "$overrides"
+remove_overrides() {
+  [ -f "$overrides" ] || return 0
+  local tmp output_fd filter_rc=0 content_rc
+  # Work beside the target so replacement is a rename, never a partial copy.
+  # mktemp owns a unique file; an unrelated overrides.tmp must stay untouched.
+  tmp=$(mktemp -- "$overrides.XXXXXX") || {
+    echo "aurora-flatpak-gl: cannot create override cleanup file for $overrides" >&2
+    return 1
+  }
+  # Check the redirection separately: a shell open failure can also return 1,
+  # whereas grep returning 1 means the filter validly selected no lines.
+  if exec {output_fd}>"$tmp"; then
+    grep -vxF -e "$env_vk" -e "$env_egl" -e "$env_dri" "$overrides" >&"$output_fd" || filter_rc=$?
+    exec {output_fd}>&- || filter_rc=2
+  else
+    filter_rc=2
   fi
-  for ref in $(installed_refs); do
+  if [ "$filter_rc" -gt 1 ]; then
+    echo "aurora-flatpak-gl: cannot filter overrides in $overrides" >&2
+  else
+    # grep's no-selected-lines status is valid, including an empty result.
+    grep -qvE '^(\[.*\]|[[:space:]]*)$' "$tmp"
+    content_rc=$?
+    case $content_rc in
+      0)
+        # Apply metadata only after writing, keeping restrictive modes and ACLs.
+        if ! cp --attributes-only --preserve=mode,ownership,timestamps -- "$overrides" "$tmp"; then
+          echo "aurora-flatpak-gl: cannot preserve override metadata for $overrides" >&2
+        elif ! mv -fT -- "$tmp" "$overrides"; then
+          echo "aurora-flatpak-gl: cannot replace overrides in $overrides" >&2
+        else
+          return 0
+        fi
+        ;;
+      1)
+        # Remove only after inspection succeeds, without first rewriting the
+        # original: a failed final removal leaves all its content retryable.
+        if ! rm -f -- "$tmp"; then
+          echo "aurora-flatpak-gl: cannot remove override cleanup file $tmp" >&2
+          return 1
+        fi
+        rm -f -- "$overrides" || {
+          echo "aurora-flatpak-gl: cannot remove empty overrides in $overrides" >&2
+          return 1
+        }
+        return 0
+        ;;
+      *) echo "aurora-flatpak-gl: cannot inspect override cleanup file $tmp" >&2 ;;
+    esac
+  fi
+  # Every failed preparation leaves the original intact. Clean only our temp.
+  rm -f -- "$tmp" || echo "aurora-flatpak-gl: cannot remove override cleanup file $tmp" >&2
+  return 1
+}
+
+disable() {
+  local refs remotes ref rc=0
+  # Query both before changing anything: failure is not an empty installation.
+  refs=$(installed_refs) || return 1
+  remotes=$(remote_names) || return 1
+  remove_overrides || return 1
+  for ref in $refs; do
     remove_ref "$ref" || rc=1
   done
-  if flatpak remotes --system --columns=name | grep -qx "$remote"; then
+  if grep -qxF "$remote" <<< "$remotes"; then
     flatpak remote-delete --system --force "$remote" || rc=1
   fi
   return $rc
