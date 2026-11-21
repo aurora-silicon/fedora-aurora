@@ -2,7 +2,7 @@
 Name: upower
 Epoch: 1
 Version: 1.91.5
-Release: 3%{?dist}.aurora
+Release: 4%{?dist}.aurora
 Summary: Power management service with Aurora macsmc battery estimates
 License: GPL-2.0-or-later
 URL: https://github.com/aurora-silicon/upower
@@ -117,6 +117,10 @@ ln -s ../upower-charge-limit-migrate.service %{buildroot}%{_unitdir}/upower.serv
 %{_datadir}/dbus-1/interfaces/org.freedesktop.UPower*.xml
 
 %changelog
+* Sat Nov 21 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:1.91.5-4
+- Charge-limit migration: reload and trigger udev on every run that keeps a
+  custom limit, so a retry after an interrupted run applies it the same boot.
+
 * Fri Nov 20 2026 Aurora Silicon <ryan@aurorasilicon.org> - 1:1.91.5-3
 - Replace asahi-battery, so UPower is the only writer of the battery charge
   limit; hand a limit asahi-battery saved to UPower once, before upowerd starts.

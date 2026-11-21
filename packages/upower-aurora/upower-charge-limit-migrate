@@ -73,9 +73,11 @@ SUBSYSTEM==\"power_supply\", KERNEL==\"macsmc-battery\", ENV{CHARGE_LIMIT}=\"$st
 " != "$text" ]; then
         mkdir -p "${rule%/*}"
         put "$rule" 0644 "$text"
-        reload=1
         log "kept the $limit% limit in ${rule#"$root"}"
       fi
+      # A previous attempt may have installed the rule without notifying udev.
+      # Reload even when it matches; the legacy file still marks migration.
+      reload=1
     fi
   fi
 fi

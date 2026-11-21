@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -39,10 +40,11 @@ class MigrationTests(unittest.TestCase):
             os.utime(path, (mtime, mtime))
         return path
 
-    def run_script(self):
+    def run_script(self, expected_status=0, **environment):
         env = dict(os.environ, UPOWER_MIGRATE_ROOT=str(self.root), UPOWER_MIGRATE_UDEVADM=str(self.udevadm))
+        env.update(environment)
         result = subprocess.run(['sh', str(SCRIPT)], env=env, capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.returncode, expected_status, result.stderr)
         return result.stderr
 
     def udev_calls(self):
@@ -152,9 +154,9 @@ class MigrationTests(unittest.TestCase):
                                  for p in self.root.rglob('*') if p.is_file()})
         self.assertEqual(self.udev_calls(), calls)
 
-    def test_interrupted_run_finishes_on_the_next(self):
-        # The old file is removed last: a run cut short after the state was
-        # written repeats without a second write or a udev reload.
+    def test_recreated_legacy_reloads_without_rewriting_matching_files(self):
+        # This is a completed migration followed by a new legacy save, not
+        # an interruption. Matching files need no rewrite, but udev is notified.
         self.write(LEGACY, 'CHARGE_CONTROL_END_THRESHOLD=90\n')
         self.run_script()
         files = {p: p.stat().st_mtime_ns for p in self.root.rglob('*') if p.is_file()}
@@ -163,8 +165,48 @@ class MigrationTests(unittest.TestCase):
         self.run_script()
         self.assertEqual(files, {p: p.stat().st_mtime_ns for p in self.root.rglob('*')
                                  if p.is_file() and p.relative_to(self.root).as_posix() != LEGACY})
-        self.assertEqual(self.udev_calls(), calls)
+        self.assertEqual(self.udev_calls(), calls * 2)
         self.assert_migrated()
+
+    def assert_retry_after_interruption(self, command, wrapper, exit_status):
+        self.write(LEGACY, 'CHARGE_CONTROL_END_THRESHOLD=90\n')
+        bin_dir = Path(self.temporary.name) / 'bin'
+        bin_dir.mkdir()
+        shim = bin_dir / command
+        shim.write_text('#!/bin/sh\n' + wrapper)
+        shim.chmod(0o755)
+        self.run_script(expected_status=exit_status, PATH=f'{bin_dir}:{os.environ["PATH"]}')
+        self.assertEqual((self.root / LEGACY).read_text(), 'CHARGE_CONTROL_END_THRESHOLD=90\n')
+        self.assertEqual((self.root / STATUS).read_bytes(), b'1')
+        self.assertIn('ENV{CHARGE_LIMIT}="85,90"\n', (self.root / RULE).read_text())
+        self.assertEqual(self.udev_calls(), [])
+        files = {p: (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns, p.stat().st_mode)
+                 for p in (self.root / STATUS, self.root / RULE)}
+
+        self.run_script()
+        self.assert_migrated()
+        calls = [
+            'control --reload',
+            'trigger --settle --action=change --subsystem-match=power_supply --sysname-match=macsmc-battery']
+        self.assertEqual(self.udev_calls(), calls)
+        self.assertEqual(self.run_script(), '')
+        self.assertEqual(self.udev_calls(), calls)
+        self.assertEqual(files, {
+            p: (p.read_bytes(), p.stat().st_ino, p.stat().st_mtime_ns, p.stat().st_mode) for p in files})
+
+    def test_retry_after_real_rule_rename_notifies_udev(self):
+        mv = shlex.quote(shutil.which('mv'))
+        self.assert_retry_after_interruption('mv', f'''
+{mv} "$@" || exit $?
+if [ "$3" = "$UPOWER_MIGRATE_ROOT/{RULE}" ]; then exit 73; fi
+''', 73)
+
+    def test_retry_after_failure_before_legacy_removal_notifies_udev(self):
+        rm = shlex.quote(shutil.which('rm'))
+        self.assert_retry_after_interruption('rm', f'''
+if [ "$2" = "$UPOWER_MIGRATE_ROOT/{LEGACY}" ]; then exit 74; fi
+exec {rm} "$@"
+''', 74)
 
     def test_old_restore_rule_still_installed_blocks_the_migration(self):
         for directory in ('usr/lib/udev/rules.d', 'etc/udev/rules.d', 'run/udev/rules.d'):
