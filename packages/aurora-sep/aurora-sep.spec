@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 33%{?dist}
+Release: 34%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -196,6 +196,11 @@ fi
 if selinuxenabled 2>/dev/null && [ -f %{_libexecdir}/aurora-sep-load ]; then
     restorecon %{_libexecdir}/aurora-sep-load || :
 fi
+# Copies that aurora-sep-host-state's repair kept hold the same secrets as the
+# store: give an existing quarantine directory and its files the state type.
+if selinuxenabled 2>/dev/null && [ -d /var/lib/aurora-sep-quarantine ]; then
+    restorecon -RF /var/lib/aurora-sep-quarantine || :
+fi
 # Move the driver's state files from var_lib_t to their own type. Only the
 # labels change: the files are never moved, rewritten or removed.
 if selinuxenabled 2>/dev/null; then
@@ -252,6 +257,13 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sun Nov 22 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-34
+- aurora-sep-selinux: /var/lib/aurora-sep-quarantine and the store copies in
+  it get aurora_sep_state_t, like the store itself, instead of var_lib_t. A
+  new directory gets it from a named type transition for the repair helper
+  (aurora-sep-host-state); an existing one is relabelled on upgrade. Module
+  aurora_sep 1.6.0.
+
 * Sat Nov 21 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-33
 - Require aurora-sep-host-state: its repair unit runs before aurora-sep.service
   and recovers /var/lib/aurora-sep-host-state.bin when a power cut left a
