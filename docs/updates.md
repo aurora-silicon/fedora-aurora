@@ -88,6 +88,29 @@ prevents replacement of the candidate. After a trial boot commits, the rest of t
 ordinary boot and package updates can stage the next candidate. Records written by 20261107-1 are named
 after the kernel version and still block the candidate whose hash they contain.
 
+### Only the Stage 2 that Stage 1 loads, and never an older aura
+
+Stage 1 loads the one ESP path in its own configuration, which Linux cannot read. Before it writes a
+trial, a `.next` file or a replacement, the updater checks that this boot shows Stage 1 loads the target
+(`m1n1/boot.bin`, or `m1n1/boot-ctxr.bin` on a Mach-O Mac). If it doesn't, the updater writes nothing to
+the ESP. The kernel is still installed, and the updater says which file Stage 1 loads instead, for
+example `Stage 1 loads aura/stage2.bin, not m1n1/boot-ctxr.bin: not touching the boot chain`.
+
+- Stage 1 from aura 1.0.0b12 on records the SHA-256 of the image it loaded in
+  `/chosen/aurora,boot-security` (`stage1`, `next-stage`). The target, without an `aura_sig` trailer,
+  must have that hash. With such a Stage 1 and no usable record, nothing is written.
+- Stage 1 from 1.0.0b4 to 1.0.0b11 leaves only the running Stage 2's version
+  (`/chosen/asahi,m1n1-stage2-version`). The target must exist and be built as that version.
+- Older Stage 1s keep the paths the installer enrolls.
+
+The candidate's aura (its `##aura_ver##` tag) must not be an older release than the running Stage 2:
+1.0.0b12 does not replace 1.0.0b13, and 1.0.0b13 does not replace 1.0.0b13.1. Builds of the same release
+have no known order and are not refused. To install an older aura on purpose, run
+`sudo env AURORA_STAGE2_ALLOW_DOWNGRADE=1 update-m1n1` once. The Stage 1 check still applies.
+
+A trial that this updater armed and that never booted is withdrawn when it fails either check, so the
+next boot uses the configured Stage 2.
+
 `journalctl -u aurora-stage2-commit -u aurora-stage2-guard` shows the outcome. After a failed trial,
 inspect the retained candidate and receipt before making any manual recovery change. A new package
 transaction does not remove a fallback kernel or reset a recorded trial attempt.

@@ -1,6 +1,6 @@
 Name: update-m1n1
 Version: 20261107
-Release: 9%{?dist}.aurora
+Release: 12%{?dist}.aurora
 Summary: Transactional Aurora Stage 2 updates with retained-kernel DTB checks
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -107,6 +107,24 @@ AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-m1n1 --transaction-begin || 
 %config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1
 
 %changelog
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 20261107-12
+- Write Stage 2 only to the file this boot's Stage 1 loads (#452). A
+  kernel-install on a J713 whose lab Stage 1 loads aura/stage2.bin
+  armed a trial of the packaged, older Stage 2 at m1n1/boot-ctxr.bin.next:
+  the next boot would have run it, and its commit would have replaced a
+  file that Stage 1 never reads. A Stage 1 from aura 1.0.0b12 on
+  records the SHA-256 of the image it loaded; the target, without its
+  aura_sig trailer, must match it. An older Stage 1 with aura-try must
+  have booted the Stage 2 version the target carries. Otherwise the ESP
+  is left alone, the hook still succeeds so the kernel installs, and it
+  says which file Stage 1 loads.
+- Never install an aura release older than the running Stage 2, unless
+  AURORA_STAGE2_ALLOW_DOWNGRADE=1 is set for that run.
+- Withdraw a trial this updater armed that never booted and fails
+  either check.
+- Read 1.0.0b13.1-style point releases as aura versions with aura-try,
+  and aura#313's aurora,aura-stage{1,2}-version names.
+
 * Sun Nov 15 2026 Isaac Duarte <31712685+Isaac-Duarte@users.noreply.github.com> - 20261107-9
 - Find the node a display alias names by its exact path. fdtget resolves
   a component without a unit address, such as /soc, to the first soc@...
