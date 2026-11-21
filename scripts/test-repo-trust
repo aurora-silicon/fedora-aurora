@@ -96,10 +96,10 @@ packagekit_offers() {
   local polkitd=$!
   /usr/libexec/packagekitd > /dev/null 2>&1 &
   local packagekitd=$!
-  for _ in {1..120}; do
-    busctl --system status org.freedesktop.PackageKit > /dev/null 2>&1 && break
-    sleep 0.5
-  done
+  # Returns as soon as packagekitd owns its bus name; the timeout only turns a
+  # daemon that never starts into a failure instead of a hang.
+  gdbus wait --system --timeout 60 org.freedesktop.PackageKit ||
+    fail "packagekitd did not take org.freedesktop.PackageKit ($1)"
   pkcon -p refresh force < /dev/null > /dev/null || fail "pkcon refresh failed ($1)"
   pkcon -p get-updates < /dev/null | grep -q 'aurora-trust-probe-2-1\.noarch (aurora)' ||
     fail "PackageKit did not offer the Aurora update ($1)"
