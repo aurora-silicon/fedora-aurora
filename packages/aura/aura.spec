@@ -1,12 +1,12 @@
 %global debug_package %{nil}
-%global commit 2f487f26ded59852c5348be0f46513d2e6bb1fe1
+%global commit 3ff77894567239362a116e7fcbb214c55dccf5a4
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
 %global monitor_free 1
 Name: aura
-Version: 1.0.0~b13.1
-Release: 3%{?dist}
+Version: 1.0.0~b14.1
+Release: 1%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -26,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-2f487f26ded59852c5348be0f46513d2e6bb1fe1
+%autosetup -n aura-3ff77894567239362a116e7fcbb214c55dccf5a4
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -76,6 +76,31 @@ install -Dm644 tools/recovery/enroll-stage1.sh %{buildroot}%{_datadir}/aura/tool
 %{_datadir}/aura/
 
 %changelog
+* Sat Nov 21 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b14.1-1
+- Update to aura 1.0.0b14.1 (release commit 3ff77894 on release/1.0.0b14):
+  1.0.0b14 plus aura#421, labelled 1.0.0b14-g3ff77894 from the archive
+  directory. aura keeps VERSION 1.0.0b14, as 1.0.0b13.1 kept 1.0.0b13,
+  because update-m1n1 parses the Stage 1 version as <x.y.z>b<N>.
+- aura#421: the firmware-cache MCC (mcc,t8140, mcc,t6041) is taken from the
+  ADT: AMCC count, enable masks, planes, stride and windows, reading only
+  the enabled AMCCs, and an ADT that leaves something out or contradicts
+  itself leaves the MCC alone instead of failing. Since aura#320 every M4
+  Max (T6041), whose ADT describes eight AMCCs, reset at boot, including
+  with 1.0.0~b13.1-3.
+- 1.0.0b14 (aura#406): T8142 powers ANS off through its storage gates
+  (aura#250, #255), so a b14 Stage 1 starts a Stage 2 on the MacBook Air
+  M5. ANS handoff (aura#410, #412): T8132 hands ANS on powered off with
+  nvme.sart=; T6040 and T6041 hand on live only a session that came running,
+  and never report a live session off.
+- Since 2f487f26: the T6040/T6041 live handoff and its adoption (#305), T8132
+  external displays by default (#299), the J873g's spare DCPEXT0/1 (#300),
+  the hyphenated usb4-N-pcie alias (#302), AOP motion calibration (#306),
+  the J713 ISP firmware window on 27.2 (#397), the T8122 GPU on 27.2 (#393,
+  #396), the mcc,t6041 layout by geometry (#253), the CTXR_D read before a
+  secondary probe (#280), the M5 Ultra displays and CPUs (#264, #262), a
+  J613 __OS_LOG description (#151), HV hooks (#223, #224) and the BRINGUP
+  refusal message (#385).
+
 * Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b13.1-3
 - Pin aura 2f487f26 (branch djdev/mcc-count-width-on-82ee5d6f), labelled
   1.0.0b13-g2f487f26 from the archive directory as it is not a release
