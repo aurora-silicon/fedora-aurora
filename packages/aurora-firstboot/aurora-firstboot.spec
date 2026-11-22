@@ -182,7 +182,7 @@ fi
 %dir %{_sysconfdir}/aurora
 %config(noreplace) %{_sysconfdir}/aurora/power-modes.conf
 %dir %{_sharedstatedir}/aurora
-%ghost %{_sharedstatedir}/aurora/power-modes-preset-done
+%ghost %attr(0644,root,root) %{_sharedstatedir}/aurora/power-modes-preset-done
 
 %files -n aurora-gamemode
 %license LICENSE
@@ -202,7 +202,7 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/aurora_secboot.pp
 
 %changelog
-* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-7
+* Sun Nov 22 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-7
 - Pin aurora-platform e3bc82ab (aurora-platform#38, carrying #35, on main
   with #33 and #28).
 - aurora-power-budget hands each profile to the kernel's apple-clpc
