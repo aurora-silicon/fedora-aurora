@@ -194,7 +194,7 @@ ExcludeArch: i686
 Summary:        Mozilla Firefox Web browser
 Name:           firefox
 Version:        160.0.1
-Release:        1%{?dist}.aurora2
+Release:        1%{?dist}.aurora3
 URL:            https://www.mozilla.org/firefox/
 # Automatically converted from old format: MPLv1.1 or GPLv2+ or LGPLv2+ - review is highly recommended.
 License:        LicenseRef-Callaway-MPLv1.1 OR GPL-2.0-or-later OR LicenseRef-Callaway-LGPLv2+
@@ -271,6 +271,8 @@ Patch604:        0001-Bug-2085342-Hash-the-little-endian-ICU-data-in-icu_d.patch
 # Aurora: V4L2 stateless decoders in RDD (Mozilla bug 2080696)
 Patch900:       rdd-v4l2-request.patch
 BuildRequires:  kernel-headers >= 6.5
+# Aurora: Wayland SHM video textures are Texture2D (Mozilla bug 2084900 backport)
+Patch901:       wayland-shm-texture2d.patch
 
 %if %{?system_nss}
 BuildRequires:  pkgconfig(nspr) >= %{nspr_version}
@@ -560,6 +562,7 @@ patch -p1 -b --suffix .wasi < wasi.patch
 %patch -P604 -p1 -b .0001-Bug-2085342-Hash-the-little-endian-ICU-data-in-icu-d
 
 %patch -P900 -p1 -b .rdd-v4l2-request
+%patch -P901 -p1 -b .wayland-shm-texture2d
 
 rm -f .mozconfig
 cp %{SOURCE10} .mozconfig
@@ -1195,7 +1198,7 @@ fi
 #---------------------------------------------------------------------
 
 %changelog
-* Wed Nov 18 2026 Aurora Silicon <hey@djdev.me> - 160.0.1-1.aurora2
+* Sun Nov 22 2026 Aurora Silicon <hey@djdev.me> - 160.0.1-1.aurora3
 - Rebuild of Fedora's firefox-160.0.1-1.
 - Allow V4L2 stateless (Request API) decoders in the RDD sandbox.
 - Allow sysinfo in the RDD sandbox, so Mesa's zink driver can create the
@@ -1203,6 +1206,9 @@ fi
 - No debuginfo, no Rust debug info and no WASI SDK build, to fit the native
   builder.
 - Build with Fedora's cbindgen package instead of the bundled copy.
+- Tag SHM video frames on the Wayland WebRender compositor path as Texture2D
+  (backport from Mozilla bug 2084900): fixes the parent-process panic
+  "ps_quad_textured TEXTURE_RECT variant not loaded" on GLES with HDR on.
 
 * Wed Nov 18 2026 Martin Stransky <stransky@redhat.com> - 160.0.1-1
 - Update to latest upstream (160.0.1)
