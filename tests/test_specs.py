@@ -819,13 +819,15 @@ class SpecTests(unittest.TestCase):
         for line in ['gpgcheck=1', 'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-aurora', 'skip_if_unavailable=False']:
             self.assertIn('\n' + line + '\n', repo)
         self.assertNotIn('repo_gpgcheck', repo)
-        # Fedora 44's dnf5 cannot trust a metadata key without a prompt, and an
-        # unanswered prompt skips the repository. The override also covers a
+        # The metadata signature is checked too. auto_import_local_keys
+        # (libdnf5 >= 5.4.7) trusts the local key without a prompt, which an
+        # unattended refresh could not answer. The override also covers a
         # locally changed aurora.repo.
         override = configparser.ConfigParser(interpolation=None)
         override.read_string((d / 'aurora-override.repo').read_text())
         self.assertEqual(override.sections(), ['aurora'])
-        self.assertEqual(dict(override['aurora']), {'repo_gpgcheck': '0', 'auto_import_local_keys': '1'})
+        self.assertEqual(dict(override['aurora']), {'repo_gpgcheck': '1', 'auto_import_local_keys': '1'})
+        self.assertRegex(spec, r'(?m)^Requires: libdnf5 >= 5\.4\.7$')
         self.assertIn('install -Dm644 %{SOURCE105} %{buildroot}/usr/share/dnf5/repos.override.d/50-aurora.repo', spec)
         files = spec.split('%files', 1)[1]
         self.assertIn('\n/usr/share/dnf5/repos.override.d/50-aurora.repo\n', files)
