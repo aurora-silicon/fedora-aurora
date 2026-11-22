@@ -1,6 +1,6 @@
-%global commit 29263b5cfa8dbe393bb67b5dadfc51e9df2b6b03
+%global commit 0ec041c3288dca14935876f0a8f51ddba4ce3d4e
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261121
+%global snapdate 20261123
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.2
-Release: 0.53.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.54.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -248,6 +248,20 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.54.20261123git0ec041c3288d
+- Rebuilt from speakerguardd main 0ec041c3: the machine description is
+  built from the Mac's own capabilities (device tree, running card, its
+  tuning bundle) and the card is the one bound to the device tree's sound
+  node (speakerguardd#229); the voicing tables are keyed by the bundle's
+  speaker identity, not the board (#231); a Mac's bundle on a by-vendor
+  database with no known speaker ID is refused and stays muted (#232); a
+  self-check record is current only for this board and audio stack (#234);
+  the gate, provisioning and self-check take the speaker card only once
+  ALSA registered it, which fixes the legacy answer at an early boot
+  (#236); four-lane LSID companions release on their static model (#228);
+  the operating-point match holds to the gain control's own dB step
+  (#200). v2 stays a preview and opt-in.
+
 * Sat Nov 21 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.53.20261121git29263b5cfa8d
 - Rebuilt from speakerguardd main 29263b5c: the self-check refuses V/I
   sense that a bit-clock misframe corrupts, where idle noise reads near
