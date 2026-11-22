@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 34%{?dist}
+Release: 35%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -257,6 +257,15 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-35
+- aurora-touchid-setup: read only the factory records it uses (FSC2-,
+  MSRk-, seal-, trustobject-), each only up to its logical size instead of
+  its whole extent, and at most 64 MiB of them in all; refuse a container
+  that claims more blocks than its partition holds. Tree records too short
+  for their fields, a tree block reached twice and more than 65536
+  file-system records (16 MiB) are refused, so the carved record is used
+  instead of the tool stopping with a traceback.
+
 * Sun Nov 22 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-34
 - aurora-sep-selinux: /var/lib/aurora-sep-quarantine and the store copies in
   it get aurora_sep_state_t, like the store itself, instead of var_lib_t. A

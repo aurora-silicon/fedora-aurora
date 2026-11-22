@@ -8,6 +8,11 @@ set -euo pipefail
 source=${1:?aurora-repos source directory required}
 dnf install -y -q rpm-build rpm-sign createrepo_c gnupg2 util-linux-script \
   dnf5-plugins PackageKit dbus-daemon polkit >/dev/null
+# aurora-repos requires the dnf5 with auto_import_local_keys; a container
+# image can be older than its release's updates.
+dnf upgrade -y -q 'libdnf5 >= 5.4.7' dnf5 >/dev/null
+dnf5 --dump-main-config 2> /dev/null | grep '^auto_import_local_keys' > /dev/null ||
+  { echo "FAIL: dnf5 $(rpm -q --qf '%{VERSION}' libdnf5) has no auto_import_local_keys" >&2; exit 1; }
 
 top=/var/tmp/repo-trust
 export GNUPGHOME=$top/gnupg
@@ -50,8 +55,8 @@ for repo in base "$feed"; do createrepo_c -q "$top/$repo"; done
 # Signed metadata, as the Aurora feed publishes it.
 gpg --batch --local-user "$aurora" --armor --detach-sign "$top/$feed/repodata/repomd.xml"
 
-# The shipped repository, override and key, pointed at the probes; the image
-# imports the key into the rpm database.
+# The shipped repository, override (metadata and package checks) and key,
+# pointed at the probes; the image imports the key into the rpm database.
 shopt -s nullglob
 sed -i 's/^enabled=1/enabled=0/' /etc/yum.repos.d/*.repo /usr/share/dnf5/repos.d/*.repo
 shopt -u nullglob
@@ -77,11 +82,21 @@ refresh() {
   dnf -q -C --repo aurora repoquery aurora-trust-probe < /dev/null | grep -qx 'aurora-trust-probe-0:2-1.noarch' ||
     fail "a non-interactive refresh lost the Aurora repository ($1)"
 }
+# The shipped override checks the metadata, so every refresh imports the
+# metadata key; dnf5 logs the import.
+[[ $(dnf5 --dump-repo-config=aurora 2> /dev/null) == *'repo_gpgcheck = 1'* ]] ||
+  fail 'the shipped override does not check the repository metadata'
 cp /etc/yum.repos.d/aurora.repo "$top/aurora.repo"
-echo 'repo_gpgcheck=1' >> /etc/yum.repos.d/aurora.repo
+echo 'repo_gpgcheck=0' >> /etc/yum.repos.d/aurora.repo
+[[ $(dnf5 --dump-repo-config=aurora 2> /dev/null) == *'repo_gpgcheck = 1'* ]] ||
+  fail 'a locally changed repository file turned the metadata check off'
 refresh 'changed repository file'
 cp "$top/aurora.repo" /etc/yum.repos.d/aurora.repo
 refresh 'shipped repository file'
+grep -q "Automatically importing OpenPGP key .* for repository aurora" /var/log/dnf5.log ||
+  fail 'auto_import_local_keys did not import the metadata key'
+dnf5 clean all > /dev/null
+refresh 'after dnf clean all'
 
 out=$(dnf upgrade --refresh --assumeno < /dev/null 2>&1 || true)
 ! asked "$out" && offered "$out" || fail "dnf upgrade --assumeno: $out"
@@ -108,33 +123,21 @@ packagekit_offers() {
 }
 packagekit_offers 'shipped repository file'
 
-# A dnf5 with auto_import_local_keys can check the metadata signature without
-# asking, so the check can return (docs/updates.md). Fedora's dnf5 5.4.6 lacks it.
-if dnf5 --dump-main-config 2> /dev/null | grep '^auto_import_local_keys' > /dev/null; then
-  mkdir -p /etc/dnf/repos.override.d
-  printf '[aurora]\nrepo_gpgcheck=1\n' > /etc/dnf/repos.override.d/99-metadata-check.repo
-  refresh 'metadata check'
-  grep -q "Automatically importing OpenPGP key .* for repository aurora" /var/log/dnf5.log ||
-    fail 'auto_import_local_keys did not import the metadata key'
-  dnf5 clean all > /dev/null
-  refresh 'metadata check after dnf clean all'
-  out=$(dnf upgrade --refresh --assumeno < /dev/null 2>&1 || true)
-  ! asked "$out" && offered "$out" || fail "dnf upgrade --assumeno with the metadata check: $out"
-  packagekit_offers 'metadata check'
-  # Metadata signed by another key is refused.
-  signature=$(dnf5 --dump-repo-config=aurora 2> /dev/null | sed -n 's|^baseurl = file://||p')/repodata/repomd.xml.asc
-  [[ -f $signature ]] || fail "no probe metadata signature at $signature"
-  cp "$signature" "$top/repomd.xml.asc"
-  gpg --batch --yes --local-user "$foreign" --armor --detach-sign -o "$signature" "${signature%.asc}"
-  rm -rf /var/cache/libdnf5/aurora-*
-  out=$(dnf -q --repo aurora repoquery aurora-trust-probe < /dev/null 2>&1 || true)
-  ! grep -q '^aurora-trust-probe' <<< "$out" || fail "metadata signed by another key was accepted: $out"
-  cp "$top/repomd.xml.asc" "$signature"
-  rm /etc/dnf/repos.override.d/99-metadata-check.repo
-  echo 'Metadata check: works without prompts; dnf5 has auto_import_local_keys (docs/updates.md)'
-else
-  echo "Metadata check: not run, dnf5 $(rpm -q --qf '%{VERSION}' libdnf5) has no auto_import_local_keys"
-fi
+# Metadata signed by another key, or not signed at all, is refused.
+signature=$top/$feed/repodata/repomd.xml.asc
+[[ -f $signature ]] || fail "no probe metadata signature at $signature"
+cp "$signature" "$top/repomd.xml.asc"
+gpg --batch --yes --local-user "$foreign" --armor --detach-sign -o "$signature" "${signature%.asc}"
+rm -rf /var/cache/libdnf5/aurora-*
+out=$(dnf -q --repo aurora repoquery aurora-trust-probe < /dev/null 2>&1 || true)
+! grep -q '^aurora-trust-probe' <<< "$out" || fail "metadata signed by another key was accepted: $out"
+rm "$signature"
+rm -rf /var/cache/libdnf5/aurora-*
+out=$(dnf -q --repo aurora repoquery aurora-trust-probe < /dev/null 2>&1 || true)
+! grep -q '^aurora-trust-probe' <<< "$out" || fail "unsigned metadata was accepted: $out"
+cp "$top/repomd.xml.asc" "$signature"
+rm -rf /var/cache/libdnf5/aurora-*
+echo 'Metadata check: on, without prompts; foreign and unsigned metadata refused'
 
 # An interactive update asks only to confirm the transaction.
 printf 'y\n' | script -qec 'dnf upgrade aurora-trust-probe' /dev/null > "$top/interactive.log" 2>&1 || true
