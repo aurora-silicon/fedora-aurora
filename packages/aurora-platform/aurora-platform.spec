@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 48%{?dist}
+Release: 49%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -56,6 +56,8 @@ Source126: 60-aurora-t6041-trackpad.quirks
 Source127: aurora-power-defaults.service
 Source128: aurora-irq-steerable
 Source129: 60_aurora-apple-keys.gschema.override
+Source130: 70-aurora-accel.rules
+Source131: aurora-accel.sysusers
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -176,6 +178,10 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 install -Dm755 %{SOURCE115} %{buildroot}%{_libexecdir}/aurora/aurora-wake-for-network
 install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-network.rules
 install -Dm644 %{SOURCE120} %{buildroot}%{_udevrulesdir}/64-aurora-trackpad-clicks.rules
+# /dev/accel (the Neural Engine) for the accel group and the local session
+# user, instead of systemd's mode 0666; rpm creates the group from sysusers.d.
+install -Dm644 %{SOURCE130} %{buildroot}%{_udevrulesdir}/70-aurora-accel.rules
+install -Dm644 %{SOURCE131} %{buildroot}%{_sysusersdir}/aurora-accel.conf
 install -Dm644 %{SOURCE126} %{buildroot}%{_datadir}/libinput/60-aurora-t6041-trackpad.quirks
 install -Dm644 %{SOURCE129} %{buildroot}%{_datadir}/glib-2.0/schemas/60_aurora-apple-keys.gschema.override
 install -Dm644 %{SOURCE127} %{buildroot}%{_unitdir}/aurora-power-defaults.service
@@ -190,6 +196,14 @@ install -Dm644 %{SOURCE122} %{buildroot}%{_unitdir}/kdump.service.d/50-aurora-kd
 install -Dm755 %{SOURCE123} %{buildroot}%{_libexecdir}/aurora/aurora-kdump-setup
 install -Dm755 %{SOURCE124} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora-kdump-clock/module-setup.sh
 install -Dm755 %{SOURCE125} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora-kdump-clock/aurora-kdump-clock.sh
+
+%post core
+%udev_rules_update
+# Give an existing /dev/accel node its group and mode now, not at the next boot.
+udevadm trigger --action=change --subsystem-match=accel >/dev/null 2>&1 || :
+
+%postun core
+%udev_rules_update
 
 %posttrans core
 # Fedora's flicker-free GRUB output, once per system; see the script.
@@ -258,6 +272,8 @@ fi
 %{_udevrulesdir}/62-aurora-gpu-render-only.rules
 %{_udevrulesdir}/63-aurora-wake-for-network.rules
 %{_udevrulesdir}/64-aurora-trackpad-clicks.rules
+%{_udevrulesdir}/70-aurora-accel.rules
+%{_sysusersdir}/aurora-accel.conf
 %{_datadir}/libinput/60-aurora-t6041-trackpad.quirks
 %{_datadir}/glib-2.0/schemas/60_aurora-apple-keys.gschema.override
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
@@ -284,6 +300,13 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-49
+- /dev/accel/accel* (the Neural Engine) is mode 0660, group accel, with a
+  uaccess ACL for the user of the active local session
+  (70-aurora-accel.rules, group from aurora-accel.conf). systemd's default
+  rule left it mode 0666; the only narrower rule was in the opt-in
+  omarchy-ane-tools, which no longer carries one.
+
 * Sat Nov 21 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-48
 - The Mission Control key (F3, keysym XF86LaunchA) opens and closes the
   GNOME Activities overview, as Mission Control does on macOS

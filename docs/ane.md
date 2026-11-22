@@ -9,7 +9,7 @@ boot hooks, Apple firmware, or Apple models. The Aurora kernel supplies the driv
 | mil-hwx-compiler (mil-hwxc) | 0.3.1-1 | 0.3.1-1 | 0.3.1 |
 | Tool commands | omarchy-ane-run, omarchy-ane-smoke, omarchy-ane-firmware-fetch | same | same |
 | Smoke fixtures | h13-anec/add/program-0.anec, h14-anec/add/program-0.anec | same | same |
-| Permissions | accel group, 0660, 70-omarchy-ane.rules | same | same |
+| Device permissions (every install, not these packages) | aurora-platform-core: accel group, 0660, session ACL, 70-aurora-accel.rules | aurora-system-fixes: same | platform module: same |
 | Shared inference runtime | reserved for t-3650 release | same | same |
 
 The compiler pin is upstream tag v0.3.1, commit
@@ -27,16 +27,20 @@ suite runs in every recipe; no device is needed.
 The tools install the upstream MIT userspace runner (statically linked libane),
 smoke and fetch scripts, the two add fixtures and LICENSE. A common small patch
 makes smoke resolve fixtures relative to its installation prefix and names the
-correct package in recovery messages. The rule and smoke patch are identical
-across the three recipes. NixOS additionally patches interpreter/store paths
-and the firmware location as described below. All three carry the same sysusers
-entry; NixOS also declares the group through its module.
+correct package in recovery messages. The smoke patch is identical across
+the three recipes. NixOS additionally patches interpreter/store paths
+and the firmware location as described below. The tools carry no device policy: the
+`/dev/accel/accel*` rule and the `accel` group come with the platform on every
+install (Fedora: aurora-platform-core; ALARM: aurora-system-fixes;
+NixOS: the platform module), whether or not the tools are installed.
 
-For persistent access, enroll intended users in `accel` (Fedora/ALARM: `sudo usermod -aG accel USER`;
-NixOS: `users.users.USER.extraGroups = [ "accel" ];`), then log in again.
-Standard systemd/logind session ACLs also apply; group access works without a
-login session. Reload udev rules and retrigger the accel device, or reboot, after
-installation.
+`/dev/accel/accel*` is mode 0660, group `accel`. The rule also tags it
+`uaccess`, so the user of the active local (seat) session gets an ACL on it
+while that session is in the foreground; systemd's own rules give accel nodes
+no such ACL and would otherwise leave them mode 0666. For access outside a
+local session (ssh, services), enroll the user in `accel` (Fedora/ALARM:
+`sudo usermod -aG accel USER`; NixOS: `users.users.USER.extraGroups = [ "accel" ];`),
+then log in again.
 Run `omarchy-ane-smoke`: it checks 20 add calls and emits one JSON result.
 An unsupported chip or missing driver returns exit 2. Firmware fetching is
 always an explicit owner action; no install hook runs it.
