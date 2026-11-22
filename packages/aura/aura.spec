@@ -1,11 +1,11 @@
 %global debug_package %{nil}
-%global commit 3ff77894567239362a116e7fcbb214c55dccf5a4
+%global commit 56299352d9f4e4569de188700ead26544a2b37b4
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
 %global monitor_free 1
 Name: aura
-Version: 1.0.0~b14.1
+Version: 1.0.0~b15
 Release: 1%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
@@ -26,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-3ff77894567239362a116e7fcbb214c55dccf5a4
+%autosetup -n aura-56299352d9f4e4569de188700ead26544a2b37b4
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -76,6 +76,20 @@ install -Dm644 tools/recovery/enroll-stage1.sh %{buildroot}%{_datadir}/aura/tool
 %{_datadir}/aura/
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b15-1
+- Update to aura 1.0.0b15 (tag v1.0.0b15, merge commit 56299352 of
+  aura#459), labelled 1.0.0b15-g56299352 from the archive directory.
+- Every M2 (T8112) on a 27.2 stub boots again: a GPU firmware with no
+  initdata layout leaves the GPU disabled and the boot continues
+  (aura#381). With 1.0.0b14.1 the Stage 2 stops at 'Failed to prepare
+  FDT' and drops to the proxy.
+- The M3 (T8122) and M4 (T8132) GPU on 27.2 (aura#448, #379), the M4
+  internal DCP on 27.2 (#404) and the M3 Air external DCP by default
+  (#437); the full list is in aura's docs/releases/1.0.0b15.md.
+- The Stage 1 links under rpmbuild again: the exported RUSTFLAGS no longer
+  reach aura's Rust build (aura#454). With them, aura main past 1.0.0b14.1
+  ran past the DCP log buffer.
+
 * Sat Nov 21 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b14.1-1
 - Update to aura 1.0.0b14.1 (release commit 3ff77894 on release/1.0.0b14):
   1.0.0b14 plus aura#421, labelled 1.0.0b14-g3ff77894 from the archive
