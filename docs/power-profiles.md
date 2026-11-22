@@ -64,6 +64,27 @@ untouched, and outside Power Saver the daemon only waits on D-Bus. The GPU,
 ANE, display and fan legs of Low Power Mode are not covered yet. Measurements
 are in the aurora-platform README.
 
+Where the kernel registers apple-clpc's power modes as a platform profile
+(`/sys/class/platform-profile/*/name` is `apple-clpc`: the M4 Max and the M5
+Pro and Max, and every Mac whose boot loader passes the Low Power mode
+ceiling in the device tree), tuned's `acpi` plugin does not reach it: it
+drives only `/sys/firmware/acpi/platform_profile`, which a device tree boot
+does not have. `aurora-power-budget` hands each profile to that class device
+instead, by the names its `choices` file lists. It does not cap the CPU
+while the kernel holds `low-power`, caps it as before if the kernel refuses,
+and puts `balanced` back when it stops. `journalctl -u aurora-power-budget`
+logs each hand-over, and `/run/aurora-power-budget/status.json` shows
+`kernel_profiles`.
+
+The same subpackage ships `aurora-power-modes` (enabled by preset) for the
+other legs of each profile: in Power Saver the realtime threads lose their
+top-clock floor (`kernel.sched_util_clamp_min_rt_default` 0) and the PCIe
+links use L1.1/L1.2 (ASPM `powersupersave`); every other platform-profile
+handler (`apple-smc`, High Power mode only) follows the profile, so
+Performance turns on High Power mode. Leaving a profile, or stopping the
+service, restores the values found at boot. `/etc/aurora/power-modes.conf`
+has macOS's optional "Low Power Mode on battery" setting (default `never`).
+
 ## Distribution parity
 
 ALARM and NixOS use power-profiles-daemon rather than tuned-ppd. Its current
