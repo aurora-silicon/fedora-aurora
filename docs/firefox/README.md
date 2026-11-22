@@ -77,8 +77,18 @@ The import keeps every Fedora file byte for byte and changes `firefox.spec`
 only to:
 
 - apply `rdd-v4l2-request.patch` (`Patch900`);
-- add `.aurora2` to Fedora's Release, so `firefox-160.0-1.fc44.aurora2`
-  replaces Fedora's `firefox-160.0-1.fc44`;
+- apply `wayland-shm-texture2d.patch` (`Patch901`), the `BufferTextureHost`
+  hunk of Mozilla
+  [bug 2084900](https://bugzilla.mozilla.org/show_bug.cgi?id=2084900)
+  (upstream commit e1da14d64fab): with the WebRender compositor on Wayland
+  (Firefox turns it on together with HDR), software-decoded video frames are
+  plain `GL_TEXTURE_2D` textures but were handed to WebRender as
+  `TextureRect`. WebRender has no `TEXTURE_RECT` shaders on GLES, the default
+  on GTK/aarch64, so the first clipped or rounded video (a YouTube player)
+  panicked with `ps_quad_textured TEXTURE_RECT variant not loaded`. Drop the
+  patch when Fedora's Firefox carries bug 2084900;
+- add `.aurora3` to Fedora's Release, so `firefox-160.0.1-1.fc44.aurora3`
+  replaces Fedora's `firefox-160.0.1-1.fc44`;
 - turn off debuginfo and the WASI SDK build. The WASI SDK compiles its own
   LLVM toolchain inside the Firefox build, which does not fit the hosted
   runner's six hours; without it the wasm-sandboxed third-party libraries
@@ -104,6 +114,11 @@ changed, dispatches its Firefox build and source checks, and on a later run
 merges it once both passed and starts publication for both releases. A failed
 proposal build fails the workflow. `TRACK_FIREFOX=false` stops the tracker and
 `AUTO_MERGE_FIREFOX=false` keeps proposals unmerged.
+
+Fedora security updates have a deadline: Aurora's testing channel must serve
+the rebuild within 72 hours of Fedora's push and stable within 7 days. The
+owners, escalation, how freshness is checked and the stock Fedora Firefox
+fallback for users are in [security-updates.md](security-updates.md).
 
 To import by hand:
 

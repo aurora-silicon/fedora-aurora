@@ -1,10 +1,10 @@
-%global commit 6062e8516c0a751bc8e50f5d604a17395923189f
+%global commit ea8ae7c8b19057865b99f16522e122566dabdaf4
 %global debug_package %{nil}
 # These are bare-metal ARM firmware and retained linked symbols, not host code.
 %global __strip /usr/bin/true
 Name: avd-fw
 Version: 0.1
-Release: 4%{?dist}.aurora
+Release: 5%{?dist}.aurora
 Summary: Open Apple Video Decoder firmware from Aurora
 License: MIT
 URL: https://github.com/aurora-silicon/avd-fw
@@ -45,6 +45,13 @@ install -m644 build/avd-fw-*.elf %{buildroot}%{_prefix}/lib/debug/firmware/apple
 %{_prefix}/lib/debug/firmware/apple/avd-fw-*.elf
 
 %changelog
+* Sat Nov 21 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-5
+- Update to ea8ae7c8: the v4 (T8122, M3) image is laid out for the CM3 SRAM
+  at +0x90000 (aperture 0x01090000, 64 KiB), where the firmware actually
+  writes its queue info block. With the matching device tree the M3 decoder
+  uses the queue transport (M2-level speed); with the current device tree it
+  keeps the legacy transport. The other seven images are unchanged.
+
 * Mon Nov 02 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-4
 - Select Fedora 45's versioned LLVM 22 tools so all eight qualified firmware
   image hashes remain unchanged; retain the reset-vector and ELF checks.

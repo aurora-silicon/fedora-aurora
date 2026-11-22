@@ -1,8 +1,8 @@
-%global commit ddf5285e116b3551ed2b025112f86effaadf299d
+%global commit e3bc82ab399a70897088d003de9bb016d9740b28
 %global selinuxtype targeted
 Name: aurora-firstboot
 Version: 0.1.13
-Release: 6%{?dist}
+Release: 7%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-platform
@@ -31,7 +31,16 @@ Gives the Power Saver profile a real CPU power limit, like macOS Low Power
 Mode: every 100 ms a budget from the device tree energy model is spent on
 the frequency steps that buy the most CPU capacity per milliwatt, and each
 cluster is capped to its share.
-Balanced and Performance are untouched.
+aurora-power-modes drives the rest of each profile: in Power Saver the
+realtime threads lose their top-clock floor and the PCIe links use L1.1/L1.2;
+every kernel platform-profile handler follows the profile (tuned-ppd does
+not drive them on device tree boots); and macOS's "Low Power Mode on
+battery" setting is available in /etc/aurora/power-modes.conf (off by
+default, as on macOS).
+Where the kernel budgets Power Saver itself (apple-clpc), aurora-power-budget
+hands it each profile instead and caps the CPU here only while the kernel
+does not hold Power Saver; aurora-power-modes leaves that handler alone, so
+each handler has one writer.
 
 %package -n aurora-gamemode
 Summary: GameMode defaults for Apple silicon: games on the P cores, schedutil kept
@@ -76,9 +85,10 @@ install -Dm644 /dev/stdin %{buildroot}/usr/lib/systemd/system-preset/90-aurora-f
 enable aurora-firstboot.service
 enable aurora-initrd-keymap.path
 EOF
-make install-power DESTDIR=%{buildroot} PREFIX=%{_prefix}
+make install-power DESTDIR=%{buildroot} PREFIX=%{_prefix} SYSCONFDIR=%{_sysconfdir}
 install -Dm644 /dev/stdin %{buildroot}/usr/lib/systemd/system-preset/90-aurora-power-budget.preset <<'EOF'
 enable aurora-power-budget.service
+enable aurora-power-modes.service
 EOF
 make install-gamemode DESTDIR=%{buildroot} PREFIX=%{_prefix} SYSCONFDIR=%{_sysconfdir}
 make install-secboot install-selinux-secboot DESTDIR=%{buildroot} PREFIX=%{_prefix} SYSCONFDIR=%{_sysconfdir} LOCALSTATEDIR=%{_localstatedir}
@@ -87,11 +97,20 @@ enable aurora-secboot-adopt.service
 EOF
 
 %post -n aurora-power-budget
-%systemd_post aurora-power-budget.service
+%systemd_post aurora-power-budget.service aurora-power-modes.service
+# aurora-power-modes is new in 0.1.13-7 and %%systemd_post presets units only
+# on a first install: preset it once on the upgrade that brings it, and never
+# again, so an administrator's later disable sticks. Where the administrator
+# had disabled aurora-power-budget, the new unit stays disabled too.
+if [ $1 -gt 1 ] && [ ! -e %{_sharedstatedir}/aurora/power-modes-preset-done ] &&
+   systemctl -q is-enabled aurora-power-budget.service 2>/dev/null; then
+  systemctl --no-reload preset aurora-power-modes.service >/dev/null 2>&1 || :
+fi
+mkdir -p %{_sharedstatedir}/aurora && touch %{_sharedstatedir}/aurora/power-modes-preset-done || :
 %preun -n aurora-power-budget
-%systemd_preun aurora-power-budget.service
+%systemd_preun aurora-power-budget.service aurora-power-modes.service
 %postun -n aurora-power-budget
-%systemd_postun_with_restart aurora-power-budget.service
+%systemd_postun_with_restart aurora-power-budget.service aurora-power-modes.service
 
 %post -n aurora-secboot
 # Keep the owner's signing keys away from confined services.
@@ -156,8 +175,14 @@ fi
 %license LICENSE
 %{_libexecdir}/aurora/aurora-power-budget
 %{_unitdir}/aurora-power-budget.service
+%{_libexecdir}/aurora/aurora-power-modes
+%{_unitdir}/aurora-power-modes.service
 /usr/lib/systemd/system-preset/90-aurora-power-budget.preset
 %{_datadir}/doc/aurora-power-budget/
+%dir %{_sysconfdir}/aurora
+%config(noreplace) %{_sysconfdir}/aurora/power-modes.conf
+%dir %{_sharedstatedir}/aurora
+%ghost %attr(0644,root,root) %{_sharedstatedir}/aurora/power-modes-preset-done
 
 %files -n aurora-gamemode
 %license LICENSE
@@ -177,6 +202,29 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/aurora_secboot.pp
 
 %changelog
+* Sun Nov 22 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-7
+- Pin aurora-platform e3bc82ab (aurora-platform#38, carrying #35, on main
+  with #33 and #28).
+- aurora-power-budget hands each profile to the kernel's apple-clpc
+  platform profile and caps the CPU itself only while that does not hold
+  Power Saver. tuned-ppd drives only /sys/firmware/acpi/platform_profile,
+  which device tree boots lack. When the service stops, a handler it set
+  goes back to balanced. apple-clpc registers from the boot loader's Low
+  Power ceiling only with a kernel carrying linux 37106688 (#2816); on
+  older kernels the CPU budget here applies as before.
+- aurora-power-budget also ships aurora-power-modes (enabled by preset,
+  once on the upgrade that brings it, and only where aurora-power-budget
+  is enabled). In Power Saver it lowers sched_util_clamp_min_rt_default to
+  0 and sets the PCIe ASPM policy to powersupersave; every other
+  platform-profile handler (apple-smc: High Power mode only) follows the
+  profile, unless power-profiles-daemon drives the class itself. #33 keeps
+  the boot values as its baseline across a restart. It also adds an
+  optional macOS-style "Low Power Mode on battery" setting (default never)
+  in /etc/aurora/power-modes.conf, installed with every line commented out.
+- On an upgrade from -6 the new unit is enabled but not started (upgrades
+  restart only running units): its legs apply from the next boot, or after
+  systemctl start aurora-power-modes.
+
 * Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-6
 - New subpackage aurora-gamemode: /etc/gamemode.ini pins games started
   with GameMode to the P cores and keeps schedutil (aurora-platform

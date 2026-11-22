@@ -19,7 +19,7 @@
 
 Name:       fex-emu
 Version:    2610
-Release:    5%{?dist}.aurora
+Release:    7%{?dist}.aurora
 Summary:    Fast usermode x86 and x86-64 emulator for ARM64
 
 # FEX itself is MIT, see below for the bundled libraries
@@ -37,8 +37,11 @@ Source3:    fex-sysroot-%{sysroot_version}.tar.gz
 Source4:    toolchain_x86_32.cmake
 Source5:    toolchain_x86_64.cmake
 Source6:    build-fex-sysroot.sh
-# binfmt-dispatcher (Fedora Asahi Remix) registers last and would send x86
-# programs to FEXInterpreter in muvm; Aurora runs FEX in a 4 KiB page tree.
+# binfmt-dispatcher (Fedora Asahi Remix) registers its x86 handlers after
+# FEX's, so they would take x86 programs from FEX's. fex-emu turns them off
+# with same-named files in /etc/binfmt.d (Source15). If an owner turns them
+# back on, they run FEX in a 4 KiB page tree with the program's own
+# arguments, not FEXInterpreter in muvm.
 Source7:    fex-userpages
 Source8:    50-aurora-fex.toml
 # The stock guest root filesystem (fex-emu-rootfs-fedora) mounted below the
@@ -51,6 +54,9 @@ Source12:   compatibilitytool.vdf
 # The global config: FEX uses fex-emu-rootfs-fedora's image unless a user's
 # own Config.json names another RootFS.
 Source13:   Config.json
+# Points FEX's global RootFS at the Aurora Mesa provider while it is mounted.
+Source14:   aurora-fex-rootfs
+Source15:   binfmt-dispatcher-x86-off.conf
 SourceLicense: %{fex_license} %{sysroot_license}
 
 # Bundled dependencies are git submodules upstream; each is pinned in
@@ -71,6 +77,9 @@ Patch0:     0001-FEXInterpreter-name-the-distribution-RootFS-package.patch
 # erofsfuse can't serve /dev/fuse from a 4 KiB page tree; FEXServer starts it
 # with native pages.
 Patch1:     0002-FEXServer-run-the-RootFS-image-FUSE-helper-with-native-pages.patch
+# /run/fex-emu/Config.json overrides the global config: aurora-fex-rootfs
+# names the Aurora Mesa provider there while it is mounted.
+Patch2:     0003-Config-read-a-runtime-system-config-over-the-global-one.patch
 Provides:   bundled(cpp-optparse) = 0
 Provides:   bundled(kernel) = 6.17
 Provides:   bundled(jemalloc) = 5.3.0
@@ -124,6 +133,14 @@ Requires:       aurora-userpages
 # The default RootFS. A weak dependency: dnf installs it by default, and users
 # with another RootFS can remove its 1.9 GB.
 Recommends:     fex-emu-rootfs-fedora
+# Aurora's x86 Mesa, which the global RootFS uses while it is mounted, on
+# systems with Aurora's host Mesa (the guest driver must match it). Rich, so
+# systems with Fedora's own Mesa pull nothing, and dnf5's weak dependency
+# autodetection (which skips rich ones) doesn't exclude the guest for good
+# after a transaction that couldn't install it.
+Recommends:     (mesa-aurora-fex-guest if mesa-aurora-dri-drivers)
+# aurora-fex-rootfs mounts and checks the provider's bind.
+Requires:       util-linux-core
 # FEXServer mounts .erofs RootFS images with erofsfuse; fusermount3 lets it do
 # that as an ordinary user and unmount them again.
 Requires:       erofs-fuse
@@ -255,10 +272,16 @@ rm %{buildroot}%{_datadir}/fex-emu/ThunksDB.json
 %endif
 install -Dm755 %{SOURCE7} %{buildroot}%{_libexecdir}/fex-emu/fex-userpages
 install -Dm644 %{SOURCE8} %{buildroot}%{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml
+# Under the names of binfmt-dispatcher's files, so that systemd-binfmt reads
+# these instead.
+for f in zz-binfmt-dispatcher-x86.conf zz-binfmt-dispatcher-x86_64.conf; do
+  install -Dm644 %{SOURCE15} %{buildroot}%{_sysconfdir}/binfmt.d/$f
+done
 install -Dm644 '%{SOURCE9}' '%{buildroot}%{_unitdir}/usr-share-guestos-fex\x2dmesa.mount'
 install -Dm644 %{SOURCE10} %{buildroot}%{_unitdir}/aurora-fex-mesa.service.d/50-aurora-fex-rootfs.conf
 install -d %{buildroot}%{_datadir}/guestos/fex-mesa
 install -Dm755 %{SOURCE11} %{buildroot}%{_libexecdir}/fex-emu/aurora-fex-provider-up
+install -Dm755 %{SOURCE14} %{buildroot}%{_libexecdir}/fex-emu/aurora-fex-rootfs
 DESTDIR=%{buildroot}%{steamtool} cmake --install steam-build
 install -Dm644 %{SOURCE12} %{buildroot}%{steamtool}/compatibilitytool.vdf
 install -Dm644 %{SOURCE13} %{buildroot}%{_datadir}/fex-emu/Config.json
@@ -273,15 +296,24 @@ grep -q '%{fex_describe}' %{buildroot}%{steamtool}/VERSIONS.txt
 # The installed tools report the fork's identity.
 LD_LIBRARY_PATH=%{buildroot}%{_libdir} %{buildroot}%{_bindir}/FEXGetConfig --version | tee version.txt
 grep -qx '%{fex_describe}' version.txt
-for f in %{buildroot}%{_binfmtdir}/FEX-x86.conf %{buildroot}%{_binfmtdir}/FEX-x86_64.conf; do
-  grep -q ':%{_bindir}/FEX:' "$f"
+# FEX's own x86 handlers: FEX itself, which is handed the program open (O),
+# keeps its argv[0] (P) and takes its credentials (C).
+for arch in x86 x86_64; do
+  grep -Eqx ":FEX-$arch:M:0:[^:]+:[^:]+:%{_bindir}/FEX:POCF" %{buildroot}%{_binfmtdir}/FEX-$arch.conf
+  # binfmt-dispatcher's handler of the same name registers nothing.
+  test -z "$(grep -Ev '^(#.*)?$' %{buildroot}%{_sysconfdir}/binfmt.d/zz-binfmt-dispatcher-$arch.conf)"
 done
 # The missing-RootFS error names the package.
 grep -qaF fex-emu-rootfs-fedora %{buildroot}%{_bindir}/FEX
+# FEX reads the runtime config aurora-fex-rootfs writes.
+grep -qaF /run/fex-emu/Config.json %{buildroot}%{_bindir}/FEX
 
 %postun
 if [ $1 -eq 0 ]; then
 /bin/systemctl try-restart systemd-binfmt.service
+# Nothing reads the runtime config or the provider's bind without FEX.
+rm -f /run/fex-emu/Config.json
+umount /run/fex-emu/rootfs 2>/dev/null || :
 fi
 
 %posttrans
@@ -290,6 +322,10 @@ fi
 %{_libexecdir}/fex-emu/aurora-fex-provider-up
 %triggerin -- mesa-aurora-fex-guest
 [ $2 -gt 1 ] || %{_libexecdir}/fex-emu/aurora-fex-provider-up
+# The guest is gone: its service's stop already moved FEX back to the stock
+# image unless the provider stayed mounted in use. Check again without it.
+%triggerpostun -- mesa-aurora-fex-guest
+[ $2 -gt 0 ] || %{_libexecdir}/fex-emu/aurora-fex-rootfs || :
 
 %files
 %license LICENSE
@@ -313,6 +349,8 @@ fi
 %dir %{_datadir}/guestos
 %dir %{_datadir}/guestos/fex-mesa
 %{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml
+%config(noreplace) %{_sysconfdir}/binfmt.d/zz-binfmt-dispatcher-x86.conf
+%config(noreplace) %{_sysconfdir}/binfmt.d/zz-binfmt-dispatcher-x86_64.conf
 
 %files steam
 %{steamtool}/
@@ -340,6 +378,31 @@ fi
 %endif
 
 %changelog
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 2610-7.aurora
+- Turn off binfmt-dispatcher's x86 handlers, which Fedora Asahi Remix
+  installs, with same-named files in /etc/binfmt.d. They registered after
+  FEX's and took every x86 program, including those started from FEXBash,
+  and through fex-userpages each one got its own path as its first
+  argument. FEX's own handlers now run x86 programs, as on a fresh install.
+- fex-userpages: when binfmt-dispatcher runs it, hand FEX the program on
+  the fd binfmt_misc opened, so the program gets its own arguments if an
+  owner turns the dispatcher back on.
+
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 2610-6.aurora
+- x86 programs use Aurora's x86 Mesa by default, not only Steam's FEX
+  titles: while mesa-aurora-fex-guest's provider is mounted, FEX's global
+  RootFS is a bind of it at /run/fex-emu/rootfs, named in a runtime config
+  (/run/fex-emu/Config.json) that FEX now reads over the global one.
+  Otherwise FEX uses the stock image as before. A user's Config.json and
+  FEX_ROOTFS still override it.
+  The runtime config is renamed into place only once written in full and
+  checked; otherwise none is left (a full /run) and FEX stays on the stock
+  image.
+- Recommend mesa-aurora-fex-guest on systems with Aurora's host Mesa, so
+  installs and upgrades add it.
+- Bring the provider up before user sessions start, and mount it again once
+  the stock image is there if it came up without it.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 2610-5.aurora
 - FEX from aurora-silicon/fex at 0c08727 (main's tree): c2c22c6 plus the
   timed futex-wait unit tests allowing for clock slew. FEX itself is
