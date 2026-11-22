@@ -29,9 +29,9 @@ PACKAGE = ROOT / 'packages' / 'firefox'
 REPOSITORY = 'https://src.fedoraproject.org/rpms/firefox.git'
 RELEASES = {44: 'f44', 45: 'f45'}
 FETCHED = ('google-api-key', 'google-loc-api-key', 'mozilla-api-key')
-OURS = ('rdd-v4l2-request.patch',)
+OURS = ('rdd-v4l2-request.patch', 'wayland-shm-texture2d.patch')
 SKIP = {'.git', '.gitignore', 'sources'} | set(FETCHED)
-AURORA_RELEASE = '.aurora2'
+AURORA_RELEASE = '.aurora3'
 CHANGELOG = """\
 * {date} Aurora Silicon <hey@djdev.me> - {evr}
 - Rebuild of Fedora's firefox-{version}-{release}.
@@ -41,6 +41,9 @@ CHANGELOG = """\
 - No debuginfo, no Rust debug info and no WASI SDK build, to fit the native
   builder.
 - Build with Fedora's cbindgen package instead of the bundled copy.
+- Tag SHM video frames on the Wayland WebRender compositor path as Texture2D
+  (backport from Mozilla bug 2084900): fixes the parent-process panic
+  "ps_quad_textured TEXTURE_RECT variant not loaded" on GLES with HDR on.
 
 """
 
@@ -85,8 +88,11 @@ def edit_spec(text, commit, date):
         raise SystemExit('firefox.spec: no Patch lines')
     end = patches[-1].end()
     text = (text[:end] + '\n\n# Aurora: V4L2 stateless decoders in RDD (Mozilla bug 2080696)\n'
-            'Patch900:       rdd-v4l2-request.patch\nBuildRequires:  kernel-headers >= 6.5' + text[end:])
-    text = once(text, r'^rm -f \.mozconfig$', '%patch -P900 -p1 -b .rdd-v4l2-request\n\nrm -f .mozconfig',
+            'Patch900:       rdd-v4l2-request.patch\nBuildRequires:  kernel-headers >= 6.5'
+            '\n# Aurora: Wayland SHM video textures are Texture2D (Mozilla bug 2084900 backport)\n'
+            'Patch901:       wayland-shm-texture2d.patch' + text[end:])
+    text = once(text, r'^rm -f \.mozconfig$', '%patch -P900 -p1 -b .rdd-v4l2-request\n'
+                '%patch -P901 -p1 -b .wayland-shm-texture2d\n\nrm -f .mozconfig',
                 'patch application')
     head, marker, history = text.partition('\n%changelog\n')
     if not marker:
