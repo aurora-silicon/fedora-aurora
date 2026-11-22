@@ -1,9 +1,9 @@
-%global commit 68e92712bbffa08f5002dcc542434fe1393f0578
+%global commit a0acd9af12346c870ee1538947cbe9f2740cb7fe
 # The upstream Makefiles set their own flags (-O3 -Werror) and no -g.
 %global debug_package %{nil}
 Name: omarchy-ane-tools
-Version: 0.5.7
-Release: 2%{?dist}
+Version: 0.5.13
+Release: 1%{?dist}
 Summary: Apple Neural Engine userspace tools for the in-kernel ANE driver
 License: GPL-2.0-only OR MIT
 URL: https://github.com/joshuaswarren/omarchy-ane
@@ -66,6 +66,9 @@ done
 %{_datadir}/omarchy-ane/
 
 %changelog
+* Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.5.13-1
+- Update to upstream 0.5.13.
+
 * Sat Oct 31 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.5.7-2
 - Add accel permissions and relocatable smoke lookup for distro parity.
 

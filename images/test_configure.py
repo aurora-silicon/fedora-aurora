@@ -434,9 +434,13 @@ class ConfigureTests(unittest.TestCase):
         chooser.write_text("#!/bin/sh\necho aurora\n")
         self.assertTrue(accepted())
         desktop = ET.parse(output / "components/desktop-environments.xml").getroot()
-        self.assertIn("plymouth-theme-aurora", {n.get("name") for g in desktop.iter("packages")
-                                                if g.get("profiles") == "DesktopCommon"
-                                                for n in g.iter("package")})
+        desktop_packages = {n.get("name") for g in desktop.iter("packages")
+                            if g.get("profiles") == "DesktopCommon" for n in g.iter("package")}
+        self.assertIn("plymouth-theme-aurora", desktop_packages)
+        # GameMode with Aurora's settings ships on desktops, not on minimal.
+        self.assertLessEqual({"gamemode", "aurora-gamemode"}, desktop_packages)
+        base = ET.parse(output / "components/base.xml").getroot()
+        self.assertFalse({"gamemode", "aurora-gamemode"} & {n.get("name") for n in base.iter("package")})
 
     def test_image_rejects_a_stale_kernel_before_export(self):
         output = self.root / "kernel-gate"

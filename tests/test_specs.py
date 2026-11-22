@@ -7,6 +7,7 @@ import shutil
 import struct
 import subprocess
 import tempfile
+import time
 import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -17,6 +18,67 @@ def distgit_inputs(directory):
         return set()
     names = set(json.loads((directory / 'distgit.json').read_text()).get('fetch', {}))
     return names | set(re.findall(r'^SHA512 \(([^)]+)\) = ', (directory / 'sources').read_text(), re.M))
+
+
+# systemd-binfmt's configuration directories, the first winning a file name.
+BINFMT_DIRS = ('/etc/binfmt.d', '/run/binfmt.d', '/usr/local/lib/binfmt.d', '/usr/lib/binfmt.d')
+
+
+def binfmt_registrations(tree):
+    """binfmt_misc's handlers, newest first, as systemd-binfmt leaves them.
+
+    tree maps a directory to {file name: text}. systemd-binfmt flushes every
+    handler, then reads the files in file-name order, each name from the
+    first directory that has it, and registers each rule after removing a
+    handler of the same name. The kernel puts a new handler first and runs
+    the first that matches, so the last registered wins.
+    """
+    files = {}
+    for directory in reversed(BINFMT_DIRS):
+        files.update(tree.get(directory, {}))
+    handlers = []
+    for name in sorted(files):
+        for line in files[name].splitlines():
+            line = line.strip()
+            if not line or line[0] in '#;':
+                continue
+            rule, kind, offset, magic, mask, interpreter, flags = line[1:].split(line[0])[:7]
+            assert kind == 'M', line
+            # binfmt_misc reads \xHH as that byte, any other character as itself.
+            unescape = lambda s: re.sub(rb'\\x([0-9a-fA-F]{2})', lambda m: bytes([int(m[1], 16)]), s.encode())
+            handlers = [h for h in handlers if h['name'] != rule]
+            handlers.insert(0, {'name': rule, 'offset': int(offset or 0), 'magic': unescape(magic),
+                                'mask': unescape(mask), 'interpreter': interpreter, 'flags': flags})
+    return handlers
+
+
+def binfmt_handler(handlers, header):
+    """The handler binfmt_misc runs for a file that starts with header."""
+    for h in handlers:
+        data = header[h['offset']:h['offset'] + len(h['magic'])]
+        if len(data) == len(h['magic']) and all((d ^ m) & k == 0 for d, m, k in zip(data, h['magic'], h['mask'])):
+            return h
+    return None
+
+
+def x86_elf_header(bits, e_type=2):
+    """The ELF header of an x86 (32) or x86-64 (64) executable, up to e_machine."""
+    ident = b'\x7fELF' + bytes([1 if bits == 32 else 2, 1, 1]) + bytes(9)
+    return ident + struct.pack('<HH', e_type, 3 if bits == 32 else 62)
+
+
+def fex_guest_argv(args, fd, at_flags=0):
+    """The arguments FEX gives the x86 program: FEX's own argv after argv[0].
+
+    FEX loads the program from fd (binfmt_misc's AT_EXECFD, or FEX_EXECVEFD)
+    when there is one, else from args[0]; the program's argv is args, without
+    args[0] when it loaded from an fd or binfmt_misc preserved argv[0]
+    (AT_FLAGS_PRESERVE_ARGV0), the layout binfmt_misc's P flag gives (FEX's
+    ELFCodeLoader).
+    """
+    return args[1:] if fd or at_flags & 1 else args
+
+
 class SpecTests(unittest.TestCase):
     def test_declared_local_sources_and_patches_are_present(self):
         pins = json.loads((ROOT / 'sources.json').read_text())
@@ -308,26 +370,39 @@ class SpecTests(unittest.TestCase):
             # An owner's crashkernel= is kept on enable and on disable.
             cmdline.write_text('root=UUID=x ro crashkernel=512M\n')
             self.assertEqual(run('enable').returncode, 0)
-            self.assertEqual(log.read_text(), 'systemctl enable kdump.service\n')
+            self.assertEqual(log.read_text(), 'systemctl enable --quiet kdump.service\n')
             self.assertFalse(state.exists())
             log.write_text('')
             run('disable')
-            self.assertEqual(log.read_text(), 'systemctl disable kdump.service\n')
+            self.assertEqual(log.read_text(), 'systemctl disable --quiet kdump.service\n')
             self.assertEqual(cmdline.read_text(), 'root=UUID=x ro crashkernel=512M\n')
             # Without one, enable sets kdump-utils' default and disable removes it.
             log.write_text('')
             cmdline.write_text('root=UUID=x ro\n')
             run('enable')
-            self.assertEqual(log.read_text(), 'systemctl enable kdump.service\ngrubby --update-kernel=ALL --args=crashkernel=512M\n')
+            self.assertEqual(log.read_text(), 'systemctl enable --quiet kdump.service\ngrubby --update-kernel=ALL --args=crashkernel=512M\n')
             self.assertEqual(cmdline.read_text(), 'root=UUID=x ro crashkernel=512M\n')
             self.assertTrue(state.exists())
             cmdline.write_text('root=UUID=x ro crashkernel=512M quiet\n')
             log.write_text('')
             run('disable')
-            self.assertEqual(log.read_text(), 'systemctl disable kdump.service\ngrubby --update-kernel=ALL --remove-args=crashkernel\n')
+            self.assertEqual(log.read_text(), 'systemctl disable --quiet kdump.service\ngrubby --update-kernel=ALL --remove-args=crashkernel\n')
             self.assertEqual(cmdline.read_text(), 'root=UUID=x ro quiet\n')
             self.assertFalse(state.exists())
             self.assertEqual(run().returncode, 2)
+            # A failed enable or disable is reported, not hidden; the rest still runs.
+            for tool in ('systemctl', 'grubby'):
+                (bindir / tool).write_text(f'#!/bin/sh\necho {tool} "$@" >> "{log}"\nexit 1\n')
+            cmdline.write_text('root=UUID=x ro\n')
+            result = run('enable')
+            self.assertEqual(result.returncode, 0)
+            self.assertIn('could not enable kdump.service', result.stderr)
+            self.assertIn('grubby failed', result.stderr)
+            state.parent.mkdir(exist_ok=True)
+            state.touch()
+            result = run('disable')
+            self.assertIn('could not disable kdump.service', result.stderr)
+            self.assertIn('grubby failed; remove crashkernel=', result.stderr)
 
     def test_grub_uuid_refresh_replaces_only_stale_uuid_searches(self):
         script = ROOT / 'packages' / 'aurora-platform' / 'aurora-grub-uuid'
@@ -555,9 +630,28 @@ class SpecTests(unittest.TestCase):
     def test_irqbalance_runs_only_where_the_aic_can_steer(self):
         d = ROOT / 'packages' / 'aurora-platform'
         conf = (d / '50-aurora-irqbalance.conf').read_text()
-        lines = [l for l in conf.splitlines() if l.startswith('Condition')]
-        self.assertEqual(lines, ['ConditionFirmware=|!device-tree-compatible(apple,arm-platform)',
-                                 'ConditionFirmware=|device-tree-compatible(apple,t8103)'])
+        # Keyed on the interrupt controller's compatible, not on a SoC.
+        self.assertEqual([l for l in conf.splitlines() if l and not l.startswith('#')],
+                         ['[Service]', 'ExecCondition=/usr/libexec/aurora/aurora-irq-steerable'])
+        script = d / 'aurora-irq-steerable'
+        subprocess.run(['sh', '-n', str(script)], check=True)
+        def run(root_compat, aic_compat):
+            with tempfile.TemporaryDirectory() as tmp:
+                # Like /proc/device-tree, the tree is reached through a symlink.
+                dt = Path(tmp) / 'base'
+                dt.mkdir()
+                (Path(tmp) / 'device-tree').symlink_to(dt)
+                (dt / 'compatible').write_bytes(root_compat)
+                if aic_compat is not None:
+                    node = dt / 'soc' / 'interrupt-controller@23b100000'
+                    node.mkdir(parents=True)
+                    (node / 'compatible').write_bytes(aic_compat)
+                text = script.read_text().replace('dt=/proc/device-tree', f'dt={tmp}/device-tree')
+                return subprocess.run(['sh', '-c', text]).returncode
+        self.assertEqual(run(b'apple,j293\0apple,t8103\0apple,arm-platform\0', b'apple,t8103-aic\0apple,aic\0'), 0)
+        self.assertEqual(run(b'apple,j316s\0apple,t6000\0apple,arm-platform\0', b'apple,t6000-aic\0apple,aic2\0'), 1)
+        self.assertEqual(run(b'apple,j700\0apple,t8140\0apple,arm-platform\0', b'apple,t8140-aic3\0apple,t8122-aic3\0'), 1)
+        self.assertEqual(run(b'radxa,rock-5b\0rockchip,rk3588\0', None), 0)
         text = (d / 'aurora-platform.spec').read_text()
         core_files = text.split('%files core', 1)[1].split('%files selinux', 1)[0]
         self.assertIn('%{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf', core_files)
@@ -601,25 +695,77 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(text, r'(?m)^Source\d+: 60-aurora-t6041-trackpad\.quirks$')
         core_files = text.split('%files core', 1)[1].split('%files kdump', 1)[0]
         self.assertIn('%{_datadir}/libinput/60-aurora-t6041-trackpad.quirks', core_files)
-    def test_t6041_power_defaults_apply_on_the_t6041_only(self):
+    def test_power_defaults_apply_on_every_apple_silicon_mac(self):
+        # Same unit as ALARM's aurora-system-fixes: neither setting depends on
+        # the SoC, so one unit, skipped by ConditionFirmware off Apple silicon.
         d = ROOT / 'packages' / 'aurora-platform'
+        self.assertFalse((d / 'aurora-t6041-power.service').exists())
+        text = (d / 'aurora-power-defaults.service').read_text()
         unit = configparser.ConfigParser(interpolation=None, strict=False)
         unit.optionxform = str
-        unit.read_string((d / 'aurora-t6041-power.service').read_text())
-        self.assertEqual(unit['Unit']['ConditionFirmware'], 'device-tree-compatible(apple,t6041)')
+        unit.read_string(text)
+        self.assertEqual(unit['Unit']['ConditionFirmware'], 'device-tree-compatible(apple,arm-platform)')
+        # aurora-power-modes takes the values it finds at start as the boot
+        # baseline that Balanced restores, so these must be in place first.
+        self.assertIn('aurora-power-modes.service', unit['Unit']['Before'].split())
+        self.assertIn('sysinit.target', unit['Unit']['Before'].split())
         self.assertEqual(unit['Service']['Type'], 'oneshot')
-        lines = (d / 'aurora-t6041-power.service').read_text().splitlines()
-        self.assertEqual([l for l in lines if l.startswith('ExecStart=')], [
-            "ExecStart=/bin/sh -c 'echo powersupersave > /sys/module/pcie_aspm/parameters/policy'",
-            'ExecStart=/usr/sbin/sysctl -q -w kernel.sched_util_clamp_min_rt_default=0'])
         self.assertNotIn('Install', unit)
-        text = (d / 'aurora-platform.spec').read_text()
-        self.assertRegex(text, r'(?m)^Source\d+: aurora-t6041-power\.service$')
-        self.assertIn('ln -s ../aurora-t6041-power.service '
-                      '%{buildroot}%{_unitdir}/sysinit.target.wants/aurora-t6041-power.service', text)
-        core_files = text.split('%files core', 1)[1].split('%files kdump', 1)[0]
-        self.assertIn('%{_unitdir}/aurora-t6041-power.service', core_files)
-        self.assertIn('%{_unitdir}/sysinit.target.wants/aurora-t6041-power.service', core_files)
+        # "-": a kernel booted with pcie_aspm=off refuses the policy and
+        # must still get the sysctl.
+        self.assertEqual([l for l in text.splitlines() if l.startswith('ExecStart=')], [
+            "ExecStart=-/bin/sh -c 'echo powersupersave > /sys/module/pcie_aspm/parameters/policy'",
+            'ExecStart=/usr/sbin/sysctl -q -w kernel.sched_util_clamp_min_rt_default=0'])
+        spec = (d / 'aurora-platform.spec').read_text()
+        self.assertNotIn('aurora-t6041-power.service', spec.split('%changelog', 1)[0])
+        self.assertRegex(spec, r'(?m)^Source\d+: aurora-power-defaults\.service$')
+        self.assertIn('ln -s ../aurora-power-defaults.service '
+                      '%{buildroot}%{_unitdir}/sysinit.target.wants/aurora-power-defaults.service', spec)
+        core_files = spec.split('%files core', 1)[1].split('%files kdump', 1)[0]
+        self.assertIn('%{_unitdir}/aurora-power-defaults.service', core_files)
+        self.assertIn('%{_unitdir}/sysinit.target.wants/aurora-power-defaults.service', core_files)
+    def test_m5_sleep_policy_applies_on_the_j714s_only(self):
+        d = ROOT / 'packages' / 'aurora-m5-platform-config'
+        unit = configparser.ConfigParser(interpolation=None, strict=False)
+        unit.optionxform = str
+        unit.read_string((d / 'aurora-m5-sleep-policy.service').read_text())
+        self.assertEqual(unit['Unit']['ConditionFirmware'], 'device-tree-compatible(apple,j714s)')
+        self.assertEqual(unit['Service']['Type'], 'oneshot')
+        self.assertIn('systemd-logind.service', unit['Unit']['Before'].split())
+        self.assertNotIn('Install', unit)
+        lines = (d / 'aurora-m5-sleep-policy.service').read_text().splitlines()
+        self.assertEqual([l.split()[-1] for l in lines if l.startswith('ExecStart=')], [
+            '/run/systemd/sleep.conf.d/90-aurora-m5-deep.conf',
+            '/run/systemd/logind.conf.d/90-aurora-m5-lid.conf'])
+        sleep = configparser.ConfigParser(interpolation=None)
+        sleep.optionxform = str
+        sleep.read_string((d / '90-aurora-m5-deep.conf').read_text())
+        self.assertEqual(dict(sleep['Sleep']), {'AllowSuspend': 'yes', 'SuspendState': 'mem', 'MemorySleepMode': 'deep'})
+        lid = configparser.ConfigParser(interpolation=None)
+        lid.optionxform = str
+        lid.read_string((d / '90-aurora-m5-lid.conf').read_text())
+        self.assertEqual(set(lid['Login'].values()), {'suspend'})
+        self.assertEqual(set(lid['Login']), {'HandleLidSwitch', 'HandleLidSwitchExternalPower', 'HandleLidSwitchDocked'})
+        hook = (d / '50-aurora-m5-rtc-safety').read_text().splitlines()
+        # The board gate comes before anything reads or writes the RTC.
+        first = next(i for i, l in enumerate(hook) if l and not l.startswith('#'))
+        self.assertEqual(hook[first], "tr '\\0' '\\n' < /proc/device-tree/compatible 2>/dev/null | grep -qx 'apple,j714s' || exit 0")
+        compatible = Path('/proc/device-tree/compatible')
+        on_j714s = compatible.is_file() and b'apple,j714s' in compatible.read_bytes().split(b'\0')
+        with tempfile.TemporaryDirectory() as tmp:
+            if on_j714s:
+                self.skipTest('would arm the RTC alarm of this J714s')
+            # Off the J714s it returns at once and leaves nothing behind.
+            result = subprocess.run(['sh', str(d / '50-aurora-m5-rtc-safety'), 'pre'], cwd=tmp,
+                                    capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0)
+        text = (d / 'aurora-m5-platform-config.spec').read_text()
+        self.assertIn('ln -s ../aurora-m5-sleep-policy.service '
+                      '%{buildroot}%{_unitdir}/sysinit.target.wants/aurora-m5-sleep-policy.service', text)
+        self.assertIn('%config(noreplace) %{_sysconfdir}/aurora-m5-sleep.conf', text)
+        platform = (ROOT / 'packages' / 'aurora-platform' / 'aurora-platform.spec').read_text()
+        main = platform.split('%package core', 1)[0]
+        self.assertRegex(main, r'(?m)^Requires: .*\baurora-m5-platform-config\b')
     def test_platform_core_carries_no_kernel_or_boot_chain(self):
         d = ROOT / 'packages' / 'aurora-platform'
         text = (d / 'aurora-platform.spec').read_text()
@@ -629,9 +775,10 @@ class SpecTests(unittest.TestCase):
                      'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise',
                      'aurora-kbd-light']:
             self.assertIn(name, requires)
-        # Ship the established protection stack without the v2 preview.
+        # The established protection stack stays as the fallback; v2 comes with
+        # the upgrade tool, whose preset switches a Mac only on a passing self-check.
         self.assertRegex(core, r'(?m)^Requires: speakersafetyd speakerguardd$')
-        self.assertNotIn('speakerguardd-v2', core)
+        self.assertRegex(core, r'(?m)^Requires: speakerguardd-v2 >= 1\.0\.0~alpha\.2-0\.51 aurora-speaker-upgrade >= 0\.1-0\.18$')
         for name in requires:
             self.assertFalse(name.startswith(('kernel', 'uboot', 'm1n1')) or name == 'aura', name)
         self.assertNotIn('aurora-release', requires)
@@ -641,9 +788,10 @@ class SpecTests(unittest.TestCase):
         self.assertEqual((d / 'aurora-platform-core.conf').read_text().split(), ['aurora-platform-core'])
         self.assertIn('protected.d/aurora-platform-core.conf', text.split('%files core', 1)[1])
         self.assertRegex(text, r'(?m)^Requires: aurora-platform-core = %\{version\}-%\{release\}$')
-    def test_audio_keeps_legacy_profiles_and_v2_is_opt_in(self):
-        # v2 is back as release candidate 8, installable by hand only: no
-        # default package pulls it, and aurora-audio retires only RC7 and older.
+    def test_audio_keeps_legacy_profiles_and_v2_switches_by_preset(self):
+        # aurora-platform-core pulls v2 and the upgrade tool, whose preset moves
+        # a Mac to v2 at boot on a passing self-check; aurora-audio and the
+        # kernel keep the legacy stack as the fallback and retire only RC7 and older.
         spec = (ROOT / 'packages/speakerguardd-v2/speakerguardd-v2.spec').read_text()
         self.assertRegex(spec, r'(?m)^Release: 0\.(3[3-9]|[4-9][0-9])\.')
         self.assertIn('install -Dm644 packaging/session/parity.json', spec)
@@ -654,9 +802,13 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(libs, r'(?m)^Provides:\s+pipewire-speaker-graph = 2$')
         for n in ('1006', '1007', '1008', '1010'):
             self.assertRegex(pw, rf'(?m)^Patch{n}:')
-        for name in ('aurora-platform', 'aurora-audio', 'kernel-aurora'):
+        for name in ('aurora-audio', 'kernel-aurora'):
             text = (ROOT / 'packages' / name / f'{name}.spec').read_text()
             self.assertNotRegex(text, r'(?m)^(Requires|Recommends):.*\b(speakerguardd-v2|aurora-speaker-upgrade)\b', name)
+        upgrade = (ROOT / 'packages/aurora-speaker-upgrade/aurora-speaker-upgrade.spec').read_text()
+        self.assertIn('%{_presetdir}/50-aurora-speaker-upgrade.preset', upgrade)
+        preset = (ROOT / 'packages/aurora-speaker-upgrade/50-aurora-speaker-upgrade.preset').read_text()
+        self.assertRegex(preset, r'(?m)^enable aurora-speaker-upgrade\.service$')
         audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
         self.assertRegex(audio, r'(?m)^Requires: speakersafetyd speakerguardd$')
         self.assertIn('Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33\n', audio)
@@ -731,7 +883,7 @@ class SpecTests(unittest.TestCase):
         self.assertIn("! grep -qs '^[[:space:]]*DeviceScale[[:space:]]*=' $conf", post)
         self.assertIn('DeviceScale=1$/d}', spec.split('%postun', 1)[1])
 
-    def run_theme_post(self, current, cmdline=None, entries=None):
+    def run_theme_post(self, current, cmdline=None, entries=None, dracut_status=0):
         """Run the theme's %post and %posttrans against a fake Plymouth with CURRENT set."""
         spec = (ROOT / 'packages' / 'plymouth-theme-aurora' / 'plymouth-theme-aurora.spec').read_text()
         post = spec.split('\n%post\n', 1)[1].split('\n%posttrans\n', 1)[0]
@@ -748,7 +900,7 @@ class SpecTests(unittest.TestCase):
             fake.write_text(f'#!/bin/bash\n[[ $# -eq 0 ]] && exec cat {state}\nprintf %s "$1" > {state}\n')
             fake.chmod(0o755)
             dracut = tmp / 'bin/dracut'
-            dracut.write_text(f'#!/bin/bash\necho "$@" >> {log}\n')
+            dracut.write_text(f'#!/bin/bash\necho "$@" >> {log}\nexit {dracut_status}\n')
             dracut.chmod(0o755)
             grubby = tmp / 'bin/grubby'
             grubby.write_text(f'#!/bin/bash\nif [[ $1 == --info=ALL ]]; then cat {tmp / "entries"} 2>/dev/null; exit 0; fi\n'
@@ -764,8 +916,11 @@ class SpecTests(unittest.TestCase):
                         .replace('%{_sysconfdir}', str(tmp / 'etc'))
                         .replace('%{_localstatedir}', str(tmp / 'var')).replace('/run/systemd/system', str(tmp)))
             env = dict(os.environ, PATH=f"{tmp / 'bin'}:{os.environ['PATH']}")
-            for script in (post, posttrans):
-                subprocess.run(['bash', '-euc', render(script)], check=True, env=env)
+            subprocess.run(['bash', '-euc', render(post)], check=True, env=env)
+            self.posttrans = subprocess.run(['bash', '-euc', render(posttrans)], env=env,
+                                            capture_output=True, text=True)
+            if not dracut_status:
+                self.assertEqual(self.posttrans.returncode, 0, self.posttrans.stderr)
             self.grubby = (tmp / 'grubby.log').read_text() if (tmp / 'grubby.log').exists() else ''
             return state.read_text(), log.read_text() if log.exists() else ''
 
@@ -795,6 +950,12 @@ class SpecTests(unittest.TestCase):
             theme, dracut = self.run_theme_post(stock)
             self.assertEqual(theme, 'aurora', stock)
             self.assertEqual(dracut.strip(), '-f --regenerate-all', stock)
+
+    def test_theme_reports_a_failed_initramfs_rebuild(self):
+        theme, dracut = self.run_theme_post('aurora', dracut_status=1)
+        self.assertEqual(dracut.strip(), '-f --regenerate-all')
+        self.assertNotEqual(self.posttrans.returncode, 0)
+        self.assertIn('rebuilding the initramfs failed', self.posttrans.stderr)
 
     def test_theme_keeps_the_owners_choice(self):
         for chosen in ('solar', 'details'):
@@ -873,6 +1034,139 @@ class SpecTests(unittest.TestCase):
         self.assertIn('%{_prefix}/lib/binfmt-dispatcher.d/50-aurora-fex.toml\n', spec.split('%files\n', 1)[1])
         self.assertRegex(spec, r'(?m)^Requires:\s+aurora-userpages$')
 
+    def test_fex_is_the_only_x86_binfmt_handler(self):
+        # Fixtures: FEX's handlers from the fork's Data/binfmts at the pinned
+        # commit (prefix /usr), and binfmt-dispatcher's from Fedora 44's and
+        # 45's aarch64 binfmt-dispatcher 0.1.2, which Fedora Asahi Remix
+        # installs. Both match the same programs; binfmt-dispatcher's file
+        # names sort after FEX's.
+        d = ROOT / 'packages' / 'fex-emu'
+        fixtures = ROOT / 'tests' / 'fixtures' / 'binfmt'
+        spec = (d / 'fex-emu.spec').read_text()
+        fex = {f'FEX-{arch}.conf': (fixtures / f'FEX-{arch}.conf').read_text() for arch in ('x86', 'x86_64')}
+        dispatcher = {f.name: f.read_text() for f in fixtures.glob('zz-binfmt-dispatcher-*.conf')}
+        self.assertEqual(sorted(dispatcher), ['zz-binfmt-dispatcher-x86.conf', 'zz-binfmt-dispatcher-x86_64.conf'])
+        for arch in ('x86', 'x86_64'):
+            ours = binfmt_registrations({'/usr/lib/binfmt.d': {'a.conf': fex[f'FEX-{arch}.conf']}})[0]
+            theirs = binfmt_registrations({'/usr/lib/binfmt.d': {'a.conf': dispatcher[f'zz-binfmt-dispatcher-{arch}.conf']}})[0]
+            self.assertEqual((ours['magic'], ours['mask']), (theirs['magic'], theirs['mask']))
+        # fex-emu installs one file under each of binfmt-dispatcher's names in
+        # /etc/binfmt.d, which systemd-binfmt reads instead of /usr/lib's.
+        source = re.search(r'(?m)^Source(\d+):\s+binfmt-dispatcher-x86-off\.conf$', spec).group(1)
+        names = re.search(r'(?m)^for f in (.+); do\n  install -Dm644 %\{SOURCE' + source +
+                          r'\} %\{buildroot\}%\{_sysconfdir\}/binfmt\.d/\$f\ndone$', spec).group(1).split()
+        self.assertEqual(sorted(names), sorted(dispatcher))
+        files = spec.split('%files\n', 1)[1].split('%files', 1)[0]
+        for name in names:
+            self.assertIn(f'%config(noreplace) %{{_sysconfdir}}/binfmt.d/{name}\n', files)
+        mask = (d / 'binfmt-dispatcher-x86-off.conf').read_text()
+        for line in mask.splitlines():
+            self.assertTrue(line == '' or line.startswith('#'), line)
+        self.assertIn('sudo cp /usr/lib/binfmt.d/zz-binfmt-dispatcher-x86*.conf /etc/binfmt.d/', mask)
+        masks = dict.fromkeys(names, mask)
+        programs = {'FEX-x86_64': [x86_elf_header(64, t) for t in (2, 3)],
+                    'FEX-x86': [x86_elf_header(32, t) for t in (2, 3)]}
+        # A fresh install, and an Asahi upgrade (or binfmt-dispatcher installed
+        # later: rpm's binfmt.d trigger reruns all of systemd-binfmt).
+        for case, tree in (('fresh install', {'/usr/lib/binfmt.d': fex}),
+                           ('beside binfmt-dispatcher', {'/usr/lib/binfmt.d': {**fex, **dispatcher}, '/etc/binfmt.d': masks})):
+            with self.subTest(case=case):
+                handlers = binfmt_registrations(tree)
+                self.assertEqual(sorted(h['name'] for h in handlers), ['FEX-x86', 'FEX-x86_64'])
+                for name, headers in programs.items():
+                    for header in headers:
+                        h = binfmt_handler(handlers, header)
+                        self.assertEqual((h['name'], h['interpreter'], h['flags']), (name, '/usr/bin/FEX', 'POCF'))
+                aarch64 = b'\x7fELF\x02\x01\x01' + bytes(9) + struct.pack('<HH', 2, 183)
+                self.assertIsNone(binfmt_handler(handlers, aarch64))
+        # Without the masks (fex-emu 2610-6), binfmt-dispatcher's handlers won.
+        handlers = binfmt_registrations({'/usr/lib/binfmt.d': {**fex, **dispatcher}})
+        self.assertEqual(binfmt_handler(handlers, x86_elf_header(64))['name'], 'binfmt-dispatcher-x86_64')
+        # An owner's copy of binfmt-dispatcher's files turns them back on.
+        handlers = binfmt_registrations({'/usr/lib/binfmt.d': {**fex, **dispatcher}, '/etc/binfmt.d': dict(dispatcher)})
+        self.assertEqual(binfmt_handler(handlers, x86_elf_header(32))['name'], 'binfmt-dispatcher-x86')
+        # The build checks its own handlers against the same fields.
+        self.assertIn('grep -Eqx ":FEX-$arch:M:0:[^:]+:[^:]+:%{_bindir}/FEX:POCF" %{buildroot}%{_binfmtdir}/FEX-$arch.conf\n', spec)
+        for text in fex.values():
+            self.assertRegex(text, r'\A:FEX-x86(_64)?:M:0:[^:]+:[^:]+:/usr/bin/FEX:POCF\n\Z')
+        self.assertIn('/etc/binfmt.d', (d / 'README.aurora').read_text())
+
+    def test_fex_userpages_passes_the_programs_own_arguments(self):
+        d = ROOT / 'packages' / 'fex-emu'
+        script = (d / 'fex-userpages').read_text()
+        subprocess.run(['sh', '-n', str(d / 'fex-userpages')], check=True)
+        # fex-emu 2610-6's fex-userpages.
+        old = ('#!/bin/sh\n[ "$(getconf PAGE_SIZE)" = 4096 ] && exec /usr/bin/FEX "$@"\n'
+               'exec /usr/bin/userpages 4k /usr/bin/FEX "$@"\n')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            log, bindir = root / 'fex.log', root / 'bin'
+            fex, userpages, getconf = root / 'FEX', root / 'userpages', bindir / 'getconf'
+            bindir.mkdir()
+            # FEX's stand-in: its arguments, FEX_EXECVEFD(_PATH) and the file on that fd.
+            fex.write_text('#!/bin/sh\n'
+                           '{ for a in "$@"; do printf "arg %s\\n" "$a"; done\n'
+                           '  printf "fd %s\\npath %s\\n" "${FEX_EXECVEFD-}" "${FEX_EXECVEFD_PATH-}"\n'
+                           '  [ -z "${FEX_EXECVEFD-}" ] || printf "target %s\\n" "$(readlink "/proc/$$/fd/$FEX_EXECVEFD")"\n'
+                           '} > "$FEX_LOG"\n')
+            userpages.write_text('#!/bin/sh\necho "$1" > "$FEX_LOG.userpages"\nshift\nexec "$@"\n')
+            getconf.write_text('#!/bin/sh\n[ "$1" = PAGE_SIZE ] && echo "$TEST_PAGE_SIZE"\n')
+            program = root / 'x86 programs' / 'prog'
+            program.parent.mkdir()
+            program.write_bytes(x86_elf_header(64))
+            for f in (fex, userpages, getconf, program):
+                f.chmod(0o755)
+
+            def run(text, args, page, fd3=None):
+                for path in ('/usr/bin/userpages', '/usr/bin/FEX'):
+                    self.assertIn(path, text)
+                wrapper = root / 'fex-userpages'
+                wrapper.write_text(text.replace('/usr/bin/userpages', str(userpages)).replace('/usr/bin/FEX', str(fex)))
+                for f in (log, root / 'fex.log.userpages'):
+                    f.unlink(missing_ok=True)
+                env = {k: v for k, v in os.environ.items() if not k.startswith('FEX_')}
+                env.update(PATH=f'{bindir}:{os.environ["PATH"]}', FEX_LOG=str(log), TEST_PAGE_SIZE=str(page))
+                cmd = ['sh', str(wrapper), *args]
+                if fd3 is not None:
+                    # As binfmt_misc leaves it for binfmt-dispatcher: the program on fd 3.
+                    cmd = ['sh', '-c', 'exec 3<"$1"; shift; exec "$@"', 'sh', str(fd3), *cmd]
+                subprocess.run(cmd, env=env, check=True, cwd=root, stdin=subprocess.DEVNULL)
+                record = {'args': []}
+                for line in log.read_text().splitlines():
+                    key, _, value = line.partition(' ')
+                    if key == 'arg':
+                        record['args'].append(value)
+                    else:
+                        record[key] = value
+                up = root / 'fex.log.userpages'
+                record['userpages'] = up.read_text().strip() if up.exists() else None
+                return record
+
+            # binfmt-dispatcher runs its interpreter as INTERPRETER PROGRAM PATH
+            # ARGV0 [ARG...]: PROGRAM is the file on fd 3, and PATH and ARGV0
+            # what execve was given (its handlers' P flag).
+            path, argv0, args = './x86 programs/prog', 'custom-argv0', ['one', 'two words', '']
+            dispatched = [str(program), path, argv0, *args]
+            for page, launcher in ((16384, '4k'), (4096, None)):
+                with self.subTest(page=page, via='binfmt-dispatcher'):
+                    r = run(script, dispatched, page, fd3=program)
+                    self.assertEqual(r['args'], [path, argv0, *args])
+                    self.assertEqual((r['fd'], r['path'], r.get('target')), ('3', '1', str(program)))
+                    self.assertEqual(fex_guest_argv(r['args'], int(r['fd'])), [argv0, *args])
+                    self.assertEqual(r['userpages'], launcher)
+                with self.subTest(page=page, via='fex-userpages PROGRAM [ARG...]'):
+                    r = run(script, [path, *args], page)
+                    self.assertEqual((r['args'], r['fd']), ([path, *args], ''))
+                    self.assertEqual(fex_guest_argv(r['args'], 0), [path, *args])
+                    self.assertEqual(r['userpages'], launcher)
+            with self.subTest(case='fd 3 open on another file'):
+                r = run(script, dispatched, 4096, fd3='/dev/null')
+                self.assertEqual((r['args'], r['fd']), (dispatched, ''))
+            with self.subTest(case='fex-emu 2610-6'):
+                # The program got its own path as argv[1], and ARGV0 as argv[2].
+                r = run(old, dispatched, 4096, fd3=program)
+                self.assertEqual(fex_guest_argv(r['args'], int(r['fd'] or 0)), [str(program), path, argv0, *args])
+
     def test_fex_mounts_the_stock_guest_rootfs_below_the_aurora_mesa_layer(self):
         d = ROOT / 'packages' / 'fex-emu'
         unit = configparser.ConfigParser(strict=False)
@@ -939,6 +1233,47 @@ class SpecTests(unittest.TestCase):
         self.assertIn('\n%autopatch -p1\n', prep)
         self.assertIn('    -DROOTFS_PACKAGE=fex-emu-rootfs-fedora \\\n', spec.split('%cmake -G Ninja', 1)[1])
 
+    def test_fex_uses_the_aurora_mesa_provider_while_it_is_mounted(self):
+        d = ROOT / 'packages' / 'fex-emu'
+        spec = (d / 'fex-emu.spec').read_text()
+        main = spec.split('%package', 1)[0]
+        # Pulled in where Aurora's host Mesa is (the guest requires its exact
+        # build); rich, so Fedora's own Mesa pulls nothing and dnf5's weak
+        # dependency autodetection never excludes it.
+        self.assertRegex(main, r'(?m)^Recommends:\s+\(mesa-aurora-fex-guest if mesa-aurora-dri-drivers\)$')
+        self.assertNotRegex(main, r'(?m)^Requires:.*mesa-aurora-fex-guest')
+        guest = (ROOT / 'packages/mesa-aurora-fex-guest/mesa-aurora-fex-guest.spec').read_text()
+        self.assertRegex(guest, r'(?m)^Requires: mesa-dri-drivers = %\{version\}-%\{release\}$')
+        host = (ROOT / 'packages/mesa-aurora/mesa-aurora.spec').read_text()
+        self.assertRegex(host, r'(?m)^%package -n mesa-aurora-dri-drivers$')
+        self.assertRegex(main, r'(?m)^Requires:\s+util-linux-core$')
+        # FEX reads the runtime config over the global one, in the global layer only.
+        patch = (d / re.search(r'(?m)^Patch2:\s+(\S+)$', spec).group(1)).read_text()
+        self.assertIn('+++ b/Source/Common/Config.cpp', patch)
+        self.assertIn('+  if (GetLayerType() == FEXCore::Config::LayerType::LAYER_GLOBAL_MAIN) {', patch)
+        self.assertIn('+    const fextl::string RuntimeConfig {"/run/fex-emu/Config.json"};', patch)
+        self.assertIn('grep -qaF /run/fex-emu/Config.json %{buildroot}%{_bindir}/FEX\n', spec)
+        # The provider's service drives the selection.
+        source = re.search(r'(?m)^Source(\d+):\s+aurora-fex-rootfs$', spec).group(1)
+        self.assertIn(f'install -Dm755 %{{SOURCE{source}}} %{{buildroot}}%{{_libexecdir}}/fex-emu/aurora-fex-rootfs\n', spec)
+        unit = configparser.ConfigParser(strict=False)
+        unit.optionxform = str
+        unit.read_string((d / '50-aurora-fex-rootfs.conf').read_text())
+        for key in ('ExecStartPost', 'ExecStopPost'):
+            self.assertEqual(unit['Service'][key], '-/usr/libexec/fex-emu/aurora-fex-rootfs')
+        self.assertEqual(unit['Unit']['Before'], 'systemd-user-sessions.service')
+        script = (d / 'aurora-fex-rootfs').read_text()
+        for line in ('provider=/usr/share/guestos/aurora-fex-mesa\n', 'rootfs=$dir/rootfs\n',
+                     'config=$dir/Config.json\n'):
+            self.assertIn(line, script)
+        subprocess.run(['sh', '-n', str(d / 'aurora-fex-rootfs')], check=True)
+        self.assertIn('/usr/libexec/fex-emu/aurora-fex-rootfs || :\n', (d / 'aurora-fex-provider-up').read_text())
+        self.assertIn('%triggerpostun -- mesa-aurora-fex-guest\n'
+                      '[ $2 -gt 0 ] || %{_libexecdir}/fex-emu/aurora-fex-rootfs || :\n', spec)
+        # The installed global config still names the stock image.
+        self.assertEqual(json.loads((d / 'Config.json').read_text()),
+                         {'Config': {'RootFS': '/usr/share/fex-emu/RootFS/default.erofs'}})
+
     def test_fex_submodules_are_pinned_with_the_fork(self):
         spec = (ROOT / 'packages' / 'fex-emu' / 'fex-emu.spec').read_text()
         pin = json.loads((ROOT / 'sources.json').read_text())['fex-emu']
@@ -970,6 +1305,12 @@ class SpecTests(unittest.TestCase):
         self.assertIn('"$userpages" 4k true', wrapper)
         self.assertIn('exec "$lib/bin/steam-native4k" "$@"', wrapper)
         subprocess.run(['bash', '-n', str(d / 'steam')], check=True)
+        # Games run under GameMode; desktops get it on upgrade too.
+        steam = spec.split('%package -n steam', 1)[1].split('%description', 1)[0]
+        self.assertRegex(steam, r'(?m)^Recommends: aurora-gamemode$')
+        platform = (ROOT / 'packages/aurora-platform/aurora-platform.spec').read_text().split('%package core', 1)[0]
+        self.assertRegex(platform, r'(?m)^Recommends: \(aurora-gamemode if \(plasma-workspace or gnome-shell\)\)$')
+        self.assertIn('AURORA_STEAM_GAMEMODE', wrapper)
 
     def test_steam_wrapper_installs_once_then_starts_the_client(self):
         d = ROOT / 'packages' / 'aurora-steam-native'
@@ -1004,6 +1345,98 @@ class SpecTests(unittest.TestCase):
             result = subprocess.run([str(wrapper)], env={**env, 'NO_USER4K': '1'}, capture_output=True, text=True)
             self.assertEqual(result.returncode, 2)
             self.assertIn('user4k=on', result.stderr)
+
+    def test_steam_registers_each_game_process_with_gamemode(self):
+        # The watcher follows the client's logs/gameprocess_log.txt through
+        # inotify, registers every tracked PID and sleeps in between.
+        def watchers(root):
+            found = []
+            for proc in Path('/proc').iterdir():
+                try:
+                    argv = (proc / 'cmdline').read_bytes().split(b'\0')
+                except OSError:
+                    continue
+                if argv[0] == b'aurora-steam-gamemode' and str(root).encode() in b' '.join(argv):
+                    found.append(proc)
+            return found
+
+        def wait(condition):
+            deadline = time.monotonic() + 10
+            while not condition():
+                self.assertLess(time.monotonic(), deadline)
+                time.sleep(0.05)
+
+        def switches(proc):
+            status = (proc / 'status').read_text()
+            return int(re.search(r'(?m)^voluntary_ctxt_switches:\s+(\d+)$', status)[1])
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            lib, home, stubs, client = root / 'lib', root / 'home', root / 'stubs', root / 'client'
+            for path in (lib / 'bin', client / 'steamrtarm64', client / 'logs', stubs, home / '.steam'):
+                path.mkdir(parents=True)
+            (home / '.steam/root').symlink_to(client)
+            gamelog, log = client / 'logs/gameprocess_log.txt', root / 'busctl.log'
+            gamelog.write_text('[2026-11-17 19:14:50] AppID 9 adding PID 999 as a tracked process\n')
+            log.write_text('')
+            bash = shutil.which('bash')
+
+            def script(path, body):
+                path.write_text(f'#!{bash}\n' + body)
+                path.chmod(0o755)
+            script(client / 'steamrtarm64/steam', '')
+            script(lib / 'bin/steam-native4k', 'exec sleep 60\n')
+            script(root / 'userpages', '')
+            script(stubs / 'busctl', f'echo "busctl $*" >> {log}\n'
+                   'case "$*" in *ListActivatableNames*) echo \'as 2 "org.freedesktop.DBus" "com.feralinteractive.GameMode"\';; esac\n')
+            wrapper = root / 'steam'
+            wrapper.write_text((ROOT / 'packages' / 'aurora-steam-native' / 'steam').read_text().replace('@LIBDIR@', str(lib))
+                               .replace('@USERPAGES@', str(root / 'userpages')).replace('@USER4K_HINT@', 'hint'))
+            wrapper.chmod(0o755)
+            env = {'HOME': str(home), 'PATH': f'{stubs}:{os.environ["PATH"]}', 'USER': 'test'}
+
+            def registered():
+                return [line.split()[-1] for line in log.read_text().splitlines() if 'RegisterGameByPID ii' in line]
+
+            steam = subprocess.Popen([bash, str(wrapper)], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                wait(lambda: len(watchers(client)) == 1)
+                watcher = watchers(client)[0]
+                wait(lambda: (watcher / 'stat').read_text().rsplit(')', 1)[1].split()[0] == 'S')
+                with gamelog.open('a') as f:
+                    f.write('[2026-11-20 10:00:00] AppID 383870 adding PID 4242 as a tracked process "x"\n'
+                            '[2026-11-20 10:00:00] AppID 383870 adding PID 4243 as a')
+                wait(lambda: registered() == ['4242'])
+                with gamelog.open('a') as f:
+                    f.write(' tracked process\n')
+                wait(lambda: registered() == ['4242', '4243'])
+                # Idle: blocked in select(), no wake-ups at all.
+                time.sleep(0.5)
+                before = switches(watcher)
+                time.sleep(2)
+                self.assertEqual(switches(watcher), before)
+                # Steam rotates the log and starts a new one.
+                gamelog.rename(gamelog.with_name('gameprocess_log.previous.txt'))
+                gamelog.write_text('[2026-11-20 10:05:00] AppID 1 adding PID 5000 as a tracked process\n')
+                wait(lambda: registered() == ['4242', '4243', '5000'])
+                self.assertIn('busctl --user call com.feralinteractive.GameMode /com/feralinteractive/GameMode '
+                              'com.feralinteractive.GameMode RegisterGameByPID ii', log.read_text())
+            finally:
+                steam.kill()
+                steam.wait()
+            # The watcher ends with Steam.
+            wait(lambda: not watchers(client))
+            # Opt-out: no watcher while Steam runs.
+            steam = subprocess.Popen([bash, str(wrapper)], env={**env, 'AURORA_STEAM_GAMEMODE': '0'},
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                wait(lambda: (Path('/proc') / str(steam.pid) / 'cmdline').read_bytes().startswith(b'sleep'))
+                time.sleep(0.5)
+                self.assertEqual(watchers(client), [])
+            finally:
+                steam.kill()
+                steam.wait()
+            self.assertEqual(registered(), ['4242', '4243', '5000'])
     def test_touch_id_security_key_is_installed_off(self):
         text = (ROOT / 'packages/aurora-fido/aurora-fido.spec').read_text()
         files = text.split('%files', 1)[1]

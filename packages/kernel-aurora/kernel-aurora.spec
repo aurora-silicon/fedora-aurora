@@ -52,10 +52,18 @@ Conflicts: aurora-fido < 0.2.0-2
 # https://github.com/aurora-silicon/aura/pull/75); under an older Stage 2
 # the speakers stay off.
 Requires: aura >= 1.0.0~b12
-# apple-avd loads apple/avd-fw-v*.bin from /usr/lib/firmware. Its queued
-# transport needs queue ABI 2 with per-image codec VP pools (avd-fw 6756ca99,
-# packaged as 0.1-3); without the images the decoder does not probe.
-Requires: avd-fw >= 0.1-3
+# apple-avd loads apple/avd-fw-v*.bin from /usr/lib/firmware; without the
+# images the decoder does not probe. Its queued transport needs queue ABI 2
+# with per-image codec VP pools (avd-fw 6756ca99), and the T8122 (M3) device
+# tree maps the CM3 SRAM at +0x90000 (linux#2586), which only the 64 KiB v4
+# image of avd-fw ea8ae7c8 fits: the older 0x12000-byte image fails the probe
+# with -EINVAL. ea8ae7c8 is 0.1-4 on Fedora 44 but 0.1-5 on Fedora 45, whose
+# 0.1-4 is the older firmware rebuilt with LLVM 22.
+%if 0%{?fedora} >= 45
+Requires: avd-fw >= 0.1-5
+%else
+Requires: avd-fw >= 0.1-4
+%endif
 Provides: kernel-uname-r = %{krel}
 %if %{ctxr_execmem}
 Provides: aurora-ctxr-execmem
@@ -181,6 +189,10 @@ fi
   own always has the video decoder firmware it loads (queue ABI 2 with
   per-image codec VP pools). Without it the decoder fails to probe with
   -ENOENT and its power domains never reach sync_state.
+- Require avd-fw ea8ae7c8 (0.1-4 on Fedora 44, 0.1-5 on Fedora 45), whose
+  v4 image fits the T8122 CM3 SRAM window at +0x90000 that linux#2586 maps.
+  With the older 0x12000-byte image the M3 decoder fails to probe with
+  -EINVAL.
 
 * Sat Nov 14 2026 Diljit Singh <hey@djdev.me> - 7.3.0-40
 - Pin cand/7.3.0-40 9125b314, the MacBook Neo (J700) rig's release

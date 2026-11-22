@@ -203,7 +203,7 @@ the keyring deleted imported the key without asking, and so did PackageKit.
 | `deploy-snapshot.yml` | manual or called | Serves a snapshot's signed metadata on `testing` or `stable` (both channels are rebuilt into one Pages site), verifies signatures, attestation and the live repository's versions, records `channels.json` |
 | `promote.yml` | manual | `stable` gets what `testing` serves, after a `stable-promotion` reviewer approves |
 | `images.yml` | manual or after a testing deploy (`AUTO_IMAGES`) | Builds an image; `channel` sets its repository URL |
-| `payload-after-images.yml` | after an image build (`AUTO_PAYLOADS`) | Signed payload release; catalog adoption stays manual |
+| `publish-payload.yml` | manual | Signed installer payload release from a successful image run; catalog adoption stays manual |
 
 ## Common tasks
 
@@ -225,3 +225,17 @@ gh workflow run promote.yml -R aurora-silicon/fedora-aurora --ref main
   it); every byte is checked against `sources.json` either way.
 - Images still build against the live testing feed rather than a frozen snapshot; freeze publication
   while building a release set.
+
+## Edge
+
+Edge is offered to the Macs whose chip family the adopted Edge train's rows qualify, one named machine per family; every other Mac stays on Nightly. The [Edge train document](https://github.com/aurora-silicon/aurora-distributions/blob/main/docs/edge-train.md) lists the families and machines. Its feed is `https://aurorasilicon.org/fedora-aurora/44/edge/aarch64` (Fedora 44 only), and it moves only with the adopted aurora-distributions Edge train.
+
+| Step | How |
+|---|---|
+| Edge RPMs | `edge-staging/<pair>` branch with the kernel and Mesa pins (never merged), `rpms.yml` dispatched on it, then `edge-f44-sign-rpms.yml` on main (`sign=true`) |
+| Edge snapshot | `publish-edge.yml -f signing-run=<signer run> -f base-release=testing-YYYYMMDD.N` (add `-f mesa-signing-run=<edge-f44-sign-mesa-replacement.yml run>` when the pair's Mesa was re-signed separately, as for the alpha.2 respin): the Testing snapshot with its kernel and Mesa RPMs replaced by the signer's exact RPMs (`scripts/edge-snapshot.py`), refused if any `Requires` is unmet (`scripts/check-repository-closure`), repository metadata signed in `testing-signing`, release `edge-YYYYMMDD.N` with `edge-sources.json` |
+| Images | `images.yml -f channel=edge -f edge-snapshot=edge-YYYYMMDD.N -f profile=…`: KIWI installs from the snapshot's signed metadata (packages are its release assets); the installed `aurora.repo` follows the Edge feed; `edge-image-proof.json` (schema 2) is attested and shipped |
+| Payloads | `publish-edge-payload.yml` per profile, after the train record is on aurora-distributions main |
+| Feed | `deploy-snapshot.yml -f channel=edge -f release-tag=edge-…`: serves only the snapshot the adopted train names, or a refresh carrying the very same signed kernel and Mesa RPMs (newer Testing userspace; `channel-site.py edge_gate`) |
+
+Edge carries Firefox's 7-day deadline, like Stable (`check-firefox-security.py`), so refresh snapshots keep Firefox current between trains. Neo installs from the alpha.1 and alpha.2 images have `enabled=0` in `aurora.repo`; the one-time command in the Edge train document moves them to the feed.

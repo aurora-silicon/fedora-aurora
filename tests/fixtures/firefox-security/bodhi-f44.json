@@ -1,0 +1,100 @@
+{
+ "updates": [
+  {
+   "alias": "FEDORA-2026-0000000003",
+   "status": "testing",
+   "type": "security",
+   "severity": "high",
+   "date_submitted": "2026-11-10 20:47:16",
+   "date_testing": "2026-11-18 03:00:00",
+   "date_stable": null,
+   "builds": [
+    {
+     "nvr": "firefox-160.0.1-1.fc44",
+     "epoch": 0,
+     "type": "rpm",
+     "signed": true
+    }
+   ],
+   "release": {
+    "name": "F44",
+    "version": "44",
+    "branch": "f44"
+   },
+   "url": "https://bodhi.fedoraproject.org/updates/FEDORA-2026-0000000003"
+  },
+  {
+   "alias": "FEDORA-2026-0000000002",
+   "status": "unpushed",
+   "type": "security",
+   "severity": "medium",
+   "date_submitted": "2026-11-10 20:47:16",
+   "date_testing": null,
+   "date_stable": null,
+   "builds": [
+    {
+     "nvr": "firefox-160.0-1.fc44",
+     "epoch": 0,
+     "type": "rpm",
+     "signed": true
+    }
+   ],
+   "release": {
+    "name": "F44",
+    "version": "44",
+    "branch": "f44"
+   },
+   "url": "https://bodhi.fedoraproject.org/updates/FEDORA-2026-0000000002"
+  },
+  {
+   "alias": "FEDORA-2026-3f4f1138c4",
+   "status": "stable",
+   "type": "security",
+   "severity": "urgent",
+   "date_submitted": "2026-11-10 20:47:16",
+   "date_testing": "2026-11-11 02:44:52",
+   "date_stable": "2026-11-12 02:51:16",
+   "builds": [
+    {
+     "nvr": "firefox-160.0-1.fc44",
+     "epoch": 0,
+     "type": "rpm",
+     "signed": true
+    }
+   ],
+   "release": {
+    "name": "F44",
+    "version": "44",
+    "branch": "f44"
+   },
+   "url": "https://bodhi.fedoraproject.org/updates/FEDORA-2026-3f4f1138c4"
+  },
+  {
+   "alias": "FEDORA-2026-31601794bf",
+   "status": "stable",
+   "type": "security",
+   "severity": "urgent",
+   "date_submitted": "2026-11-10 20:47:16",
+   "date_testing": null,
+   "date_stable": "2026-10-29 01:27:21",
+   "builds": [
+    {
+     "nvr": "firefox-159.0-1.fc44",
+     "epoch": 0,
+     "type": "rpm",
+     "signed": true
+    }
+   ],
+   "release": {
+    "name": "F44",
+    "version": "44",
+    "branch": "f44"
+   },
+   "url": "https://bodhi.fedoraproject.org/updates/FEDORA-2026-31601794bf"
+  }
+ ],
+ "page": 1,
+ "pages": 1,
+ "rows_per_page": 20,
+ "total": 4
+}
