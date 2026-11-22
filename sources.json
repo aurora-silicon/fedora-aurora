@@ -81,11 +81,11 @@
   },
   "aurora-firstboot": {
     "repository": "https://github.com/aurora-silicon/aurora-platform",
-    "commit": "3f8af1063fefcdaac95ae9ebaa9a8c61f106450a",
+    "commit": "e3bc82ab399a70897088d003de9bb016d9740b28",
     "version": "0.1.13",
-    "source_url": "https://codeload.github.com/aurora-silicon/aurora-platform/tar.gz/3f8af1063fefcdaac95ae9ebaa9a8c61f106450a",
-    "archive_root": "aurora-platform-3f8af1063fefcdaac95ae9ebaa9a8c61f106450a",
-    "sha256": "9e85d0e2c98af535f481998d4092e57847c803b6f3e07f48255f886bee30bfe2"
+    "source_url": "https://codeload.github.com/aurora-silicon/aurora-platform/tar.gz/e3bc82ab399a70897088d003de9bb016d9740b28",
+    "archive_root": "aurora-platform-e3bc82ab399a70897088d003de9bb016d9740b28",
+    "sha256": "390ca29e765cd35968526cd02111b2fecb6b105a5e9b41efdffa1081f6e51eb0"
   },
   "avd-fw": {
     "repository": "https://github.com/aurora-silicon/avd-fw",

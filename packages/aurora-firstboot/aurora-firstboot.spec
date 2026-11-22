@@ -1,4 +1,4 @@
-%global commit 3f8af1063fefcdaac95ae9ebaa9a8c61f106450a
+%global commit e3bc82ab399a70897088d003de9bb016d9740b28
 %global selinuxtype targeted
 Name: aurora-firstboot
 Version: 0.1.13
@@ -85,7 +85,7 @@ install -Dm644 /dev/stdin %{buildroot}/usr/lib/systemd/system-preset/90-aurora-f
 enable aurora-firstboot.service
 enable aurora-initrd-keymap.path
 EOF
-make install-power DESTDIR=%{buildroot} PREFIX=%{_prefix}
+make install-power DESTDIR=%{buildroot} PREFIX=%{_prefix} SYSCONFDIR=%{_sysconfdir}
 install -Dm644 /dev/stdin %{buildroot}/usr/lib/systemd/system-preset/90-aurora-power-budget.preset <<'EOF'
 enable aurora-power-budget.service
 enable aurora-power-modes.service
@@ -100,8 +100,10 @@ EOF
 %systemd_post aurora-power-budget.service aurora-power-modes.service
 # aurora-power-modes is new in 0.1.13-7 and %%systemd_post presets units only
 # on a first install: preset it once on the upgrade that brings it, and never
-# again, so an administrator's later disable sticks.
-if [ $1 -gt 1 ] && [ ! -e %{_sharedstatedir}/aurora/power-modes-preset-done ]; then
+# again, so an administrator's later disable sticks. Where the administrator
+# had disabled aurora-power-budget, the new unit stays disabled too.
+if [ $1 -gt 1 ] && [ ! -e %{_sharedstatedir}/aurora/power-modes-preset-done ] &&
+   systemctl -q is-enabled aurora-power-budget.service 2>/dev/null; then
   systemctl --no-reload preset aurora-power-modes.service >/dev/null 2>&1 || :
 fi
 mkdir -p %{_sharedstatedir}/aurora && touch %{_sharedstatedir}/aurora/power-modes-preset-done || :
@@ -177,6 +179,9 @@ fi
 %{_unitdir}/aurora-power-modes.service
 /usr/lib/systemd/system-preset/90-aurora-power-budget.preset
 %{_datadir}/doc/aurora-power-budget/
+%dir %{_sysconfdir}/aurora
+%config(noreplace) %{_sysconfdir}/aurora/power-modes.conf
+%dir %{_sharedstatedir}/aurora
 %ghost %{_sharedstatedir}/aurora/power-modes-preset-done
 
 %files -n aurora-gamemode
@@ -198,20 +203,27 @@ fi
 
 %changelog
 * Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-7
-- Pin aurora-platform 3f8af106 (aurora-platform#38, carrying #35, on main
+- Pin aurora-platform e3bc82ab (aurora-platform#38, carrying #35, on main
   with #33 and #28).
 - aurora-power-budget hands each profile to the kernel's apple-clpc
   platform profile and caps the CPU itself only while that does not hold
   Power Saver. tuned-ppd drives only /sys/firmware/acpi/platform_profile,
   which device tree boots lack. When the service stops, a handler it set
-  goes back to balanced.
+  goes back to balanced. apple-clpc registers from the boot loader's Low
+  Power ceiling only with a kernel carrying linux 37106688 (#2816); on
+  older kernels the CPU budget here applies as before.
 - aurora-power-budget also ships aurora-power-modes (enabled by preset,
-  once on the upgrade that brings it). In Power Saver it lowers
-  sched_util_clamp_min_rt_default to 0 and sets the PCIe ASPM policy to
-  powersupersave; every other platform-profile handler (apple-smc: High
-  Power mode only) follows the profile. #33 keeps the boot values as its
-  baseline across a restart. It also adds an optional macOS-style "Low
-  Power Mode on battery" setting (default never).
+  once on the upgrade that brings it, and only where aurora-power-budget
+  is enabled). In Power Saver it lowers sched_util_clamp_min_rt_default to
+  0 and sets the PCIe ASPM policy to powersupersave; every other
+  platform-profile handler (apple-smc: High Power mode only) follows the
+  profile, unless power-profiles-daemon drives the class itself. #33 keeps
+  the boot values as its baseline across a restart. It also adds an
+  optional macOS-style "Low Power Mode on battery" setting (default never)
+  in /etc/aurora/power-modes.conf, installed with every line commented out.
+- On an upgrade from -6 the new unit is enabled but not started (upgrades
+  restart only running units): its legs apply from the next boot, or after
+  systemctl start aurora-power-modes.
 
 * Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-6
 - New subpackage aurora-gamemode: /etc/gamemode.ini pins games started
