@@ -258,10 +258,13 @@ fi
 
 %changelog
 * Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-35
-- aurora-touchid-setup: read each factory record only up to its logical
-  size instead of its whole extent, refuse a container that claims more
-  blocks than its partition holds, and stop at 64 MiB of factory records
-  in all. Malformed metadata is refused as before, with a reason.
+- aurora-touchid-setup: read only the factory records it uses (FSC2-,
+  MSRk-, seal-, trustobject-), each only up to its logical size instead of
+  its whole extent, and at most 64 MiB of them in all; refuse a container
+  that claims more blocks than its partition holds. Tree records too short
+  for their fields, a tree block reached twice and more than 65536
+  file-system records (16 MiB) are refused, so the carved record is used
+  instead of the tool stopping with a traceback.
 
 * Sun Nov 22 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-34
 - aurora-sep-selinux: /var/lib/aurora-sep-quarantine and the store copies in

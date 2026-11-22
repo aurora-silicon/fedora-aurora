@@ -197,15 +197,16 @@ install -Dm755 %{SOURCE123} %{buildroot}%{_libexecdir}/aurora/aurora-kdump-setup
 install -Dm755 %{SOURCE124} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora-kdump-clock/module-setup.sh
 install -Dm755 %{SOURCE125} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora-kdump-clock/aurora-kdump-clock.sh
 
-%post core
-%udev_rules_update
-# Give an existing /dev/accel node its group and mode now, not at the next boot.
-udevadm trigger --action=change --subsystem-match=accel >/dev/null 2>&1 || :
-
-%postun core
-%udev_rules_update
-
 %posttrans core
+# Give an existing /dev/accel node the rule's group and mode now, not at the
+# next boot. systemd-udev's file trigger only marks udevd for a reload, so
+# reload first; and send an add event, since a change event does not
+# reapply GROUP and MODE. Skipped in a chroot (image or mock build) and
+# without a running udevd, so a build never touches the build host's nodes.
+if [ -S /run/udev/control ] && ! systemd-detect-virt -q --chroot; then
+  udevadm control --reload >/dev/null 2>&1 || :
+  udevadm trigger --action=add --subsystem-match=accel >/dev/null 2>&1 || :
+fi
 # Fedora's flicker-free GRUB output, once per system; see the script.
 %{_libexecdir}/aurora/aurora-grub-console || :
 # A grub.cfg whose only stale lines are partition UUID searches; see the script.
@@ -305,7 +306,10 @@ fi
   uaccess ACL for the user of the active local session
   (70-aurora-accel.rules, group from aurora-accel.conf). systemd's default
   rule left it mode 0666; the only narrower rule was in the opt-in
-  omarchy-ane-tools, which no longer carries one.
+  omarchy-ane-tools, which no longer carries one. %posttrans reloads udev
+  and sends existing accel nodes an add event (not in a chroot). Users
+  outside the local session, such as ssh-only accounts, now need the accel
+  group ("usermod -aG accel USER").
 
 * Sat Nov 21 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-48
 - The Mission Control key (F3, keysym XF86LaunchA) opens and closes the

@@ -88,9 +88,16 @@ class AccelPermissionTests(unittest.TestCase):
         sysusers = [l.split() for l in (PLATFORM / 'aurora-accel.sysusers').read_text().splitlines()
                     if l and not l.startswith('#')]
         self.assertEqual(sysusers, [['g', 'accel', '-']])
-        # An existing node is fixed on upgrade, not only after a reboot.
-        post = section(spec, '%post core\n', '\n%')
-        self.assertIn('udevadm trigger --action=change --subsystem-match=accel', post)
+        # An existing node is fixed on upgrade, not only after a reboot: after
+        # a reload, with an add event (a change event does not reapply GROUP
+        # and MODE), and never from a chroot or without a running udevd.
+        post = section(spec, '%posttrans core\n', '\n%')
+        guard = 'if [ -S /run/udev/control ] && ! systemd-detect-virt -q --chroot; then'
+        self.assertIn(guard, post)
+        after = post.split(guard, 1)[1]
+        self.assertLess(after.index('udevadm control --reload'),
+                        after.index('udevadm trigger --action=add --subsystem-match=accel'))
+        self.assertNotIn('--action=change', post)
 
     def test_images_install_platform_core(self):
         spec = (PLATFORM / 'aurora-platform.spec').read_text()
