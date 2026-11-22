@@ -870,7 +870,7 @@ class SpecTests(unittest.TestCase):
         self.assertIn("! grep -qs '^[[:space:]]*DeviceScale[[:space:]]*=' $conf", post)
         self.assertIn('DeviceScale=1$/d}', spec.split('%postun', 1)[1])
 
-    def run_theme_post(self, current, cmdline=None, entries=None):
+    def run_theme_post(self, current, cmdline=None, entries=None, dracut_status=0):
         """Run the theme's %post and %posttrans against a fake Plymouth with CURRENT set."""
         spec = (ROOT / 'packages' / 'plymouth-theme-aurora' / 'plymouth-theme-aurora.spec').read_text()
         post = spec.split('\n%post\n', 1)[1].split('\n%posttrans\n', 1)[0]
@@ -887,7 +887,7 @@ class SpecTests(unittest.TestCase):
             fake.write_text(f'#!/bin/bash\n[[ $# -eq 0 ]] && exec cat {state}\nprintf %s "$1" > {state}\n')
             fake.chmod(0o755)
             dracut = tmp / 'bin/dracut'
-            dracut.write_text(f'#!/bin/bash\necho "$@" >> {log}\n')
+            dracut.write_text(f'#!/bin/bash\necho "$@" >> {log}\nexit {dracut_status}\n')
             dracut.chmod(0o755)
             grubby = tmp / 'bin/grubby'
             grubby.write_text(f'#!/bin/bash\nif [[ $1 == --info=ALL ]]; then cat {tmp / "entries"} 2>/dev/null; exit 0; fi\n'
@@ -903,8 +903,11 @@ class SpecTests(unittest.TestCase):
                         .replace('%{_sysconfdir}', str(tmp / 'etc'))
                         .replace('%{_localstatedir}', str(tmp / 'var')).replace('/run/systemd/system', str(tmp)))
             env = dict(os.environ, PATH=f"{tmp / 'bin'}:{os.environ['PATH']}")
-            for script in (post, posttrans):
-                subprocess.run(['bash', '-euc', render(script)], check=True, env=env)
+            subprocess.run(['bash', '-euc', render(post)], check=True, env=env)
+            self.posttrans = subprocess.run(['bash', '-euc', render(posttrans)], env=env,
+                                            capture_output=True, text=True)
+            if not dracut_status:
+                self.assertEqual(self.posttrans.returncode, 0, self.posttrans.stderr)
             self.grubby = (tmp / 'grubby.log').read_text() if (tmp / 'grubby.log').exists() else ''
             return state.read_text(), log.read_text() if log.exists() else ''
 
@@ -934,6 +937,12 @@ class SpecTests(unittest.TestCase):
             theme, dracut = self.run_theme_post(stock)
             self.assertEqual(theme, 'aurora', stock)
             self.assertEqual(dracut.strip(), '-f --regenerate-all', stock)
+
+    def test_theme_reports_a_failed_initramfs_rebuild(self):
+        theme, dracut = self.run_theme_post('aurora', dracut_status=1)
+        self.assertEqual(dracut.strip(), '-f --regenerate-all')
+        self.assertNotEqual(self.posttrans.returncode, 0)
+        self.assertIn('rebuilding the initramfs failed', self.posttrans.stderr)
 
     def test_theme_keeps_the_owners_choice(self):
         for chosen in ('solar', 'details'):
