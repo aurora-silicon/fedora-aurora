@@ -105,15 +105,13 @@ jobs:
           RUN dnf install -y systemd util-linux rpm-build createrepo_c python3 systemd-rpm-macros && dnf clean all
           CMD ["/sbin/init"]
           DOCKER
-          docker run -d --name fex-guest --privileged --cgroupns=host \
+          trap 'docker logs fex-guest > "$RUNNER_TEMP/proof/systemd.log" 2>&1; docker rm -f fex-guest' EXIT
+          # Returns once systemd reports start-up finished (READY=1).
+          python3 scripts/start-systemd-container.py fex-guest --privileged --cgroupns=host \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /tmp \
             -v "$PWD:/src:ro" -v "$RUNNER_TEMP/old:/old:ro" -v "$RUNNER_TEMP/proof:/proof" \
             aurora-fex-systemd:${{ matrix.release }}
-          trap 'docker logs fex-guest > "$RUNNER_TEMP/proof/systemd.log" 2>&1; docker rm -f fex-guest' EXIT
-          for attempt in {1..30}; do
-            if docker exec fex-guest systemctl is-active multi-user.target; then break; fi
-            sleep 1
-          done
+          docker exec fex-guest systemctl is-active multi-user.target
           docker exec fex-guest bash /src/scripts/test-fex-guest-default /old/packages/fex-emu /src/packages /proof
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
@@ -144,15 +142,13 @@ jobs:
           RUN dnf install -y systemd util-linux rpm-build createrepo_c python3 systemd-rpm-macros gcc && dnf clean all
           CMD ["/sbin/init"]
           DOCKER
-          docker run -d --name fex-binfmt --privileged --cgroupns=host \
+          trap 'docker logs fex-binfmt > "$RUNNER_TEMP/proof/systemd.log" 2>&1; docker rm -f fex-binfmt' EXIT
+          # Returns once systemd reports start-up finished (READY=1).
+          python3 scripts/start-systemd-container.py fex-binfmt --privileged --cgroupns=host \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /tmp \
             -v "$PWD:/src:ro" -v "$RUNNER_TEMP/old:/old:ro" -v "$RUNNER_TEMP/proof:/proof" \
             aurora-fex-binfmt:${{ matrix.release }}
-          trap 'docker logs fex-binfmt > "$RUNNER_TEMP/proof/systemd.log" 2>&1; docker rm -f fex-binfmt' EXIT
-          for attempt in {1..30}; do
-            if docker exec fex-binfmt systemctl is-active multi-user.target; then break; fi
-            sleep 1
-          done
+          docker exec fex-binfmt systemctl is-active multi-user.target
           docker exec fex-binfmt bash /src/scripts/test-fex-binfmt /old/packages/fex-emu /src/packages /proof
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
