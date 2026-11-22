@@ -109,7 +109,7 @@ class AccelPermissionTests(unittest.TestCase):
         self.assertEqual(rule_files(TOOLS), {})
         self.assertNotIn('_udevrulesdir', spec)
         self.assertNotIn('_sysusersdir', spec)
-        self.assertRegex(spec, r'(?m)^Requires: aurora-platform-core >= 44-49$')
+        self.assertRegex(spec, r'(?m)^Requires: aurora-platform-core >= 44-51$')
 
     def test_no_other_package_sets_accel_permissions(self):
         owners = sorted(str(p.relative_to(ROOT)) for p in (ROOT / 'packages').rglob('*.rules')

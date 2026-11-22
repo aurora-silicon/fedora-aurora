@@ -17,7 +17,7 @@ BuildRequires: gcc make binutils libdrm-devel python3
 Requires: python3
 # The device policy (/dev/accel/accel*: group accel, mode 0660, the session
 # user's ACL) and the accel group come from the platform, on every install.
-Requires: aurora-platform-core >= 44-49
+Requires: aurora-platform-core >= 44-51
 
 %description
 Userspace for the Apple Neural Engine driver that the Aurora kernel ships
@@ -59,7 +59,7 @@ done
 
 %changelog
 * Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.5.13-2
-- Drop the udev rule and the accel group: aurora-platform-core 44-49 sets
+- Drop the udev rule and the accel group: aurora-platform-core 44-51 sets
   the /dev/accel policy on every install, so it no longer depends on
   whether these tools are installed.
 

@@ -25,7 +25,9 @@ has_crashkernel() {
 
 case ${1:-} in
 enable)
-    systemctl enable kdump.service > /dev/null 2>&1 || :
+    # Keep going: the crash kernel memory below is still worth reserving.
+    systemctl enable --quiet kdump.service ||
+        echo "aurora-kdump-setup: could not enable kdump.service; run 'systemctl enable kdump.service'" >&2
     has_crashkernel && exit 0
     if grubby --update-kernel=ALL --args="crashkernel=$size" > /dev/null 2>&1; then
         if [ -f "$cmdline" ] && ! has_crashkernel; then
@@ -40,9 +42,11 @@ enable)
     fi
     ;;
 disable)
-    systemctl disable kdump.service > /dev/null 2>&1 || :
+    systemctl disable --quiet kdump.service ||
+        echo "aurora-kdump-setup: could not disable kdump.service; run 'systemctl disable kdump.service'" >&2
     [ -e "$state" ] || exit 0
-    grubby --update-kernel=ALL --remove-args=crashkernel > /dev/null 2>&1 || :
+    grubby --update-kernel=ALL --remove-args=crashkernel > /dev/null 2>&1 ||
+        echo "aurora-kdump-setup: grubby failed; remove crashkernel= from the boot entries" >&2
     if has_crashkernel; then
         new=$(sed -E 's/(^|[[:space:]])crashkernel=[^[:space:]]*//g' "$cmdline") &&
             printf '%s\n' "$new" > "$cmdline"

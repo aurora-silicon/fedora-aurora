@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 49%{?dist}
+Release: 51%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -301,7 +301,7 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
-* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-49
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-51
 - /dev/accel/accel* (the Neural Engine) is mode 0660, group accel, with a
   uaccess ACL for the user of the active local session
   (70-aurora-accel.rules, group from aurora-accel.conf). systemd's default
@@ -310,6 +310,13 @@ fi
   and sends existing accel nodes an add event (not in a chroot). Users
   outside the local session, such as ssh-only accounts, now need the accel
   group ("usermod -aG accel USER").
+
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-50
+- aurora-kdump-setup (aurora-platform-kdump) reports a failed
+  systemctl enable/disable of kdump.service and a failed grubby
+  --remove-args=crashkernel, with the command to run instead. It used to
+  discard both. The rest of the step still runs and it still exits 0, so
+  the %%post/%%preun outcome is unchanged.
 
 * Sat Nov 21 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-48
 - The Mission Control key (F3, keysym XF86LaunchA) opens and closes the
