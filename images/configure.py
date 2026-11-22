@@ -47,6 +47,9 @@ PACKAGES = {
         "aurora-fido",
         # OpenSSH ecdsa-sk keys in the Secure Enclave, for members of sep-key.
         "aurora-sep-sk",
+        # USB4 and Thunderbolt devices get their PCIe tunnel once bolt
+        # authorizes them; aurora-platform-core requires it too.
+        "bolt",
     ]),
     # Desktop images boot to the Aurora splash: aura's logo, kept still, with a spinner.
     "components/desktop-environments.xml": ("DesktopCommon", [

@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 48%{?dist}
+Release: 49%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -98,6 +98,13 @@ Requires: aurora-nvram aurora-btsync
 # The Aurora repository with its key and dnf vendor policies, so a Fedora
 # Asahi Remix system with these services keeps following Aurora's builds.
 Requires: aurora-repos
+# USB4 and Thunderbolt PCIe tunnels: the kernel's domain is at security level
+# user, so a device's PCIe tunnel (an NVMe enclosure, a dock's PCIe devices)
+# is built only once userspace authorizes it. boltd does that: it enrolls a
+# new device by itself only where the domain reports IOMMU DMA protection
+# (bolt's iommu policy); elsewhere it waits for the owner. Plasma and GNOME
+# installs already have bolt; this brings it to minimal ones.
+Requires: bolt
 Requires: tuned
 Requires: aurora-power-budget
 # Wake for network access (magic packet) follows the power adapter.
@@ -284,6 +291,15 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sat Nov 21 2026 Diljit Singh <hey@djdev.me> - 44-49
+- Require bolt in aurora-platform-core. A USB4 or Thunderbolt device gets
+  its PCIe tunnel only once userspace authorizes it (the domain's security
+  level is user); without bolt nothing does, and a USB4 NVMe enclosure falls
+  back to USB 3 at 10 Gb/s after about 10 s. boltd starts from its udev rule
+  at the first Thunderbolt device and enrolls new devices itself where the
+  domain reports iommu_dma_protection=1 (its iommu policy). Plasma and GNOME
+  installs already had it through their desktop groups; minimal ones did not.
+
 * Sat Nov 21 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-48
 - The Mission Control key (F3, keysym XF86LaunchA) opens and closes the
   GNOME Activities overview, as Mission Control does on macOS
