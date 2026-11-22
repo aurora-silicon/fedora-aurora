@@ -1,4 +1,4 @@
-%global commit 9125b31475836ce0a6634df45b539c6d604f36a5
+%global commit 4dfa5b6658331ccd3a8ea03fd04fff06b07ea2e9
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # modules_install signs every module (CONFIG_MODULE_SIG_ALL) after
@@ -14,7 +14,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 41%{?dist}.aurora
+Release: 44%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -184,6 +184,14 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 7.3.0-44
+- Pin 4dfa5b66: the Edge 7.3.0-43 kernel (integration/aurora e0ee46a1)
+  plus aurora-silicon/linux#2549. That change builds the platform profile
+  class without ACPI, which this ACPI-less config leaves off, so
+  apple-clpc's power modes reach /sys/class/platform-profile on the
+  M5 Pro (T6050) and the M4 Max (T6041). asahi.config now requests
+  CONFIG_ACPI_PLATFORM_PROFILE=y; config and fedora.config are unchanged.
+
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-41
 - Require avd-fw 0.1-3 or later, so a kernel installed or upgraded on its
   own always has the video decoder firmware it loads (queue ABI 2 with

@@ -1,11 +1,11 @@
 {
   "kernel-aurora": {
     "repository": "https://github.com/aurora-silicon/linux",
-    "commit": "9125b31475836ce0a6634df45b539c6d604f36a5",
+    "commit": "4dfa5b6658331ccd3a8ea03fd04fff06b07ea2e9",
     "version": "7.3.0",
-    "source_url": "https://codeload.github.com/aurora-silicon/linux/tar.gz/9125b31475836ce0a6634df45b539c6d604f36a5",
-    "archive_root": "linux-9125b31475836ce0a6634df45b539c6d604f36a5",
-    "sha256": "9a3969b52c6f41017b36e8bc805b63b0215fddf31b91fc5d45dd7854ab3c4f7b"
+    "source_url": "https://codeload.github.com/aurora-silicon/linux/tar.gz/4dfa5b6658331ccd3a8ea03fd04fff06b07ea2e9",
+    "archive_root": "linux-4dfa5b6658331ccd3a8ea03fd04fff06b07ea2e9",
+    "sha256": "ad1dc4129251f9c4a923ce8e2e5d135714283dbafbbd3f51c9bd46ffb3e43a7a"
   },
   "aura": {
     "repository": "https://github.com/aurora-silicon/aura",
@@ -81,11 +81,11 @@
   },
   "aurora-firstboot": {
     "repository": "https://github.com/aurora-silicon/aurora-platform",
-    "commit": "ddf5285e116b3551ed2b025112f86effaadf299d",
+    "commit": "0c44cbbc4d504b76db28ac1c9981eb1acc04908b",
     "version": "0.1.13",
-    "source_url": "https://codeload.github.com/aurora-silicon/aurora-platform/tar.gz/ddf5285e116b3551ed2b025112f86effaadf299d",
-    "archive_root": "aurora-platform-ddf5285e116b3551ed2b025112f86effaadf299d",
-    "sha256": "fd6d1f03a1d64709611a600d885f5857ec71f3e2f6f2a3eead76d06733dfd644"
+    "source_url": "https://codeload.github.com/aurora-silicon/aurora-platform/tar.gz/0c44cbbc4d504b76db28ac1c9981eb1acc04908b",
+    "archive_root": "aurora-platform-0c44cbbc4d504b76db28ac1c9981eb1acc04908b",
+    "sha256": "7a6d7f4bcfa8a02049aed211bd9187bc7edeee38e1f94f744e048c95a1232778"
   },
   "avd-fw": {
     "repository": "https://github.com/aurora-silicon/avd-fw",
