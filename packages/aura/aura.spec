@@ -1,12 +1,12 @@
 %global debug_package %{nil}
-%global commit 3ff77894567239362a116e7fcbb214c55dccf5a4
+%global commit dff1235d8bace49d1d6be28c9ce78b004eeedc84
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
 %global monitor_free 1
 Name: aura
 Version: 1.0.0~b14.1
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -26,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-3ff77894567239362a116e7fcbb214c55dccf5a4
+%autosetup -n aura-dff1235d8bace49d1d6be28c9ce78b004eeedc84
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -76,6 +76,27 @@ install -Dm644 tools/recovery/enroll-stage1.sh %{buildroot}%{_datadir}/aura/tool
 %{_datadir}/aura/
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b14.1-2
+- Pin aura main dff1235d, labelled 1.0.0b14-gdff1235d from the archive
+  directory as it is not a release tag. 3ff77894 (1.0.0b14.1) is an
+  ancestor of it, so nothing of 1.0.0b14.1 is dropped.
+- For every M2 (T8112) on a 27.2 stub: a GPU firmware with no initdata
+  layout now leaves the GPU disabled and the boot continues (aura#381).
+  With 1.0.0b14.1 the Stage 2 stops at 'Failed to prepare FDT' and drops
+  to the proxy, so these Macs never reach U-Boot.
+- Also since 1.0.0b14.1: the M3 (T8122) and M4 (T8132) GPU on 27.2
+  (#448, #379), the T6041 GPU calibration handoff (#450), the M3 Air
+  external DCP by default (#437), panel max brightness from the ADT (#442),
+  T8152 live AFK endpoints and display handover powered off (#419, #301),
+  the M4 internal DCP on 27.2 (#404), firmware-27 DCP clocks on the legacy
+  display path (#382), one AOP firmware-segment path (#377), video
+  encoders handed over by block (#420), 27.2 on the M3 Air DCP and the
+  M1/M2/M3 ISP (#227), the CLPC Low Power ceiling (#358), the J704 GPU
+  perf states (#276), usb-drdN defaults on every ATC port (#399), ANS warm
+  start (#394), CTRR L3 mapping (#411), PCIe DBI and bridge logging (#405,
+  #423), SPTM S2R core masks (#407), the T6050 bandwidth fail-closed check
+  (#408), dead code removal (#371) and CI (#428, #431, #434).
+
 * Sat Nov 21 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b14.1-1
 - Update to aura 1.0.0b14.1 (release commit 3ff77894 on release/1.0.0b14):
   1.0.0b14 plus aura#421, labelled 1.0.0b14-g3ff77894 from the archive
