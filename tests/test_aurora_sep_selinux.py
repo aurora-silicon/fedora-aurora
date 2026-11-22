@@ -54,6 +54,18 @@ class SelinuxModuleTests(unittest.TestCase):
                 'type_transition kernel_t var_lib_t:file aurora_sep_state_t "%s";' % name,
                 self.te)
 
+    def test_store_copies_in_the_quarantine_get_the_state_type(self):
+        for path, kind in (('/var/lib/aurora-sep-quarantine', '-d'),
+                           ('/var/lib/aurora-sep-quarantine/host-state-20261121-225903-98430.bin', '--')):
+            hits = [(k, c) for r, k, c in self.contexts() if r.match(path)]
+            self.assertEqual(len(hits), 1, path)
+            self.assertEqual(hits[0][0], kind, path)
+            self.assertIn(':aurora_sep_state_t,', hits[0][1], path)
+        for domain in ('unconfined_service_t', 'unconfined_t'):
+            self.assertIn('type_transition %s var_lib_t:dir aurora_sep_state_t '
+                          '"aurora-sep-quarantine";' % domain, self.te)
+        post = self.spec[self.spec.index('%posttrans selinux'):self.spec.index('%files')]
+        self.assertIn('restorecon -RF /var/lib/aurora-sep-quarantine', post)
     def test_no_access_to_generic_var_lib(self):
         self.assertNotRegex(self.te, r'allow\s+\S+\s+var_lib_t')
 

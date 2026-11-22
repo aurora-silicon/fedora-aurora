@@ -10,8 +10,11 @@ on:
       channel:
         description: Update channel the installed system follows (testing keeps today's repository URL)
         type: choice
-        options: [testing, stable]
+        options: [testing, stable, edge]
         default: testing
+      edge-snapshot:
+        description: For edge, the signed Edge snapshot (edge-YYYYMMDD.N) the image installs from
+        default: ''
       fedora-release:
         description: Fedora release of the image (45 has a testing channel only)
         type: choice
@@ -34,6 +37,44 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           persist-credentials: false
+      - name: Authenticate the Edge snapshot the image installs from
+        if: inputs.channel == 'edge'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FEDORA_RELEASE: ${{ inputs.fedora-release || '44' }}
+          EDGE_SNAPSHOT: ${{ inputs.edge-snapshot }}
+        run: |
+          set -euo pipefail
+          [[ $FEDORA_RELEASE == 44 ]]
+          python3 -c 'import os,sys; sys.path.insert(0,"scripts"); import edgelib; edgelib.snapshot(os.environ["EDGE_SNAPSHOT"])'
+          download="$RUNNER_TEMP/edge-snapshot"
+          gh release download "$EDGE_SNAPSHOT" --repo "$GITHUB_REPOSITORY" --dir "$download" \
+            --pattern 'repository-metadata-*' --pattern edge-sources.json --pattern SHA256SUMS
+          for subject in "$download/repository-metadata-$EDGE_SNAPSHOT.tar.gz" "$download/edge-sources.json"; do
+            gh attestation verify "$subject" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/publish-edge.yml" --deny-self-hosted-runners
+          done
+          export GNUPGHOME="$RUNNER_TEMP/edge-gnupg"
+          mkdir -m 0700 "$GNUPGHOME"
+          gpg --batch --import keys/RPM-GPG-KEY-aurora
+          gpg --batch --verify "$download/repository-metadata-$EDGE_SNAPSHOT.tar.gz.asc" \
+            "$download/repository-metadata-$EDGE_SNAPSHOT.tar.gz"
+          mkdir -p out/edge-snapshot
+          python3 - "$download/repository-metadata-$EDGE_SNAPSHOT.tar.gz" out/edge-snapshot <<'PY'
+          import sys, tarfile
+          with tarfile.open(sys.argv[1]) as bundle:
+              bundle.extractall(sys.argv[2], filter='data')
+          PY
+          gpg --batch --verify out/edge-snapshot/44/edge/aarch64/repodata/repomd.xml.asc \
+            out/edge-snapshot/44/edge/aarch64/repodata/repomd.xml
+          jq -e --arg tag "$EDGE_SNAPSHOT" '.channel == "edge" and .dry_run != true
+                 and (.asset_base | endswith("/" + $tag))' out/edge-snapshot/44/edge/aarch64/manifest.json
+          cp "$download/edge-sources.json" out/edge-snapshot/edge-sources.json
+          {
+            echo "AURORA_EDGE_SNAPSHOT=$EDGE_SNAPSHOT"
+            echo "AURORA_EDGE_REPOSITORY=/src/out/edge-snapshot/44/edge/aarch64"
+            echo "AURORA_EDGE_SOURCES=/src/out/edge-snapshot/edge-sources.json"
+          } >> "$GITHUB_ENV"
       - name: Build the image using verified Fedora and Aurora repositories
         env:
           PROFILE: ${{ inputs.profile }}
@@ -42,8 +83,10 @@ jobs:
         run: |
           set -euo pipefail
           [[ $FEDORA_RELEASE == 44 || $FEDORA_RELEASE == 45 ]]
-          [[ $FEDORA_RELEASE == 44 || $CHANNEL == testing ]] || { echo 'Fedora 45 has no stable channel' >&2; exit 1; }
+          [[ $FEDORA_RELEASE == 44 || $CHANNEL == testing ]] || { echo 'Fedora 45 has testing images only' >&2; exit 1; }
+          [[ $CHANNEL != edge || -n ${AURORA_EDGE_SNAPSHOT:-} ]] || { echo 'An Edge image needs its Edge snapshot' >&2; exit 1; }
           docker run --rm --privileged -v /dev:/dev -v /run/udev:/run/udev:ro -v "$PWD:/src" -w /src \
+            -e AURORA_EDGE_SNAPSHOT -e AURORA_EDGE_REPOSITORY -e AURORA_EDGE_SOURCES \
             -e AURORA_REPOSITORY_URL="https://aurorasilicon.org/fedora-aurora/\$releasever/$CHANNEL/aarch64" \
             "registry.fedoraproject.org/fedora:$FEDORA_RELEASE" bash -euo pipefail -c '
               dnf install -y kiwi-cli kiwi-systemdeps distribution-gpg-keys git gnupg2 python3 xz zstd btrfs-progs cryptsetup util-linux cpio e2fsprogs
@@ -53,6 +96,10 @@ jobs:
         if: success()
         with:
           subject-path: out/*-filesystems.tar.zst
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: success() && inputs.channel == 'edge'
+        with:
+          subject-path: out/*-installer/edge-image-proof.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
@@ -64,6 +111,7 @@ jobs:
             image-build.log
             out/*-filesystems.tar.zst*
             out/*-installer/image.json
+            out/*-installer/edge-image-proof.json
             out/*-installer/initramfs-inventory.txt
             out/*-image/*.xz
             out/*-image/*.sha256

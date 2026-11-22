@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 41%{?dist}
+Release: 48%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -16,7 +16,15 @@ Requires: linux-firmware amd-gpu-firmware intel-gpu-firmware nvidia-gpu-firmware
 Requires: iwlwifi-dvm-firmware iwlwifi-mvm-firmware realtek-firmware
 Requires: aurora-sep libfprint(aurora-sep) = 4
 Requires: aurora-firstboot avd-fw upower >= 1.91.4
-Requires: kernel-aurora aura uboot-aurora aurora-release aurora-logos aurora-firmware aurora-bless aurora-neo-platform-config tiny-dfr
+# T6050 boots without arm64.nomte: 7.3.0-37 keeps MTE off on an Apple SoC
+# whose device tree reserves no MTE tag storage; aura 1.0.0~b13 reserves it.
+Requires: kernel-aurora >= 7.3.0-37
+Requires: aura >= 1.0.0~b13
+Requires: kernel-aurora aura uboot-aurora aurora-release aurora-logos aurora-firmware aurora-bless aurora-neo-platform-config aurora-m5-platform-config tiny-dfr
+# GameMode with Aurora's settings on Plasma and GNOME installs, new and
+# upgraded (images also list both). Weak: `dnf remove aurora-gamemode gamemode`
+# keeps them off.
+Recommends: (aurora-gamemode if (plasma-workspace or gnome-shell))
 
 Source100: README
 Source101: aurora-platform-core.conf
@@ -45,7 +53,9 @@ Source123: aurora-kdump-setup
 Source124: aurora-kdump-clock-module-setup.sh
 Source125: aurora-kdump-clock.sh
 Source126: 60-aurora-t6041-trackpad.quirks
-Source127: aurora-t6041-power.service
+Source127: aurora-power-defaults.service
+Source128: aurora-irq-steerable
+Source129: 60_aurora-apple-keys.gschema.override
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -62,8 +72,10 @@ Obsoletes: asahi-platform-metapackage-core < 1
 Obsoletes: asahi-platform-metapackage-audio < 1
 Conflicts: asahi-platform-metapackage < 1
 Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
-# Use the established protection daemons; v2 is not shipped in images.
+# The established protection daemons stay installed as the fallback;
+# aurora-speaker-upgrade moves a Mac to v2 only when its self-check passes.
 Requires: speakersafetyd speakerguardd
+Requires: speakerguardd-v2 >= 1.0.0~alpha.2-0.51 aurora-speaker-upgrade >= 0.1-0.18
 Requires: aurora-audio >= 4.1-12
 Requires: alsa-ucm-conf-aurora
 # BlueZ 5.86 attempts an empty default-parameter transaction at startup.
@@ -148,6 +160,7 @@ install -Dm644 %{SOURCE100} %{buildroot}%{_docdir}/aurora-platform/README
 install -Dm644 %{SOURCE101} %{buildroot}%{_sysconfdir}/dnf/protected.d/aurora-platform-core.conf
 install -Dm644 %{SOURCE102} %{buildroot}%{_unitdir}/var-swap-swapfile2.swap.d/50-after-swapfile.conf
 install -Dm644 %{SOURCE110} %{buildroot}%{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf
+install -Dm755 %{SOURCE128} %{buildroot}%{_libexecdir}/aurora/aurora-irq-steerable
 install -Dm644 %{SOURCE103} %{buildroot}%{_udevrulesdir}/61-aurora-dmi-id.rules
 install -Dm644 %{SOURCE111} %{buildroot}%{_udevrulesdir}/62-aurora-gpu-render-only.rules
 install -Dm644 %{SOURCE104} %{buildroot}%{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
@@ -164,11 +177,13 @@ install -Dm755 %{SOURCE115} %{buildroot}%{_libexecdir}/aurora/aurora-wake-for-ne
 install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-network.rules
 install -Dm644 %{SOURCE120} %{buildroot}%{_udevrulesdir}/64-aurora-trackpad-clicks.rules
 install -Dm644 %{SOURCE126} %{buildroot}%{_datadir}/libinput/60-aurora-t6041-trackpad.quirks
-install -Dm644 %{SOURCE127} %{buildroot}%{_unitdir}/aurora-t6041-power.service
+install -Dm644 %{SOURCE129} %{buildroot}%{_datadir}/glib-2.0/schemas/60_aurora-apple-keys.gschema.override
+install -Dm644 %{SOURCE127} %{buildroot}%{_unitdir}/aurora-power-defaults.service
 # Wanted by sysinit.target itself: a preset would not reach Macs that
-# already have aurora-platform-core. ConditionFirmware skips other Macs.
+# already have aurora-platform-core. ConditionFirmware skips machines that
+# are not Apple silicon Macs.
 install -d %{buildroot}%{_unitdir}/sysinit.target.wants
-ln -s ../aurora-t6041-power.service %{buildroot}%{_unitdir}/sysinit.target.wants/aurora-t6041-power.service
+ln -s ../aurora-power-defaults.service %{buildroot}%{_unitdir}/sysinit.target.wants/aurora-power-defaults.service
 install -Dm644 %{SOURCE118} %{buildroot}%{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 install -Dm644 %{SOURCE121} %{buildroot}%{_prefix}/lib/kdump/dracut.conf.d/99-zz-aurora.conf
 install -Dm644 %{SOURCE122} %{buildroot}%{_unitdir}/kdump.service.d/50-aurora-kdump.conf
@@ -182,10 +197,21 @@ install -Dm755 %{SOURCE125} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora
 # A grub.cfg whose only stale lines are partition UUID searches; see the script.
 %{_libexecdir}/aurora/aurora-grub-uuid || :
 %{_libexecdir}/aurora/aurora-ppd-config || :
-# MTE stays off on chips whose tag storage no boot loader reserves yet.
-if tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -qxE 'apple,(t6050|t8142)' &&
+# MTE stays off on the M5 (T8142) until it is qualified there. The M5 Pro
+# and Max (T6050) run with MTE: aura reserves the tag storage, and without
+# that reservation the kernel keeps MTE off by itself.
+if tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -qx 'apple,t8142' &&
     ! grep -qE '(^|[[:space:]])arm64\.nomte([[:space:]]|$)' /etc/kernel/cmdline 2>/dev/null; then
   grubby --update-kernel=ALL --args=arm64.nomte || :
+fi
+
+# 44-37 to 44-44 also added arm64.nomte on T6050 Macs, with grubby, which
+# writes it to every boot entry, /etc/default/grub and /etc/kernel/cmdline.
+# Take it back out once, on the update from one of those releases.
+%triggerpostun core -- aurora-platform-core < 44-45
+if tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -qx 'apple,t6050' &&
+    grep -qsE '(^|[[:space:]"])arm64\.nomte([[:space:]"]|$)' /etc/kernel/cmdline /etc/default/grub /boot/loader/entries/*.conf; then
+  grubby --update-kernel=ALL --remove-args=arm64.nomte || :
 fi
 
 # Also cover tuned-ppd installed/upgraded without an aurora-platform update.
@@ -225,13 +251,15 @@ fi
 %{_unitdir}/var-swap-swapfile2.swap.d/
 %dir %{_unitdir}/irqbalance.service.d
 %{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf
-%{_unitdir}/aurora-t6041-power.service
-%{_unitdir}/sysinit.target.wants/aurora-t6041-power.service
+%{_libexecdir}/aurora/aurora-irq-steerable
+%{_unitdir}/aurora-power-defaults.service
+%{_unitdir}/sysinit.target.wants/aurora-power-defaults.service
 %{_udevrulesdir}/61-aurora-dmi-id.rules
 %{_udevrulesdir}/62-aurora-gpu-render-only.rules
 %{_udevrulesdir}/63-aurora-wake-for-network.rules
 %{_udevrulesdir}/64-aurora-trackpad-clicks.rules
 %{_datadir}/libinput/60-aurora-t6041-trackpad.quirks
+%{_datadir}/glib-2.0/schemas/60_aurora-apple-keys.gschema.override
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 %{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
@@ -256,6 +284,57 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sat Nov 21 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-48
+- The Mission Control key (F3, keysym XF86LaunchA) opens and closes the
+  GNOME Activities overview, as Mission Control does on macOS
+  (60_aurora-apple-keys.gschema.override). GNOME bound nothing to it.
+
+* Sat Nov 21 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-47
+- Power defaults on every Apple silicon Mac (aurora-power-defaults.service,
+  ConditionFirmware=device-tree-compatible(apple,arm-platform)), replacing
+  the M4 Max-only aurora-t6041-power.service: PCIe ASPM policy
+  powersupersave and kernel.sched_util_clamp_min_rt_default=0. The ASPM
+  write may fail (pcie_aspm=off) without skipping the sysctl. Ordered before
+  aurora-power-modes, so its boot baseline is these values. Same unit as
+  ALARM (alarm-aurora#332 by AxxzyWasTaken). Idle power -14 to -31 % on the
+  T8140, T6040, T6000 and T8112 with no xruns or Wi-Fi/Bluetooth drops.
+
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 44-46
+- Require aurora-m5-platform-config, the MacBook Pro (M5 Pro, J714s) deep
+  sleep configuration, as aurora-neo-platform-config is required for the
+  Neo. It does nothing on any other Mac.
+
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 44-45
+- MTE on the M5 Pro and Max (T6050): add arm64.nomte only on the M5
+  (T8142), and take back out, once on the update from 44-44 or older, the
+  arm64.nomte that 44-37 to 44-44 added on T6050 Macs. aura 1.0.0~b13
+  reserves the T6050 tag storage, and kernel-aurora 7.3.0-37 and later
+  keep MTE off by themselves on an Apple SoC whose device tree reserves
+  none (aurora-silicon/linux#1639); aurora-platform requires both.
+  Measured on the MacBook Pro (M5 Pro, J714s): the M5 default has run
+  with MTE on since 11-12 (tagged stress, mtesuite and the deep-sleep
+  gates); T8142 has had no MTE trial yet.
+
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-44
+- Recommend aurora-gamemode (and with it gamemode) on Plasma and GNOME
+  installs, so existing desktops get GameMode with Aurora's settings on
+  upgrade. Measured on J616s and Neo: -9 to -11 % frame time at two frames
+  in flight at the same energy per frame where GameMode pins (four or more
+  P cores), unchanged where it does not.
+
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-43
+- aurora-platform-core requires speakerguardd-v2 and aurora-speaker-upgrade,
+  whose preset moves each Mac to v2 at boot when its self-check passes.
+  speakersafetyd and speakerguardd 0.1 stay installed and keep any Mac the
+  self-check refuses.
+
+* Thu Nov 19 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-42
+- irqbalance runs on an Apple silicon Mac when its device tree's interrupt
+  controller is the first AIC (compatible apple,aic), which can steer
+  interrupts, instead of when the SoC is the T8103: an ExecCondition
+  (aurora-irq-steerable) replaces the SoC check. Same result on every Mac
+  supported today.
+
 * Sun Nov 15 2026 AxxzyWasTaken <axxzytte@gmail.com> - 44-41
 - M4 Max (T6041) power defaults (aurora-t6041-power.service): PCIe ASPM
   policy powersupersave, so the Wi-Fi/Bluetooth and SD reader links use the
