@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 51%{?dist}
+Release: 52%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -12,8 +12,6 @@ BuildRequires: systemd-rpm-macros
 BuildRequires: selinux-policy-devel make bzip2
 Requires: aurora-platform-core = %{version}-%{release}
 Requires: fastfetch >= 2.68.1-2
-Requires: linux-firmware amd-gpu-firmware intel-gpu-firmware nvidia-gpu-firmware
-Requires: iwlwifi-dvm-firmware iwlwifi-mvm-firmware realtek-firmware
 Requires: aurora-sep libfprint(aurora-sep) = 4
 Requires: aurora-firstboot avd-fw upower >= 1.91.4
 # T6050 boots without arm64.nomte: 7.3.0-37 keeps MTE off on an Apple SoC
@@ -73,7 +71,7 @@ Obsoletes: asahi-platform-metapackage < 1
 Obsoletes: asahi-platform-metapackage-core < 1
 Obsoletes: asahi-platform-metapackage-audio < 1
 Conflicts: asahi-platform-metapackage < 1
-Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
+Requires: update-m1n1 aurora-vendor-firmware asahi-fwupdate
 # The established protection daemons stay installed as the fallback;
 # aurora-speaker-upgrade moves a Mac to v2 only when its self-check passes.
 Requires: speakersafetyd speakerguardd
@@ -110,7 +108,7 @@ Requires: (aurora-platform-selinux = %{version}-%{release} if selinux-policy-%{s
 %description core
 The Apple Silicon hardware services that every Aurora system needs: the
 boot.bin assembler (update-m1n1), vendor firmware in the initramfs
-(dracut-asahi), firmware refresh (asahi-fwupdate), speaker protection
+(aurora-vendor-firmware), firmware refresh (asahi-fwupdate), speaker protection
 (speakersafetyd and speakerguardd), the Aurora audio graphs and UCM
 profiles, the noise filter for the built-in camera
 (aurora-camera-denoise), and the keyboard backlight that follows the ambient
@@ -146,6 +144,16 @@ Lets systemd inspect the kernel uevent socket it creates for udev in the
 initramfs and keeps across the switch to the real root. The socket is made
 before the policy is loaded, so it carries the kernel's label, and every
 boot logged a denial for it.
+
+%package -n aurora-extra-hardware-firmware
+Summary: Firmware for optional network adapters
+Requires: atheros-firmware brcmfmac-firmware iwlbluetooth-firmware
+Requires: iwlegacy-firmware iwlwifi-dvm-firmware iwlwifi-mld-firmware iwlwifi-mvm-firmware
+Requires: mt7xxx-firmware realtek-firmware
+
+%description -n aurora-extra-hardware-firmware
+Firmware for optional wireless network and Bluetooth adapters. Built-in Mac
+Wi-Fi and Bluetooth use firmware provisioned for the target Mac by Aurora.
 
 %prep
 %setup -q -c -T
@@ -300,7 +308,13 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
+%files -n aurora-extra-hardware-firmware
+
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-52
+- Make stock accessory firmware opt-in through aurora-extra-hardware-firmware.
+- Use Aurora's vendor firmware loader without the stock firmware bundle.
+
 * Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-51
 - /dev/accel/accel* (the Neural Engine) is mode 0660, group accel, with a
   uaccess ACL for the user of the active local session

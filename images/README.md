@@ -32,7 +32,7 @@ The upstream description and its GPL-3.0-or-later license are copied into the ge
 | Boot | Aura Stage 1/Stage 2, Aurora U-Boot, Fedora GRUB/BLS and dracut |
 | Kernel | `kernel-aurora` and `kernel-aurora-modules-extra`, with the same Aurora source/configuration across supported Macs; `aurora-userpages` (`userpages 4k COMMAND`) from the same source, with `user4k=on` on the kernel command line |
 | Graphics | `mesa-aurora-dri-drivers` and `mesa-aurora-vulkan-drivers`; `aurora-flatpak-gl` gives Flatpak apps the same Mesa (GL.aurora for the 25.08 and 26.08 runtimes) |
-| Platform | `aurora-platform`, `aurora-firmware`, `avd-fw`, `libva-v4l2-request-avd`, `upower` (Aurora fork), `alsa-ucm-conf-aurora`, `aurora-audio`, `speakerguardd`, `speakersafetyd-aurora-profiles`, `aurora-sep`, Aurora `libfprint` and redistributable peripheral firmware |
+| Platform | `aurora-platform`, `aurora-firmware`, `avd-fw`, `libva-v4l2-request-avd`, `upower` (Aurora fork), `alsa-ucm-conf-aurora`, `aurora-audio`, `speakerguardd`, `speakersafetyd-aurora-profiles`, `aurora-sep`, Aurora `libfprint` |
 | Distribution | `aurora-release`, `aurora-logos`, `aurora-remix-scripts` |
 | Updates | The Aurora RPM repository is retained in the installed image, with package signature checking and the signing key in the rpm database; refreshes need no key prompt ([updates](../docs/updates.md#installed-systems)) |
 
@@ -62,3 +62,12 @@ The first command tests profile selection, repository/key binding, source pinnin
 Current producer: `scripts/build-image fedora-minimal` (or `fedora-kde` / `fedora-gnome`) runs the pinned KIWI build on a disposable privileged native AArch64 worker. The manual **Native Fedora Aurora images** workflow supplies this environment and retains a compressed raw image, build log and source/repository receipt. Raw images are candidate artifacts; installer payload assembly and physical qualification remain separate gates.
 
 The signed development feed is live at [the Aurora Fedora repository](https://aurorasilicon.org/fedora-aurora/44/testing/aarch64/). Its public key is committed under `keys/`. The kernel core RPM uses Fedora grubby's `20-grub.install` to copy its matching DTBs from `/usr/lib/modules/$version/dtb` into `/boot/dtb-$version`; `10-devicetree.install` selects that version for U-Boot. No separate DTB-copy hook is needed.
+
+### Firmware for accessories
+
+The installer provisions the target Mac's firmware. The Neo's built-in
+MT7932 uses macOS-extracted firmware through `aurora-wifi-firmware`.
+Fresh images omit the stock Fedora firmware bundle. For an external Wi-Fi or
+Bluetooth adapter, install its firmware package or run
+`sudo dnf install aurora-extra-hardware-firmware` for the common adapter set.
+Existing installs can keep the Fedora firmware packages they already have.

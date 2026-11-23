@@ -141,7 +141,8 @@ class ConfigureTests(unittest.TestCase):
                 self.assertIn("libva-v4l2-request-avd", names)
                 exclusions = {n.get("name") for p in out.rglob("*.xml")
                               for n in ET.parse(p).getroot().iter("ignore")}
-                self.assertFalse(any(name.endswith("-firmware") for name in exclusions))
+                self.assertTrue(set(configure.STOCK_FIRMWARE) <= exclusions)
+                self.assertFalse({"aurora-firmware", "aurora-wifi-firmware", "avd-fw"} & exclusions)
                 self.assertIn("dracut-config-rescue", exclusions)
                 self.assertFalse((out / "repositories/asahi.xml").exists())
                 self.assertEqual((out / "root/etc/yum.repos.d/aurora.repo").read_text(), re.sub(

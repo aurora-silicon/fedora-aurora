@@ -771,7 +771,7 @@ class SpecTests(unittest.TestCase):
         text = (d / 'aurora-platform.spec').read_text()
         core = text.split('%package core', 1)[1].split('%description core', 1)[0]
         requires = ' '.join(re.findall(r'^Requires:\s+(.+)$', core, re.M)).split()
-        for name in ['update-m1n1', 'dracut-asahi', 'asahi-fwupdate',
+        for name in ['update-m1n1', 'aurora-vendor-firmware', 'asahi-fwupdate',
                      'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise',
                      'aurora-kbd-light']:
             self.assertIn(name, requires)

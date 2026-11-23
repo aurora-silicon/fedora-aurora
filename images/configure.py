@@ -56,10 +56,21 @@ PACKAGES = {
         "gamemode", "aurora-gamemode",
     ]),
 }
-# Fedora's imsettings turns itself off on GNOME and Plasma, but its autostart
-# entry still runs there and fails on every login. Both desktops configure
-# input methods themselves.
+# The Fedora hardware-support collection includes the stock firmware bundle.
+# The installer provisions firmware for the target Mac separately.
+STOCK_FIRMWARE = [
+    "linux-firmware", "amd-gpu-firmware", "amd-ucode-firmware",
+    "atheros-firmware", "brcmfmac-firmware", "cirrus-audio-firmware",
+    "intel-audio-firmware", "intel-gpu-firmware", "intel-npu-firmware",
+    "iwlbluetooth-firmware", "iwlegacy-firmware", "iwlwifi-dvm-firmware",
+    "iwlwifi-mld-firmware", "iwlwifi-mvm-firmware", "libertas-firmware",
+    "mt7xxx-firmware", "nvidia-gpu-firmware", "nxpwireless-firmware",
+    "qcom-firmware", "qcom-wwan-firmware", "realtek-firmware", "tiwilink-firmware",
+]
 EXCLUDED = {
+    "components/base.xml": ("Common", STOCK_FIRMWARE),
+    # GNOME and Plasma configure input methods themselves. The imsettings
+    # autostart entry still runs and fails on each login.
     "components/desktop-environments.xml": ("DesktopCommon", [
         "imsettings", "imsettings-libs", "imsettings-gsettings", "imsettings-plasma",
         "im-chooser", "im-chooser-common",
@@ -199,13 +210,12 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
                                      "review the integration")
                 parent.set("package_gpgcheck", "true")
             for node in list(parent):
-                if node.tag == "package" and node.get("name") in REPLACED:
+                if node.tag == "package" and node.get("name") in REPLACED | set(STOCK_FIRMWARE):
                     parent.remove(node)
                 if node.tag == "ignore":
                     name = node.get("name", "")
-                    # The shared kernel supports dock and PCIe peripherals.
-                    # Upstream's firmware exclusions conflict with that stack.
-                    if name in {"generic-release*", "generic-logos*"} or name.endswith("-firmware"):
+                    # Apply the full Aurora list once to the Common profile.
+                    if name in {"generic-release*", "generic-logos*", *STOCK_FIRMWARE}:
                         parent.remove(node)
         write_xml(tree, path)
 

@@ -1,4 +1,12 @@
 {
+  "aurora-vendor-firmware": {
+    "repository": "https://github.com/AsahiLinux/asahi-scripts",
+    "commit": "800400dcf9612edd10f00d306a39a499313cefe3",
+    "version": "20250713",
+    "source_url": "https://codeload.github.com/AsahiLinux/asahi-scripts/tar.gz/800400dcf9612edd10f00d306a39a499313cefe3",
+    "archive_root": "asahi-scripts-800400dcf9612edd10f00d306a39a499313cefe3",
+    "sha256": "6c4cd2d7059f16eb3bde8ef1e2b1e6d2b642f0a911d1ed56e662925a99b8805f"
+  },
   "kernel-aurora": {
     "repository": "https://github.com/aurora-silicon/linux",
     "commit": "9125b31475836ce0a6634df45b539c6d604f36a5",
