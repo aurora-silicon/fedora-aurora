@@ -43,7 +43,7 @@ policies, so their first `dnf upgrade` brings the policies (`aurora-release` and
 vendor and upgrade without a vendor change) and the second one makes the vendor switches. Later images
 switch in one go.
 
-A kernel update runs `kernel-install`: dracut builds the initramfs (with `dracut-asahi` and
+A kernel update runs `kernel-install`: dracut builds the initramfs (with `aurora-vendor-firmware` and
 `98aurora-peripherals`, which read this Mac's firmware from the ESP at boot), and grubby adds the boot
 entry. The `15-update-m1n1.install` plugin runs `update-m1n1` with the kernel version
 being added or removed. It prepares the versioned DTB directory and changes `/boot/dtb` only after

@@ -50,7 +50,7 @@ install added.
 - `/usr/lib/kdump/dracut.conf.d/99-zz-aurora.conf`, read only when
   kdump-utils builds the crash kernel's initramfs:
   - adds `nvme_apple`. kdump-utils' own `99-kdump.conf` replaces
-    dracut-asahi's module list, so without it the crash kernel has no
+    aurora-vendor-firmware's module list, so without it the crash kernel has no
     disk.
   - leaves out the drivers of coprocessors and buses the crashed kernel
     left running (GPU, display, Thunderbolt, AOP, PMP, ANE, audio, USB,

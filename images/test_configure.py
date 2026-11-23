@@ -43,16 +43,14 @@ class ConfigureTests(unittest.TestCase):
           <include from="this://./repositories/asahi.xml"/></image>''')
         for path, (profile, _) in configure.PACKAGES.items():
             (cls.source / path).write_text(
-                f'<image><packages type="image" profiles="{profile}"><package name="kernel-16k"/>'
+                f'<image><profiles><profile name="{profile}"/></profiles>'
+                f'<packages type="image" profiles="{profile}"><package name="kernel-16k"/>'
                 '<package name="fedora-release-kde"/><package name="mesa-dri-drivers"/>'
+                '<package name="dracut-asahi"/><package name="linux-firmware-vendor"/>'
                 '<ignore name="amd-gpu-firmware"/><ignore name="intel-gpu-firmware"/>'
                 '<ignore name="nvidia-gpu-firmware"/><ignore name="iwlwifi-mvm-firmware"/>'
                 '<ignore name="qcom-firmware"/><ignore name="dracut-config-rescue"/></packages></image>')
-        for path, (profile, _) in configure.EXCLUDED.items():
-            (cls.source / path).write_text(
-                f'<image><profiles><profile name="{profile}" description="Desktop"/></profiles>'
-                f'<packages type="image" profiles="{profile}"><namedCollection name="input-methods"/>'
-                '</packages></image>')
+
         (cls.source / "repositories/asahi.xml").write_text("<image/>")
         (cls.source / "repositories/core.xml").write_text("<image>" + "".join(
             f'<repository type="rpm-md" alias="{alias}" sourcetype="metalink">'
@@ -135,6 +133,8 @@ class ConfigureTests(unittest.TestCase):
                 names = {n.get("name") for p in out.rglob("*.xml")
                          for n in ET.parse(p).getroot().iter("package")}
                 self.assertFalse(configure.REPLACED & names)
+                self.assertFalse({"dracut-asahi", "linux-firmware-vendor"} & names)
+                self.assertIn("aurora-vendor-firmware", names)
                 self.assertIn("kernel-aurora", names)
                 self.assertIn("mesa-aurora-vulkan-drivers", names)
                 self.assertIn("aurora-flatpak-gl", names)
