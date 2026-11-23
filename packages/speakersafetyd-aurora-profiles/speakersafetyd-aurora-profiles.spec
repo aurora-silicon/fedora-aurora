@@ -1,6 +1,6 @@
 Name: speakersafetyd-aurora-profiles
 Version: 1
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: speakersafetyd profiles for Aurora-supported Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -9,6 +9,7 @@ BuildArch: noarch
 Source0: j616.conf
 Source1: 96-speakersafetyd-aurora.rules
 Source2: 50-aurora-warm-restart.conf
+Source3: 60-aurora-volume-lock-cap.conf
 
 Requires: speakersafetyd
 BuildRequires: systemd-rpm-macros
@@ -20,7 +21,9 @@ for their speaker cards. The J616s profile is speakersafetyd's J316 model
 with the J616 V/I sense layout. Without the daemon the kernel keeps the
 speaker volumes locked. A service drop-in gives the daemon its restart
 flag back after any stop, so a restart within the same boot starts from
-the worst-case temperature, as speakersafetyd intends.
+the worst-case temperature, as speakersafetyd intends. A second one gives
+it CAP_SYS_ADMIN, which the kernel requires to take and renew the speaker
+volume lock.
 
 %prep
 
@@ -30,13 +33,19 @@ the worst-case temperature, as speakersafetyd intends.
 install -Dm644 %{SOURCE0} %{buildroot}%{_datadir}/speakersafetyd/apple/j616.conf
 install -Dm644 %{SOURCE1} %{buildroot}%{_udevrulesdir}/96-speakersafetyd-aurora.rules
 install -Dm644 %{SOURCE2} %{buildroot}%{_unitdir}/speakersafetyd.service.d/50-aurora-warm-restart.conf
+install -Dm644 %{SOURCE3} %{buildroot}%{_unitdir}/speakersafetyd.service.d/60-aurora-volume-lock-cap.conf
 
 %files
 %{_datadir}/speakersafetyd/apple/j616.conf
 %{_udevrulesdir}/96-speakersafetyd-aurora.rules
 %{_unitdir}/speakersafetyd.service.d/50-aurora-warm-restart.conf
+%{_unitdir}/speakersafetyd.service.d/60-aurora-volume-lock-cap.conf
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-2
+- Give speakersafetyd CAP_SYS_ADMIN: the kernel requires it to take and
+  renew the "Speaker Volume Unlock" lock.
+
 * Sat Oct 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-1
 - The J616s (MacBook Pro 16-inch M4 Pro/Max) profile, derived from
   speakersafetyd's j316.conf with the J616 sense channel layout.
