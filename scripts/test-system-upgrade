@@ -108,5 +108,5 @@ krel=$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-aurora-core | sort -
 [[ -s /usr/lib/modules/$krel/vmlinuz && -d /usr/lib/modules/$krel/dtb/apple ]]
 [[ $(readlink /boot/dtb) == "dtb-$krel" ]]
 [[ -s /boot/efi/m1n1/boot.bin ]]
-rpm -q kernel-aurora-core aura uboot-aurora update-m1n1 > "$proof/bootchain-nevra.txt"
+rpm -q kernel-aurora-core aura uboot-aurora update-aura > "$proof/bootchain-nevra.txt"
 echo "Fedora 44 -> 45 system-upgrade passed: $(rpm -q aurora-release), kernel $krel"

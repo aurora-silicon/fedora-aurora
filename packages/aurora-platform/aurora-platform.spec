@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 52%{?dist}
+Release: 53%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -71,7 +71,8 @@ Obsoletes: asahi-platform-metapackage < 1
 Obsoletes: asahi-platform-metapackage-core < 1
 Obsoletes: asahi-platform-metapackage-audio < 1
 Conflicts: asahi-platform-metapackage < 1
-Requires: update-m1n1 aurora-vendor-firmware asahi-fwupdate
+# Keep the virtual name for lab systems with a pinned boot helper.
+Requires: update-m1n1 aurora-vendor-firmware aurora-firmware-refresh
 # The established protection daemons stay installed as the fallback;
 # aurora-speaker-upgrade moves a Mac to v2 only when its self-check passes.
 Requires: speakersafetyd speakerguardd
@@ -107,8 +108,8 @@ Requires: (aurora-platform-selinux = %{version}-%{release} if selinux-policy-%{s
 
 %description core
 The Apple Silicon hardware services that every Aurora system needs: the
-boot.bin assembler (update-m1n1), vendor firmware in the initramfs
-(aurora-vendor-firmware), firmware refresh (asahi-fwupdate), speaker protection
+boot.bin assembler (update-aura), vendor firmware in the initramfs
+(aurora-vendor-firmware), firmware refresh (aurora-firmware-refresh), speaker protection
 (speakersafetyd and speakerguardd), the Aurora audio graphs and UCM
 profiles, the noise filter for the built-in camera
 (aurora-camera-denoise), and the keyboard backlight that follows the ambient
@@ -311,6 +312,9 @@ fi
 %files -n aurora-extra-hardware-firmware
 
 %changelog
+* Tue Nov 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-53
+- Use the Aurora firmware refresh tool.
+
 * Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-52
 - Make stock accessory firmware opt-in through aurora-extra-hardware-firmware.
 - Use Aurora's vendor firmware loader without the stock firmware bundle.

@@ -135,6 +135,7 @@ class ConfigureTests(unittest.TestCase):
                 self.assertFalse(configure.REPLACED & names)
                 self.assertFalse({"dracut-asahi", "linux-firmware-vendor"} & names)
                 self.assertIn("aurora-vendor-firmware", names)
+                self.assertIn("update-aura", names)
                 self.assertIn("kernel-aurora", names)
                 self.assertIn("mesa-aurora-vulkan-drivers", names)
                 self.assertIn("aurora-flatpak-gl", names)

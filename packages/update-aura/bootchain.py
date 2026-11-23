@@ -234,7 +234,7 @@ class Update:
                     # GRUB cannot load this entry's kernel, so no tree has to
                     # suit it. Such entries outlive a kernel removed without
                     # kernel-install, as Asahi kernels were on migration.
-                    print(f'update-m1n1: ignoring boot entry {p.name}: its kernel '
+                    print(f'update-aura: ignoring boot entry {p.name}: its kernel '
                           f'{fields["linux"].strip()} does not exist', file=sys.stderr)
                     continue
                 images.setdefault(version, self.path('/boot/vmlinuz-' + version))
@@ -397,7 +397,7 @@ class Update:
         matches = [v for v in images if entry == v or entry.endswith('-' + v)]
         if matches:
             return max(matches, key=len)
-        print(f'update-m1n1: GRUB default {entry!r} ({origin}) is not an installed kernel; '
+        print(f'update-aura: GRUB default {entry!r} ({origin}) is not an installed kernel; '
               f'GRUB boots its first entry, kernel {menu[0][1]}', file=sys.stderr)
         return None
 
@@ -417,7 +417,7 @@ class Update:
         else:
             selected = default or newest
         if selected != newest:
-            print(f'update-m1n1: composing Stage 2 from the default kernel {selected}, '
+            print(f'update-aura: composing Stage 2 from the default kernel {selected}, '
                   f'not the newer non-default {newest}', file=sys.stderr)
         return selected
 
@@ -674,14 +674,14 @@ class Update:
         try:
             paths = self.trial_paths()
         except Refused as error:
-            print(f'update-m1n1: not checking the armed trial: {error}', file=sys.stderr)
+            print(f'update-aura: not checking the armed trial: {error}', file=sys.stderr)
             return
         _, candidate, receipt, marker, relative = paths
         if self.marker(marker) != ('armed', relative):
             return
         armed = self.armed_trial(candidate, receipt, relative)
         if armed is None:
-            print(f'update-m1n1: leaving the armed trial at {relative}: this updater did not arm it',
+            print(f'update-aura: leaving the armed trial at {relative}: this updater did not arm it',
                   file=sys.stderr)
             return
         self.withdraw_trial(paths, armed, f'the Stage 2 for kernel {selected} is already live')
@@ -979,7 +979,7 @@ class Update:
         pid = self.env.get('AURORA_RPM_TRANSACTION_PID', '')
         start = self.process_start(pid) if re.fullmatch(r'[1-9][0-9]*', pid) and pid != '1' else None
         if start is None:
-            print('update-m1n1: no package transaction process; kernel removals update Stage 2 at once',
+            print('update-aura: no package transaction process; kernel removals update Stage 2 at once',
                   file=sys.stderr)
             return
         record = self.transaction_record()
@@ -1015,7 +1015,7 @@ class Update:
         if self.version not in record['deferred']:
             record['deferred'].append(self.version)
         replace_file(self.transaction_record(), (json.dumps(record) + '\n').encode())
-        print(f'update-m1n1: kernel {self.version} removed inside a package transaction; '
+        print(f'update-aura: kernel {self.version} removed inside a package transaction; '
               'Stage 2 follows the kernels it adds and what GRUB boots after it')
         return True
 
@@ -1064,7 +1064,7 @@ def main():
         else:
             update.apply()
     except (Refused, OSError, ValueError, subprocess.SubprocessError) as error:
-        print(f'update-m1n1: {error}; keeping the last complete Stage 2 and trial evidence', file=sys.stderr)
+        print(f'update-aura: {error}; keeping the last complete Stage 2 and trial evidence', file=sys.stderr)
         return 1
     return 0
 

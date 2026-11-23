@@ -1,10 +1,10 @@
-Name: update-m1n1
-Version: 20261107
-Release: 9%{?dist}.aurora
+Name: update-aura
+Version: 20261124
+Release: 1%{?dist}.aurora
 Summary: Transactional Aurora Stage 2 updates with retained-kernel DTB checks
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
-Source0: update-m1n1
+Source0: update-aura
 Source1: bootchain.py
 Source2: 10-devicetree.install
 Source3: 15-update-m1n1.install
@@ -17,12 +17,16 @@ Source9: 90-aurora-stage2.preset
 Source10: aurora-stage2-guard.service
 Source11: aurora-stage2-guard.timer
 Source12: kernel-install-repair
+Source13: mount-system-esp.sh
 Provides: aurora-stage2-ctxr-slot = 1
+Provides: update-m1n1 = %{version}-%{release}
+Obsoletes: update-m1n1 < %{version}
 BuildArch: noarch
 BuildRequires: python3 dtc coreutils systemd-rpm-macros
 %{?systemd_requires}
-Requires: asahi-scripts bash coreutils dtc gzip python3 util-linux
+Requires: bash coreutils dtc gzip python3 util-linux
 Requires: m1n1 uboot-images-armv8 grubby
+Requires(pre): rpm
 
 %description
 Keep the ESP Stage 2 and /boot/dtb unchanged when a retained kernel requires
@@ -40,7 +44,9 @@ python3 -m py_compile %{SOURCE1}
 python3 %{SOURCE6}
 
 %install
-install -Dpm0755 %{SOURCE0} %{buildroot}%{_sbindir}/update-m1n1
+install -Dpm0755 %{SOURCE0} %{buildroot}%{_sbindir}/update-aura
+ln -s update-aura %{buildroot}%{_sbindir}/update-m1n1
+install -Dm644 %{SOURCE13} %{buildroot}%{_libexecdir}/aurora/mount-system-esp.sh
 install -Dm644 %{SOURCE1} %{buildroot}%{_libexecdir}/aurora/bootchain.py
 # Override grubby's eager link update through kernel-install's supported
 # precedence mechanism. Administrator masks and edits remain authoritative.
@@ -57,8 +63,29 @@ install -Dm644 %{SOURCE9} %{buildroot}%{_presetdir}/90-aurora-stage2.preset
 # looks for this marker before it builds a Stage 1 that refuses unsigned Stage 2s.
 install -Dm644 /dev/null %{buildroot}%{_datadir}/aurora/stage2-sign-hook
 
+%pre
+# The old RPM's removal disables its units. Record their enablement before
+# the transaction, and apply the new-package preset only on a fresh install.
+rm -f /run/update-aura/enabled-units
+if rpm -q --quiet update-m1n1; then
+    install -d -m 0700 /run/update-aura
+    : > /run/update-aura/enabled-units
+    for unit in aurora-stage2-commit.service aurora-stage2-guard.timer; do
+        case "$(systemctl is-enabled "$unit" 2>/dev/null)" in
+            enabled)
+                echo "enable $unit" >> /run/update-aura/enabled-units ;;
+            enabled-runtime)
+                echo "runtime $unit" >> /run/update-aura/enabled-units ;;
+            not-found|'')
+                echo "preset $unit" >> /run/update-aura/enabled-units ;;
+        esac
+    done
+fi
+
 %post
+if [ ! -f /run/update-aura/enabled-units ]; then
 %systemd_post aurora-stage2-commit.service aurora-stage2-guard.timer
+fi
 
 %preun
 %systemd_preun aurora-stage2-commit.service aurora-stage2-guard.timer
@@ -66,34 +93,40 @@ install -Dm644 /dev/null %{buildroot}%{_datadir}/aurora/stage2-sign-hook
 %postun
 %systemd_postun aurora-stage2-commit.service aurora-stage2-guard.timer
 
-# These units are new to an existing updater installation too. Apply the
-# administrator's preset policy exactly once during the vendor transition.
-%triggerun -- update-m1n1 < 20261107
-/usr/bin/systemctl --no-reload preset aurora-stage2-commit.service aurora-stage2-guard.timer || :
-
 # A kernel added while an older updater refused it has no boot entry yet.
 %posttrans
+if [ -f /run/update-aura/enabled-units ]; then
+    while read -r action unit; do
+        case "$action" in
+            enable|preset) systemctl --no-reload "$action" "$unit" || : ;;
+            runtime) systemctl --no-reload --runtime enable "$unit" || : ;;
+        esac
+    done < /run/update-aura/enabled-units
+    rm -f /run/update-aura/enabled-units
+fi
 %{_libexecdir}/aurora/kernel-install-repair || :
 
 %transfiletriggerin -- /usr/lib/m1n1 /usr/lib64/m1n1 /usr/share/uboot/apple_m1 /etc/m1n1.conf
-%{_sbindir}/update-m1n1 || :
+%{_sbindir}/update-aura || :
 
 # A transaction runs kernel-install remove for every kernel it erases, also
 # for one it reinstalls, before the kernels it installs are added. Record the
 # transaction before it starts: its removals then leave Stage 2 to the kernels
 # it adds and to a refresh after it, which follows what GRUB boots next.
 %transfiletriggerun -- /usr/lib/modules
-AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-m1n1 --transaction-begin || :
+AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-aura --transaction-begin || :
 
 %transfiletriggerpostun -- /usr/lib/modules
-%{_sbindir}/update-m1n1 --transaction-end || :
+%{_sbindir}/update-aura --transaction-end || :
 
 %transfiletriggerin -- /usr/lib/modules
-%{_sbindir}/update-m1n1 --transaction-end || :
+%{_sbindir}/update-aura --transaction-end || :
 
 %files
 %license LICENSE
+%{_sbindir}/update-aura
 %{_sbindir}/update-m1n1
+%{_libexecdir}/aurora/mount-system-esp.sh
 %{_libexecdir}/aurora/bootchain.py
 %{_libexecdir}/aurora/aurora-stage2-commit
 %{_libexecdir}/aurora/kernel-install-repair
@@ -107,6 +140,10 @@ AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-m1n1 --transaction-begin || 
 %config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1
 
 %changelog
+* Tue Nov 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261124-1
+- Rename the updater and carry its ESP mount helper in the package.
+- Keep the enrolled Stage 2 target, settings and kernel-install hook.
+
 * Sun Nov 15 2026 Isaac Duarte <31712685+Isaac-Duarte@users.noreply.github.com> - 20261107-9
 - Find the node a display alias names by its exact path. fdtget resolves
   a component without a unit address, such as /soc, to the first soc@...

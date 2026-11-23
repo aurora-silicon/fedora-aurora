@@ -30,7 +30,7 @@ DEFAULT_TARGETS = {
 PACKAGES = {
     "components/boot.xml": ("BootCore", [
         "kernel-aurora", "kernel-aurora-modules-extra", "aura", "uboot-aurora",
-        "aurora-vendor-firmware",
+        "aurora-vendor-firmware", "update-aura",
         # userpages 4k COMMAND; kernel-aurora requires it on installed systems too.
         "aurora-userpages",
     ]),
@@ -96,7 +96,8 @@ gawk -i inplace '$2 == "/boot/efi" && $3 == "vfat" { if ($5 == "") $5 = 0; $6 = 
 REPLACED = {
     "kernel-16k", "kernel-16k-modules-extra", "uboot-images-armv8",
     "asahi-platform-metapackage", "asahi-repos", "fedora-asahi-remix-scripts",
-    "dracut-asahi", "linux-firmware-vendor",
+    "asahi-scripts", "dracut-asahi", "asahi-fwupdate", "python3-asahi_firmware",
+    "linux-firmware-vendor", "update-m1n1",
     "alsa-ucm-asahi", "mesa-dri-drivers", "mesa-vulkan-drivers",
     "fedora-release", "fedora-release-workstation", "fedora-release-kde",
 }
