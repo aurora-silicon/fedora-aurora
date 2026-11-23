@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 51%{?dist}
+Release: 53%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -58,6 +58,7 @@ Source128: aurora-irq-steerable
 Source129: 60_aurora-apple-keys.gschema.override
 Source130: 70-aurora-accel.rules
 Source131: aurora-accel.sysusers
+Source132: 90-aurora-cpufreq.conf
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -171,6 +172,7 @@ install -Dm755 %{SOURCE106} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora
 install -Dm755 %{SOURCE107} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms.sh
 install -Dm755 %{SOURCE119} %{buildroot}%{_prefix}/lib/dracut/modules.d/91aurora-early-kms/aurora-early-kms-wait.sh
 install -Dpm0644 %{SOURCE114} %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-ane.conf
+install -Dpm0644 %{SOURCE132} %{buildroot}%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-cpufreq.conf
 install -Dm755 %{SOURCE108} %{buildroot}%{_libexecdir}/aurora/aurora-grub-console
 install -Dm755 %{SOURCE117} %{buildroot}%{_libexecdir}/aurora/aurora-grub-uuid
 install -Dm644 %{SOURCE112} %{buildroot}%{_prefix}/lib/tuned/profiles/aurora-performance/tuned.conf
@@ -282,6 +284,7 @@ fi
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
 %{_prefix}/lib/dracut/modules.d/91aurora-early-kms/
 %{_prefix}/lib/dracut/dracut.conf.d/90-aurora-ane.conf
+%{_prefix}/lib/dracut/dracut.conf.d/90-aurora-cpufreq.conf
 %{_libexecdir}/aurora/aurora-grub-console
 %{_libexecdir}/aurora/aurora-grub-uuid
 %{_libexecdir}/aurora/aurora-ppd-config
@@ -301,6 +304,13 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-53
+- The initramfs carries the CPU frequency driver (apple-soc-cpufreq), so the
+  cores leave the boot loader's clock in the initramfs instead of after the
+  switch to the real root. MacBook Neo: frequency scaling from 3.4-3.7 s
+  instead of 7.0-7.6 s, gdm 1.2 s earlier (9.12 s instead of 10.40 s, median
+  of 3 boots each).
+
 * Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-51
 - /dev/accel/accel* (the Neural Engine) is mode 0660, group accel, with a
   uaccess ACL for the user of the active local session
