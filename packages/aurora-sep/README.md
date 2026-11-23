@@ -112,8 +112,11 @@ The login screen asks for the password because a session started with a
 fingerprint cannot unlock the keyring or KWallet. GNOME can offer fingerprint
 there as well: `sudo systemctl enable aurora-sep-greeter-fingerprint.service`
 does it from the next boot (it needs `gresource` from glib2-devel). The login
-screen does not wait for Touch ID: the one right after boot takes the password
-anyway (as on macOS); later login screens find the reader.
+screen does not wait for Touch ID. It asks for the reader once, as it comes
+up, so the one right after boot takes the password and does not offer the
+fingerprint, also with `require_password_after_boot = no` in
+`/etc/aurora/touchid.conf`; login screens after a log out and the lock screen
+find the reader.
 
 authselect's `with-fingerprint` feature turns fingerprint on.
 `aurora-sep-ready` turns it on once on a Mac with a sensor, so that GNOME

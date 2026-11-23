@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 35%{?dist}
+Release: 37%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -257,6 +257,14 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-37
+- The login screen fingerprint unit (aurora-sep-greeter-fingerprint.service,
+  off by default) no longer holds gdm until Touch ID is ready. The login
+  screen asks for the reader once, as it comes up, so the one right after
+  boot takes the password and does not offer the fingerprint, also with
+  require_password_after_boot = no (aurora-touchid-rearm); login screens
+  after a log out and the lock screen find the reader.
+
 * Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-35
 - aurora-touchid-setup: read only the factory records it uses (FSC2-,
   MSRk-, seal-, trustobject-), each only up to its logical size instead of
