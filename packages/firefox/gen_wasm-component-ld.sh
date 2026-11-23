@@ -22,6 +22,8 @@ EOL
 
 cargo install cargo-vendor
 cargo vendor
+# To download subpackages locked in wasm-component-ld, required since rust 1.100
+cargo vendor --sync vendor/wasm-component-ld/Cargo.toml
 
 cd vendor
 tar -cJf ../wasm-component-ld-vendor.tar.xz *
