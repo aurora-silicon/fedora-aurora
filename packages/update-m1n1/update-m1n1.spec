@@ -1,6 +1,6 @@
 Name: update-m1n1
 Version: 20261107
-Release: 9%{?dist}.aurora
+Release: 11%{?dist}.aurora
 Summary: Transactional Aurora Stage 2 updates with retained-kernel DTB checks
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -107,6 +107,14 @@ AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-m1n1 --transaction-begin || 
 %config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1
 
 %changelog
+* Thu Nov 19 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261107-11
+- A kernel removal defers to a recorded package transaction only when it
+  runs under that transaction's process (its parent chain in /proc reaches
+  the recorded pid). A process that outlived a transaction whose closing
+  triggers never ran, such as packagekitd, kept its record live, so a
+  kernel-install remove of the default kernel run by hand left Stage 2 alone
+  with no refresh after it (#369). The pid and start-time check stays.
+
 * Sun Nov 15 2026 Isaac Duarte <31712685+Isaac-Duarte@users.noreply.github.com> - 20261107-9
 - Find the node a display alias names by its exact path. fdtget resolves
   a component without a unit address, such as /soc, to the first soc@...
