@@ -13,8 +13,8 @@ permissions: {}
 
 env:
   FEDORA_IMAGE: registry.fedoraproject.org/fedora:44@sha256:b96f024cecbe9515eb049107d2856e7ad923f7aac09a3c90e7a0d52a46fa3454
-  EDGE_RUN: '44174209465'
-  EDGE_DISTRIBUTION_HEAD: 88a4e6361350d48f05bfa711857e71602271e7be
+  EDGE_RUN: '44684661554'
+  EDGE_DISTRIBUTION_HEAD: aa7aca2e85e0ccee36fb5df45921804726538cb6
 
 jobs:
   verify:
@@ -38,6 +38,11 @@ jobs:
             '.status=="completed" and .conclusion=="success" and .path==".github/workflows/rpms.yml"
              and .event=="workflow_dispatch" and .head_sha==$sha
              and .head_repository.full_name=="aurora-silicon/fedora-aurora"' build-run.json
+          gh api "repos/$GITHUB_REPOSITORY/contents/sources.json?ref=$EDGE_DISTRIBUTION_HEAD" \
+            -H 'Accept: application/vnd.github.raw+json' > sources.json
+          jq -e '.["kernel-aurora"].commit=="e0ee46a18e33f859f6ad6863757a4650ff687ab6"
+                 and .["mesa-aurora"].commit=="418bf795a98c0cfe044f87d724a5db7b6b980b56"
+                 and .["mesa-aurora-fex-guest"].commit=="418bf795a98c0cfe044f87d724a5db7b6b980b56"' sources.json
           mkdir -p candidate/rpms candidate/receipts
           for package in kernel-aurora mesa-aurora mesa-aurora-fex-guest aurora-flatpak-gl; do
             gh run download "$EDGE_RUN" --repo "$GITHUB_REPOSITORY" -n "rpm-$package" -D "download/$package"
@@ -61,8 +66,8 @@ jobs:
           (
             cd candidate/rpms
             sha256sum -c <<'SUMS'
-          794d0842c28cc3297695956da8d53247007ab28705f31631fd5d68a9f2030a5e  kernel-aurora-core-7.3.0-42.fc44.aurora.aarch64.rpm
-          470cb231e0a4d17434abe22033b5d6a4143834e830cb0a5031489cfd6b68ab89  mesa-aurora-vulkan-drivers-26.3.0-32.fc44.aurora.aarch64.rpm
+          40816f71beeae7126fe339637fd97980ae52ac962151e110899b2befac9e4a84  kernel-aurora-core-7.3.0-43.fc44.aurora.aarch64.rpm
+          7905f9656d28edac24366a97da6acf65994b99833eea098d738281872c4333e4  mesa-aurora-vulkan-drivers-26.3.0-34.fc44.aurora.aarch64.rpm
           SUMS
           )
           python3 .github/scripts/edge-rpm-content.py candidate/rpms candidate/unsigned.json

@@ -2,5 +2,17 @@
 # Start FEX in a 4 KiB page process tree. binfmt_misc hands x86 programs to
 # FEX from whatever page size the caller has; on Aurora's 16 KiB kernels FEX
 # needs 4 KiB pages, and the tree keeps them for the programs FEX starts.
+#
+# binfmt-dispatcher (50-aurora-fex.toml) runs this as
+#   fex-userpages PROGRAM PATH ARGV0 [ARG...]
+# where binfmt_misc has PROGRAM open on fd 3 and PROGRAM is that file's path,
+# and PATH and ARGV0 are what execve was given. FEX takes that layout from an
+# open program, as when FEX runs an x86 program itself: FEX_EXECVEFD names
+# the fd, and FEX drops PATH, so the program gets ARGV0 [ARG...]. Run any
+# other way, fex-userpages PROGRAM [ARG...] runs FEX PROGRAM [ARG...].
+if [ $# -ge 3 ] && [ -n "$1" ] && [ "$(readlink /proc/$$/fd/3 2>/dev/null)" = "$1" ]; then
+    shift
+    export FEX_EXECVEFD=3 FEX_EXECVEFD_PATH=1
+fi
 [ "$(getconf PAGE_SIZE)" = 4096 ] && exec /usr/bin/FEX "$@"
 exec /usr/bin/userpages 4k /usr/bin/FEX "$@"

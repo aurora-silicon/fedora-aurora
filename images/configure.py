@@ -49,7 +49,12 @@ PACKAGES = {
         "aurora-sep-sk",
     ]),
     # Desktop images boot to the Aurora splash: aura's logo, kept still, with a spinner.
-    "components/desktop-environments.xml": ("DesktopCommon", ["plymouth-theme-aurora"]),
+    "components/desktop-environments.xml": ("DesktopCommon", [
+        "plymouth-theme-aurora",
+        # GameMode with Aurora's settings (P cores where a Mac has four or
+        # more, schedutil kept); Aurora's `steam` starts every game under it.
+        "gamemode", "aurora-gamemode",
+    ]),
 }
 # Fedora's imsettings turns itself off on GNOME and Plasma, but its autostart
 # entry still runs there and fails on every login. Both desktops configure
@@ -106,7 +111,28 @@ def write_xml(tree, path):
     tree.write(path, encoding="utf-8", xml_declaration=True)
 
 
-def prepare(source, destination, profile, repository_url, key, fingerprint, lock):
+EDGE_REPOSITORY_URL = "https://aurorasilicon.org/fedora-aurora/$releasever/edge/aarch64"
+
+
+def build_source(repository_url, build_repository=None):
+    """The Aurora repository KIWI installs from.
+
+    Testing and stable images install from the live feed they follow. An Edge
+    image installs from the signed metadata of its immutable Edge snapshot
+    (its packages are that release's assets) and then follows the Edge feed,
+    which serves the snapshot only once the Edge train is adopted.
+    """
+    if build_repository is None:
+        return repository_url.rstrip("/")
+    if repository_url.rstrip("/") != EDGE_REPOSITORY_URL:
+        raise ValueError("a snapshot build repository is only for images that follow the Edge feed")
+    repository = Path(build_repository).resolve(strict=True)
+    if not all((repository / "repodata" / name).is_file() for name in ("repomd.xml", "repomd.xml.asc")):
+        raise ValueError("the Edge build repository needs signed repository metadata")
+    return repository.as_uri()
+
+
+def prepare(source, destination, profile, repository_url, key, fingerprint, lock, build_repository=None):
     source, destination, key = map(Path, (source, destination, key))
     if profile not in PROFILES:
         raise ValueError("unknown Fedora installation profile")
@@ -133,6 +159,7 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
         raise ValueError("invalid repository signing-key fingerprint")
     if signing_fingerprint(key) != fingerprint:
         raise ValueError("repository signing-key fingerprint does not match")
+    kiwi_source = build_source(repository_url, build_repository)
 
     destination.mkdir(parents=True)
     for name in ("components", "platforms", "repositories", "root"):
@@ -223,7 +250,7 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
         "type": "rpm-md", "alias": "aurora", "sourcetype": "baseurl", "priority": "1",
         "package_gpgcheck": "true",
     })
-    origin = ET.SubElement(node, "source", {"path": repository_url.rstrip("/")})
+    origin = ET.SubElement(node, "source", {"path": kiwi_source})
     ET.SubElement(origin, "signing", {"key": (destination.resolve() / key_name).as_uri()})
     write_xml(ET.ElementTree(repository), destination / "repositories/aurora.xml")
     repo_text, baseurls = re.subn(r"(?m)^baseurl=.*$", lambda _: f"baseurl={repository_url.rstrip('/')}",
@@ -337,6 +364,13 @@ exit 0
 '''
     checks = checks.replace("@DEFAULT_TARGET@", DEFAULT_TARGETS[profile])
     text = text.replace("\nexit 0\n", checks.replace("@SIGNING_FINGERPRINT@", fingerprint))
+    if build_repository is not None:
+        # aurora-repos can install its own copy of the repo file during bootstrap.
+        text = text.replace("\nexit 0\n", f"""
+grep -qxF 'baseurl={EDGE_REPOSITORY_URL}' /etc/yum.repos.d/aurora.repo
+grep -qx 'enabled=1' /etc/yum.repos.d/aurora.repo
+exit 0
+""")
     config.write_text(text)
     receipt = {
         "schema": 1, "distribution": "Aurora Fedora Remix",
@@ -381,11 +415,13 @@ def main():
     parser.add_argument("--signing-key", type=Path, required=True)
     parser.add_argument("--signing-key-fingerprint", required=True)
     parser.add_argument("--fedora-release", choices=sorted(LOCKS), default="44")
+    parser.add_argument("--build-repository", type=Path,
+                        help="signed Edge snapshot metadata to install from (images that follow the Edge feed)")
     args = parser.parse_args()
     try:
         receipt = prepare(args.upstream, args.output, args.profile, args.repository_url,
                           args.signing_key, args.signing_key_fingerprint,
-                          lock(args.fedora_release))
+                          lock(args.fedora_release), args.build_repository)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(receipt, indent=2))

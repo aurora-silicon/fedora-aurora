@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 31%{?dist}
+Release: 35%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -31,7 +31,6 @@ Source20: aurora-touchid-setup.service
 Source21: touchid-setup-needed
 Source22: authselect-vendor-local
 Source23: powerdevilrc
-Source24: aurora-sep-modprobe.conf
 Source25: aurora-sep
 Source26: sleep-aurora-sep.conf
 Source27: 20-aurora-suspend.conf
@@ -46,6 +45,9 @@ Requires: fprintd(aurora-sep) = 1
 Requires: aurora-touchid-rearm
 # aurora-xart reset-touchid starts Touch ID over when its keybag is stuck.
 Requires: aurora-xart
+# Recovers a host-state store that a power cut left short, before the loader
+# starts apple_sep; the driver refuses such a file and Touch ID stays dead.
+Requires: aurora-sep-host-state
 # Holds the packaged kernel to one with the module-based SEP driver, and
 # leaves a kernel installed outside RPM alone; the units skip a kernel
 # without a loadable apple_sep.
@@ -102,7 +104,6 @@ unit %{SOURCE5} %{SOURCE6} aurora-sep-ready
 unit %{SOURCE16} %{SOURCE17} aurora-sep-greeter-fingerprint
 install -Dpm0644 %{SOURCE11} %{buildroot}%{_unitdir}/aurora-sep.timer
 install -Dpm0644 %{SOURCE12} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep-load.conf
-install -Dpm0644 %{SOURCE24} %{buildroot}%{_prefix}/lib/modprobe.d/aurora-sep.conf
 install -Dpm0755 %{SOURCE25} %{buildroot}%{_bindir}/aurora-sep
 install -Dpm0755 %{SOURCE8} %{buildroot}%{_sbindir}/aurora-touchid-setup
 install -Dpm0755 %{SOURCE21} %{buildroot}%{_libexecdir}/aurora/touchid-setup-needed
@@ -195,6 +196,11 @@ fi
 if selinuxenabled 2>/dev/null && [ -f %{_libexecdir}/aurora-sep-load ]; then
     restorecon %{_libexecdir}/aurora-sep-load || :
 fi
+# Copies that aurora-sep-host-state's repair kept hold the same secrets as the
+# store: give an existing quarantine directory and its files the state type.
+if selinuxenabled 2>/dev/null && [ -d /var/lib/aurora-sep-quarantine ]; then
+    restorecon -RF /var/lib/aurora-sep-quarantine || :
+fi
 # Move the driver's state files from var_lib_t to their own type. Only the
 # labels change: the files are never moved, rewritten or removed.
 if selinuxenabled 2>/dev/null; then
@@ -228,7 +234,6 @@ fi
 %{_libexecdir}/aurora-sep-sensor-present
 %{_prefix}/lib/dracut/dracut.conf.d/90-aurora-sep.conf
 %{_prefix}/lib/modprobe.d/aurora-sep-load.conf
-%{_prefix}/lib/modprobe.d/aurora-sep.conf
 %{_unitdir}/aurora-sep.service
 %{_unitdir}/aurora-sep-ready.service
 %{_unitdir}/aurora-touchid-setup.service
@@ -252,11 +257,48 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-35
+- aurora-touchid-setup: read only the factory records it uses (FSC2-,
+  MSRk-, seal-, trustobject-), each only up to its logical size instead of
+  its whole extent, and at most 64 MiB of them in all; refuse a container
+  that claims more blocks than its partition holds. Tree records too short
+  for their fields, a tree block reached twice and more than 65536
+  file-system records (16 MiB) are refused, so the carved record is used
+  instead of the tool stopping with a traceback.
+
+* Sun Nov 22 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-34
+- aurora-sep-selinux: /var/lib/aurora-sep-quarantine and the store copies in
+  it get aurora_sep_state_t, like the store itself, instead of var_lib_t. A
+  new directory gets it from a named type transition for the repair helper
+  (aurora-sep-host-state); an existing one is relabelled on upgrade. Module
+  aurora_sep 1.6.0.
+
+* Sat Nov 21 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-33
+- Require aurora-sep-host-state: its repair unit runs before aurora-sep.service
+  and recovers /var/lib/aurora-sep-host-state.bin when a power cut left a
+  prefix of it (aurora-sep-userspace#36). Without it the driver refuses the
+  short file and Touch ID stays dead until it is recovered by hand.
+
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 1-32
+- SEP writes are always on: drop /usr/lib/modprobe.d/aurora-sep.conf
+  (options apple_sep xart_writes=1 provision_keybag=1). It existed only so
+  that /etc/modprobe.d/aurora-sep.conf could replace it with a read-only
+  setting, which is no longer offered. apple_sep has no xart_writes or
+  provision_keybag parameter (aurora-silicon/linux#2591) and ignores a stale
+  value; on older kernels both default to 1, so writes stay on, but a
+  leftover 0 still applies there and should be removed (XART-SAFETY.md).
+- aurora-sep status and aurora-sep-ready name the cases in which the xART
+  store is read-only (the key-store-only initrd phase, a failed writable
+  reopen, or a leftover xart_writes setting under an older kernel) instead
+  of offering xart_writes=0 as a setting.
+  XART-SAFETY.md and README.md no longer describe a read-only install.
+
 * Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-31
-- The login screen fingerprint unit no longer holds gdm until Touch ID is
-  ready. The login screen after boot takes the password anyway
-  (require_password_after_boot, as on macOS); later login screens and the
-  lock screen find the reader.
+- load-driver probes trusted keys once, after diag/keystore says the
+  enclave's bring-up has ended, instead of retrying every 0.1 s for up to
+  120 s: the driver's answer is final once the bring-up has ended. A key
+  store that did not open stops it at once, without a probe; a failed probe
+  names the key store and keybag states.
 
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-30
 - aurora-touchid-setup reads the M5 (T8142) factory seal, whose MANB holds

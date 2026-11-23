@@ -27,7 +27,7 @@ jobs:
           python3 images/test_configure.py
           python3 -m compileall -q scripts images
           for script in scripts/build-rpm scripts/build-flatpak-gl-repo \
-            packages/aurora-flatpak-gl/build-extension.sh scripts/test-graphics-upgrade scripts/test-fex-overlay-upgrade scripts/test-touchid-upgrade scripts/test-fedora-repository scripts/test-fedora44-compatibility scripts/test-system-upgrade scripts/test-vendor-change scripts/test-repo-trust scripts/test-bootchain-upgrade packages/update-m1n1/update-m1n1 packages/update-m1n1/aurora-stage2-commit scripts/fleet-kit/*.sh; do
+            packages/aurora-flatpak-gl/build-extension.sh scripts/test-graphics-upgrade scripts/test-fex-overlay-upgrade scripts/test-fex-guest-default scripts/test-fex-binfmt scripts/test-touchid-upgrade scripts/test-fedora-repository scripts/check-repository-closure scripts/test-repository-closure scripts/test-fedora44-compatibility scripts/test-system-upgrade scripts/test-vendor-change scripts/test-repo-trust scripts/test-bootchain-upgrade packages/update-m1n1/update-m1n1 packages/update-m1n1/aurora-stage2-commit scripts/fleet-kit/*.sh; do
             bash -n "$script"
           done
           git diff --check
@@ -54,6 +54,22 @@ jobs:
                 bash /src/scripts/test-fedora44-compatibility
               fi
             '
+  repository-closure:
+    # The publish check (publish.yml, publish-edge.yml) on probe packages: a
+    # kernel whose avd-fw floor the set does not meet is refused, also with the
+    # fleet's exclude and in an Edge snapshot over a Testing base.
+    runs-on: ubuntu-24.04-arm
+    strategy:
+      matrix:
+        release: ['44', '45']
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: The closure check refuses a kernel whose Requires the set cannot satisfy
+        run: |
+          docker run --rm -v "$PWD:/src:ro" registry.fedoraproject.org/fedora:${{ matrix.release }} \
+            bash /src/scripts/test-repository-closure
   repo-trust:
     runs-on: ubuntu-24.04
     strategy:
@@ -67,6 +83,83 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/src:ro" registry.fedoraproject.org/fedora:${{ matrix.release }} \
             bash /src/scripts/test-repo-trust /src/packages/aurora-repos
+  fex-guest-default:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        release: ['44', '45']
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: dnf adds the FEX guest Mesa; FEX's RootFS follows its provider under systemd
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/old" "$RUNNER_TEMP/proof"
+          # fex-emu 2610-5, the release systems upgrade from.
+          git archive f4cde0d16e318007d2ba9ebd277a0d05064c1134 packages/fex-emu | tar -x -C "$RUNNER_TEMP/old"
+          docker build -t aurora-fex-systemd:${{ matrix.release }} - <<'DOCKER'
+          FROM registry.fedoraproject.org/fedora:${{ matrix.release }}
+          RUN dnf install -y systemd util-linux rpm-build createrepo_c python3 systemd-rpm-macros && dnf clean all
+          CMD ["/sbin/init"]
+          DOCKER
+          docker run -d --name fex-guest --privileged --cgroupns=host \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /tmp \
+            -v "$PWD:/src:ro" -v "$RUNNER_TEMP/old:/old:ro" -v "$RUNNER_TEMP/proof:/proof" \
+            aurora-fex-systemd:${{ matrix.release }}
+          trap 'docker logs fex-guest > "$RUNNER_TEMP/proof/systemd.log" 2>&1; docker rm -f fex-guest' EXIT
+          for attempt in {1..30}; do
+            if docker exec fex-guest systemctl is-active multi-user.target; then break; fi
+            sleep 1
+          done
+          docker exec fex-guest bash /src/scripts/test-fex-guest-default /old/packages/fex-emu /src/packages /proof
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: fex-guest-default-${{ matrix.release }}
+          path: ${{ runner.temp }}/proof/
+          retention-days: 30
+  fex-binfmt:
+    # binfmt_misc needs the host's arch for an x86 program to reach a handler.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        release: ['44', '45']
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: FEX's handlers alone run x86 programs beside binfmt-dispatcher, with the programs' own arguments
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/old" "$RUNNER_TEMP/proof"
+          # fex-emu 2610-6, the release Asahi-upgraded systems upgrade from.
+          git archive 329148458f3634528dadd5cd368c1c171235900d packages/fex-emu | tar -x -C "$RUNNER_TEMP/old"
+          docker build -t aurora-fex-binfmt:${{ matrix.release }} - <<'DOCKER'
+          FROM registry.fedoraproject.org/fedora:${{ matrix.release }}
+          RUN dnf install -y systemd util-linux rpm-build createrepo_c python3 systemd-rpm-macros gcc && dnf clean all
+          CMD ["/sbin/init"]
+          DOCKER
+          docker run -d --name fex-binfmt --privileged --cgroupns=host \
+            -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /tmp \
+            -v "$PWD:/src:ro" -v "$RUNNER_TEMP/old:/old:ro" -v "$RUNNER_TEMP/proof:/proof" \
+            aurora-fex-binfmt:${{ matrix.release }}
+          trap 'docker logs fex-binfmt > "$RUNNER_TEMP/proof/systemd.log" 2>&1; docker rm -f fex-binfmt' EXIT
+          for attempt in {1..30}; do
+            if docker exec fex-binfmt systemctl is-active multi-user.target; then break; fi
+            sleep 1
+          done
+          docker exec fex-binfmt bash /src/scripts/test-fex-binfmt /old/packages/fex-emu /src/packages /proof
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: fex-binfmt-${{ matrix.release }}
+          path: ${{ runner.temp }}/proof/
+          retention-days: 30
   graphics:
     if: github.event_name == 'workflow_dispatch' && inputs.graphics_runs != ''
     runs-on: ubuntu-24.04-arm

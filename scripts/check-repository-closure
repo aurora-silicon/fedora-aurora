@@ -1,0 +1,37 @@
+#!/bin/bash
+# Refuse a package set in which a package Requires something that neither the
+# set nor the release's own Fedora repositories provide. dnf on the fleet
+# would skip that package without an error: given a kernel that needs an
+# avd-fw the set does not carry, the fleet stays on the old kernel. dnf5
+# repoclosure checks every package in the set. Configured excludes are
+# switched off, so the boot chain the fleet upgrade test excludes is checked.
+# Run inside a disposable Fedora container of the release being published.
+# usage: check-repository-closure <directory of the binary RPMs being published>
+set -euo pipefail
+source "$(dirname -- "${BASH_SOURCE[0]}")/testlib.sh"
+rpms=$(cd -- "${1:?directory of the binary RPMs being published}" && pwd)
+shopt -s nullglob
+packages=("$rpms"/*.rpm)
+shopt -u nullglob
+if (( ! ${#packages[@]} )); then
+  echo "No RPMs in $rpms" >&2
+  exit 1
+fi
+dnf install -y createrepo_c dnf5-plugins >/dev/null
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+# The index goes beside the set, not into it: the set is signed and published as it is.
+mkdir "$work/repo"
+createrepo_c --quiet --outputdir "$work/repo" "$rpms"
+# The candidate takes aurora.repo's priority, as on the fleet.
+status=0
+LC_ALL=C dnf5 --setopt=disable_excludes='*' \
+  --repofrompath=aurora-candidate,"$work/repo" --setopt=aurora-candidate.priority=1 \
+  repoclosure --check=aurora-candidate > "$work/closure.log" 2>&1 || status=$?
+cat "$work/closure.log"
+nomatch -F 'unresolved deps' "$work/closure.log"
+if (( status )); then
+  echo "dnf5 repoclosure failed with status $status" >&2
+  exit 1
+fi
+echo "Every Requires of the ${#packages[@]} RPMs resolves from the set and Fedora $(rpm --eval '%{fedora}')"

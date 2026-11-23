@@ -235,6 +235,15 @@ jobs:
             fi
           fi
           echo "status=$status" >> "$GITHUB_OUTPUT"
+      - name: Refuse a package whose Requires the repository cannot satisfy
+        # dnf skips such a package on upgrade without an error, so a kernel
+        # whose avd-fw floor the set does not meet would leave the fleet on
+        # the old kernel. Every package is checked, the boot chain included.
+        if: steps.assemble.outputs.status == 'complete'
+        run: |
+          set -euo pipefail
+          docker run --rm -v "$PWD:/src:ro" -w /src "$FEDORA_IMAGE" \
+            bash scripts/check-repository-closure complete-rpms
       - id: bundle
         if: steps.assemble.outputs.status == 'complete'
         run: |
@@ -242,7 +251,12 @@ jobs:
           mkdir candidate
           mv complete-rpms candidate/
           mkdir -p candidate/srpms candidate/manifests candidate/builds
-          cp input-build/srpms/*.{src,nosrc}.rpm candidate/srpms/ 2>/dev/null || true
+          # Copy the source RPMs that exist: most packages have a .src.rpm and
+          # no .nosrc.rpm, and a cp of an unmatched pattern fails.
+          shopt -s nullglob
+          srpms=(input-build/srpms/*.{src,nosrc}.rpm)
+          (( ${#srpms[@]} == 0 )) || cp -- "${srpms[@]}" candidate/srpms/
+          shopt -u nullglob
           cp input-build/manifests/*.json candidate/manifests/
           cp build-[0-9]*.json candidate/builds/
           tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf candidate.tar -C candidate .
