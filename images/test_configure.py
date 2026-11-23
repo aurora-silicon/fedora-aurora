@@ -158,8 +158,7 @@ class ConfigureTests(unittest.TestCase):
         types = {path.stem: ET.parse(path).getroot().find("preferences/type")
                  for path in (out / "platforms").glob("*.xml")}
         self.assertEqual(types["workstation"].get("kernelcmdline"),
-                         "rhgb quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto user4k=on "
-                         "plymouth.ignore-serial-consoles")
+                         "rhgb quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto user4k=on")
         self.assertEqual(types["minimal"].get("kernelcmdline"),
                          "quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto user4k=on")
         self.assertEqual(types["minimal"].get("rootfs_label"), "AURORA_ROOT")
