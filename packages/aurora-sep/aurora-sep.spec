@@ -3,7 +3,7 @@
 
 Name: aurora-sep
 Version: 1
-Release: 35%{?dist}
+Release: 36%{?dist}
 Summary: SEP trusted-key and fingerprint integration for Aurora
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -257,6 +257,15 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-36
+- aurora-touchid-setup and extract-mesa-calibration (without an input)
+  read the iBootSystemContainer partition of the disk that holds the
+  system ESP (the device tree's ESP PARTUUID, else the vfat file system at
+  /boot/efi or /boot), found by its GPT name with lsblk, instead of
+  /dev/disk/by-partlabel/iBootSystemContainer, which can name a partition
+  on a disk plugged in later. They refuse cleanly when that disk is not
+  known, is removable or external, or does not hold exactly one.
+
 * Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-35
 - aurora-touchid-setup: read only the factory records it uses (FSC2-,
   MSRk-, seal-, trustobject-), each only up to its logical size instead of
