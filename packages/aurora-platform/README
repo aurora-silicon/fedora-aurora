@@ -28,7 +28,11 @@ On the M4 Max MacBook Pros (J614c, J616c) the kernel reports trackpad palms
 itself, so 60-aurora-t6041-trackpad.quirks turns libinput's size-based palm
 detection off there, as aurora-neo-platform-config does for the J700.
 
-On the M4 Max (T6041), aurora-t6041-power.service sets the PCIe ASPM policy
-to powersupersave and kernel.sched_util_clamp_min_rt_default to 0 at boot.
-Other Macs skip it. "systemctl mask aurora-t6041-power.service" keeps the
-kernel's defaults.
+On every Apple silicon Mac, aurora-power-defaults.service sets the PCIe ASPM
+policy to powersupersave and kernel.sched_util_clamp_min_rt_default to 0 at
+boot, before aurora-power-modes records its baseline, so Balanced keeps them.
+"systemctl mask aurora-power-defaults.service" keeps the kernel's defaults.
+
+/dev/accel/accel* (the Neural Engine) belongs to the accel group, mode 0660,
+and the user of the active local session gets an ACL on it
+(70-aurora-accel.rules). Add other users with "usermod -aG accel USER".

@@ -1,5 +1,5 @@
 Name:           lsp-plugins
-Version:        1.2.29
+Version:        1.2.37
 Release:        2%{?dist}.aurora1
 Summary:        Linux Studio Plugins
 
@@ -64,6 +64,32 @@ Requires:       liblsp-r3d-glx%{?_isa} = %{version}-%{release}
 
 %description -n liblsp-r3d-glx-devel
 Library liblsp-r3d-glx plugin development.
+
+%package -n liblsp-audio-jack
+Summary:        LSP JACK audio library
+
+%description -n liblsp-audio-jack
+Shared JACK audio library used by LSP plugins.
+
+%package -n liblsp-audio-jack-devel
+Summary:        Development files for the LSP JACK audio library
+Requires:       liblsp-audio-jack%{?_isa} = %{version}-%{release}
+
+%description -n liblsp-audio-jack-devel
+Development files for the LSP JACK audio library.
+
+%package -n liblsp-audio-pipewire
+Summary:        LSP PipeWire audio library
+
+%description -n liblsp-audio-pipewire
+Shared PipeWire audio library used by LSP plugins.
+
+%package -n liblsp-audio-pipewire-devel
+Summary:        Development files for the LSP PipeWire audio library
+Requires:       liblsp-audio-pipewire%{?_isa} = %{version}-%{release}
+
+%description -n liblsp-audio-pipewire-devel
+Development files for the LSP PipeWire audio library.
 
 
 %package doc
@@ -159,11 +185,27 @@ LV2_PATH=%{buildroot}%{_libdir}/lv2 ./lsp-latency-check
 
 %files -n liblsp-r3d-glx
 %license COPYING COPYING.LESSER
-%{_libdir}/liblsp-r3d-glx-lib-1.0.28.so
+%{_libdir}/liblsp-r3d-glx-lib-*.so
 
 %files -n liblsp-r3d-glx-devel
 %{_libdir}/liblsp-r3d-glx-lib.so
 %{_libdir}/pkgconfig/lsp-r3d-glx-lib.pc
+
+%files -n liblsp-audio-jack
+%license COPYING COPYING.LESSER
+%{_libdir}/liblsp-audio-jack-lib-*.so
+
+%files -n liblsp-audio-jack-devel
+%{_libdir}/liblsp-audio-jack-lib.so
+%{_libdir}/pkgconfig/lsp-audio-jack-lib.pc
+
+%files -n liblsp-audio-pipewire
+%license COPYING COPYING.LESSER
+%{_libdir}/liblsp-audio-pipewire-lib-*.so
+
+%files -n liblsp-audio-pipewire-devel
+%{_libdir}/liblsp-audio-pipewire-lib.so
+%{_libdir}/pkgconfig/lsp-audio-pipewire-lib.pc
 
 %files doc
 %license COPYING COPYING.LESSER
@@ -203,9 +245,19 @@ LV2_PATH=%{buildroot}%{_libdir}/lv2 ./lsp-latency-check
 %{_libdir}/gstreamer-1.0/libgstlsp-plugins*.so
 
 %changelog
+* Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.2.37-2.aurora1
+- Rebase on Fedora 1.2.37-2
+- loud_comp: refresh the FFT-size latency fix for 1.2.37
+
 * Sun Oct 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.2.29-2.aurora1
 - loud_comp: report the latency of the FFT size in use
 - Check in %%check that the plugins report the latency they impose
+
+* Mon Nov 09 2026 Erich Eickmeyer <erich@ericheickmeyer.com> - 1.2.37-2
+- Package the new shared libraries and their development files
+
+* Tue Nov 03 2026 Nikolas Nyby <nikolas@gnu.org> - 1.2.37-1
+- Update to 1.2.37
 
 * Thu Jul 16 2026 Fedora Release Engineering <releng@fedoraproject.org> - 1.2.29-2
 - Rebuilt for https://fedoraproject.org/wiki/Fedora_45_Mass_Rebuild

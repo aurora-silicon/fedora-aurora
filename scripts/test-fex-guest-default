@@ -1,0 +1,377 @@
+#!/bin/bash
+# Disposable Fedora CI container booted with systemd; never a fleet installer.
+# Checks that dnf5 adds mesa-aurora-fex-guest where fex-emu and Aurora's host
+# Mesa are installed, and that FEX's global RootFS follows the guest's graphics
+# provider: the provider while it is mounted, the stock image otherwise.
+#
+# Stand-in packages carry the real recipes' dependency lines, unit files,
+# scripts and scriptlets, around fake x86 trees: nothing here runs FEX or Mesa
+# (hardware does that).
+#
+# usage: test-fex-guest-default <fex-emu 2610-5 recipe dir> <packages dir> <proof dir>
+set -euo pipefail
+source "$(dirname -- "${BASH_SOURCE[0]}")/testlib.sh"
+[[ -e /.dockerenv && -d /run/systemd/system ]]
+old=${1:?fex-emu 2610-5 recipe directory}
+packages=${2:?packages directory}
+proof=${3:?evidence directory}
+mkdir -p "$proof"
+exec > >(tee "$proof/fex-guest-default.log") 2>&1
+release=$(rpm --eval '%{fedora}')
+[[ $release == 44 || $release == 45 ]]
+grep -q '^Release:    5%' "$old/fex-emu.spec"
+new=$packages/fex-emu
+guest=$packages/mesa-aurora-fex-guest
+
+top=/var/tmp/fex-stubs
+rm -rf "$top"
+mkdir -p "$top/SPECS" "$top/repos.d"
+
+# spec_block FILE FIRST: the scriptlets from FIRST (e.g. %pre) up to %files.
+spec_block() {
+  python3 - "$1" "$2" <<'PY'
+import sys
+text = open(sys.argv[1]).read()
+first = sys.argv[2]
+print(first + '\n' + text.split('\n' + first + '\n', 1)[1].split('\n%files', 1)[0])
+PY
+}
+# dep_lines FILE PATTERN: the main package's dependency lines that match.
+dep_lines() {
+  python3 - "$1" "$2" <<'PY'
+import re, sys
+main = open(sys.argv[1]).read().split('%package', 1)[0]
+for line in main.splitlines():
+    if re.match(r'(Requires|Recommends):', line) and re.search(sys.argv[2], line):
+        print(line)
+PY
+}
+
+# stub NAME VERSION RELEASE REPO: a noarch stand-in; the spec body (deps,
+# %install, scriptlets, %files) comes on stdin.
+stub() {
+  local spec=$top/SPECS/$1-$2-$3.spec
+  {
+    printf 'Name: %s\nVersion: %s\nRelease: %s\nSummary: stand-in\nLicense: MIT\nBuildArch: noarch\n' "$1" "$2" "$3"
+    cat
+  } > "$spec"
+  mkdir -p "$top/$4"
+  rpmbuild -bb --quiet --define "_topdir $top" --define "_rpmdir $top/$4" "$spec"
+}
+
+host_mesa() { # RELEASE REPO
+  local evr=26.3.0-$1
+  stub mesa-aurora-dri-drivers 26.3.0 "$1" "$2" <<SPEC
+Provides: mesa-dri-drivers = $evr
+Obsoletes: mesa-dri-drivers < $evr
+%description
+stand-in
+%files
+SPEC
+  stub mesa-aurora-vulkan-drivers 26.3.0 "$1" "$2" <<SPEC
+Provides: mesa-vulkan-drivers = $evr
+Obsoletes: mesa-vulkan-drivers < $evr
+%description
+stand-in
+%files
+SPEC
+}
+
+# fex_emu RELEASE REPO RECIPE [full]: fex-emu with that recipe's weak and
+# runtime dependencies; "full" adds its files and scriptlets. Lean stand-ins
+# install into an empty installroot, which has no shell for scriptlets.
+fex_emu() {
+  local recipe=$3
+  {
+    dep_lines "$recipe/fex-emu.spec" 'fex-emu-rootfs-fedora|mesa-aurora-fex-guest|util-linux-core'
+    printf '%%description\nstand-in\n'
+    if [[ ${4:-} == full ]]; then
+      printf '%%install\nr=%s\n' "$recipe"
+      cat <<'SPEC'
+install -Dm644 "$r/50-aurora-fex-rootfs.conf" %{buildroot}%{_unitdir}/aurora-fex-mesa.service.d/50-aurora-fex-rootfs.conf
+install -Dm644 "$r"/'usr-share-guestos-fex\x2dmesa.mount' '%{buildroot}%{_unitdir}/usr-share-guestos-fex\x2dmesa.mount'
+install -Dm755 "$r/aurora-fex-provider-up" %{buildroot}%{_libexecdir}/fex-emu/aurora-fex-provider-up
+if [ -e "$r/aurora-fex-rootfs" ]; then
+  install -Dm755 "$r/aurora-fex-rootfs" %{buildroot}%{_libexecdir}/fex-emu/aurora-fex-rootfs
+fi
+install -Dm644 "$r/Config.json" %{buildroot}%{_datadir}/fex-emu/Config.json
+install -d %{buildroot}%{_datadir}/guestos/fex-mesa %{buildroot}%{_datadir}/fex-emu/RootFS
+SPEC
+      spec_block "$recipe/fex-emu.spec" %postun
+      cat <<'SPEC'
+%files
+%{_unitdir}/aurora-fex-mesa.service.d/50-aurora-fex-rootfs.conf
+%{_unitdir}/usr-share-guestos-fex*.mount
+%{_libexecdir}/fex-emu/
+%config(noreplace) %{_datadir}/fex-emu/Config.json
+%dir %{_datadir}/fex-emu
+%dir %{_datadir}/fex-emu/RootFS
+%dir %{_datadir}/guestos
+%dir %{_datadir}/guestos/fex-mesa
+SPEC
+    else
+      printf '%%files\n'
+    fi
+  } | stub fex-emu 2610 "$1" "$2"
+}
+
+# guest_mesa RELEASE REPO [full]: mesa-aurora-fex-guest's exact host Mesa
+# requirement; "full" adds the real unit, preset and scriptlets and a layer
+# that names its release.
+guest_mesa() {
+  local evr=26.3.0-$1
+  {
+    printf 'Requires: mesa-dri-drivers = %s\nRequires: mesa-vulkan-drivers = %s\n' "$evr" "$evr"
+    [[ ${3:-} == full ]] && echo 'Requires: util-linux-core'
+    printf '%%description\nstand-in\n'
+    if [[ ${3:-} == full ]]; then
+      cat <<SPEC
+%install
+L=%{buildroot}/usr/share/guestos/aurora-fex-mesa-layer
+mkdir -p \$L/usr/lib64 %{buildroot}/usr/share/guestos/aurora-fex-mesa
+# An x86-64 ELF header up to e_machine (62), then the release.
+printf '\\177ELF\\002\\001\\001\\000\\000\\000\\000\\000\\000\\000\\000\\000\\003\\000\\076\\000\\n' > \$L/usr/lib64/libvulkan_asahi.so
+echo "aurora $evr" >> \$L/usr/lib64/libvulkan_asahi.so
+echo "$evr" > \$L/.aurora-mesa-commit
+install -Dm644 $guest/aurora-fex-mesa.service %{buildroot}%{_unitdir}/aurora-fex-mesa.service
+install -Dm644 $guest/80-aurora-fex-mesa.preset %{buildroot}%{_presetdir}/80-aurora-fex-mesa.preset
+SPEC
+      spec_block "$guest/mesa-aurora-fex-guest.spec" %pre
+      cat <<'SPEC'
+%files
+/usr/share/guestos/aurora-fex-mesa-layer
+%dir /usr/share/guestos/aurora-fex-mesa
+%{_unitdir}/aurora-fex-mesa.service
+%{_presetdir}/80-aurora-fex-mesa.preset
+SPEC
+    else
+      printf '%%files\n'
+    fi
+  } | stub mesa-aurora-fex-guest 26.3.0 "$1" "$2"
+}
+
+host_mesa 30.aurora base
+host_mesa 31.aurora mesa31
+for name in mesa-dri-drivers mesa-vulkan-drivers; do
+  stub "$name" 26.2.0 1.fc base <<'SPEC'
+%description
+Fedora's Mesa
+%files
+SPEC
+done
+stub fex-emu-rootfs-fedora "$release" 1 base <<'SPEC'
+%description
+stand-in for the stock image
+%install
+mkdir -p %{buildroot}%{_datadir}/fex-emu/RootFS
+echo stock > %{buildroot}%{_datadir}/fex-emu/RootFS/default.erofs
+%files
+%{_datadir}/fex-emu/RootFS/default.erofs
+SPEC
+# Aurora's Steam recommends the guest without a condition.
+stub aurora-steam-native 0 3 base <<'SPEC'
+Requires: fex-emu
+Recommends: mesa-aurora-fex-guest
+%description
+stand-in
+%files
+SPEC
+# Shared: base, mesa31. Resolution cases: a-*; systemd cases: b-*.
+# An empty installroot has none of the system's packages.
+stub util-linux-core 2.41 1 a-base <<'SPEC'
+%description
+stand-in
+%files
+SPEC
+fex_emu 5.aurora a-base "$old"
+fex_emu 6.aurora a-update "$new"
+guest_mesa 30.aurora a-update
+guest_mesa 31.aurora a-mesa31
+fex_emu 5.aurora b-base "$old" full
+fex_emu 6.aurora b-update "$new" full
+guest_mesa 30.aurora b-update full
+guest_mesa 31.aurora b-mesa31 full
+for repo in base mesa31 a-base a-update a-mesa31 b-base b-update b-mesa31; do
+  createrepo_c -q "$top/$repo"
+  printf '[stub-%s]\nname=stand-ins %s\nbaseurl=file://%s\ngpgcheck=0\nenabled=0\n' \
+    "$repo" "$repo" "$top/$repo" > "$top/repos.d/stub-$repo.repo"
+done
+cp "$top"/repos.d/*.repo /etc/yum.repos.d/
+
+# ---- Dependency resolution, each case in its own installroot ----
+aurora_mesa=(mesa-aurora-dri-drivers mesa-aurora-vulkan-drivers)
+fedora_only=--setopt=excludepkgs=mesa-aurora-dri-drivers,mesa-aurora-vulkan-drivers
+case_root() {
+  root=/var/tmp/fex-dnf-$1
+  rm -rf "$root"
+  mkdir -p "$root"
+}
+dnfr() { dnf5 -y -q --installroot="$root" --use-host-config --releasever="$release" "$@"; }
+installed() { rpm --root="$root" -q "$@"; }
+
+a_base=(--repo=stub-base --repo=stub-a-base)
+a_updates=(--repo=stub-base --repo=stub-a-base --repo=stub-a-update)
+a_mesa31=(--repo=stub-mesa31 --repo=stub-a-mesa31)
+
+echo '== An Asahi-upgraded system: fex-emu 2610-5 and Aurora Mesa, no guest; dnf upgrade adds it'
+case_root upgrade
+dnfr "${a_base[@]}" --setopt=install_weak_deps=False install "${aurora_mesa[@]}" fex-emu fex-emu-rootfs-fedora
+refute installed mesa-aurora-fex-guest
+dnfr "${a_updates[@]}" upgrade
+installed fex-emu-2610-6.aurora mesa-aurora-fex-guest-26.3.0-30.aurora
+
+echo '== Removing the guest is respected: a Mesa upgrade does not bring it back'
+dnfr remove mesa-aurora-fex-guest
+dnfr "${a_updates[@]}" "${a_mesa31[@]}" upgrade
+installed mesa-aurora-dri-drivers-26.3.0-31.aurora
+refute installed mesa-aurora-fex-guest
+
+echo '== The same upgrade together with a Mesa update adds the matching guest'
+case_root upgrade-mesa
+dnfr "${a_base[@]}" --setopt=install_weak_deps=False install "${aurora_mesa[@]}" fex-emu fex-emu-rootfs-fedora
+dnfr "${a_updates[@]}" "${a_mesa31[@]}" upgrade
+installed fex-emu-2610-6.aurora mesa-aurora-dri-drivers-26.3.0-31.aurora mesa-aurora-fex-guest-26.3.0-31.aurora
+
+echo '== A new install of fex-emu on Aurora Mesa brings the guest'
+case_root install
+dnfr "${a_base[@]}" --setopt=install_weak_deps=False install "${aurora_mesa[@]}"
+dnfr "${a_updates[@]}" install fex-emu
+installed fex-emu-2610-6.aurora fex-emu-rootfs-fedora mesa-aurora-fex-guest-26.3.0-30.aurora
+
+echo "== Fedora's own Mesa: the upgrade and a new install pull nothing and keep Fedora's Mesa"
+case_root fedora-upgrade
+dnfr "${a_base[@]}" "$fedora_only" --setopt=install_weak_deps=False install mesa-dri-drivers mesa-vulkan-drivers fex-emu
+dnfr "${a_updates[@]}" "$fedora_only" upgrade
+installed fex-emu-2610-6.aurora mesa-dri-drivers-26.2.0-1.fc
+refute installed mesa-aurora-fex-guest
+case_root fedora-install
+dnfr "${a_base[@]}" "$fedora_only" --setopt=install_weak_deps=False install mesa-dri-drivers mesa-vulkan-drivers
+dnfr "${a_updates[@]}" "$fedora_only" install fex-emu
+installed fex-emu-2610-6.aurora mesa-dri-drivers-26.2.0-1.fc
+refute installed mesa-aurora-fex-guest
+
+# Recorded, not required: dnf5 (exclude_from_weak_autodetect) treats a plain
+# Recommends that an installed package already has, unmet, as unwanted.
+echo '== Note: aurora-steam-native installed without the guest'
+case_root steam
+dnfr "${a_base[@]}" --setopt=install_weak_deps=False install "${aurora_mesa[@]}" fex-emu aurora-steam-native
+dnfr "${a_updates[@]}" upgrade
+if installed mesa-aurora-fex-guest; then
+  echo 'NOTE: the fex-emu upgrade added the guest beside aurora-steam-native'
+else
+  echo 'NOTE: dnf5 kept the guest out: aurora-steam-native already recommended it, unmet'
+fi
+
+# ---- The provider and FEX's RootFS under systemd ----
+provider=/usr/share/guestos/aurora-fex-mesa
+rootfs=/run/fex-emu/rootfs
+config=/run/fex-emu/Config.json
+expected=$(printf '{"Config": {"RootFS": "%s"}}' "$rootfs")
+selected() {
+  [[ $(python3 -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1]))))' "$config") == "$expected" ]]
+  mountpoint -q "$rootfs"
+  [[ $(stat -c %d "$rootfs") == $(stat -c %d "$provider") ]]
+  refute touch "$rootfs/read-only-probe"
+}
+stock() {
+  [[ ! -e $config ]]
+  grep -qF '"RootFS": "/usr/share/fex-emu/RootFS/default.erofs"' /usr/share/fex-emu/Config.json
+}
+binds() { findmnt -n -o TARGET --list | grep -cx "$rootfs" || :; }
+
+# This test restarts the provider more often than systemd's default start
+# limit allows (a real upgrade starts it once or twice).
+mkdir -p /run/systemd/system/aurora-fex-mesa.service.d
+printf '[Unit]\nStartLimitIntervalSec=0\n' > /run/systemd/system/aurora-fex-mesa.service.d/90-test-start-limit.conf
+systemctl daemon-reload
+# The stock image's tree, where fex-emu's loop mount would put it (the mount
+# unit then stands aside for the tree that is already there).
+mkdir -p /usr/share/guestos/fex-mesa/usr/lib64
+echo stock > /usr/share/guestos/fex-mesa/usr/lib64/ld-linux-x86-64.so.2
+echo stock > /usr/share/guestos/fex-mesa/usr/lib64/libvulkan_asahi.so
+
+b_base=(--repo=stub-base --repo=stub-b-base)
+b_updates=(--repo=stub-base --repo=stub-b-base --repo=stub-b-update)
+b_mesa31=(--repo=stub-mesa31 --repo=stub-b-mesa31)
+
+echo '== systemd: the upgrade adds the guest and FEX uses its provider'
+dnf -y -q "${b_base[@]}" --setopt=install_weak_deps=False install "${aurora_mesa[@]}" fex-emu fex-emu-rootfs-fedora
+refute rpm -q mesa-aurora-fex-guest
+stock
+dnf -y "${b_updates[@]}" upgrade | tee "$proof/upgrade.txt"
+rpm -q fex-emu-2610-6.aurora mesa-aurora-fex-guest-26.3.0-30.aurora
+systemctl is-active aurora-fex-mesa.service
+systemctl show -P ExecStartPost aurora-fex-mesa.service | grep -F /usr/libexec/fex-emu/aurora-fex-rootfs
+selected
+grep -aqx 'aurora 26.3.0-30.aurora' "$rootfs/usr/lib64/libvulkan_asahi.so"
+grep -qx stock "$rootfs/usr/lib64/ld-linux-x86-64.so.2"
+cp "$config" "$proof/Config.json"
+findmnt "$rootfs" > "$proof/rootfs-mount.txt"
+
+echo '== Stopping the provider moves FEX back to the stock image; starting it returns'
+systemctl stop aurora-fex-mesa.service
+stock
+refute mountpoint -q "$rootfs"
+systemctl start aurora-fex-mesa.service
+selected
+
+# (The tree stays non-empty, so fex-emu's mount unit keeps standing aside.)
+echo '== A provider without an x86-64 loader below it is not used'
+systemctl stop aurora-fex-mesa.service
+mv /usr/share/guestos/fex-mesa/usr/lib64/ld-linux-x86-64.so.2 /var/tmp/
+systemctl start aurora-fex-mesa.service
+systemctl is-active aurora-fex-mesa.service
+stock
+systemctl stop aurora-fex-mesa.service
+mv /var/tmp/ld-linux-x86-64.so.2 /usr/share/guestos/fex-mesa/usr/lib64/
+systemctl start aurora-fex-mesa.service
+selected
+
+# A runtime config that can't be written in full must not land: FEX refuses
+# to start on an empty or partial one.
+echo '== A full /run leaves no runtime config, and FEX on the stock image'
+systemctl stop aurora-fex-mesa.service
+mount -t tmpfs -o size=4k fex-full /run/fex-emu
+dd if=/dev/zero of=/run/fex-emu/fill bs=1k count=64 2>/dev/null || :
+systemctl start aurora-fex-mesa.service
+systemctl is-active aurora-fex-mesa.service
+stock
+[[ -z $(find /run/fex-emu -name '.Config.json.*') ]]
+journalctl -b -u aurora-fex-mesa.service | grep -F "can't write"
+systemctl stop aurora-fex-mesa.service
+umount /run/fex-emu
+systemctl start aurora-fex-mesa.service
+selected
+
+echo '== A guest upgrade proceeds while an x86 program runs from the RootFS'
+systemd-run --unit=fex-busy -p WorkingDirectory="$rootfs" sleep 600
+systemctl is-active fex-busy.service
+dnf -y "${b_updates[@]}" "${b_mesa31[@]}" upgrade | tee "$proof/busy-upgrade.txt"
+rpm -q mesa-aurora-fex-guest-26.3.0-31.aurora mesa-aurora-dri-drivers-26.3.0-31.aurora
+rpm -V mesa-aurora-fex-guest
+[[ ! -e /run/aurora-fex-mesa.upgrade ]]
+systemctl is-active aurora-fex-mesa.service fex-busy.service
+selected
+grep -aqx 'aurora 26.3.0-31.aurora' "$rootfs/usr/lib64/libvulkan_asahi.so"
+# The running program keeps its tree, below the new one.
+[[ $(binds) == 2 ]]
+systemctl stop fex-busy.service
+systemctl restart aurora-fex-mesa.service
+selected
+[[ $(binds) == 1 ]]
+
+echo '== Removing the guest falls back to the stock image'
+dnf -y remove mesa-aurora-fex-guest
+rpm -q fex-emu
+stock
+refute mountpoint -q "$rootfs"
+refute mountpoint -q "$provider"
+
+echo '== Removing fex-emu drops the runtime config'
+dnf -y -q "${b_updates[@]}" "${b_mesa31[@]}" install mesa-aurora-fex-guest
+systemctl is-active aurora-fex-mesa.service
+selected
+dnf -y remove fex-emu
+[[ ! -e $config ]]
+refute mountpoint -q "$rootfs"
+echo FEX-GUEST-DEFAULT-PASS

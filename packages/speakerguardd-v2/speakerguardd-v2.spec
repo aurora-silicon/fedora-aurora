@@ -1,14 +1,14 @@
-%global commit bbd9ed30ac43ff4fee3a8b279ff994180d8148cb
+%global commit 9b7285c420a72a28e4c51ff693011dba5ca5909c
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261117
+%global snapdate 20261123
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
 %global cargo_pkgs -p sgv2-core -p sgv2-lv2 -p sgv2-supervisor -p aurora-speaker-tuning
 
 Name: speakerguardd-v2
-Version: 1.0.0~alpha.1
-Release: 0.49.%{snapdate}git%{shortcommit}%{?dist}
+Version: 1.0.0~alpha.2
+Release: 0.54.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -89,6 +89,8 @@ bzip2 -9 %{modulename}.pp
 %check
 cargo test --locked --release %{cargo_pkgs}
 python3 -I packaging/session/test_provision.py
+python3 -I packaging/session/test_wiring.py
+python3 -I packaging/session/test_session.py
 
 %install
 install -Dm755 target/release/speakerguardd %{buildroot}%{_libexecdir}/speakerguardd-v2/speakerguardd
@@ -248,6 +250,55 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.54.20261123git9b7285c420a7
+- Rebuilt from speakerguardd main 9b7285c4: the machine description is
+  built from the Mac's own capabilities (device tree, running card, its
+  tuning bundle) and the card is the one bound to the device tree's sound
+  node (speakerguardd#229); the voicing tables are keyed by the bundle's
+  speaker identity, not the board (#231); a Mac's bundle on a by-vendor
+  database with no known speaker ID is refused and stays muted (#232); a
+  self-check record is current only for this board and audio stack (#234);
+  the gate, provisioning and self-check take the speaker card only once
+  ALSA registered it, which fixes the legacy answer at an early boot, and
+  a registered card whose controls cannot be read starts neither stack, so
+  the kernel's floor holds where speakersafetyd used to start (#236); the
+  operating-point match holds to the gain control's own dB step (#200).
+- Four-lane LSID companions release on their static model (#228), but the
+  gate and provisioning run that release only on a speaker whose protected
+  playback rows (a loud step and a thermal ramp) are on record in
+  gate.json; the J713 (AID37) and J813 (AID42) have none yet and stay
+  muted, as before (#238).
+- aurora-platform-core installs v2 with its units enabled: the gate starts
+  it on a v2-only kernel wherever the records qualify, and on a dual kernel
+  once aurora-speaker-upgrade has switched the Mac.
+- %%check also runs upstream's test_wiring.py and test_session.py.
+
+* Sat Nov 21 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.53.20261121git29263b5cfa8d
+- Rebuilt from speakerguardd main 29263b5c: the self-check refuses V/I
+  sense that a bit-clock misframe corrupts, where idle noise reads near
+  full scale (speakerguardd#225); a passing self-check is bound to the
+  speaker card's device-tree node and the sound modules' build IDs, so a
+  changed audio stack runs the switch test again (#226). v2 stays a
+  preview and opt-in.
+
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 1.0.0~alpha.2-0.52.20261120gitf573f6054011
+- Rebuilt from speakerguardd main f573f605: a speaker transport without
+  V/I sense is proven for one amp, the M4 Mac mini's (speakerguardd#212);
+  the supervisor and session start no refused stream and take one grant
+  per graph change (#202); provisioning at the first seat0 login counts a
+  unit its own wants link starts as enabled (#215; Fedora enables through
+  presets and keeps its behaviour); the supervisor unit applies the kernel
+  interface itself, without aurora-speaker-upgrade's drop-in (#205).
+
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.2-0.51.20261120gitdafc508877e3
+- speakerguardd 1.0.0-alpha.2 (dafc5088), the first release from main now
+  that v2 is speakerguardd's main line: the voicing chain stops after a long
+  exact silence (speakerguardd#171) and the speaker path idles while nothing
+  plays (#176); power-only amplifier models are refused only with the power
+  axis (#179); a J815 session fixture (#187); the gate answers at once when
+  the device tree describes no speaker card (#194); the J815 graph carries
+  the #176 hold sink (#199).
+
 * Tue Nov 17 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.1-0.49.20261117gitbbd9ed30ac43
 - Release candidate 9 (speakerguardd#144): v2 is no longer labelled a
   preview; aurora-speaker-upgrade switches without the preview

@@ -1,6 +1,6 @@
 Name: plymouth-theme-aurora
 Version: 1
-Release: 8%{?dist}
+Release: 9%{?dist}
 Summary: Aurora boot splash: the bootloader's logo, kept in place, with the distribution's branding
 # The spinner, password entry and watermark images come from the distribution's
 # spinner theme (ImageDir); this package adds the script and aura's logos.
@@ -105,8 +105,11 @@ fi
 flag=%{_localstatedir}/lib/rpm-state/plymouth-theme-aurora-initrd
 if [ -e $flag ]; then
   rm -f $flag
-  if [ -d /run/systemd/system ]; then
-    dracut -f --regenerate-all >/dev/null 2>&1 || :
+  # A failed rebuild leaves the previous initramfs in place: say so, and
+  # fail the scriptlet so the package manager reports it.
+  if [ -d /run/systemd/system ] && ! dracut -f --regenerate-all; then
+    echo 'plymouth-theme-aurora: rebuilding the initramfs failed; the splash changes once "dracut -f --regenerate-all" succeeds' >&2
+    exit 1
   fi
 fi
 
@@ -131,6 +134,10 @@ fi
 %{_prefix}/lib/dracut/modules.d/96aurora-plymouth
 
 %changelog
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-9
+- Report a failed initramfs rebuild instead of discarding its output and
+  status.
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-8
 - Add plymouth.ignore-serial-consoles to boot entries that lack it even when
   /etc/kernel/cmdline already has it.

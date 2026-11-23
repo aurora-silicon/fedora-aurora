@@ -1,5 +1,19 @@
 # AVD firmware changelog
 
+## 2026-11-21: ea8ae7c8
+
+Update the pinned MIT-licensed firmware to
+`ea8ae7c8b19057865b99f16522e122566dabdaf4` (aurora-silicon/avd-fw#8). The v4
+image (T8122, M3) now advertises the CM3 SRAM at +0x90000 (aperture
+`0x01090000`) and is 64 KiB, as on v3 and v5-t0: on hardware the firmware
+writes its queue info block through its SRAM alias at +0x7fc0, 0x2000 below
+the old window. With the matching device tree (aurora-silicon/linux#2586) the
+M3 decoder engages the queue transport; with the current one it stays on the
+legacy transport. Both were measured on a J615 with this exact image
+(`92d30e53...`): queue mode at M2 speed, legacy unchanged, all output
+bit-exact. The other seven images are byte-identical. Source archive SHA-256:
+`ebf4fae6872c4e6dc5747fb98a613b790cc9e0c9aa4c9bf3e0f96e3afcc369da`.
+
 ## 2026-11-01: 6062e851
 
 Update the pinned MIT-licensed firmware to
