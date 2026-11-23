@@ -275,8 +275,18 @@ class SpecTests(unittest.TestCase):
         setup = (d / 'early-kms-module-setup.sh').read_text()
         self.assertRegex(setup, r"(?m)^\s+hostonly='' instmods appledrm ")
         # appledrm waits for every DCP: an external DCP's Type-C chain comes up with it.
-        for module in ('i2c-pasemi-platform', 'phy-apple-atc', 'phy-ti-cd2e22', 'tps6598x'):
-            self.assertIn(module, setup.split('installkernel()', 1)[1].split('}', 1)[0])
+        installkernel = setup.split('installkernel()', 1)[1].split('}', 1)[0]
+        for module in ('i2c-pasemi-platform', 'phy-ti-cd2e22', 'tps6598x'):
+            self.assertIn(module, installkernel)
+        # Every Apple PHY driver, whatever the SoC's DCPs need.
+        self.assertRegex(installkernel, r"(?m)^\s+hostonly='' instmods '=drivers/phy/apple'$")
+        # The pre-pivot wait (tests/test_early_kms_wait.py) is one udev event
+        # wait on the card's by-path link; the module carries what it runs.
+        self.assertRegex(setup, r'(?m)^\s+inst_hook pre-pivot \d+ "\$moddir/aurora-early-kms-wait\.sh"$')
+        self.assertRegex(setup, r'(?m)^\s+inst_multiple modprobe tr udevadm$')
+        self.assertRegex(setup, r'(?m)^\s+inst_rules 60-drm\.rules$')
+        wait = (d / 'aurora-early-kms-wait.sh').read_text()
+        self.assertIn('udevadm wait --timeout=2 "/dev/dri/by-path/platform-${dev##*/}-card"', wait)
         self.assertRegex(setup, r'(?m)^\s+inst_hook pre-trigger \d+ "\$moddir/aurora-early-kms\.sh"$')
         hook = (d / 'aurora-early-kms.sh').read_text()
         self.assertIn("*Capple,display-subsystem*|*Capple,dcp*)", hook)

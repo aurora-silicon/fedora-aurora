@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 51%{?dist}
+Release: 52%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -301,6 +301,20 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-52
+- 91aurora-early-kms: the pre-pivot hook waits for appledrm's card with one
+  "udevadm wait" on /dev/dri/by-path/platform-<display subsystem>-card
+  (2 s at most) instead of a 50 ms sleep loop, and the module installs
+  60-drm.rules so the link exists in the initramfs. With no driver bound
+  yet, it waits when one can bind: a module of the initramfs matches the
+  subsystem's modalias and is not blacklisted (modprobe.d,
+  modprobe.blacklist=, rd.driver.blacklist=, module_blacklist=). The loop
+  gave that case 1 s; without the display subsystem or a driver for it
+  there is no wait.
+- The initramfs carries every Apple PHY driver (drivers/phy/apple) instead
+  of phy-apple-atc by name: T6041's external display processors also need
+  phy-apple-t6040-usb2 and phy-apple-dptx.
+
 * Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-51
 - /dev/accel/accel* (the Neural Engine) is mode 0660, group accel, with a
   uaccess ACL for the user of the active local session
