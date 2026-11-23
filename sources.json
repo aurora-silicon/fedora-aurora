@@ -534,5 +534,14 @@
     "source_url": "https://codeload.github.com/aurora-silicon/aurora-sep-userspace/tar.gz/b7013b95052db8265b28feec22793254fe0f3d2b",
     "archive_root": "aurora-sep-userspace-b7013b95052db8265b28feec22793254fe0f3d2b",
     "sha256": "0391b7820d664dabebd0e7abe2f57c8765df23d41d5e8d6c7153f4760ca36ece"
+  },
+  "geoclue2": {
+    "repository": "https://gitlab.freedesktop.org/geoclue/geoclue",
+    "commit": "97df14726a95a06e0e3f1b3c9c4388ed1aff7e8c",
+    "version": "2.8.2",
+    "source_url": "https://gitlab.freedesktop.org/geoclue/geoclue/-/archive/2.8.2/geoclue-2.8.2.tar.bz2",
+    "archive_root": "geoclue-2.8.2",
+    "archive_file": "geoclue-2.8.2.tar.bz2",
+    "sha256": "d4d65933b704d4c8d4ca9747dc511b883e35099abe534c8560f2aab3017e4cd4"
   }
 }
