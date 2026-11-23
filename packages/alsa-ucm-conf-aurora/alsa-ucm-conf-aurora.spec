@@ -1,7 +1,7 @@
-%global commit 099f2b9c32609a7eb7d4c2c4987692bbc02de1bd
+%global commit 96b3206d2f4c6f89145a2f1b5395a833fb2ae0af
 Name: alsa-ucm-conf-aurora
 Version: 10
-Release: 6%{?dist}
+Release: 7%{?dist}
 Summary: Aurora ALSA use-case profiles
 License: BSD-3-Clause
 URL: https://github.com/aurora-silicon/alsa-ucm-conf-asahi
@@ -15,7 +15,7 @@ Requires: alsa-ucm
 Aurora ALSA use-case profiles. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n alsa-ucm-conf-asahi-099f2b9c32609a7eb7d4c2c4987692bbc02de1bd
+%autosetup -n alsa-ucm-conf-asahi-96b3206d2f4c6f89145a2f1b5395a833fb2ae0af
 
 %build
 
@@ -28,6 +28,13 @@ cp -a ucm2 %{buildroot}%{_datadir}/alsa/
 %{_datadir}/alsa/ucm2/*
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 10-7
+- Move to alsa-ucm-conf-asahi 96b3206, the pin Arch Linux ARM ships
+  since alarm-aurora#323. New cards (alsa-ucm-conf-asahi#6, #10, #14,
+  #15, #16): J713 speakers, jack and microphones; J714 speakers and jack;
+  J815 speakers, jack and microphones; J575c jack and speaker; J614s
+  speakers.
+
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 10-6
 - Move to alsa-ucm-conf-asahi 099f2b9: no laptop Speaker device while
   speakerguardd v2 owns the speakers (alsa-ucm-conf-asahi#13).
