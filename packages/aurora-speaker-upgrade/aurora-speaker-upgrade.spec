@@ -1,10 +1,10 @@
-%global commit 29263b5cfa8dbe393bb67b5dadfc51e9df2b6b03
+%global commit 9b7285c420a72a28e4c51ff693011dba5ca5909c
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261121
+%global snapdate 20261123
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.20.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.21.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -62,6 +62,16 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.pr
 %{_presetdir}/50-aurora-speaker-upgrade.preset
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.21.20261123git9b7285c420a7
+- Rebuilt from speakerguardd main 9b7285c4 with speakerguardd-v2
+  (speakerguardd#200, #228, #229, #231, #232, #234, #236, #238).
+- speakerguardd#238: the boot unit moves a speaker to v2 only when
+  protected playback rows (a loud step and a thermal ramp) are on record
+  for it in speakerguardd-v2's gate data; otherwise it leaves the speakers
+  as they are, collects nothing and records no refusal. `run` by hand is
+  unchanged, `status` shows boot_migration, and a new row retries a Mac
+  the boot unit refused.
+
 * Sat Nov 21 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.20.20261121git29263b5cfa8d
 - Rebuilt from speakerguardd main 29263b5c with speakerguardd-v2: the
   self-check it relies on refuses V/I sense that a bit-clock misframe
