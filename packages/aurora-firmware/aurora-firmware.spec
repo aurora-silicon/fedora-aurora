@@ -1,12 +1,12 @@
 Name: aurora-firmware
 Version: 44
-Release: 4%{?dist}
+Release: 5%{?dist}
 Summary: Aurora device firmware and peripheral ordering
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
 BuildArch: noarch
 
-Requires: dracut-asahi bash kmod coreutils grep
+Requires: dracut-asahi bash kmod coreutils grep findutils
 BuildRequires: systemd-rpm-macros
 %{?systemd_requires}
 
@@ -47,6 +47,12 @@ install -Dm644 %{_sourcedir}/90-aurora-peripherals.preset %{buildroot}/usr/lib/s
 /usr/lib/systemd/system-preset/90-aurora-peripherals.preset
 
 %changelog
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-5
+- Select the AOP calibration, MT7932 radio and trackpad firmware checks by
+  device-tree properties instead of the J700 board compatible.
+- Check the trackpad firmware that the multi-touch node names in
+  firmware-name; skip the check when the node names none.
+
 * Thu Oct 22 2026 Aurora Silicon <hey@djdev.me> - 44-4
 - Load the dockchannel keyboard and trackpad driver after firmware admission.
 
