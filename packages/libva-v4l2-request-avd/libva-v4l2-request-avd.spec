@@ -1,7 +1,7 @@
 %global commit 4f60c51f7841dd74bb61c94a4ad31e630bbdab01
 Name: libva-v4l2-request-avd
 Version: 1.3.r11
-Release: 1%{?dist}.aurora
+Release: 2%{?dist}.aurora
 Summary: VA-API driver for the AVD V4L2 Request decoder
 License: GPL-3.0-or-later
 URL: https://github.com/omacom/libva-v4l2_request
@@ -11,6 +11,12 @@ ExclusiveArch: aarch64
 BuildRequires: gcc meson ninja-build pkgconf-pkg-config python3 libtsan
 BuildRequires: kernel-headers >= 6.5
 BuildRequires: pkgconfig(libva) pkgconfig(libdrm)
+# Fedora's libva-v4l2-request ships the same v4l2_request_drv_video.so driver,
+# so the two cannot be installed together. This package replaces it.
+Provides: libva-v4l2-request = %{version}-%{release}
+Provides: libva-v4l2-request%{?_isa} = %{version}-%{release}
+Obsoletes: libva-v4l2-request < %{version}-%{release}
+Conflicts: libva-v4l2-request
 
 %description
 VA-API decode driver for stateless V4L2 Request API devices, pinned to the
@@ -46,6 +52,11 @@ ln -s v4l2_request_drv_video.so \
 %{_libdir}/dri/aurora_drv_video.so
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.3.r11-2.aurora
+- Replace Fedora's libva-v4l2-request (Provides, Obsoletes, Conflicts): both
+  packages own the v4l2_request_drv_video.so driver, so installing it
+  beside this package failed on a file conflict.
+
 * Sat Nov 07 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.3.r11-1.aurora
 - Package the hardware-qualified AVD VA-API driver system-wide.
 - Select it automatically for the AGX render node through relative aliases
