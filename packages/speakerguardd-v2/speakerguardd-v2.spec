@@ -1,6 +1,6 @@
-%global commit 6c714e3b7db99a79606d28492486608392fd9849
+%global commit 4136af409161d8aa44e12b6aa2d0502bb5ea2490
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261124
+%global snapdate 20261125
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.2
-Release: 0.59.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.60.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -250,6 +250,12 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.60.20261125git4136af409161
+- Rebuilt from speakerguardd main 4136af40. speakerguardd#262: the session
+  helper links the amps by the graph's own channel counts, so ATSP Macs
+  (M1/M2 minis, Airs, 13-inch Pros) drive their speakers under v2;
+  speakerguardd#218: the self-check fails closed.
+
 * Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.59.20261124git6c714e3b7db9
 - Rebuilt from speakerguardd main 6c714e3b. speakerguardd#252: a new BuzzKill
   line starts shallower and released tracks that still cut are kept,
