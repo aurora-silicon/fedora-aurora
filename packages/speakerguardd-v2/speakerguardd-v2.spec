@@ -1,6 +1,6 @@
-%global commit 9b7285c420a72a28e4c51ff693011dba5ca5909c
+%global commit 80b02063f3d87c5c82e38af456f5ef9d043a1a13
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261123
+%global snapdate 20261124
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.2
-Release: 0.54.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.55.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -250,6 +250,16 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.55.20261124git80b02063f3d8
+- Rebuilt from speakerguardd main 80b02063 (speakerguardd#239 to #244):
+  the self-check and provisioning bound their root reads of user-owned
+  files (#239); the gate and the upgrade judge the playback record
+  strictly and per unit (#240); a lone desktop amp's sense switches are
+  named without a prefix (Mac mini M2, #243); the BuzzKill detector takes
+  the installed unit's front end, with its quadrature matrix read only from
+  the Mac's own tuning bundle (#244, supersedes #138). The macOS parity
+  attestations are re-gated for all four builds; verdicts are unchanged.
+
 * Mon Nov 23 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.54.20261123git9b7285c420a7
 - Rebuilt from speakerguardd main 9b7285c4: the machine description is
   built from the Mac's own capabilities (device tree, running card, its

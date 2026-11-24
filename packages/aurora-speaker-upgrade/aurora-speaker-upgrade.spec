@@ -1,10 +1,10 @@
-%global commit 9b7285c420a72a28e4c51ff693011dba5ca5909c
+%global commit 80b02063f3d87c5c82e38af456f5ef9d043a1a13
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261123
+%global snapdate 20261124
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.21.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.22.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -62,6 +62,11 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.pr
 %{_presetdir}/50-aurora-speaker-upgrade.preset
 
 %changelog
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.22.20261124git80b02063f3d8
+- Rebuilt from speakerguardd main 80b02063 with speakerguardd-v2
+  (speakerguardd#239 to #244). speakerguardd#240: the boot unit judges the
+  playback record strictly and per unit.
+
 * Mon Nov 23 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.21.20261123git9b7285c420a7
 - Rebuilt from speakerguardd main 9b7285c4 with speakerguardd-v2
   (speakerguardd#200, #228, #229, #231, #232, #234, #236, #238).
