@@ -5,7 +5,9 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -106,6 +108,50 @@ class ChannelSiteTests(unittest.TestCase):
         self.assertEqual(site.lane('testing'), 'testing')
         self.assertTrue(site.publisher('edge').endswith('/publish-edge.yml'))
         self.assertTrue(site.publisher('stable').endswith('/publish.yml'))
+
+    def test_edge_provenance_checks_the_downloaded_source_record(self):
+        files = {'repository-metadata-edge-20261121.1.tar.gz': b'archive',
+                 'edge-sources.json': json.dumps(self.sources()).encode()}
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            for name, data in files.items():
+                (directory / name).write_bytes(data)
+            hashes = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
+            (directory / 'SHA256SUMS').write_text(''.join(f'{digest}  {name}\n' for name, digest in hashes.items()))
+            subjects = [{'name': name, 'digest': {'sha256': digest}} for name, digest in hashes.items()]
+            verification = {'verificationResult': {'statement': {'subject': subjects}}}
+            with patch.object(site.subprocess, 'run') as command:
+                command.return_value.stdout = json.dumps([verification])
+                self.assertEqual(site.verify_attestation(directory, 'aurora-silicon/fedora-aurora', 'edge'),
+                                 'verified')
+                (directory / 'edge-sources.json').write_text('{}')
+                with self.assertRaisesRegex(ValueError, 'downloaded snapshot assets'):
+                    site.verify_attestation(directory, 'aurora-silicon/fedora-aurora', 'edge')
+
+    def test_refresh_gates_both_authenticated_snapshots(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            train = root / 'train.json'
+            train.write_text(json.dumps(self.record()))
+            args = SimpleNamespace(repository='aurora-silicon/fedora-aurora', channel='edge', fedora_release=44,
+                                   tag='edge-20261128.1', edge_train=train, work=root / 'work',
+                                   site=root / 'site', site_url='unused')
+
+            def fetch(repository, tag, channel, destination, work, home, fingerprint, fedora):
+                download = work / f'{fedora}-{channel}-download'
+                download.mkdir(parents=True)
+                (download / 'edge-sources.json').write_text(json.dumps(self.sources()))
+                return 'verified'
+
+            with (patch.object(site.lib, 'load_channels', return_value={'channels': {}}),
+                  patch.object(site.lib, 'gh', side_effect=AssertionError('separate source download')),
+                  patch.object(site, 'keyring', return_value=(root / 'keys', 'key')),
+                  patch.object(site, 'fetch_snapshot', side_effect=fetch) as snapshot_fetch,
+                  patch.object(site, 'live_repository', side_effect=RuntimeError('gate passed'))):
+                with self.assertRaisesRegex(RuntimeError, 'gate passed'):
+                    site.assemble(args)
+            self.assertEqual([call.args[1] for call in snapshot_fetch.call_args_list],
+                             ['edge-20261128.1', 'edge-20261121.1'])
 
 
 class EdgeSnapshotTests(unittest.TestCase):
