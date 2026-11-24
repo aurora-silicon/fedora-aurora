@@ -1,11 +1,11 @@
 %global debug_package %{nil}
-%global commit 56299352d9f4e4569de188700ead26544a2b37b4
+%global commit da8bc83bfe4a67ddfbfe301b0b23bf58f957e36d
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
 %global monitor_free 1
 Name: aura
-Version: 1.0.0~b15
+Version: 1.0.0~b16
 Release: 1%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
@@ -26,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-56299352d9f4e4569de188700ead26544a2b37b4
+%autosetup -n aura-da8bc83bfe4a67ddfbfe301b0b23bf58f957e36d
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -76,6 +76,9 @@ install -Dm644 tools/recovery/enroll-stage1.sh %{buildroot}%{_datadir}/aura/tool
 %{_datadir}/aura/
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b16-1
+- Pin the published Aura 1.0.0b16 release at da8bc83b.
+
 * Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b15-1
 - Update to aura 1.0.0b15 (tag v1.0.0b15, merge commit 56299352 of
   aura#459), labelled 1.0.0b15-g56299352 from the archive directory.
