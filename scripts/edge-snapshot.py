@@ -108,10 +108,12 @@ def main():
         shutil.copyfile(args.base / name, args.output / name)
     for name in add:
         shutil.copyfile((args.mesa_edge if origin[name] == 'mesa' else args.edge) / name, args.output / name)
+    trees = json.loads(args.trees.read_text())
     record = {'schema': 1, 'channel': 'edge', 'base_release': args.base_release,
+              'kernel_release': {'tag': 'aurora-edge', 'source_sha256': trees['linux_release_sha256']},
               'signing_run': args.signing_run, 'mesa_signing_run': args.mesa_signing_run,
               'packaged_sources': packaged_sources(
-                  json.loads(args.sources.read_text()), json.loads(args.trees.read_text()),
+                  json.loads(args.sources.read_text()), trees,
                   json.loads(args.mesa_sources.read_text()) if args.mesa_sources else None),
               'edge_rpms': add}
     args.record.write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')

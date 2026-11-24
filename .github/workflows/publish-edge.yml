@@ -91,14 +91,25 @@ jobs:
             -H 'Accept: application/vnd.github.raw+json' > edge-build-sources.json
           linux=$(jq -r '.["kernel-aurora"].commit' edge-build-sources.json)
           mesa=$(jq -r '.["mesa-aurora"].commit' edge-build-sources.json)
-          for pair in "linux $linux" "mesa $mesa"; do
-            read -r name revision <<< "$pair"
-            [[ $revision =~ ^[0-9a-f]{40}$ ]]
-            gh api "repos/aurora-silicon/$name/compare/$revision...aurora-edge" --jq .status | grep -Eqx 'ahead|identical'
-          done
+          [[ $linux =~ ^[0-9a-f]{40}$ && $mesa =~ ^[0-9a-f]{40}$ ]]
+          kernel_repo=aurora-silicon/linux
+          gh api "repos/$kernel_repo/releases/tags/aurora-edge" > linux-edge.json
+          digest=$(jq -er 'select(.draft == false and .prerelease == true)
+                           | .assets[] | select(.name == "source.commit") | .digest' linux-edge.json)
+          [[ $digest =~ ^sha256:[a-f0-9]{64}$ ]]
+          gh release download aurora-edge --repo "$kernel_repo" --pattern source.commit --output linux-source.commit
+          printf '%s  linux-source.commit\n' "${digest#sha256:}" | sha256sum --check -
+          [[ $linux == "$(cat linux-source.commit)" ]]
+          [[ $linux == "$(gh api "repos/$kernel_repo/commits/refs%2Ftags%2Faurora-edge" --jq .sha)" ]]
+          gh attestation verify linux-source.commit --repo "$kernel_repo" \
+            --signer-workflow "$kernel_repo/.github/workflows/kernel-release.yml" \
+            --source-ref refs/heads/main --source-digest "$linux" --deny-self-hosted-runners
+          gh api "repos/$kernel_repo/compare/$linux...main" --jq .status | grep -Eqx 'ahead|identical'
+          gh api "repos/aurora-silicon/mesa/compare/$mesa...aurora-edge" --jq .status | grep -Eqx 'ahead|identical'
           jq -n --arg linux "$(gh api "repos/aurora-silicon/linux/git/commits/$linux" --jq .tree.sha)" \
                 --arg mesa "$(gh api "repos/aurora-silicon/mesa/git/commits/$mesa" --jq .tree.sha)" \
-                '{linux: $linux, mesa: $mesa}' > edge-trees.json
+                --arg linux_release_sha256 "${digest#sha256:}" \
+                '{linux: $linux, mesa: $mesa, linux_release_sha256: $linux_release_sha256}' > edge-trees.json
       - name: Authenticate the Mesa replacement signer
         if: inputs.mesa-signing-run != ''
         env:
