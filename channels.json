@@ -2,12 +2,12 @@
   "channels": {
     "45/testing": {
       "actor": "RyanTheTide",
-      "commit": "ab90a6805833403b8133eb19a8bbfb0ba209afb5",
-      "deployed_at": "2026-11-24T01:31:28Z",
+      "commit": "cb75e7ddfabe5f71e5dbfdd562e748144b0fc69a",
+      "deployed_at": "2026-11-24T04:02:10Z",
       "provenance": "verified",
-      "released_at": "2026-11-24T00:26:09Z",
-      "run_id": "45302568533",
-      "tag": "testing-f45-20261124.1"
+      "released_at": "2026-11-24T03:00:05Z",
+      "run_id": "45318090852",
+      "tag": "testing-f45-20261124.2"
     },
     "testing": {
       "actor": "RyanTheTide",
@@ -20,6 +20,16 @@
     }
   },
   "history": [
+    {
+      "actor": "RyanTheTide",
+      "channel": "45/testing",
+      "commit": "cb75e7ddfabe5f71e5dbfdd562e748144b0fc69a",
+      "deployed_at": "2026-11-24T04:02:10Z",
+      "provenance": "verified",
+      "released_at": "2026-11-24T03:00:05Z",
+      "run_id": "45318090852",
+      "tag": "testing-f45-20261124.2"
+    },
     {
       "actor": "RyanTheTide",
       "channel": "testing",
