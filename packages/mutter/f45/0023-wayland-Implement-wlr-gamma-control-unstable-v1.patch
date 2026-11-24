@@ -1,0 +1,484 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 20:55:34 +1100
+Subject: [PATCH] wayland: Implement wlr-gamma-control-unstable-v1
+
+Add the zwlr_gamma_control_manager_v1 global. get_gamma_control()
+sends gamma_size with the output's CRTC gamma LUT size, or failed if
+the output has no gamma LUT (or no longer exists). set_gamma() reads
+the three 16-bit ramps from the fd without blocking and hands them to
+the output's color device as a gamma override; a table of the wrong
+size is an invalid_gamma protocol error, an unreadable fd sends failed.
+
+There is at most one active control per output. A newer control takes
+over: the previous one gets failed and the output gets its own ramp
+back until the new client sets one. Destroying the control, the output
+going away, or the output's gamma size changing restores the ramp the
+output had before (or what night light and the profile call for now).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/meson.build                          |   2 +
+ src/wayland/meta-wayland-gamma-control.c | 379 +++++++++++++++++++++++
+ src/wayland/meta-wayland-gamma-control.h |  22 ++
+ src/wayland/meta-wayland-versions.h      |   1 +
+ src/wayland/meta-wayland.c               |   2 +
+ 5 files changed, 406 insertions(+)
+ create mode 100644 src/wayland/meta-wayland-gamma-control.c
+ create mode 100644 src/wayland/meta-wayland-gamma-control.h
+
+diff --git a/src/meson.build b/src/meson.build
+index 07c7e6d..34d65e5 100644
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -537,6 +537,8 @@ mutter_sources += [
+   'wayland/meta-wayland-fractional-scale.h',
+   'wayland/meta-wayland-foreign-toplevel.c',
+   'wayland/meta-wayland-foreign-toplevel.h',
++  'wayland/meta-wayland-gamma-control.c',
++  'wayland/meta-wayland-gamma-control.h',
+   'wayland/meta-wayland-gtk-shell.c',
+   'wayland/meta-wayland-gtk-shell.h',
+   'wayland/meta-wayland.h',
+diff --git a/src/wayland/meta-wayland-gamma-control.c b/src/wayland/meta-wayland-gamma-control.c
+new file mode 100644
+index 0000000..a356144
+--- /dev/null
++++ b/src/wayland/meta-wayland-gamma-control.c
+@@ -0,0 +1,379 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++/*
++ * wlr-gamma-control-unstable-v1: lets a client (gammastep, wlsunset,
++ * wl-gammarelay-rs, ...) program the gamma ramp of an output.
++ *
++ * Each output has at most one active gamma control. A newer control for the
++ * same output takes over: the previous one is sent 'failed' and the output
++ * goes back to its own ramp until the new client sets one. The ramp is
++ * handed to the output's MetaColorDevice as a gamma override, so it wins over
++ * the night light ramp while it is set, survives monitor reconfiguration,
++ * and is undone (back to the original ramp, or whatever night light and the
++ * assigned profile call for by then) when the control goes away.
++ */
++
++#include "config.h"
++
++#include "wayland/meta-wayland-gamma-control.h"
++
++#include <errno.h>
++#include <fcntl.h>
++#include <glib/gstdio.h>
++#include <unistd.h>
++
++#include "backends/meta-backend-private.h"
++#include "backends/meta-color-device.h"
++#include "backends/meta-color-manager.h"
++#include "backends/meta-crtc.h"
++#include "backends/meta-monitor-manager-private.h"
++#include "backends/meta-monitor-private.h"
++#include "wayland/meta-wayland-outputs.h"
++#include "wayland/meta-wayland-private.h"
++#include "wayland/meta-wayland-versions.h"
++
++#include "wlr-gamma-control-unstable-v1-server-protocol.h"
++
++typedef struct _MetaWaylandGammaControlManager
++{
++  MetaWaylandCompositor *compositor;
++
++  /* MetaWaylandOutput -> active MetaWaylandGammaControl */
++  GHashTable *controls;
++
++  gulong monitors_changed_handler_id;
++} MetaWaylandGammaControlManager;
++
++typedef struct _MetaWaylandGammaControl
++{
++  MetaWaylandGammaControlManager *manager;
++  struct wl_resource *resource;
++
++  /* NULL once the control is no longer valid ('failed' was sent). */
++  MetaWaylandOutput *output;
++  gulong output_destroyed_handler_id;
++
++  MetaColorDevice *color_device;
++  size_t gamma_size;
++} MetaWaylandGammaControl;
++
++static MetaColorDevice *
++get_color_device (MetaWaylandGammaControlManager *manager,
++                  MetaMonitor                    *monitor)
++{
++  MetaContext *context =
++    meta_wayland_compositor_get_context (manager->compositor);
++  MetaBackend *backend = meta_context_get_backend (context);
++  MetaColorManager *color_manager = meta_backend_get_color_manager (backend);
++
++  return meta_color_manager_get_color_device (color_manager, monitor);
++}
++
++static void
++gamma_control_deactivate (MetaWaylandGammaControl *gamma_control)
++{
++  MetaWaylandGammaControlManager *manager = gamma_control->manager;
++
++  if (!gamma_control->output)
++    return;
++
++  g_clear_signal_handler (&gamma_control->output_destroyed_handler_id,
++                          gamma_control->output);
++
++  if (g_hash_table_lookup (manager->controls, gamma_control->output) ==
++      gamma_control)
++    g_hash_table_remove (manager->controls, gamma_control->output);
++
++  gamma_control->output = NULL;
++
++  if (gamma_control->color_device)
++    {
++      meta_color_device_set_gamma_override (gamma_control->color_device,
++                                            NULL);
++      g_clear_object (&gamma_control->color_device);
++    }
++}
++
++static void
++gamma_control_fail (MetaWaylandGammaControl *gamma_control)
++{
++  gamma_control_deactivate (gamma_control);
++  zwlr_gamma_control_v1_send_failed (gamma_control->resource);
++}
++
++static void
++on_output_destroyed (MetaWaylandOutput       *wayland_output,
++                     MetaWaylandGammaControl *gamma_control)
++{
++  gamma_control_fail (gamma_control);
++}
++
++static void
++gamma_control_destructor (struct wl_resource *resource)
++{
++  MetaWaylandGammaControl *gamma_control = wl_resource_get_user_data (resource);
++
++  gamma_control_deactivate (gamma_control);
++  g_free (gamma_control);
++}
++
++static void
++gamma_control_destroy (struct wl_client   *client,
++                       struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static MetaGammaLut *
++read_gamma_table (MetaWaylandGammaControl *gamma_control,
++                  int                      fd)
++{
++  size_t gamma_size = gamma_control->gamma_size;
++  size_t table_size = gamma_size * 3 * sizeof (uint16_t);
++  g_autofree uint16_t *table = NULL;
++  ssize_t n_read;
++  int flags;
++
++  /* Never let a client block the compositor on a pipe. */
++  flags = fcntl (fd, F_GETFL, 0);
++  if (flags == -1 || fcntl (fd, F_SETFL, flags | O_NONBLOCK) == -1)
++    {
++      g_warning ("Failed to make gamma table fd non-blocking: %s",
++                 g_strerror (errno));
++      gamma_control_fail (gamma_control);
++      return NULL;
++    }
++
++  table = g_malloc (table_size);
++
++  do
++    n_read = pread (fd, table, table_size, 0);
++  while (n_read == -1 && errno == EINTR);
++
++  if (n_read == -1)
++    {
++      g_warning ("Failed to read gamma table: %s", g_strerror (errno));
++      gamma_control_fail (gamma_control);
++      return NULL;
++    }
++
++  if ((size_t) n_read != table_size)
++    {
++      wl_resource_post_error (gamma_control->resource,
++                              ZWLR_GAMMA_CONTROL_V1_ERROR_INVALID_GAMMA,
++                              "The gamma table is %zd bytes, expected %zu "
++                              "(3 ramps of %zu entries)",
++                              n_read, table_size, gamma_size);
++      return NULL;
++    }
++
++  return meta_gamma_lut_new (gamma_size,
++                             table,
++                             table + gamma_size,
++                             table + 2 * gamma_size);
++}
++
++static void
++gamma_control_set_gamma (struct wl_client   *client,
++                         struct wl_resource *resource,
++                         int32_t             fd)
++{
++  MetaWaylandGammaControl *gamma_control = wl_resource_get_user_data (resource);
++  g_autoptr (MetaGammaLut) lut = NULL;
++
++  if (!gamma_control->output)
++    {
++      close (fd);
++      return;
++    }
++
++  lut = read_gamma_table (gamma_control, fd);
++  close (fd);
++  if (!lut)
++    return;
++
++  meta_color_device_set_gamma_override (gamma_control->color_device, lut);
++}
++
++static const struct zwlr_gamma_control_v1_interface
++  meta_wayland_gamma_control_interface =
++{
++  gamma_control_set_gamma,
++  gamma_control_destroy,
++};
++
++static void
++gamma_control_manager_get_gamma_control (struct wl_client   *client,
++                                         struct wl_resource *resource,
++                                         uint32_t            id,
++                                         struct wl_resource *output_resource)
++{
++  MetaWaylandGammaControlManager *manager = wl_resource_get_user_data (resource);
++  MetaWaylandOutput *wayland_output = NULL;
++  MetaWaylandGammaControl *gamma_control;
++  MetaWaylandGammaControl *previous_control;
++  MetaMonitor *monitor = NULL;
++  MetaColorDevice *color_device = NULL;
++  size_t gamma_size = 0;
++
++  gamma_control = g_new0 (MetaWaylandGammaControl, 1);
++  gamma_control->manager = manager;
++  gamma_control->resource =
++    wl_resource_create (client,
++                        &zwlr_gamma_control_v1_interface,
++                        wl_resource_get_version (resource),
++                        id);
++  wl_resource_set_implementation (gamma_control->resource,
++                                  &meta_wayland_gamma_control_interface,
++                                  gamma_control,
++                                  gamma_control_destructor);
++
++  if (output_resource)
++    wayland_output = wl_resource_get_user_data (output_resource);
++  if (wayland_output)
++    monitor = meta_wayland_output_get_monitor (wayland_output);
++  if (monitor && meta_monitor_is_active (monitor))
++    {
++      color_device = get_color_device (manager, monitor);
++      gamma_size = meta_monitor_get_gamma_lut_size (monitor);
++    }
++
++  if (!color_device || gamma_size == 0)
++    {
++      zwlr_gamma_control_v1_send_failed (gamma_control->resource);
++      return;
++    }
++
++  previous_control = g_hash_table_lookup (manager->controls, wayland_output);
++  if (previous_control)
++    gamma_control_fail (previous_control);
++
++  gamma_control->output = wayland_output;
++  gamma_control->color_device = g_object_ref (color_device);
++  gamma_control->gamma_size = gamma_size;
++  gamma_control->output_destroyed_handler_id =
++    g_signal_connect (wayland_output, "output-destroyed",
++                      G_CALLBACK (on_output_destroyed),
++                      gamma_control);
++  g_hash_table_insert (manager->controls, wayland_output, gamma_control);
++
++  zwlr_gamma_control_v1_send_gamma_size (gamma_control->resource,
++                                         (uint32_t) gamma_size);
++}
++
++static void
++gamma_control_manager_destroy (struct wl_client   *client,
++                               struct wl_resource *resource)
++{
++  wl_resource_destroy (resource);
++}
++
++static const struct zwlr_gamma_control_manager_v1_interface
++  meta_wayland_gamma_control_manager_interface =
++{
++  gamma_control_manager_get_gamma_control,
++  gamma_control_manager_destroy,
++};
++
++static void
++bind_gamma_control_manager (struct wl_client *client,
++                            void             *data,
++                            uint32_t          version,
++                            uint32_t          id)
++{
++  MetaWaylandGammaControlManager *manager = data;
++  struct wl_resource *resource;
++
++  resource = wl_resource_create (client,
++                                 &zwlr_gamma_control_manager_v1_interface,
++                                 version, id);
++  wl_resource_set_implementation (resource,
++                                  &meta_wayland_gamma_control_manager_interface,
++                                  manager, NULL);
++}
++
++static void
++on_monitors_changed (MetaMonitorManager             *monitor_manager,
++                     MetaWaylandGammaControlManager *manager)
++{
++  g_autoptr (GList) controls = NULL;
++  GList *l;
++
++  /* A client computes its ramps for the size it was told. If the output is
++   * now driven by a CRTC with a different gamma size, or has no color device
++   * any more, the control is no longer valid. */
++  controls = g_hash_table_get_values (manager->controls);
++  for (l = controls; l; l = l->next)
++    {
++      MetaWaylandGammaControl *gamma_control = l->data;
++      MetaMonitor *monitor;
++
++      monitor = meta_wayland_output_get_monitor (gamma_control->output);
++      if (!monitor ||
++          !meta_monitor_is_active (monitor) ||
++          get_color_device (manager, monitor) != gamma_control->color_device ||
++          meta_monitor_get_gamma_lut_size (monitor) != gamma_control->gamma_size)
++        gamma_control_fail (gamma_control);
++    }
++}
++
++static void
++gamma_control_manager_free (MetaWaylandGammaControlManager *manager)
++{
++  MetaContext *context =
++    meta_wayland_compositor_get_context (manager->compositor);
++  MetaBackend *backend = meta_context_get_backend (context);
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++
++  g_clear_signal_handler (&manager->monitors_changed_handler_id,
++                          monitor_manager);
++  g_hash_table_destroy (manager->controls);
++  g_free (manager);
++}
++
++void
++meta_wayland_gamma_control_init (MetaWaylandCompositor *compositor)
++{
++  MetaContext *context = meta_wayland_compositor_get_context (compositor);
++  MetaBackend *backend = meta_context_get_backend (context);
++  MetaMonitorManager *monitor_manager =
++    meta_backend_get_monitor_manager (backend);
++  MetaWaylandGammaControlManager *manager;
++
++  manager = g_new0 (MetaWaylandGammaControlManager, 1);
++  manager->compositor = compositor;
++  manager->controls = g_hash_table_new (NULL, NULL);
++
++  if (wl_global_create (compositor->wayland_display,
++                        &zwlr_gamma_control_manager_v1_interface,
++                        META_ZWLR_GAMMA_CONTROL_MANAGER_V1_VERSION,
++                        manager,
++                        bind_gamma_control_manager) == NULL)
++    g_error ("Failed to register a global wlr-gamma-control object");
++
++  manager->monitors_changed_handler_id =
++    g_signal_connect_after (monitor_manager, "monitors-changed-internal",
++                            G_CALLBACK (on_monitors_changed),
++                            manager);
++
++  g_object_set_data_full (G_OBJECT (compositor),
++                          "-meta-wayland-gamma-control-manager",
++                          manager,
++                          (GDestroyNotify) gamma_control_manager_free);
++}
+diff --git a/src/wayland/meta-wayland-gamma-control.h b/src/wayland/meta-wayland-gamma-control.h
+new file mode 100644
+index 0000000..28051fd
+--- /dev/null
++++ b/src/wayland/meta-wayland-gamma-control.h
+@@ -0,0 +1,22 @@
++/*
++ * Copyright (C) 2026 Aurora Silicon
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful, but
++ * WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
++ * General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <http://www.gnu.org/licenses/>.
++ */
++
++#pragma once
++
++#include "wayland/meta-wayland-types.h"
++
++void meta_wayland_gamma_control_init (MetaWaylandCompositor *compositor);
+diff --git a/src/wayland/meta-wayland-versions.h b/src/wayland/meta-wayland-versions.h
+index 7b4c8c0..e4ced2e 100644
+--- a/src/wayland/meta-wayland-versions.h
++++ b/src/wayland/meta-wayland-versions.h
+@@ -74,3 +74,4 @@
+ #define META_ZWLR_LAYER_SHELL_V1_VERSION 5
+ #define META_ZWLR_FOREIGN_TOPLEVEL_MANAGER_V1_VERSION 3
+ #define META_ZWLR_DATA_CONTROL_V1_VERSION 2
++#define META_ZWLR_GAMMA_CONTROL_MANAGER_V1_VERSION 1
+diff --git a/src/wayland/meta-wayland.c b/src/wayland/meta-wayland.c
+index a7698dc..a7b268f 100644
+--- a/src/wayland/meta-wayland.c
++++ b/src/wayland/meta-wayland.c
+@@ -47,6 +47,7 @@
+ #include "wayland/meta-wayland-commit-timing.h"
+ #include "wayland/meta-wayland-cursor-shape.h"
+ #include "wayland/meta-wayland-fifo.h"
++#include "wayland/meta-wayland-gamma-control.h"
+ #include "wayland/meta-wayland-data-control.h"
+ #include "wayland/meta-wayland-data-device.h"
+ #include "wayland/meta-wayland-dma-buf.h"
+@@ -1019,6 +1020,7 @@ meta_wayland_compositor_new (MetaContext *context)
+   meta_wayland_init_system_bell (compositor);
+   meta_wayland_xdg_toplevel_tag_init (compositor);
+   meta_wayland_drm_lease_manager_init (compositor);
++  meta_wayland_gamma_control_init (compositor);
+   meta_wayland_commit_timing_init (compositor);
+   meta_wayland_fifo_init (compositor);
+   meta_wayland_init_cursor_shape (compositor);

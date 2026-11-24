@@ -1,7 +1,7 @@
 #!/bin/bash
 set -x
 
-# Dummy Cargo.toml file with cbindgen dependency
+# Dummy Cargo.toml file with dump_syms dependency
 cat > Cargo.toml <<EOL
 [package]
 name = "dummy"
@@ -23,6 +23,8 @@ EOL
 
 cargo install cargo-vendor
 cargo vendor
+# To download subpackages locked in dump_syms, required since rust 1.100
+cargo vendor --sync vendor/dump_syms/Cargo.toml
 
 cd vendor
 tar -cJf ../dump_syms-vendor.tar.xz *

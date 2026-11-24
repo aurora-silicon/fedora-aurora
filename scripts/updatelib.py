@@ -163,7 +163,8 @@ def gh(*args, attempts=5, sleep=time.sleep, check=True, input_text=None):
         if result.returncode == 0 or not check:
             return result
         error = result.stderr
-        transient = re.search(r'HTTP (429|5\d\d)|rate limit|timeout|connection reset|EOF', error, re.I)
+        transient = re.search(r'HTTP (429|5\d\d)|rate limit|timeout|connection reset|EOF|stream error|'
+                              r"couldn't respond in time", error, re.I)
         # GitHub refuses the diff of a large comparison on every attempt.
         if DIFF_UNAVAILABLE.search(error):
             transient = None
@@ -185,6 +186,21 @@ def gh_api(route, *fields, method=None, paginate=False):
     args += list(fields)
     output = gh(*args).stdout
     return json.loads(output) if output.strip() else None
+
+
+def releases(repository, per_page=20, max_pages=100):
+    """The repository's releases, newest first, one small page at a time.
+
+    A page of 100 releases carries every release's assets; with a few hundred
+    releases GitHub answers it with HTTP 504 ("couldn't respond in time") or a
+    reset HTTP/2 stream, so pages stay small and each goes through gh()'s
+    retries. Callers stop iterating once they have what they need.
+    """
+    for page in range(1, max_pages + 1):
+        batch = gh_api(f'repos/{repository}/releases?per_page={per_page}&page={page}') or []
+        yield from batch
+        if len(batch) < per_page:
+            return
 
 
 def repository_slug(url):
@@ -824,7 +840,7 @@ def load_channels(root, repository, remote='origin'):
 
 
 def record_channel(state, channel, entry, keep=200):
-    if channel not in ('testing', 'stable', '45/testing'):
+    if channel not in ('testing', 'stable', '45/testing', 'edge'):
         raise ValueError('unknown channel')
     state = json.loads(json.dumps(state))
     state['channels'][channel] = entry

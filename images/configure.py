@@ -30,6 +30,7 @@ DEFAULT_TARGETS = {
 PACKAGES = {
     "components/boot.xml": ("BootCore", [
         "kernel-aurora", "kernel-aurora-modules-extra", "aura", "uboot-aurora",
+        "aurora-vendor-firmware", "update-aura",
         # userpages 4k COMMAND; kernel-aurora requires it on installed systems too.
         "aurora-userpages",
     ]),
@@ -49,12 +50,28 @@ PACKAGES = {
         "aurora-sep-sk",
     ]),
     # Desktop images boot to the Aurora splash: aura's logo, kept still, with a spinner.
-    "components/desktop-environments.xml": ("DesktopCommon", ["plymouth-theme-aurora"]),
+    "components/desktop-environments.xml": ("DesktopCommon", [
+        "plymouth-theme-aurora",
+        # GameMode with Aurora's settings (P cores where a Mac has four or
+        # more, schedutil kept); Aurora's `steam` starts every game under it.
+        "gamemode", "aurora-gamemode",
+    ]),
 }
-# Fedora's imsettings turns itself off on GNOME and Plasma, but its autostart
-# entry still runs there and fails on every login. Both desktops configure
-# input methods themselves.
+# The Fedora hardware-support collection includes the stock firmware bundle.
+# The installer provisions firmware for the target Mac separately.
+STOCK_FIRMWARE = [
+    "linux-firmware", "amd-gpu-firmware", "amd-ucode-firmware",
+    "atheros-firmware", "brcmfmac-firmware", "cirrus-audio-firmware",
+    "intel-audio-firmware", "intel-gpu-firmware", "intel-npu-firmware",
+    "iwlbluetooth-firmware", "iwlegacy-firmware", "iwlwifi-dvm-firmware",
+    "iwlwifi-mld-firmware", "iwlwifi-mvm-firmware", "libertas-firmware",
+    "mt7xxx-firmware", "nvidia-gpu-firmware", "nxpwireless-firmware",
+    "qcom-firmware", "qcom-wwan-firmware", "realtek-firmware", "tiwilink-firmware",
+]
 EXCLUDED = {
+    "components/base.xml": ("Common", STOCK_FIRMWARE),
+    # GNOME and Plasma configure input methods themselves. The imsettings
+    # autostart entry still runs and fails on each login.
     "components/desktop-environments.xml": ("DesktopCommon", [
         "imsettings", "imsettings-libs", "imsettings-gsettings", "imsettings-plasma",
         "im-chooser", "im-chooser-common",
@@ -79,6 +96,8 @@ gawk -i inplace '$2 == "/boot/efi" && $3 == "vfat" { if ($5 == "") $5 = 0; $6 = 
 REPLACED = {
     "kernel-16k", "kernel-16k-modules-extra", "uboot-images-armv8",
     "asahi-platform-metapackage", "asahi-repos", "fedora-asahi-remix-scripts",
+    "asahi-scripts", "dracut-asahi", "asahi-fwupdate", "python3-asahi_firmware",
+    "linux-firmware-vendor", "update-m1n1",
     "alsa-ucm-asahi", "mesa-dri-drivers", "mesa-vulkan-drivers",
     "fedora-release", "fedora-release-workstation", "fedora-release-kde",
 }
@@ -106,7 +125,28 @@ def write_xml(tree, path):
     tree.write(path, encoding="utf-8", xml_declaration=True)
 
 
-def prepare(source, destination, profile, repository_url, key, fingerprint, lock):
+EDGE_REPOSITORY_URL = "https://aurorasilicon.org/fedora-aurora/$releasever/edge/aarch64"
+
+
+def build_source(repository_url, build_repository=None):
+    """The Aurora repository KIWI installs from.
+
+    Testing and stable images install from the live feed they follow. An Edge
+    image installs from the signed metadata of its immutable Edge snapshot
+    (its packages are that release's assets) and then follows the Edge feed,
+    which serves the snapshot only once the Edge train is adopted.
+    """
+    if build_repository is None:
+        return repository_url.rstrip("/")
+    if repository_url.rstrip("/") != EDGE_REPOSITORY_URL:
+        raise ValueError("a snapshot build repository is only for images that follow the Edge feed")
+    repository = Path(build_repository).resolve(strict=True)
+    if not all((repository / "repodata" / name).is_file() for name in ("repomd.xml", "repomd.xml.asc")):
+        raise ValueError("the Edge build repository needs signed repository metadata")
+    return repository.as_uri()
+
+
+def prepare(source, destination, profile, repository_url, key, fingerprint, lock, build_repository=None):
     source, destination, key = map(Path, (source, destination, key))
     if profile not in PROFILES:
         raise ValueError("unknown Fedora installation profile")
@@ -133,6 +173,7 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
         raise ValueError("invalid repository signing-key fingerprint")
     if signing_fingerprint(key) != fingerprint:
         raise ValueError("repository signing-key fingerprint does not match")
+    kiwi_source = build_source(repository_url, build_repository)
 
     destination.mkdir(parents=True)
     for name in ("components", "platforms", "repositories", "root"):
@@ -172,13 +213,12 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
                                      "review the integration")
                 parent.set("package_gpgcheck", "true")
             for node in list(parent):
-                if node.tag == "package" and node.get("name") in REPLACED:
+                if node.tag == "package" and node.get("name") in REPLACED | set(STOCK_FIRMWARE):
                     parent.remove(node)
                 if node.tag == "ignore":
                     name = node.get("name", "")
-                    # The shared kernel supports dock and PCIe peripherals.
-                    # Upstream's firmware exclusions conflict with that stack.
-                    if name in {"generic-release*", "generic-logos*"} or name.endswith("-firmware"):
+                    # Apply the full Aurora list once to the Common profile.
+                    if name in {"generic-release*", "generic-logos*", *STOCK_FIRMWARE}:
                         parent.remove(node)
         write_xml(tree, path)
 
@@ -223,7 +263,7 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
         "type": "rpm-md", "alias": "aurora", "sourcetype": "baseurl", "priority": "1",
         "package_gpgcheck": "true",
     })
-    origin = ET.SubElement(node, "source", {"path": repository_url.rstrip("/")})
+    origin = ET.SubElement(node, "source", {"path": kiwi_source})
     ET.SubElement(origin, "signing", {"key": (destination.resolve() / key_name).as_uri()})
     write_xml(ET.ElementTree(repository), destination / "repositories/aurora.xml")
     repo_text, baseurls = re.subn(r"(?m)^baseurl=.*$", lambda _: f"baseurl={repository_url.rstrip('/')}",
@@ -337,6 +377,13 @@ exit 0
 '''
     checks = checks.replace("@DEFAULT_TARGET@", DEFAULT_TARGETS[profile])
     text = text.replace("\nexit 0\n", checks.replace("@SIGNING_FINGERPRINT@", fingerprint))
+    if build_repository is not None:
+        # aurora-repos can install its own copy of the repo file during bootstrap.
+        text = text.replace("\nexit 0\n", f"""
+grep -qxF 'baseurl={EDGE_REPOSITORY_URL}' /etc/yum.repos.d/aurora.repo
+grep -qx 'enabled=1' /etc/yum.repos.d/aurora.repo
+exit 0
+""")
     config.write_text(text)
     receipt = {
         "schema": 1, "distribution": "Aurora Fedora Remix",
@@ -381,11 +428,13 @@ def main():
     parser.add_argument("--signing-key", type=Path, required=True)
     parser.add_argument("--signing-key-fingerprint", required=True)
     parser.add_argument("--fedora-release", choices=sorted(LOCKS), default="44")
+    parser.add_argument("--build-repository", type=Path,
+                        help="signed Edge snapshot metadata to install from (images that follow the Edge feed)")
     args = parser.parse_args()
     try:
         receipt = prepare(args.upstream, args.output, args.profile, args.repository_url,
                           args.signing_key, args.signing_key_fingerprint,
-                          lock(args.fedora_release))
+                          lock(args.fedora_release), args.build_repository)
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"{error}\n")
     print(json.dumps(receipt, indent=2))

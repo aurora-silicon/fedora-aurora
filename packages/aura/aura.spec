@@ -1,12 +1,12 @@
 %global debug_package %{nil}
-%global commit ea20cedb7e698c9ba5b7e392a7b6777e868ae40c
+%global commit da8bc83bfe4a67ddfbfe301b0b23bf58f957e36d
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
 %global monitor_free 1
 Name: aura
-Version: 1.0.0~b12
-Release: 2%{?dist}
+Version: 1.0.0~b16
+Release: 1%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -26,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-ea20cedb7e698c9ba5b7e392a7b6777e868ae40c
+%autosetup -n aura-da8bc83bfe4a67ddfbfe301b0b23bf58f957e36d
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -42,6 +42,14 @@ cp build/aura.bin ../aurora-stage1/aura-raw.bin
 cp build/aura.macho ../aurora-stage1/aura.macho
 cp build/aura-boot.macho ../aurora-stage1/aura-boot.macho
 make clean
+# The secure-flavour Stage 1 that aurora-secboot stage1 build fills with the
+# owner's key. Its built-in key, used only while the key block is unfilled, is a
+# fresh one whose private half is never written down, so an unfilled image
+# verifies nothing.
+python3 -c 'import os, sys; sys.path.insert(0, "tools"); import secboot_sign; sys.stdout.buffer.write(secboot_sign.pubkey(os.urandom(32)))' > ../aurora-stage1/nobody.pub
+make %{?_smp_mflags} BUILDSTD=1 RELEASE=1 CHAINLOADING=1 USE_CLANG=1 BUILTIN_LOGO=aurora SECBOOT=audit SECBOOT_FLAVOUR=secure SECBOOT_PUBKEY=../aurora-stage1/nobody.pub %{?release_tag:AURA_VERSION_TAG=%{release_tag}}
+cp build/aura.bin ../aurora-stage1/aura-secure-raw.bin
+make clean
 make %{?_smp_mflags} BUILDSTD=1 RELEASE=1 CHAINLOADING=1 ESP_STAGE2=1 USE_CLANG=1 BUILTIN_LOGO=aurora %{?release_tag:AURA_VERSION_TAG=%{release_tag}}
 
 %install
@@ -54,6 +62,7 @@ install -Dm644 /dev/null %{buildroot}%{_datadir}/aura/monitor-free
 install -Dm644 ../aurora-stage1/aura-raw.bin %{buildroot}%{_datadir}/aura/stage1/aura-raw.bin
 install -Dm644 ../aurora-stage1/aura-boot.macho %{buildroot}%{_datadir}/aura/stage1/aura-boot.macho
 install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/aura.macho
+install -Dm644 ../aurora-stage1/aura-secure-raw.bin %{buildroot}%{_datadir}/aura/stage1/aura-secure-raw.bin
 # aura's own Stage 1 and signing tools, for aurora-secboot stage1 build and stage2 sign.
 for t in fill_stage1_config.py secboot_sign.py macho_boot_object.py; do
   install -Dm644 tools/$t %{buildroot}%{_datadir}/aura/tools/$t
@@ -67,6 +76,106 @@ install -Dm644 tools/recovery/enroll-stage1.sh %{buildroot}%{_datadir}/aura/tool
 %{_datadir}/aura/
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b16-1
+- Pin the published Aura 1.0.0b16 release at da8bc83b.
+
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b15-1
+- Update to aura 1.0.0b15 (tag v1.0.0b15, merge commit 56299352 of
+  aura#459), labelled 1.0.0b15-g56299352 from the archive directory.
+- Every M2 (T8112) on a 27.2 stub boots again: a GPU firmware with no
+  initdata layout leaves the GPU disabled and the boot continues
+  (aura#381). With 1.0.0b14.1 the Stage 2 stops at 'Failed to prepare
+  FDT' and drops to the proxy.
+- The M3 (T8122) and M4 (T8132) GPU on 27.2 (aura#448, #379), the M4
+  internal DCP on 27.2 (#404) and the M3 Air external DCP by default
+  (#437); the full list is in aura's docs/releases/1.0.0b15.md.
+- The Stage 1 links under rpmbuild again: the exported RUSTFLAGS no longer
+  reach aura's Rust build (aura#454). With them, aura main past 1.0.0b14.1
+  ran past the DCP log buffer.
+
+* Sat Nov 21 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b14.1-1
+- Update to aura 1.0.0b14.1 (release commit 3ff77894 on release/1.0.0b14):
+  1.0.0b14 plus aura#421, labelled 1.0.0b14-g3ff77894 from the archive
+  directory. aura keeps VERSION 1.0.0b14, as 1.0.0b13.1 kept 1.0.0b13,
+  because update-m1n1 parses the Stage 1 version as <x.y.z>b<N>.
+- aura#421: the firmware-cache MCC (mcc,t8140, mcc,t6041) is taken from the
+  ADT: AMCC count, enable masks, planes, stride and windows, reading only
+  the enabled AMCCs, and an ADT that leaves something out or contradicts
+  itself leaves the MCC alone instead of failing. Since aura#320 every M4
+  Max (T6041), whose ADT describes eight AMCCs, reset at boot, including
+  with 1.0.0~b13.1-3.
+- 1.0.0b14 (aura#406): T8142 powers ANS off through its storage gates
+  (aura#250, #255), so a b14 Stage 1 starts a Stage 2 on the MacBook Air
+  M5. ANS handoff (aura#410, #412): T8132 hands ANS on powered off with
+  nvme.sart=; T6040 and T6041 hand on live only a session that came running,
+  and never report a live session off.
+- Since 2f487f26: the T6040/T6041 live handoff and its adoption (#305), T8132
+  external displays by default (#299), the J873g's spare DCPEXT0/1 (#300),
+  the hyphenated usb4-N-pcie alias (#302), AOP motion calibration (#306),
+  the J713 ISP firmware window on 27.2 (#397), the T8122 GPU on 27.2 (#393,
+  #396), the mcc,t6041 layout by geometry (#253), the CTXR_D read before a
+  secondary probe (#280), the M5 Ultra displays and CPUs (#264, #262), a
+  J613 __OS_LOG description (#151), HV hooks (#223, #224) and the BRINGUP
+  refusal message (#385).
+
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b13.1-3
+- Pin aura 2f487f26 (branch djdev/mcc-count-width-on-82ee5d6f), labelled
+  1.0.0b13-g2f487f26 from the archive directory as it is not a release
+  tag: aura main 82ee5d6f plus aura#384 (4f44e1f6) and the aura#392 MCC
+  fix, which differ from 82ee5d6f only in the MCC code. Main already
+  carries b13.1's one fix (aura#213, as 21325c85), so nothing of 5dcf62d0
+  is dropped.
+- aura#392: the MCC counts are read at 4 or 8 bytes, and an ADT that does
+  not describe the MCC leaves it undriven instead of failing. 82ee5d6f
+  alone (aura#320) resets every M4 base Mac (T8132) about 44 ms into
+  Stage 2, so Release 2, the unmerged 82ee5d6f draft, is skipped and that
+  release never names a build of this package.
+- For the M5 Pro (J714s) deep sleep: the T6050 SIO tables, and the sleep
+  controller's wake sources (apple,wake-enable) and skipped pins
+  (apple,pinctrl-skip-pins) from the ADT (aura#214, 76f6d953). Every
+  M5 deep-sleep gate ran a Stage 2 with it.
+- Also since b13: T6050 J714c USB, PMP DART and G17C handoff (#193), GPU
+  firmware release (#230), K116s panel, camera and 26B8125 GPU firmware on
+  27.2 (#226, #188, #187), K114c ISP (#206), auto-PM storage (#203), M5
+  Ultra GPU (#261), two-die pmgr (#263); T8142 ANS gates, ANE and encoder
+  preloads and sleep APCIe tables (#250, #251, #215, #272); kboot keeps MTE
+  off on the J813 instead of a fixed arm64.nomte (#194); T6041 J616c ISP,
+  DCP and GPU on 27.2 (#304, #373, #265), dcpext3 (#212), T6040 USB2
+  device tunables (#340), M4 ANE preload (#260); RVBAR lock fixes (#312,
+  #217); the SPTM virtualization tools (#70, #257, #277, #181).
+- The 11-20 fail-closed sweep for every chip: CPU handoff, carve-out,
+  display device and SEPFW bounds checks refuse instead of continuing
+  (#317, #320, #330, #331), and an MCC that the ADT does not describe is
+  left undriven (#384, #392); a device-tree margin (#332); iBoot's
+  failed-boot count cleared (#321); the speaker safety profile, the radio
+  and ISP17a chosen from the ADT or compatible (#328, #314, #329); one
+  cpufreq cluster path (#319); USB, CDC, NVMe, SIO, watchdog and AIC
+  routing fixes (#336, #325, #326, #323, #322, #316, #337, #327).
+
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b13.1-1
+- Update to aura 1.0.0b13.1 (v1.0.0b13.1, 5dcf62d0): 1.0.0b13 plus
+  aura#213. The ESP Stage 2 starts a post-M4 ANS that the previous stage
+  powered off (nvme.sart=) and hands it on running, so the embedded U-Boot
+  finds NVMe after a 1.0.0b11 or later Stage 1.
+
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b13-1
+- Update to aura 1.0.0b13 (v1.0.0b13, f0f180af): ADT DART tunables on
+  every enabled DART (aura#208), T8140 gpu-fw-data (#204), MTE tag storage
+  (#184), DWC3 shutdown retires transfers first (#196), Stage 1 .text right
+  after .init (#202), T8132 encoder firmware handoff (#152), T6041 dcpext2
+  (#166), T8142/T8152 macOS 27.2 GPU firmware (#192, #189) and the Mac mini
+  debug-port warning (#176).
+
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b12.1-1
+- Update to aura 1.0.0b12.1 (v1.0.0b12.1, 54678354): 1.0.0b12 plus
+  tools/macho_boot_object.py --execute-window (aura#195), secboot_sign.py
+  sign-image for aura Stage 2 images (#197) and a secure-flavour Stage 1
+  that links with this toolchain (#200). The default Stage 1 and the ESP
+  Stage 2 are 1.0.0b12's code.
+- Ship the secure-flavour Stage 1 as aura/stage1/aura-secure-raw.bin, for
+  aurora-secboot stage1 build. Its built-in key is a throwaway one, so an
+  image whose key block is not filled verifies nothing.
+
 * Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b12-2
 - Ship aura's Stage 1 and signing tools under /usr/share/aura/tools, for
   aurora-secboot stage1 build and stage2 sign on an existing install. No

@@ -91,7 +91,10 @@ proof = Path(sys.argv[1])
 def aurora(name):
     return {line.split()[0] for line in (proof / name).read_text().splitlines()
             if line.endswith('Aurora Silicon') or line.split()[0] in ('aurora-release', 'aurora-repos')}
-lost = aurora('fedora44-packages.txt') - aurora('fedora45-packages.txt')
+after = aurora('fedora45-packages.txt')
+lost = aurora('fedora44-packages.txt') - after
+if 'update-aura' in after:
+    lost.discard('update-m1n1')
 assert not lost, f'Aurora packages removed by the upgrade: {sorted(lost)}'
 print(len(aurora('fedora45-packages.txt')), 'Aurora packages carried to Fedora 45')
 PY
@@ -108,5 +111,12 @@ krel=$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-aurora-core | sort -
 [[ -s /usr/lib/modules/$krel/vmlinuz && -d /usr/lib/modules/$krel/dtb/apple ]]
 [[ $(readlink /boot/dtb) == "dtb-$krel" ]]
 [[ -s /boot/efi/m1n1/boot.bin ]]
-rpm -q kernel-aurora-core aura uboot-aurora update-m1n1 > "$proof/bootchain-nevra.txt"
+# The signed feeds can be on either side of the package rename.
+updater=$(rpm -q --whatprovides update-m1n1 --qf '%{NAME}\n')
+[[ $updater == update-aura || $updater == update-m1n1 ]]
+rpm -q kernel-aurora-core aura uboot-aurora "$updater" > "$proof/bootchain-nevra.txt"
+if rpm -q aurora-firmware-refresh >/dev/null; then
+  awk '{print $1, $2}' "$proof/fedora45-packages.txt" > "$proof/fedora45-nevras.txt"
+  nomatch -i 'asahi' "$proof/fedora45-nevras.txt"
+fi
 echo "Fedora 44 -> 45 system-upgrade passed: $(rpm -q aurora-release), kernel $krel"

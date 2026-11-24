@@ -33,7 +33,7 @@ import sys
 names = ('aurora-sep', 'aurora-sep-selinux', 'libfprint', 'libfprint-selinux',
          'libfprint-devel', 'libfprint-tests', 'fprintd', 'fprintd-pam', 'fprintd-devel')
 # Required by aurora-sep and new on both baselines.
-deps = ('aurora-xart', 'aurora-touchid-rearm')
+deps = ('aurora-xart', 'aurora-touchid-rearm', 'aurora-sep-host-state')
 transaction = rpm.TransactionSet()
 headers = {}
 repo = Path('/tmp/touchid-repo')
@@ -105,7 +105,7 @@ fi
 rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' "${packages[@]}" \
   | sort | tee /tmp/touchid-after.txt
 diff -u /tmp/touchid-expected.txt /tmp/touchid-after.txt
-rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' aurora-xart aurora-touchid-rearm \
+rpm -q --qf '%{NAME} %{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' aurora-xart aurora-touchid-rearm aurora-sep-host-state \
   | sort | diff -u /tmp/touchid-deps.txt -
 rpm -q --provides libfprint | grep -Fx 'libfprint(aurora-sep) = 5'
 rpm -q --provides fprintd | grep -Fx 'fprintd(aurora-sep) = 1'

@@ -1,16 +1,17 @@
-%global commit 836a0efa19fc733f870651316ed04ff243667e39
+%global commit b3aaa4a7c75f0fe203ddbf10a161b2328e06aa7d
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261112
+%global snapdate 20261124
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.13.%{snapdate}git%{shortcommit}%{?dist}
-Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning (preview)
+Release: 0.25.%{snapdate}git%{shortcommit}%{?dist}
+Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
 License: MIT
 URL: https://github.com/aurora-silicon/speakerguardd/tree/v2/packaging/upgrade
 Source0: aurora-speaker-upgrade-%{commit}.tar.gz
+Source1: 50-aurora-speaker-upgrade.preset
 BuildArch: noarch
 BuildRequires: make systemd-rpm-macros python3 python3-cryptography lzfse-libs
 Requires: python3 python3-cryptography lzfse-libs util-linux alsa-utils systemd
@@ -20,10 +21,6 @@ Recommends: speakerguardd-v2
 %{?systemd_requires}
 
 %description
-speakerguardd v2 is a preview. It does not fully match macOS yet. The legacy
-protection (speakersafetyd, speakerguardd 0.1) is the supported default and
-stays installed. To go back at any time: sudo aurora-speaker-upgrade --revert.
-
 aurora-speaker-upgrade moves an existing install's speakers from the legacy
 protection (speakersafetyd, speakerguardd 0.1) to speakerguardd v2 with the
 Mac's own tuning, and back (--revert). It collects the installer's tuning
@@ -31,7 +28,8 @@ bundle from Linux: from an installer bundle of this unit, the installed
 macOS's System volume, Apple's restore image of that build by HTTP ranges, or
 a collection made on macOS. It stores the bundle root-only, lets v2's silent
 self-check prove it, and switches the kernel's speaker interface only on a
-pass. The legacy stack stays installed. The service ships disabled.
+pass. The legacy stack stays installed and keeps any Mac whose self-check
+refuses. The service is enabled by preset.
 
 %prep
 %autosetup -n speakerguardd-%{commit}
@@ -43,6 +41,7 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 
 %install
 %make_install -C packaging/upgrade PREFIX=%{_prefix} UNITDIR=%{_unitdir} V2UNIT=speakerguardd-v2.service
+install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.preset
 
 %post
 %systemd_post aurora-speaker-upgrade.service
@@ -60,10 +59,80 @@ python3 -I -m unittest discover -s packaging/upgrade/tests
 %{_prefix}/lib/aurora-speaker-upgrade/
 %{_datadir}/aurora-speaker-upgrade/restore-images.json
 %{_unitdir}/aurora-speaker-upgrade.service
-%dir %{_unitdir}/speakerguardd-v2.service.d
-%{_unitdir}/speakerguardd-v2.service.d/50-aurora-speaker-upgrade.conf
+%{_presetdir}/50-aurora-speaker-upgrade.preset
 
 %changelog
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.25.20261124gitb3aaa4a7c75f
+- Rebuilt from speakerguardd main b3aaa4a7 (speakerguardd#250, #251): a
+  restore image range cut short is retried and then treated as "not now",
+  never as a refusal.
+
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.24.20261124git1008c7a4f210
+- Rebuilt from speakerguardd main 1008c7a4 (speakerguardd#248): the tuning
+  comes only from Apple's restore image of the pinned macOS release (27.2),
+  never from an installed macOS; only per-unit values (ADT calibration,
+  speaker ID, unit) come from the Mac. No network at boot is a retry, not
+  a refusal. apfs_ro decodes decmpfs type 9 files correctly.
+
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.23.20261124git8966bdd4f11d
+- Rebuilt from speakerguardd main 8966bdd4 (speakerguardd#246): the tool
+  collects and keeps the BuzzKill quadrature matrix (vendored installer
+  collector at aurora-installer e1ddef7f); an installer bundle without it,
+  for a tuning with a BuzzKill unit, is used only when this Mac's own
+  macOS gives no bundle.
+
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.22.20261124git80b02063f3d8
+- Rebuilt from speakerguardd main 80b02063 with speakerguardd-v2
+  (speakerguardd#239 to #244). speakerguardd#240: the boot unit judges the
+  playback record strictly and per unit.
+
+* Mon Nov 23 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.21.20261123git9b7285c420a7
+- Rebuilt from speakerguardd main 9b7285c4 with speakerguardd-v2
+  (speakerguardd#200, #228, #229, #231, #232, #234, #236, #238).
+- speakerguardd#238: the boot unit moves a speaker to v2 only when
+  protected playback rows (a loud step and a thermal ramp) are on record
+  for it in speakerguardd-v2's gate data; otherwise it leaves the speakers
+  as they are, collects nothing and records no refusal. `run` by hand is
+  unchanged, `status` shows boot_migration, and a new row retries a Mac
+  the boot unit refused.
+
+* Sat Nov 21 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.20.20261121git29263b5cfa8d
+- Rebuilt from speakerguardd main 29263b5c with speakerguardd-v2: the
+  self-check it relies on refuses V/I sense that a bit-clock misframe
+  corrupts (speakerguardd#225), and a pass is bound to the speaker card's
+  device-tree node and the sound modules' build IDs, so a changed audio
+  stack runs the switch test again (#226). No change to the tool itself.
+
+* Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 0.1-0.19.20261120gitf573f6054011
+- Rebuilt from speakerguardd main f573f605: a collection that carries the
+  installer collector's buzzkill_quadrature record, which speakerguardd v2
+  does not read yet, is stored without it instead of being refused
+  (speakerguardd#213); reverting to a v2-only kernel restarts the
+  supervisor when its own wants link starts it (#215); the
+  speakerguardd-v2.service drop-in is gone, as the supervisor unit applies
+  the kernel interface itself (#205).
+
+* Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.18.20261120gitdafc508877e3
+- Enable aurora-speaker-upgrade.service by preset: at the next boot each
+  Mac moves its speakers to speakerguardd v2 when its own tuning passes the
+  silent self-check; a refused Mac keeps speakersafetyd and is not retried
+  until the kernel, speakerguardd or the tool changes.
+- Rebuilt from speakerguardd 1.0.0-alpha.2 (main dafc5088).
+
+* Tue Nov 17 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.16.20261117gitbbd9ed30ac43
+- Release candidate 9 (speakerguardd#144): switch without the preview
+  confirmation; --i-understand-preview is still accepted and has no effect.
+- speakerguardd#186: directories this tool creates are 0755 whatever its
+  umask, so /etc/speakerguardd stays readable for the seat user.
+
+* Fri Nov 13 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.15.20261113git04169c447065
+- Rebuilt from speakerguardd 04169c44 (no change to this tool).
+
+* Fri Nov 13 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.14.20261113git26b88eac71bf
+- speakerguardd#159: when the boot chain gives no speaker ID for an AID
+  that selects its tuning by speaker ID, go on to the macOS collection
+  (route 3), which records the ID, instead of stopping.
+
 * Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.13.20261112git836a0efa19fc
 - Rebuilt from speakerguardd#167 (no change to this tool).
 

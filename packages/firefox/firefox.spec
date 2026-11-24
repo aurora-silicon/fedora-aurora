@@ -92,7 +92,7 @@ ExcludeArch: i686
 %if 0%{?rhel}
 %global use_bundled_cbindgen  1
 %else
-%global use_bundled_cbindgen  1
+%global use_bundled_cbindgen  0
 %endif
 %if %{debug_build}
 %global release_build     0
@@ -149,7 +149,7 @@ ExcludeArch: i686
 %if %{?system_nss}
 %global nspr_version 4.38.2
 %global nspr_build_version %{nspr_version}
-%global nss_version 3.132
+%global nss_version 3.133
 %global nss_build_version %{nss_version}
 %endif
 
@@ -193,14 +193,14 @@ ExcludeArch: i686
 
 Summary:        Mozilla Firefox Web browser
 Name:           firefox
-Version:        160.0
-Release:        1%{?dist}.aurora2
+Version:        161.0
+Release:        1%{?dist}.aurora4
 URL:            https://www.mozilla.org/firefox/
 # Automatically converted from old format: MPLv1.1 or GPLv2+ or LGPLv2+ - review is highly recommended.
 License:        LicenseRef-Callaway-MPLv1.1 OR GPL-2.0-or-later OR LicenseRef-Callaway-LGPLv2+
 Source0:        https://archive.mozilla.org/pub/firefox/releases/%{version}%{?pre_version}/source/firefox-%{version}%{?pre_version}.source.tar.xz
 %if %{with langpacks}
-Source1:        firefox-langpacks-%{version}%{?pre_version}-20261106.tar.xz
+Source1:        firefox-langpacks-%{version}%{?pre_version}-20261123.tar.xz
 %endif
 Source2:        cbindgen-vendor.tar.xz
 Source3:        dump_syms-vendor.tar.xz
@@ -251,7 +251,6 @@ Patch90:        pgo-simple-programs-2.patch
 Patch215:        firefox-enable-addons.patch
 Patch219:        rhbz-1173156.patch
 #ARM run-time patch
-Patch226:        rhbz-1354671.patch
 Patch228:        disable-openh264-download.patch
 Patch229:        firefox-nss-addon-hack.patch
 Patch231:        fedora-customization.patch
@@ -271,6 +270,12 @@ Patch604:        0001-Bug-2085342-Hash-the-little-endian-ICU-data-in-icu_d.patch
 # Aurora: V4L2 stateless decoders in RDD (Mozilla bug 2080696)
 Patch900:       rdd-v4l2-request.patch
 BuildRequires:  kernel-headers >= 6.5
+# Aurora: Wayland SHM video textures are Texture2D (Mozilla bug 2084900 backport)
+Patch901:       wayland-shm-texture2d.patch
+# Aurora: admit Borealis (VK_DRIVER_ID_AURORA_BOREALIS = 35) in wgpu-hal for WebGPU
+Patch902:       wgpu-borealis-adapter.patch
+# Aurora: recognize Mesa AGX GL_RENDERER in WebGL SanitizeRenderer
+Patch903:       sanitize-agx-renderer.patch
 
 %if %{?system_nss}
 BuildRequires:  pkgconfig(nspr) >= %{nspr_version}
@@ -538,10 +543,6 @@ patch -p1 -b --suffix .wasi < wasi.patch
 # Fedora patches
 %patch -P215 -p1 -b .addons
 %patch -P219 -p1 -b .rhbz-1173156
-#ARM run-time patch
-%ifarch aarch64
-%patch -P226 -p1 -b .1354671
-%endif
 %patch -P228 -p1 -b .disable-openh264-download
 %patch -P229 -p1 -b .firefox-nss-addon-hack
 %patch -P231 -p1 -b .fedora-customization
@@ -560,6 +561,10 @@ patch -p1 -b --suffix .wasi < wasi.patch
 %patch -P604 -p1 -b .0001-Bug-2085342-Hash-the-little-endian-ICU-data-in-icu-d
 
 %patch -P900 -p1 -b .rdd-v4l2-request
+%patch -P901 -p1 -b .wayland-shm-texture2d
+%patch -P902 -p1 -b .wgpu-borealis-adapter
+%patch -P903 -p1 -b .sanitize-agx-renderer
+python3 -c 'import hashlib,json,pathlib; p=pathlib.Path("third_party/rust/wgpu-hal/.cargo-checksum.json"); d=json.loads(p.read_text()); d["files"]["src/vulkan/adapter.rs"]=hashlib.sha256(pathlib.Path("third_party/rust/wgpu-hal/src/vulkan/adapter.rs").read_bytes()).hexdigest(); p.write_text(json.dumps(d))'
 
 rm -f .mozconfig
 cp %{SOURCE10} .mozconfig
@@ -1062,9 +1067,7 @@ cp failures-* %{buildroot}/%{version}-%{release}/ || true
 
 # Default
 cp %{SOURCE12} %{buildroot}%{mozappdir}/browser/defaults/preferences
-
-# Disabled session restore due to mzbz#2059617.
-echo 'pref("widget.wayland.session-management.enabled", false);' >> %{buildroot}%{mozappdir}/browser/defaults/preferences/firefox-redhat-default-prefs.js
+echo 'pref("dom.webgpu.enabled", true);' >> %{buildroot}%{mozappdir}/browser/defaults/preferences/firefox-redhat-default-prefs.js
 
 %if %{?use_pipewire_camera}
 echo 'pref("media.webrtc.camera.allow-pipewire", true);' >> %{buildroot}%{mozappdir}/browser/defaults/preferences/firefox-redhat-default-prefs.js
@@ -1198,13 +1201,30 @@ fi
 #---------------------------------------------------------------------
 
 %changelog
-* Wed Nov 11 2026 Aurora Silicon <hey@djdev.me> - 160.0-1.aurora2
-- Rebuild of Fedora's firefox-160.0-1.
+* Mon Nov 23 2026 Aurora Silicon <hey@djdev.me> - 161.0-1.aurora4
+- Rebuild of Fedora's firefox-161.0-1.
 - Allow V4L2 stateless (Request API) decoders in the RDD sandbox.
 - Allow sysinfo in the RDD sandbox, so Mesa's zink driver can create the
   GBM device behind VA-API DMABuf surfaces.
 - No debuginfo, no Rust debug info and no WASI SDK build, to fit the native
   builder.
+- Build with Fedora's cbindgen package instead of the bundled copy.
+- Tag SHM video frames on the Wayland WebRender compositor path as Texture2D
+  (backport from Mozilla bug 2084900): fixes the parent-process panic
+  "ps_quad_textured TEXTURE_RECT variant not loaded" on GLES with HDR on.
+- Admit Borealis (VK_DRIVER_ID_AURORA_BOREALIS, driver ID 35) in wgpu-hal and
+  enable dom.webgpu.enabled by default for hardware WebGPU on Apple Silicon.
+- Recognize Mesa's "AGX" GL_RENDERER prefix in WebGL SanitizeRenderer to
+  eliminate GraphicsCriticalError annotations on every WebGL page.
+
+* Mon Nov 23 2026 Martin Stransky <stransky@redhat.com> - 161.0-1
+- Update to latest upstream (161.0)
+
+* Wed Nov 18 2026 Martin Stransky <stransky@redhat.com> - 160.0.1-1
+- Update to latest upstream (160.0.1)
+
+* Wed Nov 11 2026 Dave Vasilevsky <dave@vasilevsky.ca> - 160.0-2
+- Re-enable session management after fixes in Firefox 158
 
 * Fri Nov 06 2026 Martin Stransky <stransky@redhat.com> - 160.0-1
 - Update to latest upstream (160.0)

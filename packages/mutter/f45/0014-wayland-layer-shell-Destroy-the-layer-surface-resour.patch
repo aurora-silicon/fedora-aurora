@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ryan Murray <81541646+RyanTheTide@users.noreply.github.com>
+Date: Mon, 16 Nov 2026 12:51:40 +1100
+Subject: [PATCH] wayland/layer-shell: Destroy the layer surface resource with
+ its role
+
+If the client destroys the wl_surface first, the role object is
+finalized while the zwlr_layer_surface_v1 resource is still alive, and
+requests on it would reach freed memory. Destroy the resource with the
+role, as xdg_toplevel does.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/wayland/meta-wayland-layer-shell.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/wayland/meta-wayland-layer-shell.c b/src/wayland/meta-wayland-layer-shell.c
+index b150ba2..6bd94f5 100644
+--- a/src/wayland/meta-wayland-layer-shell.c
++++ b/src/wayland/meta-wayland-layer-shell.c
+@@ -1096,10 +1096,11 @@ meta_wayland_layer_surface_finalize (GObject *object)
+ {
+   MetaWaylandLayerSurface *layer_surface = META_WAYLAND_LAYER_SURFACE (object);
+ 
++  /* As for xdg_toplevel, the role object goes with the wl_surface. */
+   if (layer_surface->resource)
+     {
+-      wl_resource_set_user_data (layer_surface->resource, NULL);
+       wl_resource_set_destructor (layer_surface->resource, NULL);
++      g_clear_pointer (&layer_surface->resource, wl_resource_destroy);
+     }
+ 
+   if (layer_surface->layer_shell)

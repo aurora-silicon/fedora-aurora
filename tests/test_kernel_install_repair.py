@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 import unittest
 
-SCRIPT = Path(__file__).resolve().parents[1] / 'packages/update-m1n1/kernel-install-repair'
+SCRIPT = Path(__file__).resolve().parents[1] / 'packages/update-aura/kernel-install-repair'
 OWN_TID = '200'
 
 
@@ -41,7 +41,7 @@ class KernelInstallRepairTests(unittest.TestCase):
     def run_repair(self, installed=True):
         rows = '\n'.join(f'{tid} {krel}' for tid, krel in self.kernels)
         self.stub('rpm', f'''case "$*" in
-*update-m1n1*) echo {OWN_TID} ;;
+*update-aura*) echo {OWN_TID} ;;
 *kernel-aurora-core*) {'printf "%s\\n" "' + rows + '"' if installed else 'echo "package kernel-aurora-core is not installed"; exit 1'} ;;
 esac
 ''')

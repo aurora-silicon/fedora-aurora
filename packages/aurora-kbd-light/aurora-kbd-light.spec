@@ -1,7 +1,7 @@
-%global commit 727076b83eb65b0162317a9e2fa0ba850df1f5ca
+%global commit 72c3bb35f28d60fbc2e6db0eb8933a669832f16f
 Name: aurora-kbd-light
 Version: 0.1.0
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Keyboard backlight that follows the ambient light sensor
 License: MIT
 URL: https://github.com/aurora-silicon/kbd-light
@@ -49,6 +49,13 @@ install -Dm644 %{SOURCE2} %{buildroot}%{_udevrulesdir}/90-aurora-kbd-light.rules
 %{_udevrulesdir}/90-aurora-kbd-light.rules
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-3
+- Move to kbd-light 72c3bb35 (kbd-light#1), as Arch Linux ARM ships since
+  alarm-aurora#336: optional idle dimming. With AURORA_KBD_LIGHT_IDLE_SECONDS
+  set in /etc/default/aurora-kbd-light, the backlight fades to
+  AURORA_KBD_LIGHT_IDLE_PERCENT (default 0) after that many seconds without
+  a key press, and comes back at the next one. Off by default.
+
 * Thu Nov 12 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-2
 - Start the service, if it is enabled, when the keyboard backlight LED or the
   AOP light sensor appears; at boot its condition could be checked before

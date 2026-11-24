@@ -43,16 +43,14 @@ class ConfigureTests(unittest.TestCase):
           <include from="this://./repositories/asahi.xml"/></image>''')
         for path, (profile, _) in configure.PACKAGES.items():
             (cls.source / path).write_text(
-                f'<image><packages type="image" profiles="{profile}"><package name="kernel-16k"/>'
+                f'<image><profiles><profile name="{profile}"/></profiles>'
+                f'<packages type="image" profiles="{profile}"><package name="kernel-16k"/>'
                 '<package name="fedora-release-kde"/><package name="mesa-dri-drivers"/>'
+                '<package name="dracut-asahi"/><package name="linux-firmware-vendor"/>'
                 '<ignore name="amd-gpu-firmware"/><ignore name="intel-gpu-firmware"/>'
                 '<ignore name="nvidia-gpu-firmware"/><ignore name="iwlwifi-mvm-firmware"/>'
                 '<ignore name="qcom-firmware"/><ignore name="dracut-config-rescue"/></packages></image>')
-        for path, (profile, _) in configure.EXCLUDED.items():
-            (cls.source / path).write_text(
-                f'<image><profiles><profile name="{profile}" description="Desktop"/></profiles>'
-                f'<packages type="image" profiles="{profile}"><namedCollection name="input-methods"/>'
-                '</packages></image>')
+
         (cls.source / "repositories/asahi.xml").write_text("<image/>")
         (cls.source / "repositories/core.xml").write_text("<image>" + "".join(
             f'<repository type="rpm-md" alias="{alias}" sourcetype="metalink">'
@@ -135,13 +133,17 @@ class ConfigureTests(unittest.TestCase):
                 names = {n.get("name") for p in out.rglob("*.xml")
                          for n in ET.parse(p).getroot().iter("package")}
                 self.assertFalse(configure.REPLACED & names)
+                self.assertFalse({"dracut-asahi", "linux-firmware-vendor"} & names)
+                self.assertIn("aurora-vendor-firmware", names)
+                self.assertIn("update-aura", names)
                 self.assertIn("kernel-aurora", names)
                 self.assertIn("mesa-aurora-vulkan-drivers", names)
                 self.assertIn("aurora-flatpak-gl", names)
                 self.assertIn("libva-v4l2-request-avd", names)
                 exclusions = {n.get("name") for p in out.rglob("*.xml")
                               for n in ET.parse(p).getroot().iter("ignore")}
-                self.assertFalse(any(name.endswith("-firmware") for name in exclusions))
+                self.assertTrue(set(configure.STOCK_FIRMWARE) <= exclusions)
+                self.assertFalse({"aurora-firmware", "aurora-wifi-firmware", "avd-fw"} & exclusions)
                 self.assertIn("dracut-config-rescue", exclusions)
                 self.assertFalse((out / "repositories/asahi.xml").exists())
                 self.assertEqual((out / "root/etc/yum.repos.d/aurora.repo").read_text(), re.sub(
@@ -434,9 +436,13 @@ class ConfigureTests(unittest.TestCase):
         chooser.write_text("#!/bin/sh\necho aurora\n")
         self.assertTrue(accepted())
         desktop = ET.parse(output / "components/desktop-environments.xml").getroot()
-        self.assertIn("plymouth-theme-aurora", {n.get("name") for g in desktop.iter("packages")
-                                                if g.get("profiles") == "DesktopCommon"
-                                                for n in g.iter("package")})
+        desktop_packages = {n.get("name") for g in desktop.iter("packages")
+                            if g.get("profiles") == "DesktopCommon" for n in g.iter("package")}
+        self.assertIn("plymouth-theme-aurora", desktop_packages)
+        # GameMode with Aurora's settings ships on desktops, not on minimal.
+        self.assertLessEqual({"gamemode", "aurora-gamemode"}, desktop_packages)
+        base = ET.parse(output / "components/base.xml").getroot()
+        self.assertFalse({"gamemode", "aurora-gamemode"} & {n.get("name") for n in base.iter("package")})
 
     def test_image_rejects_a_stale_kernel_before_export(self):
         output = self.root / "kernel-gate"

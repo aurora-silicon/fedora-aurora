@@ -19,7 +19,7 @@
 
 Name:          mutter
 Version:       50.6
-Release:       4%{?dist}.aurora
+Release:       5%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -38,6 +38,9 @@ Patch:         0002-backends-Take-the-PQ-reference-white-from-PQ_REFERENCE_LUMIN
 # Aurora: a built-in panel in a variable refresh rate mode uses it on its
 # whole desktop, not only for fullscreen surfaces
 Patch:         0003-onscreen-native-Use-variable-refresh-rate-on-the-whole-desktop-of-built-in-panels.patch
+
+# Aurora: gnome-shell does not crash at shutdown while outputs are in power save
+Patch:         0004-renderer-native-Drop-power-save-page-flip-onscreens-on-dispose.patch
 
 
 BuildRequires: cvt
@@ -223,6 +226,11 @@ Viewer for nested mutter instances.
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 50.6-5.aurora
+- Drop the onscreens queued for power save page flips when the renderer is
+  disposed, before the Cogl display goes away. gnome-shell no longer
+  crashes at shutdown when the displays are in power save
+
 * Fri Nov 06 2026 Ryan Murray <ryan@aurorasilicon.org> - 50.6-4.aurora
 - Use variable refresh rate on the whole desktop of a built-in panel in a
   variable refresh rate mode (external outputs keep fullscreen-only VRR)

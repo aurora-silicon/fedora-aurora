@@ -1,4 +1,4 @@
-%global commit ffc201f33773541063f2f3d57c8a279cad5ede11
+%global commit 9b59420299203805b213f7f65fbcba1d7690177f
 %global plugin_commit e5aa51a41f963e73b5a67914cae3c916a83739f1
 # -s only: the helpers import their sibling modules from their own directory,
 # which -P (safe path) would take off sys.path.
@@ -9,12 +9,12 @@
 # the omdrop-awdl helpers (create awdl0, open a discoverable window, send) and
 # the receiver from omdrop-plugin. Everything is installed off.
 Name:           omdrop-awdl
-Version:        0.10.5
-Release:        1%{?dist}.aurora3
+Version:        0.10.7
+Release:        1%{?dist}.aurora2
 Summary:        AirDrop over firmware-native AWDL on Apple Silicon Macs
 License:        GPL-2.0-only AND MIT
 URL:            https://github.com/netmojo-systems/omdrop-awdl
-# Upstream main at 0.10.5 (ffc201f33773), pinned in sources.json.
+# Upstream 0.10.7 (9b5942029920), pinned in sources.json.
 Source0:        omdrop-awdl-%{commit}.tar.gz
 # The receiver (bin/airdrop-serve.py and its modules), MIT; pinned in sources.json.
 Source1:        omdrop-plugin-%{plugin_commit}.tar.gz
@@ -45,7 +45,11 @@ Requires:       openssl
 Requires:       polkit
 Requires:       procps-ng
 Requires:       python3
+# airdrop-send.py browses _airdrop._tcp with zeroconf (and finds awdl0's
+# address with ifaddr) when the action-frame log names no usable receiver.
+Requires:       python3-ifaddr
 Requires:       python3-libarchive-c
+Requires:       python3-zeroconf
 Requires:       util-linux-core
 %{?systemd_requires}
 # Keeps awdl0 unmanaged and settles the Wi-Fi MAC before awdl0 is derived from it.
@@ -130,13 +134,17 @@ install -Dpm 644 $R/share/airdrop-receiver.service %{buildroot}%{_userunitdir}/a
 
 %check
 # Syntax of every installed script, by interpreter.
+# Compile in memory: py_compile would write bytecode into the buildroot after
+# brp-python-bytecompile ran, and for a script without a .py suffix it writes
+# "<name>cpython-<ver>.pyc", which Python never loads but the package shipped.
+pysyntax() { %{python3} -c 'import sys; compile(open(sys.argv[1], "rb").read(), sys.argv[1], "exec")' "$1"; }
 for f in %{buildroot}%{_libexecdir}/omdrop/* %{buildroot}%{_libexecdir}/omdrop/radio/* \
 	 %{buildroot}%{_systemd_util_dir}/system-sleep/omdrop-awdl %{buildroot}%{_datadir}/omdrop/receiver/bin/*.py; do
 	[ -f "$f" ] || continue
-	case "$f" in *.sh) bash -n "$f"; continue ;; *.py) %{python3} -m py_compile "$f"; continue ;; esac
+	case "$f" in *.sh) bash -n "$f"; continue ;; *.py) pysyntax "$f"; continue ;; esac
 	case "$(head -n1 "$f")" in
 	*bash*|*/sh) bash -n "$f" ;;
-	*python*) %{python3} -m py_compile "$f" ;;
+	*python*) pysyntax "$f" ;;
 	esac
 done
 grep -q 'stable-ssid' %{buildroot}%{_libexecdir}/omdrop/awdl-up
@@ -174,6 +182,17 @@ grep -q '^ExecStartPre=+/usr/bin/mkdir -p -m 0700 %%h/.omdrop$' %{buildroot}%{_u
 %{_userunitdir}/airdrop-receiver.service
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.10.7-1.aurora2
+- Require python3-zeroconf and python3-ifaddr: the sender's mDNS browse, used
+  when the action-frame log names no receiver, imports both and stopped with
+  ModuleNotFoundError on an install that had neither.
+- Check script syntax in %%check without writing bytecode, so the package no
+  longer ships awdl-resolvecpython-*.pyc and send-to-peercpython-*.pyc.
+
+* Tue Nov 17 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.10.7-1.aurora1
+- Update to upstream 0.10.7 (brcmfmac AWDL provenance probe, warm-up opt-in);
+  the three Aurora patches apply unchanged.
+
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.10.5-1.aurora3
 - Set awdl_osoc_chan (5 GHz social channel, default 149, /etc/omdrop/osoc-chan)
   when a window opens. Without it macOS hears us only on 2.4 GHz and will
