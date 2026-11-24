@@ -66,6 +66,7 @@ Aurora Apple Silicon hardware stack.
 
 %package core
 Summary: Aurora hardware services without a kernel or boot chain
+License: MIT AND GPL-2.0-or-later
 # The Fedora Asahi metapackages require the stock kernel-16k. This package
 # keeps the hardware services they bring in and lets the stock kernel go.
 Provides: asahi-platform-metapackage = %{version}-%{release}
