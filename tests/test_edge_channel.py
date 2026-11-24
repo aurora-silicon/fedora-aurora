@@ -25,6 +25,7 @@ def module(name, path):
 signing = module('edge_repository_signing', 'scripts/sign-repository.py')
 site = module('edge_channel_site', 'scripts/channel-site.py')
 snapshot = module('edge_snapshot', 'scripts/edge-snapshot.py')
+base_verifier = module('edge_base_verifier', 'scripts/verify-edge-base.py')
 proof = module('edge_image_proof', 'scripts/edge-image-proof.py')
 configure = module('edge_configure', 'images/configure.py')
 
@@ -232,7 +233,7 @@ class EdgeSnapshotTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'one Mesa'):
             snapshot.packaged_sources(sources, trees)
 
-    def test_signed_base_copies_every_rpm_and_records_the_published_pair(self):
+    def test_signed_base_copies_every_binary_rpm_and_records_the_published_pair(self):
         rows = [('kernel-aurora-core', b'kernel'), ('mesa-aurora-vulkan-drivers', b'mesa'), ('aura', b'aura')]
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -243,6 +244,8 @@ class EdgeSnapshotTests(unittest.TestCase):
                 name = f'{package}-1-1.fc45.aurora.aarch64.rpm'
                 (base / name).write_bytes(contents)
                 files[name] = package + '.aarch64'
+            (base / 'kernel-aurora-1-1.fc45.src.rpm').write_bytes(b'source')
+            (base / 'mesa-aurora-1-1.fc45.nosrc.rpm').write_bytes(b'limited source')
             sources = {'kernel-aurora': {'commit': LINUX['revision']},
                        'mesa-aurora': {'commit': MESA['revision']}}
             (root / 'sources.json').write_text(json.dumps(sources))
@@ -255,11 +258,27 @@ class EdgeSnapshotTests(unittest.TestCase):
                     '--base-release', 'testing-f45-20261121.1']
             with patch.object(sys, 'argv', args), patch.object(snapshot, 'identity', lambda path: files[path.name]):
                 snapshot.main()
-            self.assertEqual({path.name: path.read_bytes() for path in base.iterdir()},
+            self.assertEqual({name: (base / name).read_bytes() for name in files},
                              {path.name: path.read_bytes() for path in (root / 'out').iterdir()})
             record = json.loads((root / 'record.json').read_text())
             self.assertEqual(record['base_publication'], publication)
             self.assertEqual(len(record['edge_rpms']), 2)
+
+    def test_signed_base_binds_source_assets_without_counting_them_as_binaries(self):
+        recipes = ('kernel-aurora', 'mesa-aurora', 'mesa-aurora-fex-guest', 'aurora-flatpak-gl')
+        binaries = {f'{recipe}-1-1.fc45.aarch64.rpm': recipe for recipe in recipes}
+        sources = {'kernel-aurora-1-1.fc45.src.rpm', 'mesa-aurora-1-1.fc45.nosrc.rpm'}
+        checksums = dict.fromkeys(binaries.keys() | sources, '1' * 64)
+        manifest = {'channel': 'testing', 'fedora': 45, 'architecture': 'aarch64', 'dry_run': False,
+                    'packages': [{'filename': filename, 'sha256': checksums[filename]} for filename in binaries]}
+        builds = {'receipts': [{'fedora': 45, 'succeeded': True, 'package': recipe,
+                                'artifacts': [{'filename': filename}]} for filename, recipe in binaries.items()]}
+        downloaded = binaries.keys() | sources
+        base_verifier.verify_index(manifest, builds, checksums, downloaded)
+        with self.assertRaisesRegex(ValueError, 'differ from the authenticated manifest'):
+            base_verifier.verify_index(manifest, builds, checksums, downloaded | {'extra.src.rpm'})
+        with self.assertRaisesRegex(ValueError, 'differ from the authenticated manifest'):
+            base_verifier.verify_index(manifest, builds, checksums, downloaded - {next(iter(binaries))})
 
 
 class ImageProofTests(unittest.TestCase):

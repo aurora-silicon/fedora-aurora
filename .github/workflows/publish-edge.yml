@@ -158,6 +158,8 @@ jobs:
           for line in Path('base/SHA256SUMS').read_text().splitlines():
               digest, name = line.split(maxsplit=1)
               listed[name.lstrip('*')] = digest
+          if not {rpm.name for rpm in Path('base').glob('*.rpm')} <= listed.keys():
+              raise ValueError('a downloaded base RPM is outside the attested checksums')
           subjects = ({(s['name'], s['digest']['sha256']) for s in v['verificationResult']['statement']['subject']}
                       for v in json.load(open('base-attestation.json')))
           if not any(listed.items() <= statement for statement in subjects):
@@ -220,6 +222,7 @@ jobs:
             rpmkeys --import keys/RPM-GPG-KEY-aurora
             for rpm in base/*.rpm signed/rpms/*.rpm signed-mesa/rpms/*.rpm; do
               [[ -e $rpm ]] || continue
+              case "$rpm" in *.src.rpm|*.nosrc.rpm) continue ;; esac
               [[ $(rpmkeys --checksig "$rpm") == *"digests signatures OK"* ]] || { echo "unsigned: $rpm" >&2; exit 1; }
             done
             if [[ $FEDORA_RELEASE == 45 ]]; then

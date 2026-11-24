@@ -21,6 +21,10 @@ def identity(path):
     return subprocess.check_output(['rpm', '-qp', '--qf', '%{NAME}.%{ARCH}', str(path)], text=True).strip()
 
 
+def binary_packages(directory):
+    return [(identity(path), path.name) for path in sorted(directory.glob('*.rpm')) if edgelib.binary_rpm(path.name)]
+
+
 def version(key, filename):
     name, arch = key.rsplit('.', 1)
     suffix = '.' + arch + '.rpm'
@@ -97,7 +101,7 @@ def main():
     args = parser.parse_args()
     if args.output.exists():
         parser.error('use a fresh output directory')
-    base = [(identity(path), path.name) for path in sorted(args.base.glob('*.rpm'))]
+    base = binary_packages(args.base)
     if args.signed_base:
         if not args.base_record:
             parser.error('a signed base requires its verified publication record')
@@ -108,14 +112,11 @@ def main():
     else:
         if not args.signing_run:
             parser.error('an overlay requires an Edge signing run')
-        edge = [(identity(path), path.name) for path in sorted(args.edge.glob('*.rpm'))
-                if not path.name.endswith(('.src.rpm', '.nosrc.rpm'))]
+        edge = binary_packages(args.edge)
         edge_path = args.edge
     if bool(args.mesa_edge) != bool(args.mesa_sources) or bool(args.mesa_edge) != bool(args.mesa_signing_run):
         parser.error('a Mesa replacement needs its RPMs, sources and signing run together')
-    mesa = None if not args.mesa_edge else [
-        (identity(path), path.name) for path in sorted(args.mesa_edge.glob('*.rpm'))
-        if not path.name.endswith(('.src.rpm', '.nosrc.rpm'))]
+    mesa = binary_packages(args.mesa_edge) if args.mesa_edge else None
     keep, add, origin = plan(base, edge, mesa, sources=True)
     args.output.mkdir(parents=True)
     for name in keep:

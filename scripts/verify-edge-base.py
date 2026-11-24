@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 import re
 
+import edgelib
+
 
 def digest(path):
     with path.open('rb') as stream:
@@ -18,8 +20,9 @@ def verify_index(manifest, builds, checksums, downloaded):
             or manifest['architecture'] != 'aarch64' or manifest['dry_run'] is not False):
         raise ValueError('Edge requires a real Fedora 45 Testing base')
     packages = {row['filename']: row['sha256'] for row in manifest['packages']}
-    if (not packages or len(packages) != len(manifest['packages']) or set(packages) != downloaded
-            or not packages.items() <= checksums.items()):
+    binaries = {name for name in downloaded if edgelib.binary_rpm(name)}
+    if (not packages or len(packages) != len(manifest['packages']) or set(packages) != binaries
+            or not packages.items() <= checksums.items() or not downloaded <= checksums.keys()):
         raise ValueError('the Fedora 45 base files differ from the authenticated manifest')
     origins = {}
     for receipt in builds['receipts']:

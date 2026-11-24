@@ -16,6 +16,10 @@ FAMILIES = {'kernel': ('kernel-aurora', 'aurora-userpages'),
 TRAIN_RECORD = 'site/installer/edge-train.json'
 
 
+def binary_rpm(filename):
+    return filename.endswith('.rpm') and not filename.endswith(('.src.rpm', '.nosrc.rpm'))
+
+
 def snapshot(tag, fedora=44):
     if (int(fedora) not in (44, 45) or not isinstance(tag, str) or not TAG.fullmatch(tag)
             or tag.startswith('edge-f45-') != (int(fedora) == 45)):
