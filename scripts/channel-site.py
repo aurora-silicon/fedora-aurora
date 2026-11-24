@@ -49,7 +49,7 @@ def publisher(channel):
     return '.github/workflows/' + ('publish-edge.yml' if lane(channel) == 'edge' else 'publish.yml')
 
 
-def edge_gate(record, tag, sources, adopted=None):
+def edge_gate(record, tag, sources, adopted=None, fedora=44):
     """Edge serves the qualified kernel and Mesa of the adopted aurora-distributions Edge train.
 
     `sources` is the snapshot's edge-sources.json. The snapshot the train names
@@ -58,7 +58,9 @@ def edge_gate(record, tag, sources, adopted=None):
     carry the very same signed kernel and Mesa RPMs. A new pair is a new train.
     """
     entry = ((record or {}).get('distributions') or {}).get('fedora') or {}
-    if (not record or record.get('schema_version') != 1
+    version = (record or {}).get('schema_version')
+    release = entry.get('release') if version == 2 else 44
+    if (version not in (1, 2) or release != fedora
             or entry.get('repository') != 'aurora-silicon/fedora-aurora' or not entry.get('snapshot')):
         raise ValueError(f'{tag}: there is no adopted Edge train for Fedora')
     if (sources or {}).get('packaged_sources') != record.get('pair'):
@@ -217,7 +219,7 @@ def assemble(args):
             reference = work / 'adopted-edge'
             fetch_snapshot(repository, named, 'edge', reference / 'site', reference, home, fingerprint, args.fedora_release)
             adopted = verified_edge_sources(reference, args.fedora_release)
-        kind = edge_gate(record, tag, sources, adopted)
+        kind = edge_gate(record, tag, sources, adopted, args.fedora_release)
         print(f'Edge {kind}: {tag} (adopted train {record.get("release")}, snapshot {named})')
     report = ''
     live = live_repository(args.site_url, args.channel, work, home, args.fedora_release)

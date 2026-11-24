@@ -209,7 +209,8 @@ class EdgeSnapshotTests(unittest.TestCase):
         sources = {'kernel-aurora': {'commit': LINUX['revision']}, 'mesa-aurora': {'commit': MESA['revision']},
                    'mesa-aurora-fex-guest': {'commit': MESA['revision']}}
         trees = {'linux': LINUX['tree'], 'mesa': MESA['tree']}
-        self.assertEqual(snapshot.packaged_sources(sources, trees), {'linux': LINUX, 'mesa': MESA})
+        self.assertEqual(snapshot.packaged_sources(sources, trees),
+                         {'linux': dict(LINUX, branch='main'), 'mesa': dict(MESA, branch='aurora-wip')})
         sources['mesa-aurora-fex-guest']['commit'] = '6' * 40
         with self.assertRaisesRegex(ValueError, 'one Mesa'):
             snapshot.packaged_sources(sources, trees)

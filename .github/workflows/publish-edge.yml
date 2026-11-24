@@ -105,7 +105,11 @@ jobs:
             --signer-workflow "$kernel_repo/.github/workflows/kernel-release.yml" \
             --source-ref refs/heads/main --source-digest "$linux" --deny-self-hosted-runners
           gh api "repos/$kernel_repo/compare/$linux...main" --jq .status | grep -Eqx 'ahead|identical'
-          gh api "repos/aurora-silicon/mesa/compare/$mesa...aurora-edge" --jq .status | grep -Eqx 'ahead|identical'
+          mesa_repo=aurora-silicon/mesa
+          [[ $(gh api "repos/$mesa_repo" --jq .default_branch) == aurora-wip ]]
+          mesa_tip=$(gh api "repos/$mesa_repo/git/ref/heads/aurora-wip" --jq .object.sha)
+          [[ $mesa_tip =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/$mesa_repo/compare/$mesa...$mesa_tip" --jq .status | grep -Eqx 'ahead|identical'
           jq -n --arg linux "$(gh api "repos/aurora-silicon/linux/git/commits/$linux" --jq .tree.sha)" \
                 --arg mesa "$(gh api "repos/aurora-silicon/mesa/git/commits/$mesa" --jq .tree.sha)" \
                 --arg linux_release_sha256 "${digest#sha256:}" \
@@ -140,7 +144,11 @@ jobs:
             -H 'Accept: application/vnd.github.raw+json' > edge-mesa-sources.json
           mesa=$(jq -r '.["mesa-aurora"].commit' edge-mesa-sources.json)
           [[ $mesa =~ ^[0-9a-f]{40}$ ]]
-          gh api "repos/aurora-silicon/mesa/compare/$mesa...aurora-edge" --jq .status | grep -Eqx 'ahead|identical'
+          mesa_repo=aurora-silicon/mesa
+          [[ $(gh api "repos/$mesa_repo" --jq .default_branch) == aurora-wip ]]
+          mesa_tip=$(gh api "repos/$mesa_repo/git/ref/heads/aurora-wip" --jq .object.sha)
+          [[ $mesa_tip =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/$mesa_repo/compare/$mesa...$mesa_tip" --jq .status | grep -Eqx 'ahead|identical'
           jq --arg mesa "$(gh api "repos/aurora-silicon/mesa/git/commits/$mesa" --jq .tree.sha)" '.mesa = $mesa' \
             edge-trees.json > edge-trees.next && mv edge-trees.next edge-trees.json
           echo "MESA_ARGS=--mesa-edge signed-mesa/rpms --mesa-sources edge-mesa-sources.json --mesa-signing-run $MESA_SIGNING_RUN" >> "$GITHUB_ENV"
