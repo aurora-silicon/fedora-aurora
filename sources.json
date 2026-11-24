@@ -478,19 +478,19 @@
   },
   "aurora-speaker-upgrade": {
     "repository": "https://github.com/aurora-silicon/speakerguardd",
-    "commit": "1008c7a4f210e952b7d9cb7a79006a331198b533",
+    "commit": "b3aaa4a7c75f0fe203ddbf10a161b2328e06aa7d",
     "version": "0.1",
-    "source_url": "https://codeload.github.com/aurora-silicon/speakerguardd/tar.gz/1008c7a4f210e952b7d9cb7a79006a331198b533",
-    "archive_root": "speakerguardd-1008c7a4f210e952b7d9cb7a79006a331198b533",
-    "sha256": "68f178534955672e7aea762b45abf7f24c493e334c14646293b11c221ece1540"
+    "source_url": "https://codeload.github.com/aurora-silicon/speakerguardd/tar.gz/b3aaa4a7c75f0fe203ddbf10a161b2328e06aa7d",
+    "archive_root": "speakerguardd-b3aaa4a7c75f0fe203ddbf10a161b2328e06aa7d",
+    "sha256": "03ed1f808af671778b7b6412de99e39e730f7d25511ee2aa2dd38597168d4a36"
   },
   "speakerguardd-v2": {
     "repository": "https://github.com/aurora-silicon/speakerguardd",
-    "commit": "1008c7a4f210e952b7d9cb7a79006a331198b533",
+    "commit": "b3aaa4a7c75f0fe203ddbf10a161b2328e06aa7d",
     "version": "1.0.0-alpha.2",
-    "source_url": "https://codeload.github.com/aurora-silicon/speakerguardd/tar.gz/1008c7a4f210e952b7d9cb7a79006a331198b533",
-    "archive_root": "speakerguardd-1008c7a4f210e952b7d9cb7a79006a331198b533",
-    "sha256": "68f178534955672e7aea762b45abf7f24c493e334c14646293b11c221ece1540"
+    "source_url": "https://codeload.github.com/aurora-silicon/speakerguardd/tar.gz/b3aaa4a7c75f0fe203ddbf10a161b2328e06aa7d",
+    "archive_root": "speakerguardd-b3aaa4a7c75f0fe203ddbf10a161b2328e06aa7d",
+    "sha256": "03ed1f808af671778b7b6412de99e39e730f7d25511ee2aa2dd38597168d4a36"
   },
   "aurora-sep-luks": {
     "repository": "https://github.com/aurora-silicon/aurora-sep-userspace",
