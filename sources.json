@@ -550,5 +550,14 @@
     "source_url": "https://codeload.github.com/aurora-silicon/aurora-sep-userspace/tar.gz/b7013b95052db8265b28feec22793254fe0f3d2b",
     "archive_root": "aurora-sep-userspace-b7013b95052db8265b28feec22793254fe0f3d2b",
     "sha256": "0391b7820d664dabebd0e7abe2f57c8765df23d41d5e8d6c7153f4760ca36ece"
+  },
+  "power-profiles-daemon": {
+    "repository": "https://gitlab.freedesktop.org/upower/power-profiles-daemon",
+    "commit": "5b4994c8a91290481bef87a5bae95391d0ec677f",
+    "version": "0.30",
+    "source_url": "https://gitlab.freedesktop.org/upower/power-profiles-daemon/-/archive/0.30/power-profiles-daemon-0.30.tar.bz2",
+    "archive_root": "power-profiles-daemon-0.30",
+    "archive_file": "power-profiles-daemon-0.30.tar.bz2",
+    "sha256": "528ee5b8ca0a27d8d66128ebf850e23be9571dc130cf2a82dd2463dac7d3a92f"
   }
 }
