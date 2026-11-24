@@ -29,9 +29,14 @@ PACKAGE = ROOT / 'packages' / 'firefox'
 REPOSITORY = 'https://src.fedoraproject.org/rpms/firefox.git'
 RELEASES = {44: 'f44', 45: 'f45'}
 FETCHED = ('google-api-key', 'google-loc-api-key', 'mozilla-api-key')
-OURS = ('rdd-v4l2-request.patch', 'wayland-shm-texture2d.patch')
+OURS = (
+    'rdd-v4l2-request.patch',
+    'wayland-shm-texture2d.patch',
+    'wgpu-borealis-adapter.patch',
+    'sanitize-agx-renderer.patch',
+)
 SKIP = {'.git', '.gitignore', 'sources'} | set(FETCHED)
-AURORA_RELEASE = '.aurora3'
+AURORA_RELEASE = '.aurora4'
 CHANGELOG = """\
 * {date} Aurora Silicon <hey@djdev.me> - {evr}
 - Rebuild of Fedora's firefox-{version}-{release}.
@@ -44,6 +49,10 @@ CHANGELOG = """\
 - Tag SHM video frames on the Wayland WebRender compositor path as Texture2D
   (backport from Mozilla bug 2084900): fixes the parent-process panic
   "ps_quad_textured TEXTURE_RECT variant not loaded" on GLES with HDR on.
+- Admit Borealis (VK_DRIVER_ID_AURORA_BOREALIS, driver ID 35) in wgpu-hal and
+  enable dom.webgpu.enabled by default for hardware WebGPU on Apple Silicon.
+- Recognize Mesa's "AGX" GL_RENDERER prefix in WebGL SanitizeRenderer to
+  eliminate GraphicsCriticalError annotations on every WebGL page.
 
 """
 
@@ -90,10 +99,35 @@ def edit_spec(text, commit, date):
     text = (text[:end] + '\n\n# Aurora: V4L2 stateless decoders in RDD (Mozilla bug 2080696)\n'
             'Patch900:       rdd-v4l2-request.patch\nBuildRequires:  kernel-headers >= 6.5'
             '\n# Aurora: Wayland SHM video textures are Texture2D (Mozilla bug 2084900 backport)\n'
-            'Patch901:       wayland-shm-texture2d.patch' + text[end:])
-    text = once(text, r'^rm -f \.mozconfig$', '%patch -P900 -p1 -b .rdd-v4l2-request\n'
-                '%patch -P901 -p1 -b .wayland-shm-texture2d\n\nrm -f .mozconfig',
-                'patch application')
+            'Patch901:       wayland-shm-texture2d.patch'
+            '\n# Aurora: admit Borealis (VK_DRIVER_ID_AURORA_BOREALIS = 35) in wgpu-hal for WebGPU\n'
+            'Patch902:       wgpu-borealis-adapter.patch'
+            '\n# Aurora: recognize Mesa AGX GL_RENDERER in WebGL SanitizeRenderer\n'
+            'Patch903:       sanitize-agx-renderer.patch' + text[end:])
+    text = once(
+        text,
+        r'^rm -f \.mozconfig$',
+        '%patch -P900 -p1 -b .rdd-v4l2-request\n'
+        '%patch -P901 -p1 -b .wayland-shm-texture2d\n'
+        '%patch -P902 -p1 -b .wgpu-borealis-adapter\n'
+        '%patch -P903 -p1 -b .sanitize-agx-renderer\n'
+        'python3 -c \'import hashlib,json,pathlib; '
+        'p=pathlib.Path("third_party/rust/wgpu-hal/.cargo-checksum.json"); '
+        'd=json.loads(p.read_text()); '
+        'd["files"]["src/vulkan/adapter.rs"]=hashlib.sha256('
+        'pathlib.Path("third_party/rust/wgpu-hal/src/vulkan/adapter.rs").read_bytes()).hexdigest(); '
+        'p.write_text(json.dumps(d))\'\n\n'
+        'rm -f .mozconfig',
+        'patch application',
+    )
+    text = once(
+        text,
+        r'^cp %\{SOURCE12\} %\{buildroot\}%\{mozappdir\}/browser/defaults/preferences$',
+        'cp %{SOURCE12} %{buildroot}%{mozappdir}/browser/defaults/preferences\n'
+        'echo \'pref("dom.webgpu.enabled", true);\' >> '
+        '%{buildroot}%{mozappdir}/browser/defaults/preferences/firefox-redhat-default-prefs.js',
+        'default WebGPU pref',
+    )
     head, marker, history = text.partition('\n%changelog\n')
     if not marker:
         raise SystemExit('firefox.spec: no %changelog')

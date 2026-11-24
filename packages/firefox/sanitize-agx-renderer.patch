@@ -1,0 +1,23 @@
+WebGL: recognize AGX renderer string in SanitizeRenderer
+
+Mesa's 00-asahi-defaults.conf overrides GL_RENDERER to "AGX G13/G14" for web
+browsers so Linux Apple Silicon users are not flagged by anti-bot checks that
+reject "Apple" in the WebGL renderer string on non-macOS platforms
+(webcompat/web-bugs#189524).
+
+Firefox's ChooseDeviceReplacement() recognizes "Apple" and "llvmpipe" but not
+"AGX", logging four GraphicsCriticalError crash annotations on every WebGL
+page ("Couldn't sanitize GL_RENDERER \"AGX G13/G14\"") and falling back to
+"Generic Renderer". Recognize the "AGX" prefix and replace it with "AGX"
+(keeping "Apple" out of the sanitized string).
+
+--- a/dom/canvas/SanitizeRenderer.cpp	2026-11-25 01:28:57.939801843 +1100
++++ b/dom/canvas/SanitizeRenderer.cpp	2026-11-25 01:28:57.943056839 +1100
+@@ -26,6 +26,7 @@
+     const std::string& str) {
+   if (str.starts_with("llvmpipe")) return "llvmpipe";
+   if (str.starts_with("Apple")) return "Apple M1";
++  if (str.starts_with("AGX")) return "AGX";
+ 
+   std::smatch m;
+ 
