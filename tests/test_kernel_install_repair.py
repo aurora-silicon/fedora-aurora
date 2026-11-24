@@ -129,6 +129,28 @@ esac
         ])
         self.assertFalse(self.marker_left)
 
+    def test_rpm_lock_collision_mid_repair_keeps_marker(self):
+        self.kernel('7.3.0-20.fc45.aurora.aarch64', entry=True)
+        self.kernel('7.3.0-27.fc45.aurora.aarch64')
+        rows = '\n'.join(f'{tid} {krel}' for tid, krel in self.kernels)
+        marker = self.root / 'repair-pending'
+        marker.touch()
+        lock_flag = self.root / 'locked-now'
+        self.stub('rpm', f'''case "$*" in
+*"--quiet rpm"*) [ ! -f {lock_flag} ] ;;
+*update-aura*) echo {OWN_TID} ;;
+*"--quiet kernel-aurora-core-"*) touch {lock_flag}; exit 1 ;;
+*kernel-aurora-core*) printf "%s\\n" "{rows}" ;;
+esac
+''')
+        env = {**os.environ, 'PATH': f'{self.bin}:{os.environ["PATH"]}',
+               'AURORA_BLS_ENTRIES': str(self.entries), 'AURORA_MODULES_DIR': str(self.modules),
+               'AURORA_REPAIR_MARKER': str(marker)}
+        done = subprocess.run(['sh', str(SCRIPT)], env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertFalse(self.log.exists())
+        self.assertTrue(marker.exists())
+
     def test_a_failed_kernel_install_does_not_fail_the_transaction(self):
         self.stub('kernel-install', f'echo "$@" >> {self.log}\nexit 1\n')
         self.kernel('7.3.0-20.fc45.aurora.aarch64', entry=True)

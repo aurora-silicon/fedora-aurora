@@ -502,6 +502,8 @@ class Recipes(unittest.TestCase):
         release = re.search(r'(?m)^Release:\s*([0-9]+)', spec)[1]
         self.assertIn(f'%triggerpostun -- update-aura < {version}-{release}\n'
                       '/usr/bin/systemctl --no-reload preset aurora-kernel-install-repair.service || :\n', spec)
+        post = spec.split('%post\n', 1)[1].split('\n%preun', 1)[0]
+        self.assertIn('\nfi\n%systemd_post aurora-kernel-install-repair.service', post)
         posttrans = spec.split('%posttrans\n', 1)[1].split('\n%transfiletriggerin', 1)[0]
         for booted, call in ((True, 'systemctl --no-block start aurora-kernel-install-repair.service'),
                              (False, 'kernel-install-repair')):
@@ -526,12 +528,30 @@ class Recipes(unittest.TestCase):
                 self.assertTrue((root / 'state/repair-pending').exists())
 
     def test_allow_downgrade_flag_forwards_to_helper_and_rejects_mode_flags(self):
-        result, calls = self.run_entry_point('--allow-downgrade', '/esp/m1n1/boot.bin')
-        # Entry point runs --check then apply with --allow-downgrade (stubbed mount/findmnt fails on fake target).
-        self.assertIn('--check', calls)
-        result, calls = self.run_entry_point('--allow-downgrade', '--commit')
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'bin').mkdir()
+            calls = root / 'calls'
+            (root / 'bin/python3').write_text(f'#!/bin/sh\necho "${{2:-apply}}" >> {calls}\nexit 0\n')
+            (root / 'bin/flock').write_text('#!/bin/sh\nexit 0\n')
+            (root / 'bin/findmnt').write_text('#!/bin/sh\necho /esp\n')
+            for tool in ('python3', 'flock', 'findmnt'):
+                (root / 'bin' / tool).chmod(0o755)
+            (root / 'present').write_bytes(compatible_file('j700', 't8140'))
+            script = SCRIPT.read_text().replace('/run/lock', str(root / 'lock')).replace(
+                '/etc/sysconfig/update-m1n1', str(root / 'none')).replace(
+                '/etc/u-boot.conf', str(root / 'none'))
+            (root / 'update-aura').write_text(script)
+            env = dict(os.environ, PATH=f'{root / "bin"}:{os.environ["PATH"]}',
+                       AURORA_DEVICE_TREE_COMPATIBLE=str(root / 'present'))
+            env.pop('TARGET', None)
+            result = subprocess.run(['bash', str(root / 'update-aura'), '--allow-downgrade', '/esp/m1n1/boot.bin'],
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(calls.read_text().split(), ['--check', '--allow-downgrade'])
+        result, mode_calls = self.run_entry_point('--allow-downgrade', '--commit')
         self.assertEqual(result.returncode, 2)
-        self.assertEqual(calls, [])
+        self.assertEqual(mode_calls, [])
 
     def test_the_package_keeps_the_upstream_license(self):
         spec = SPEC.read_text()

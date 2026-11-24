@@ -73,7 +73,7 @@ rm -f /run/update-aura/enabled-units
 if rpm -q --quiet update-m1n1; then
     install -d -m 0700 /run/update-aura
     : > /run/update-aura/enabled-units
-    for unit in aurora-stage2-commit.service aurora-stage2-guard.timer aurora-kernel-install-repair.service; do
+    for unit in aurora-stage2-commit.service aurora-stage2-guard.timer; do
         case "$(systemctl is-enabled "$unit" 2>/dev/null)" in
             enabled)
                 echo "enable $unit" >> /run/update-aura/enabled-units ;;
@@ -87,8 +87,9 @@ fi
 
 %post
 if [ ! -f /run/update-aura/enabled-units ]; then
-%systemd_post aurora-stage2-commit.service aurora-stage2-guard.timer aurora-kernel-install-repair.service
+%systemd_post aurora-stage2-commit.service aurora-stage2-guard.timer
 fi
+%systemd_post aurora-kernel-install-repair.service
 
 %preun
 %systemd_preun aurora-stage2-commit.service aurora-stage2-guard.timer aurora-kernel-install-repair.service

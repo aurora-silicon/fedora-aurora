@@ -705,7 +705,8 @@ class Update:
 
     def keep(self, selected, target, reason):
         recorded = self.live_attempt(target)
-        if recorded is not None and isinstance(recorded.get('generation'), int):
+        has_gen = recorded is not None and isinstance(recorded.get('generation'), int)
+        if has_gen:
             live_gen = recorded['generation']
             if self.selected_generation > live_gen:
                 raise Refused(
@@ -713,7 +714,7 @@ class Update:
                     f'{self.selected_generation} while the live Stage 2 carries '
                     f'generation {live_gen}')
         self.held = reason
-        note = ('' if recorded is not None
+        note = ('' if has_gen
                 else "; the new kernel will boot with the held image's trees")
         print(f'update-aura: {reason}: not touching the boot chain; the live Stage 2 is kept{note}',
               file=sys.stderr)

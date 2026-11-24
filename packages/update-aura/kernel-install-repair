@@ -60,9 +60,15 @@ printf '%s\n' "$kernels" | { status=0; while read -r tid krel; do
         continue
     fi
     # Re-check right before adding: earlier dracut runs take minutes and a
-    # concurrent dnf run may have removed this kernel in the meantime.
-    if ! rpm -q --quiet "kernel-aurora-core-$krel" 2>/dev/null ||
-        [ ! -f "$modules/$krel/vmlinuz" ] || has_entry "$krel"; then
+    # concurrent dnf run may have removed this kernel or re-locked rpm.
+    if ! rpm -q --quiet "kernel-aurora-core-$krel" 2>/dev/null; then
+        if ! rpm -q --quiet rpm 2>/dev/null; then
+            echo "update-aura: rpm database locked before kernel-install add $krel; keeping repair pending" >&2
+            status=1
+        fi
+        continue
+    fi
+    if [ ! -f "$modules/$krel/vmlinuz" ] || has_entry "$krel"; then
         continue
     fi
     echo "update-aura: kernel $krel has no boot entry; finishing its kernel-install" >&2
