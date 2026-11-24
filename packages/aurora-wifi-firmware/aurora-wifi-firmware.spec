@@ -4,7 +4,7 @@
 
 Name: aurora-wifi-firmware
 Version: 0.2
-Release: 1.%{snapdate}git%{shortcommit}%{?dist}
+Release: 2.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Keep the Wi-Fi and Bluetooth firmware on the installed macOS's
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-installer/tree/main/tools/wifi-firmware
@@ -35,6 +35,9 @@ python3 -I -m unittest discover -s tests -p 'test_wifi_firmware_*.py'
 
 %install
 %make_install -C tools/wifi-firmware PREFIX=%{_prefix} UNITDIR=%{_unitdir} PYTHON=%{python3}
+# The refresh tool uses the same ESP staging directory.
+sed -i 's|^exec |exec %{_bindir}/flock -x /run/lock/aurora-firmware.lock |' \
+    %{buildroot}%{_bindir}/aurora-wifi-firmware
 install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/80-aurora-wifi-firmware.preset
 
 %post
@@ -55,6 +58,9 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/80-aurora-wifi-firmware.pres
 %{_presetdir}/80-aurora-wifi-firmware.preset
 
 %changelog
+* Tue Nov 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.2-2
+- Serialize the radio and firmware refresh tools.
+
 * Fri Nov 13 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.2-1.20261113gitafdd3215189c
 - Bluetooth (Broadcom) and the MacBook Neo's MT7932 Wi-Fi and Bluetooth firmware follow the installed macOS too (aurora-installer#134).
 

@@ -93,6 +93,12 @@ jobs:
               bash /src/scripts/test-touchid-upgrade /src/out/rpms "$old" \
               2>&1 | tee upgrade-fedora45-$label.log
           done
+      - name: Make container build logs readable by the runner
+        if: always()
+        run: |
+          if [[ -d candidate/out/build/libfprint/BUILD ]]; then
+            sudo chown -R "$(id -u):$(id -g)" candidate/out/build/libfprint/BUILD
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:

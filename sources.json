@@ -1,4 +1,20 @@
 {
+  "aurora-firmware-refresh": {
+    "repository": "https://github.com/aurora-silicon/aurora-installer",
+    "commit": "e1ddef7faf79461b390e166f29f40f354f57c5ea",
+    "version": "20261124",
+    "source_url": "https://codeload.github.com/aurora-silicon/aurora-installer/tar.gz/e1ddef7faf79461b390e166f29f40f354f57c5ea",
+    "archive_root": "aurora-installer-e1ddef7faf79461b390e166f29f40f354f57c5ea",
+    "sha256": "462c5f1c3d698ce583216b8505e4f057c06a0da9d09964064bce598a9a063008"
+  },
+  "aurora-vendor-firmware": {
+    "repository": "https://github.com/AsahiLinux/asahi-scripts",
+    "commit": "800400dcf9612edd10f00d306a39a499313cefe3",
+    "version": "20250713",
+    "source_url": "https://codeload.github.com/AsahiLinux/asahi-scripts/tar.gz/800400dcf9612edd10f00d306a39a499313cefe3",
+    "archive_root": "asahi-scripts-800400dcf9612edd10f00d306a39a499313cefe3",
+    "sha256": "6c4cd2d7059f16eb3bde8ef1e2b1e6d2b642f0a911d1ed56e662925a99b8805f"
+  },
   "kernel-aurora": {
     "repository": "https://github.com/aurora-silicon/linux",
     "commit": "9125b31475836ce0a6634df45b539c6d604f36a5",

@@ -20,12 +20,12 @@ import zlib
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / 'packages/update-m1n1/update-m1n1'
-HELPER = ROOT / 'packages/update-m1n1/bootchain.py'
+SCRIPT = ROOT / 'packages/update-aura/update-aura'
+HELPER = ROOT / 'packages/update-aura/bootchain.py'
 _helper_spec = importlib.util.spec_from_file_location('ctxr_bootchain', HELPER)
 bootchain = importlib.util.module_from_spec(_helper_spec)
 _helper_spec.loader.exec_module(bootchain)
-SPEC = ROOT / 'packages/update-m1n1/update-m1n1.spec'
+SPEC = ROOT / 'packages/update-aura/update-aura.spec'
 
 # Every chip AuraStage1Format.usesMachO admits or names, and every one below it.
 MACHO_CHIPS = ('t8132', 't6040', 't6041', 't8140', 't8142', 't8152', 't6050', 't6051', 't6052', 't8130', 't8fff', 't6fff')
@@ -414,9 +414,9 @@ class PrepareCtxrStage2(unittest.TestCase):
 class Recipes(unittest.TestCase):
     def test_the_package_ships_the_tested_script_and_replaces_fedoras_files(self):
         spec = SPEC.read_text()
-        self.assertRegex(spec, r'(?m)^Source0: update-m1n1$')
-        self.assertIn('install -Dpm0755 %{SOURCE0} %{buildroot}%{_sbindir}/update-m1n1', spec)
-        self.assertRegex(spec, r'(?m)^Name: update-m1n1$')
+        self.assertRegex(spec, r'(?m)^Source0: update-aura$')
+        self.assertIn('install -Dpm0755 %{SOURCE0} %{buildroot}%{_sbindir}/update-aura', spec)
+        self.assertRegex(spec, r'(?m)^Name: update-aura$')
         self.assertIn('%config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1', spec)
         self.assertIn('%{_kernel_install_dir}/15-update-m1n1.install', spec)
         self.assertIn('%transfiletriggerin -- /usr/lib/m1n1 /usr/lib64/m1n1 /usr/share/uboot/apple_m1 /etc/m1n1.conf', spec)
@@ -425,9 +425,9 @@ class Recipes(unittest.TestCase):
         spec = SPEC.read_text()
         # Before the transaction, with the rpm process that runs it.
         self.assertIn('%transfiletriggerun -- /usr/lib/modules\n'
-                      'AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-m1n1 --transaction-begin || :\n', spec)
+                      'AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-aura --transaction-begin || :\n', spec)
         for trigger in ('%transfiletriggerpostun', '%transfiletriggerin'):
-            self.assertIn(f'{trigger} -- /usr/lib/modules\n%{{_sbindir}}/update-m1n1 --transaction-end || :\n', spec)
+            self.assertIn(f'{trigger} -- /usr/lib/modules\n%{{_sbindir}}/update-aura --transaction-end || :\n', spec)
 
     def test_aura_needs_the_capability_only_this_package_provides(self):
         self.assertRegex(SPEC.read_text(), r'(?m)^Provides: aurora-stage2-ctxr-slot = 1$')
@@ -490,7 +490,7 @@ class Recipes(unittest.TestCase):
         self.assertRegex(spec, r'(?m)^Source5: LICENSE$')
         self.assertRegex(spec, r'(?m)^%license LICENSE$')
         self.assertIn('Copyright The Asahi Linux Contributors',
-                      (ROOT / 'packages/update-m1n1/LICENSE').read_text())
+                      (ROOT / 'packages/update-aura/LICENSE').read_text())
 
     def test_the_tool_and_the_recipe_agree_on_the_marker_path(self):
         for path in (SCRIPT, HELPER):
@@ -511,7 +511,7 @@ class Recipes(unittest.TestCase):
                 script = SCRIPT.read_text().replace('/run/lock', str(root / 'lock')).replace(
                     '/etc/sysconfig/update-m1n1', str(root / 'none')).replace(
                     '/etc/u-boot.conf', str(root / 'none')).replace(
-                    '/usr/share/asahi-scripts/functions.sh', str(root / 'functions.sh'))
+                    '/usr/libexec/aurora/mount-system-esp.sh', str(root / 'functions.sh'))
                 (root / 'update-m1n1').write_text(script)
                 env = dict(os.environ, PATH=f'{root / "bin"}:{os.environ["PATH"]}',
                            AURORA_DEVICE_TREE_COMPATIBLE=compatible if compatible.startswith('/')
@@ -539,7 +539,7 @@ class Recipes(unittest.TestCase):
             script = SCRIPT.read_text().replace('/run/lock', str(root / 'lock')).replace(
                 '/etc/sysconfig/update-m1n1', str(root / 'none')).replace(
                 '/etc/u-boot.conf', str(root / 'none')).replace(
-                '/usr/share/asahi-scripts/functions.sh', str(root / 'functions.sh'))
+                '/usr/libexec/aurora/mount-system-esp.sh', str(root / 'functions.sh'))
             (root / 'update-m1n1').write_text(script)
             settings = dict(os.environ, PATH=f'{root / "bin"}:{os.environ["PATH"]}',
                             AURORA_DEVICE_TREE_COMPATIBLE=str(root / 'present'), **env)

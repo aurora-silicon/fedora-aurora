@@ -17,10 +17,10 @@ cleanup() {
 trap cleanup EXIT
 dnf install -y --setopt=tsflags=noscripts rpm-build systemd-rpm-macros dtc python3 \
     coreutils bash util-linux gzip grubby asahi-scripts createrepo_c systemd ShellCheck git gcc make
-shellcheck packages/update-m1n1/update-m1n1 packages/update-m1n1/aurora-stage2-commit \
-    packages/update-m1n1/*.install scripts/test-stage2-transactions scripts/test-bootchain-upgrade > "$proof/shellcheck.log" 2>&1
-python3 packages/update-m1n1/test_bootchain.py -v > "$proof/updater-tests.log" 2>&1
-bash scripts/build-rpm update-m1n1 > "$proof/rpmbuild.log" 2>&1
+shellcheck packages/update-aura/update-aura packages/update-aura/aurora-stage2-commit \
+    packages/update-aura/*.install scripts/test-stage2-transactions scripts/test-bootchain-upgrade > "$proof/shellcheck.log" 2>&1
+python3 packages/update-aura/test_bootchain.py -v > "$proof/updater-tests.log" 2>&1
+bash scripts/build-rpm update-aura > "$proof/rpmbuild.log" 2>&1
 # Build tiny RPMs with the kernel's real add/remove scriptlets and marker
 # installation, avoiding any kernel compilation or physical boot device.
 python3 - <<'PY'
@@ -116,8 +116,8 @@ rpms=/var/tmp/stage2-rpms/RPMS
 dnf install -y "$rpms"/noarch/update-m1n1-20261101-1.stage2.noarch.rpm > "$proof/install-vendor-updater.log" 2>&1
 # The first candidate install has no kernel yet; trigger refusal is expected.
 dnf install -y --allowerasing --setopt=allow_vendor_change=True \
-    out/rpms/update-m1n1-*.noarch.rpm "$rpms"/noarch/aura-*.rpm "$rpms"/noarch/uboot-aurora-*.rpm > "$proof/install-updater.log" 2>&1
-rpm -q --filetriggers update-m1n1 > "$proof/rpm-triggers.log"
+    out/rpms/update-aura-*.noarch.rpm "$rpms"/noarch/aura-*.rpm "$rpms"/noarch/uboot-aurora-*.rpm > "$proof/install-updater.log" 2>&1
+rpm -q --filetriggers update-aura > "$proof/rpm-triggers.log"
 dnf install -y "$rpms"/aarch64/kernel-aurora-core-7.3.0-1.stage2.aarch64.rpm > "$proof/kernel-add-1.log" 2>&1
 [[ $(readlink /boot/dtb) == dtb-7.3.0-1.stage2.aarch64 ]]
 [[ -s /boot/efi/m1n1/boot.bin ]]
@@ -146,12 +146,12 @@ dnf upgrade -y "$rpms"/noarch/aura-1-2.stage2.noarch.rpm > "$proof/rpm-trigger-u
 [[ $(sha256sum /boot/efi/m1n1/boot.bin) != "$before" ]]
 # Repeat the updater suite against the installed helper. Synthetic proc/sys
 # fixtures model trial and fallback boots without exposing any host device.
-BOOTCHAIN_MODULE=/usr/libexec/aurora/bootchain.py python3 packages/update-m1n1/test_bootchain.py -v \
+BOOTCHAIN_MODULE=/usr/libexec/aurora/bootchain.py python3 packages/update-aura/test_bootchain.py -v \
     > "$proof/installed-updater-tests.log" 2>&1
 systemd-analyze verify /usr/lib/systemd/system/aurora-stage2-{commit,guard}.service /usr/lib/systemd/system/aurora-stage2-guard.timer > "$proof/service-verify.log" 2>&1
 systemctl --root=/ is-enabled aurora-stage2-commit.service aurora-stage2-guard.timer > "$proof/service-enabled.log"
 python3 -m unittest discover -s tests -p 'test_*.py' > "$proof/source-tests.log" 2>&1
 python3 images/test_configure.py > "$proof/image-tests.log" 2>&1
-rpm -q update-m1n1 kernel-aurora-core aura uboot-aurora > "$proof/installed-nevra.txt"
-cp out/rpms/update-m1n1-*.rpm "$proof/"
+rpm -q update-aura kernel-aurora-core aura uboot-aurora > "$proof/installed-nevra.txt"
+cp out/rpms/update-aura-*.rpm "$proof/"
 echo 'Fedora 44 aarch64 Stage 2 transactions, trial states and source checks passed'
