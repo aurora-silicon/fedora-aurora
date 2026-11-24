@@ -1,6 +1,6 @@
 Name: update-aura
 Version: 20261124
-Release: 1%{?dist}.aurora
+Release: 2%{?dist}.aurora
 Summary: Transactional Aurora Stage 2 updates with retained-kernel DTB checks
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -18,6 +18,7 @@ Source10: aurora-stage2-guard.service
 Source11: aurora-stage2-guard.timer
 Source12: kernel-install-repair
 Source13: mount-system-esp.sh
+Source14: aurora-kernel-install-repair.service
 Provides: aurora-stage2-ctxr-slot = 1
 Provides: update-m1n1 = %{version}-%{release}
 Obsoletes: update-m1n1 < %{version}
@@ -58,6 +59,8 @@ install -Dm755 %{SOURCE12} %{buildroot}%{_libexecdir}/aurora/kernel-install-repa
 install -Dm644 %{SOURCE8} %{buildroot}%{_unitdir}/aurora-stage2-commit.service
 install -Dm644 %{SOURCE10} %{buildroot}%{_unitdir}/aurora-stage2-guard.service
 install -Dm644 %{SOURCE11} %{buildroot}%{_unitdir}/aurora-stage2-guard.timer
+install -Dm644 %{SOURCE14} %{buildroot}%{_unitdir}/aurora-kernel-install-repair.service
+install -d %{buildroot}%{_sharedstatedir}/update-aura
 install -Dm644 %{SOURCE9} %{buildroot}%{_presetdir}/90-aurora-stage2.preset
 # bootchain.py hands each Stage 2 to "aurora-secboot stage2 hook"; aurora-secboot stage1 build --enforce
 # looks for this marker before it builds a Stage 1 that refuses unsigned Stage 2s.
@@ -70,7 +73,7 @@ rm -f /run/update-aura/enabled-units
 if rpm -q --quiet update-m1n1; then
     install -d -m 0700 /run/update-aura
     : > /run/update-aura/enabled-units
-    for unit in aurora-stage2-commit.service aurora-stage2-guard.timer; do
+    for unit in aurora-stage2-commit.service aurora-stage2-guard.timer aurora-kernel-install-repair.service; do
         case "$(systemctl is-enabled "$unit" 2>/dev/null)" in
             enabled)
                 echo "enable $unit" >> /run/update-aura/enabled-units ;;
@@ -84,16 +87,23 @@ fi
 
 %post
 if [ ! -f /run/update-aura/enabled-units ]; then
-%systemd_post aurora-stage2-commit.service aurora-stage2-guard.timer
+%systemd_post aurora-stage2-commit.service aurora-stage2-guard.timer aurora-kernel-install-repair.service
 fi
 
 %preun
-%systemd_preun aurora-stage2-commit.service aurora-stage2-guard.timer
+%systemd_preun aurora-stage2-commit.service aurora-stage2-guard.timer aurora-kernel-install-repair.service
 
 %postun
-%systemd_postun aurora-stage2-commit.service aurora-stage2-guard.timer
+%systemd_postun aurora-stage2-commit.service aurora-stage2-guard.timer aurora-kernel-install-repair.service
 
-# A kernel added while an older updater refused it has no boot entry yet.
+%triggerpostun -- update-aura < 20261124-2
+/usr/bin/systemctl --no-reload preset aurora-kernel-install-repair.service || :
+
+# A kernel added while an older updater refused it has no boot entry yet. The
+# repair queries rpm, and this transaction holds the rpm lock until it ends, so
+# systemd runs it once dnf is done. Without a running systemd (an image build)
+# it runs here, as before. The marker keeps it due until a run succeeds, and
+# the unit runs at boot while it's there.
 %posttrans
 if [ -f /run/update-aura/enabled-units ]; then
     while read -r action unit; do
@@ -104,7 +114,12 @@ if [ -f /run/update-aura/enabled-units ]; then
     done < /run/update-aura/enabled-units
     rm -f /run/update-aura/enabled-units
 fi
-%{_libexecdir}/aurora/kernel-install-repair || :
+mkdir -p /var/lib/update-aura && touch /var/lib/update-aura/repair-pending || :
+if [ -d /run/systemd/system ]; then
+    systemctl --no-block start aurora-kernel-install-repair.service || :
+else
+    %{_libexecdir}/aurora/kernel-install-repair || :
+fi
 
 %transfiletriggerin -- /usr/lib/m1n1 /usr/lib64/m1n1 /usr/share/uboot/apple_m1 /etc/m1n1.conf
 %{_sbindir}/update-aura || :
@@ -133,6 +148,9 @@ AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-aura --transaction-begin || 
 %{_unitdir}/aurora-stage2-commit.service
 %{_unitdir}/aurora-stage2-guard.service
 %{_unitdir}/aurora-stage2-guard.timer
+%{_unitdir}/aurora-kernel-install-repair.service
+%dir %{_sharedstatedir}/update-aura
+%ghost %{_sharedstatedir}/update-aura/repair-pending
 %{_presetdir}/90-aurora-stage2.preset
 %{_datadir}/aurora/stage2-sign-hook
 %config(noreplace) %{_sysconfdir}/kernel/install.d/10-devicetree.install
@@ -140,6 +158,24 @@ AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-aura --transaction-begin || 
 %config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1
 
 %changelog
+* Tue Nov 24 2026 Dj <43033058+DjDeveloperr@users.noreply.github.com> - 20261124-2
+- Run kernel-install-repair after the transaction, not inside it. In
+  %%posttrans it queried rpm while dnf still held the database lock, so its
+  first query failed and it exited without repairing anything. %%posttrans
+  now writes /var/lib/update-aura/repair-pending and starts
+  aurora-kernel-install-repair.service without waiting under systemd (or
+  runs the repair directly without systemd). The service waits for the rpm
+  lock, re-checks each kernel before running kernel-install add, and runs
+  at boot while the marker stays.
+- Write Stage 2 only to the file this boot's Stage 1 loads (#452), and
+  never install an aura release older than the running Stage 2 unless
+  `update-aura --allow-downgrade` is passed for that run. Withdraw a trial
+  this updater armed that never booted and fails either check.
+- Check the DT ABI generation on a hold: refuse the update and keep
+  /boot/dtb when the live image's recorded attempt has an older generation
+  than the selected kernel requires, and note when a held image has no
+  record that the new kernel will boot with the held image's trees.
+
 * Tue Nov 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261124-1
 - Rename the updater and carry its ESP mount helper in the package.
 - Keep the enrolled Stage 2 target, settings and kernel-install hook.

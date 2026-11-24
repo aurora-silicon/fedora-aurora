@@ -878,9 +878,13 @@ class TrialTests(unittest.TestCase):
         update = bootchain.Update(self.root, self.env)
         for version, expected in [('1.0.0b3', False), ('1.0.0b4', True), ('1.0.0b4-dirty', True),
                                   ('1.0.0b5-gabcd1234', True), ('1.0.0b5-gabcd1234-dirty', True),
+                                  ('1.0.0b13.1', True), ('1.0.0b13.1-g5dcf62d0', True),
                                   ('1.0.0', True), ('1.6.1', False), ('unknown', False)]:
             self.put('/proc/device-tree/chosen/asahi,m1n1-stage1-version', version.encode() + b'\0')
             self.assertEqual(update.supports_trial(), expected, version)
+        # aura#313 renames the property; Stage 2 writes the old name too until 2027-02-28.
+        self.put('/proc/device-tree/chosen/aurora,aura-stage1-version', b'1.6.1\0')
+        self.assertTrue(update.supports_trial())
         self.put('/proc/device-tree/chosen/aura,stage1-version', b'2.0.0\0')
         self.assertTrue(update.supports_trial())
 
@@ -1088,6 +1092,371 @@ soc@200000000 {{ {first_soc} }}; soc@2308000000 {{}}; soc {{ {plain_soc} }}; }};
             original(source, destination)
         with patch.object(bootchain.os, 'replace', side_effect=replace):
             self.apply()
+
+
+class Stage1PathTests(unittest.TestCase):
+    """Stage 2 is written only where this boot's Stage 1 loads it, and never older (#452)."""
+    setUp = BootchainTests.setUp
+    put = BootchainTests.put
+    dtb = BootchainTests.dtb
+    kernel = BootchainTests.kernel
+    trial_setup = TrialTests.trial_setup
+    trial_boot = TrialTests.trial_boot
+    commit = TrialTests.commit
+    sane = TrialTests.sane
+    attempt = TrialTests.attempt
+
+    PACKAGED = b'AURA##aura_ver##1.0.0b13-g3c491419\0'
+
+    def setup(self, stage1='1.0.0b13-g3d517e63'):
+        self.trial_setup()
+        self.put('/usr/lib64/m1n1/m1n1.bin', self.PACKAGED)
+        self.stage1(stage1)
+        self.receipt = self.target.with_name('boot.bin.next.json')
+
+    def j713_setup(self):
+        """The #452 Air: a CTXR board whose Stage 1 loads aura/stage2.bin, a lab Stage 2."""
+        self.setup()
+        self.put('/usr/share/aura/monitor-free', b'')
+        self.put('/proc/device-tree/compatible', b'apple,j713\0apple,t8132\0')
+        self.kernel('7.3', board='j713')
+        self.ctxr = self.put('/esp/m1n1/boot-ctxr.bin', b'IMAGE-CTXR##aura_ver##1.0.0b13-g3c491419\0')
+        self.lab = self.put('/esp/aura/stage2.bin', b'LAB-STAGE2##aura_ver##1.0.0b13-gc0a50c00\0')
+        self.running('1.0.0b13-gc0a50c00')
+        self.loaded(self.lab.read_bytes())
+
+    def stage1(self, version):
+        self.put('/proc/device-tree/chosen/asahi,m1n1-stage1-version', version.encode() + b'\0')
+
+    def running(self, version):
+        self.put('/proc/device-tree/chosen/asahi,m1n1-stage2-version', version.encode() + b'\0')
+
+    def loaded(self, data=None, *, digest=None, raw=False, index=0, stage='stage1', component='next-stage'):
+        """This boot's record of the image Stage 1 loaded, as aura's secboot.c hands it to Linux."""
+        digest = hashlib.sha256(data).digest() if digest is None else digest
+        if raw:  # A Stage 2 older than 1.0.0b12 keeps Stage 1's line as a plain chosen property.
+            self.put(f'/proc/device-tree/chosen/aurora,measure-{index}',
+                     f'{stage};none;{component};unsigned;0000000000000000;0;{digest.hex()}\0'.encode())
+            return
+        node = f'/proc/device-tree/chosen/aurora,boot-security/measurement@{index}'
+        for name, value in (('stage', stage), ('policy', 'none'), ('component', component),
+                            ('verdict', 'unsigned')):
+            self.put(f'{node}/{name}', value.encode() + b'\0')
+        self.put(f'{node}/sha256', digest)
+
+    def esp(self):
+        esp = self.root / 'esp'
+        return {p.relative_to(esp).as_posix(): p.read_bytes() for p in sorted(esp.rglob('*')) if p.is_file()}
+
+    def hook(self, allow_downgrade=False, **env):
+        """apply() as the hook runs it: (stdout, stderr). A refusal here is a test failure."""
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            bootchain.Update(self.root, dict(self.env, **env), allow_downgrade=allow_downgrade).apply()
+        return out.getvalue(), err.getvalue()
+
+    def assert_kept(self, before, message, expect_unrecorded_note=True):
+        out, err = self.hook()
+        self.assertEqual(self.esp(), before)
+        self.assertFalse(self.marker.exists())
+        attempts = self.root / 'var/lib/aurora-stage2/attempts'
+        self.assertFalse(attempts.exists() and list(attempts.iterdir()))
+        self.assertIn(message, err)
+        self.assertIn('not touching the boot chain', err)
+        if expect_unrecorded_note:
+            self.assertIn("new kernel will boot with the held image's trees", err)
+        self.assertNotIn('Stage 2 verified', out)
+        self.assertIn('Stage 2 left unchanged', out)
+        return out, err
+
+    def assert_armed(self, name='boot.bin'):
+        self.assertEqual(self.marker.read_bytes(), f'armed\nm1n1/{name}.next\n'.encode())
+        self.assertTrue(self.target.with_name(name + '.next').read_bytes().startswith(self.PACKAGED))
+
+    def test_stage1_loading_another_file_arms_nothing(self):
+        self.j713_setup()
+        before = self.esp()
+        _, err = self.assert_kept(before, 'Stage 1 loads aura/stage2.bin, not m1n1/boot-ctxr.bin')
+        self.assertEqual(self.lab.read_bytes(), b'LAB-STAGE2##aura_ver##1.0.0b13-gc0a50c00\0')
+        # The kernel is still installed: its DTBs and /boot/dtb follow it when no record shows a mismatch.
+        self.assertEqual(os.readlink(self.link), 'dtb-7.3')
+
+    def test_stage1_loading_the_target_arms_the_trial(self):
+        self.setup()
+        self.loaded(self.target.read_bytes())
+        self.hook()
+        self.assert_armed()
+        self.assertEqual(self.target.read_bytes(), b'GOOD-STAGE2')
+
+    def test_stage1_loading_the_ctxr_slot_arms_its_trial(self):
+        self.j713_setup()
+        self.loaded(self.ctxr.read_bytes())
+        self.hook()
+        self.assert_armed('boot-ctxr.bin')
+        self.assertEqual(self.ctxr.read_bytes(), b'IMAGE-CTXR##aura_ver##1.0.0b13-g3c491419\0')
+
+    def test_a_signed_target_is_compared_without_its_trailer(self):
+        self.setup()
+        body = b'GOOD-STAGE2'
+        self.target.write_bytes(body + b'aura_sig' + bytes(104) + len(body).to_bytes(8, 'little') + b'AURSIGT1')
+        self.loaded(body)
+        self.hook()
+        self.assert_armed()
+
+    def test_a_malformed_trailer_is_hashed_whole(self):
+        self.setup()
+        self.target.write_bytes(b'GOOD-STAGE2' + (99).to_bytes(8, 'little') + b'AURSIGT1')
+        self.loaded(b'GOOD-STAGE2')
+        self.assert_kept(self.esp(), 'not m1n1/boot.bin')
+
+    def test_a_raw_record_line_from_an_older_stage2_is_read(self):
+        self.setup()
+        self.loaded(self.target.read_bytes(), raw=True)
+        self.loaded(b'U-Boot', stage='stage2', component='payload')  # Stage 2's own entries do not count.
+        self.hook()
+        self.assert_armed()
+
+    def test_a_raw_record_of_another_file_arms_nothing(self):
+        self.setup()
+        self.put('/esp/aurora/stage2.bin', b'ELSEWHERE')
+        self.loaded(b'ELSEWHERE', raw=True)
+        self.assert_kept(self.esp(), 'Stage 1 loads aurora/stage2.bin, not m1n1/boot.bin')
+
+    def test_an_image_on_no_file_of_this_esp_arms_nothing(self):
+        self.setup()
+        self.loaded(b'not on the ESP')
+        self.assert_kept(self.esp(), 'matches no file on this ESP')
+
+    def test_a_missing_target_is_not_created(self):
+        self.setup()
+        self.loaded(self.target.read_bytes())
+        self.target.unlink()
+        self.assert_kept(self.esp(), 'not m1n1/boot.bin')
+
+    def test_a_stage1_that_records_but_left_no_record_changes_nothing(self):
+        for version in ('1.0.0b12', '1.0.0b13-g3d517e63', '1.0.0b13.1'):
+            with self.subTest(version=version):
+                self.setUp()
+                self.setup(version)
+                self.loaded(b'U-Boot', stage='stage2', component='payload')
+                self.assert_kept(self.esp(), f'Stage 1 {version} records the Stage 2 it loads')
+
+    def test_an_unusable_or_ambiguous_record_changes_nothing(self):
+        for case in ('short', 'two'):
+            with self.subTest(case=case):
+                self.setUp()
+                self.setup()
+                if case == 'short':
+                    self.loaded(digest=bytes(31))
+                else:
+                    self.loaded(self.target.read_bytes())
+                    self.loaded(b'other', index=1)
+                self.assert_kept(self.esp(), 'cannot be shown to load m1n1/boot.bin')
+
+    def test_commit_then_a_new_kernel_on_the_same_trial_boot_arms_it(self):
+        self.setup()
+        self.loaded(self.target.read_bytes())
+        self.hook()
+        payload = self.target.with_name('boot.bin.next').read_bytes()
+        self.trial_boot()
+        self.loaded(payload)  # The trial boot's Stage 1 loaded the candidate.
+        self.sane()
+        self.commit()
+        self.assertEqual(self.target.read_bytes(), payload)
+        self.kernel('7.4', cells=2)
+        self.env.update(AURORA_KERNEL_ACTION='add', AURORA_KERNEL_VERSION='7.4')
+        self.hook()
+        self.assert_armed()
+        self.assertEqual(json.loads(self.receipt.read_text())['kernel'], '7.4')
+
+    def test_another_tools_trial_boot_arms_nothing(self):
+        self.setup()
+        lab = self.put('/esp/m1n1/lab.bin', b'LAB')
+        self.put('/proc/device-tree/chosen/aurora,trial', b'm1n1/lab.bin\0')
+        self.loaded(lab.read_bytes())
+        self.assert_kept(self.esp(), 'this boot is an aura-try trial of m1n1/lab.bin')
+
+    def test_an_older_stage1_running_another_stage2_changes_nothing(self):
+        # nixos-aurora#282's J614s: Stage 1 1.0.0b5 kept loading boot.bin (b5) while b10 went to boot-ctxr.bin.
+        self.setup('1.0.0b5')
+        self.target.write_bytes(b'AURA##aura_ver##1.0.0b10-gbd9f3e82\0')
+        self.running('1.0.0b5')
+        self.assert_kept(self.esp(), 'Stage 2 1.0.0b5 booted, but m1n1/boot.bin holds aura 1.0.0b10-gbd9f3e82')
+
+    def test_an_older_stage1_without_a_target_changes_nothing(self):
+        self.setup('1.0.0b5')
+        self.target.unlink()
+        self.running('1.0.0b5')
+        self.assert_kept(self.esp(), 'm1n1/boot.bin does not exist')
+
+    def test_an_older_stage1_running_the_target_arms_the_trial(self):
+        self.setup('1.0.0b11')
+        self.target.write_bytes(b'AURA##aura_ver##1.0.0b11-geca16db0\0')
+        self.running('1.0.0b11-geca16db0')
+        self.hook()
+        self.assert_armed()
+
+    def test_an_older_stage1_without_versions_keeps_the_installer_layout(self):
+        self.setup('1.0.0b4')  # Neither the running Stage 2 nor GOOD-STAGE2 names a version.
+        self.hook()
+        self.assert_armed()
+
+    def test_an_older_candidate_is_not_armed(self):
+        self.setup()
+        self.loaded(self.target.read_bytes())
+        self.running('1.0.0b13-gc0a50c00')
+        self.put('/usr/lib64/m1n1/m1n1.bin', b'AURA##aura_ver##1.0.0b12-gea20cedb\0')
+        self.assert_kept(self.esp(), 'aura 1.0.0b12-gea20cedb is older than the running Stage 2 1.0.0b13-gc0a50c00')
+
+    def test_hold_refuses_when_new_kernel_requires_higher_dt_abi_than_recorded_live_image(self):
+        # Live Stage 2 was committed at DT ABI generation 1; new kernel requires generation 2.
+        self.setup()
+        self.loaded(self.target.read_bytes())
+        self.hook()
+        live = self.target.with_name('boot.bin.next').read_bytes()
+        self.trial_boot()
+        self.loaded(live)
+        self.sane()
+        self.commit()
+        # Running Stage 2 is newer than the packaged aura (downgrade hold), and kernel 7.4 bumps dtb-abi to 2.
+        self.running('1.0.0b14')
+        self.put('/usr/lib64/m1n1/m1n1.bin', b'AURA##aura_ver##1.0.0b12-gea20cedb\0')
+        self.kernel('7.4', cells=2, generation=2)
+        # Drop the older generation-1 kernel so plan() accepts generation 2.
+        shutil.rmtree(self.root / 'usr/lib/modules/7.3')
+        self.env.update(AURORA_KERNEL_ACTION='add', AURORA_KERNEL_VERSION='7.4')
+        before = self.esp()
+        before_link = os.readlink(self.link)
+        with self.assertRaisesRegex(bootchain.Refused, 'requires DT ABI generation 2 while the live Stage 2 carries generation 1'):
+            self.hook()
+        self.assertEqual(self.esp(), before)
+        self.assertEqual(os.readlink(self.link), before_link)
+
+    def test_hold_allows_same_dt_abi_for_recorded_live_image(self):
+        self.setup()
+        self.loaded(self.target.read_bytes())
+        self.hook()
+        live = self.target.with_name('boot.bin.next').read_bytes()
+        self.trial_boot()
+        self.loaded(live)
+        self.sane()
+        self.commit()
+        self.running('1.0.0b14')
+        self.put('/usr/lib64/m1n1/m1n1.bin', b'AURA##aura_ver##1.0.0b12-gea20cedb\0')
+        self.kernel('7.4', cells=2, generation=1)
+        self.env.update(AURORA_KERNEL_ACTION='add', AURORA_KERNEL_VERSION='7.4')
+        before = self.esp()
+        out, err = self.hook()
+        self.assertEqual(self.esp(), before)
+        self.assertIn('not touching the boot chain', err)
+        self.assertNotIn("held image's trees", err)
+        self.assertIn('Stage 2 left unchanged', out)
+        self.assertEqual(os.readlink(self.link), 'dtb-7.4')
+
+    def test_a_forced_downgrade_is_armed_but_still_only_where_stage1_loads(self):
+        self.setup()
+        self.running('1.0.0b13-gc0a50c00')
+        self.put('/usr/lib64/m1n1/m1n1.bin', b'AURA##aura_ver##1.0.0b12-gea20cedb\0')
+        self.loaded(b'not on the ESP')
+        _, err = self.hook(allow_downgrade=True)
+        self.assertFalse(self.marker.exists())
+        self.assertIn('matches no file on this ESP', err)
+        self.loaded(self.target.read_bytes())
+        # An environment variable cannot bypass the check; only explicit --allow-downgrade does.
+        _, err = self.hook(AURORA_STAGE2_ALLOW_DOWNGRADE='1')
+        self.assertFalse(self.marker.exists())
+        self.assertIn('--allow-downgrade', err)
+        self.hook(allow_downgrade=True)
+        self.assertTrue(self.marker.read_bytes().startswith(b'armed\n'))
+
+    def test_order_unknown_or_newer_is_not_a_downgrade(self):
+        for running, packaged in (('1.0.0b13-gc0a50c00', '1.0.0b13-g3c491419'),  # same release
+                                  ('1.0.0b13-gf0f180af', '1.0.0b13.1'),
+                                  ('1.0.0b12', '1.0.0b13-g5dcf62d0-dirty'),
+                                  ('v1.4.21', '1.0.0b13'),  # Asahi's m1n1: another project's numbers
+                                  ('', '1.0.0b13')):
+            with self.subTest(running=running, packaged=packaged):
+                self.setUp()
+                self.setup()
+                self.loaded(self.target.read_bytes())
+                if running:
+                    self.running(running)
+                self.PACKAGED = f'AURA##aura_ver##{packaged}\0'.encode()
+                self.put('/usr/lib64/m1n1/m1n1.bin', self.PACKAGED)
+                self.hook()
+                self.assert_armed()
+
+    def test_a_point_release_is_newer_than_its_beta(self):
+        self.setup()
+        self.loaded(self.target.read_bytes())
+        self.running('1.0.0b13.1')
+        self.put('/usr/lib64/m1n1/m1n1.bin', b'AURA##aura_ver##1.0.0b13-g5dcf62d0\0')
+        self.assert_kept(self.esp(), 'older than the running Stage 2 1.0.0b13.1')
+
+    def test_a_downgrade_is_not_written_by_direct_replacement_either(self):
+        self.setup('1.0.0b3')  # No aura-try: the live file is replaced in place.
+        self.running('1.0.0b13')
+        self.put('/usr/lib64/m1n1/m1n1.bin', b'AURA##aura_ver##1.0.0b12\0')
+        self.assert_kept(self.esp(), 'older than the running Stage 2 1.0.0b13')
+
+    def test_a_trial_armed_for_a_file_stage1_does_not_load_is_withdrawn(self):
+        # Armed by an updater without these checks, never booted: disarm it before the next boot.
+        self.setup('1.0.0b11')
+        self.hook()
+        candidate = self.target.with_name('boot.bin.next').read_bytes()
+        self.assertTrue(self.attempt(candidate).exists())
+        self.stage1('1.0.0b13-g3d517e63')
+        self.put('/esp/aura/stage2.bin', b'LAB')
+        self.loaded(b'LAB')
+        out, err = self.hook()
+        self.assertFalse(self.marker.exists())
+        self.assertFalse(self.target.with_name('boot.bin.next').exists())
+        self.assertFalse(self.receipt.exists())
+        self.assertFalse(self.attempt(candidate).exists())
+        self.assertIn('withdrawn before it was booted: Stage 1 loads aura/stage2.bin, not m1n1/boot.bin', out)
+        self.assertIn('not touching the boot chain', err)
+        self.assertEqual(self.target.read_bytes(), b'GOOD-STAGE2')
+
+    def test_an_armed_downgrade_is_withdrawn(self):
+        self.setup()
+        self.loaded(self.target.read_bytes())
+        self.hook()
+        self.running('1.0.0b14')
+        out, _ = self.hook()
+        self.assertFalse(self.marker.exists())
+        self.assertFalse(self.target.with_name('boot.bin.next').exists())
+        self.assertIn('withdrawn before it was booted', out)
+
+    def test_a_foreign_marker_is_never_touched(self):
+        self.setup()
+        self.marker.write_bytes(b'armed\nm1n1/lab.bin\n')
+        self.loaded(b'not on the ESP')
+        with self.assertRaisesRegex(bootchain.Refused, 'another aura-try'):
+            self.hook()
+        self.assertEqual(self.marker.read_bytes(), b'armed\nm1n1/lab.bin\n')
+
+    def test_a_running_trial_is_still_refused_first(self):
+        self.setup()
+        self.loaded(b'not on the ESP')
+        self.trial_boot()
+        with self.assertRaisesRegex(bootchain.Refused, 'a trial is running'):
+            self.hook()
+
+    def test_aura_release_order(self):
+        order = ['1.0.0b4', '1.0.0b12-gea20cedb', '1.0.0b13', '1.0.0b13.1-g5dcf62d0', '1.0.0b14-dirty',
+                 '1.0.0', '1.0.1b1', 'aura v1.1.0']
+        releases = [bootchain.aura_release(version) for version in order]
+        self.assertEqual(releases, sorted(releases))
+        self.assertEqual(len(set(releases)), len(releases))
+        self.assertEqual(bootchain.aura_release('1.0.0b13-gc0a50c00'), bootchain.aura_release('1.0.0b13-g3c491419'))
+        for other in ('v1.4.21', '1.5.0', 'unknown', ''):
+            self.assertIsNone(bootchain.aura_release(other), other)
+        self.assertEqual(bootchain.aura_release('1.5.0', aura=True), (1, 5, 0, 1, 0, 0))
+
+    def test_aura_tag_comes_from_the_version_marker(self):
+        self.assertEqual(bootchain.aura_tag(b'x##aura_ver##1.0.0b13-g3c491419\0rest'), '1.0.0b13-g3c491419')
+        self.assertIsNone(bootchain.aura_tag(b'##m1n1_ver##v1.4.21\0'))
+        self.assertIsNone(bootchain.aura_tag(b'##aura_ver##bad tag\0'))
 
 
 class DtbNodesTests(unittest.TestCase):

@@ -18,14 +18,20 @@ export CONFIG=${CONFIG:-/etc/m1n1.conf}
 export DTBS=${DTBS-/boot/dtb}
 export AURORA_DEVICE_TREE_COMPATIBLE=${AURORA_DEVICE_TREE_COMPATIBLE:-/proc/device-tree/compatible}
 export AURORA_MONITOR_FREE_MARKER=${AURORA_MONITOR_FREE_MARKER:-/usr/share/aura/monitor-free}
+allow_downgrade=false
+if [[ ${1:-} == --allow-downgrade ]]; then
+    allow_downgrade=true
+    shift
+fi
 mode=${1:-}
 case $mode in
     --commit|--guard|--transaction-begin|--transaction-end)
+        ! $allow_downgrade || { echo "unknown update-aura option" >&2; exit 2; }
         export AURORA_KERNEL_ACTION=refresh AURORA_KERNEL_VERSION=
         export TARGET=${TARGET:-}
         ;;
     *)
-        [[ -z $mode || $mode != --* ]] || { echo "unknown update-m1n1 option" >&2; exit 2; }
+        [[ -z $mode || $mode != --* ]] || { echo "unknown update-aura option" >&2; exit 2; }
         export TARGET=${TARGET:-$mode}
         ;;
 esac
@@ -84,6 +90,7 @@ ESP_FSTYPE=$(findmnt -nro FSTYPE --target "$ESP_ROOT")
 export ESP_ROOT ESP_DEVICE ESP_FSTYPE
 args=()
 [[ $mode != --commit && $mode != --guard ]] || args+=("$mode")
+! $allow_downgrade || args+=(--allow-downgrade)
 if ! python3 /usr/libexec/aurora/bootchain.py "${args[@]}"; then
     if [[ ${AURORA_KERNEL_ACTION:-} == remove ]]; then
         python3 /usr/libexec/aurora/bootchain.py --cleanup-remove
