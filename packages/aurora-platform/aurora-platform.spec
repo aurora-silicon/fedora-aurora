@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 53%{?dist}
+Release: 54%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -23,6 +23,10 @@ Requires: kernel-aurora aura uboot-aurora aurora-release aurora-logos aurora-fir
 # upgraded (images also list both). Weak: `dnf remove aurora-gamemode gamemode`
 # keeps them off.
 Recommends: (aurora-gamemode if (plasma-workspace or gnome-shell))
+Recommends: (aurora-avd-codecs if libva-v4l2-request-avd)
+%if 0%{?fedora} >= 45
+Recommends: (aurora-mpv-defaults = %{version}-%{release} if (plasma-workspace or gnome-shell))
+%endif
 
 Source100: README
 Source101: aurora-platform-core.conf
@@ -56,6 +60,7 @@ Source128: aurora-irq-steerable
 Source129: 60_aurora-apple-keys.gschema.override
 Source130: 70-aurora-accel.rules
 Source131: aurora-accel.sysusers
+Source132: mpv.conf
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -156,6 +161,16 @@ Requires: mt7xxx-firmware realtek-firmware
 Firmware for optional wireless network and Bluetooth adapters. Built-in Mac
 Wi-Fi and Bluetooth use firmware provisioned for the target Mac by Aurora.
 
+%if 0%{?fedora} >= 45
+%package -n aurora-mpv-defaults
+Summary: mpv hardware decoding defaults for Aurora desktops
+Requires: mpv
+
+%description -n aurora-mpv-defaults
+Install mpv with automatic selection of a safe hardware decoder.
+System and user configuration can override the default.
+%endif
+
 %prep
 %setup -q -c -T
 cp -p %{SOURCE109} .
@@ -168,6 +183,9 @@ bzip2 -9 %{modulename}.pp
 install -Dpm0644 %{modulename}.pp.bz2 \
     %{buildroot}%{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2
 install -Dm644 %{SOURCE100} %{buildroot}%{_docdir}/aurora-platform/README
+%if 0%{?fedora} >= 45
+install -Dm644 %{SOURCE132} %{buildroot}%{_sysconfdir}/mpv/mpv.conf
+%endif
 install -Dm644 %{SOURCE101} %{buildroot}%{_sysconfdir}/dnf/protected.d/aurora-platform-core.conf
 install -Dm644 %{SOURCE102} %{buildroot}%{_unitdir}/var-swap-swapfile2.swap.d/50-after-swapfile.conf
 install -Dm644 %{SOURCE110} %{buildroot}%{_unitdir}/irqbalance.service.d/50-aurora-irqbalance.conf
@@ -310,6 +328,12 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %files -n aurora-extra-hardware-firmware
+
+%if 0%{?fedora} >= 45
+%files -n aurora-mpv-defaults
+%dir %{_sysconfdir}/mpv
+%config(noreplace) %{_sysconfdir}/mpv/mpv.conf
+%endif
 
 %changelog
 * Tue Nov 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-53
