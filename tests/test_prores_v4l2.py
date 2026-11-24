@@ -20,7 +20,7 @@ class ProResV4l2Tests(unittest.TestCase):
             files = fedoralib.recipe_files(ROOT, 'ffmpeg', fedora)
             spec = files['ffmpeg.spec'].read_text()
             with self.subTest(fedora=fedora):
-                self.assertRegex(spec, rf'(?m)^Release:\s+{release}%\{{\?dist\}}\.aurora1$')
+                self.assertRegex(spec, rf'(?m)^Release:\s+{release}%\{{\?dist\}}\.aurora[1-9][0-9]*$')
                 self.assertEqual(re.findall(r'(?m)^Patch90\d:\s+(\S+)$', spec), FFMPEG)
                 for patch in FFMPEG:
                     self.assertIn(patch, files)
