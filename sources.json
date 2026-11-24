@@ -486,11 +486,11 @@
   },
   "speakerguardd-v2": {
     "repository": "https://github.com/aurora-silicon/speakerguardd",
-    "commit": "b3aaa4a7c75f0fe203ddbf10a161b2328e06aa7d",
+    "commit": "6c714e3b7db99a79606d28492486608392fd9849",
     "version": "1.0.0-alpha.2",
-    "source_url": "https://codeload.github.com/aurora-silicon/speakerguardd/tar.gz/b3aaa4a7c75f0fe203ddbf10a161b2328e06aa7d",
-    "archive_root": "speakerguardd-b3aaa4a7c75f0fe203ddbf10a161b2328e06aa7d",
-    "sha256": "03ed1f808af671778b7b6412de99e39e730f7d25511ee2aa2dd38597168d4a36"
+    "source_url": "https://codeload.github.com/aurora-silicon/speakerguardd/tar.gz/6c714e3b7db99a79606d28492486608392fd9849",
+    "archive_root": "speakerguardd-6c714e3b7db99a79606d28492486608392fd9849",
+    "sha256": "6aeb4e6779ea42aa4d3954738828c628bc354b1ac88352c33348a7b65c33529b"
   },
   "aurora-sep-luks": {
     "repository": "https://github.com/aurora-silicon/aurora-sep-userspace",
