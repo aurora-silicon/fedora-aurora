@@ -1,4 +1,4 @@
-%global commit 80b02063f3d87c5c82e38af456f5ef9d043a1a13
+%global commit 8966bdd4f11d3def8c28f4fbbf269098d8c1b853
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261124
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.2
-Release: 0.55.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.56.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -250,6 +250,10 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.56.20261124git8966bdd4f11d
+- Rebuilt from speakerguardd main 8966bdd4 with aurora-speaker-upgrade
+  (speakerguardd#246); the daemon is unchanged since 80b02063.
+
 * Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.55.20261124git80b02063f3d8
 - Rebuilt from speakerguardd main 80b02063 (speakerguardd#239 to #244):
   the self-check and provisioning bound their root reads of user-owned

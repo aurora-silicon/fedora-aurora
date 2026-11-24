@@ -1,10 +1,10 @@
-%global commit 80b02063f3d87c5c82e38af456f5ef9d043a1a13
+%global commit 8966bdd4f11d3def8c28f4fbbf269098d8c1b853
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261124
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.22.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.23.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -62,6 +62,13 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.pr
 %{_presetdir}/50-aurora-speaker-upgrade.preset
 
 %changelog
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.23.20261124git8966bdd4f11d
+- Rebuilt from speakerguardd main 8966bdd4 (speakerguardd#246): the tool
+  collects and keeps the BuzzKill quadrature matrix (vendored installer
+  collector at aurora-installer e1ddef7f); an installer bundle without it,
+  for a tuning with a BuzzKill unit, is used only when this Mac's own
+  macOS gives no bundle.
+
 * Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.22.20261124git80b02063f3d8
 - Rebuilt from speakerguardd main 80b02063 with speakerguardd-v2
   (speakerguardd#239 to #244). speakerguardd#240: the boot unit judges the
