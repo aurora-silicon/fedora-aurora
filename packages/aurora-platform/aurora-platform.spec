@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 53%{?dist}
+Release: 54%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -56,6 +56,10 @@ Source128: aurora-irq-steerable
 Source129: 60_aurora-apple-keys.gschema.override
 Source130: 70-aurora-accel.rules
 Source131: aurora-accel.sysusers
+Source132: force-click-preview-extension.js
+Source133: force-click-preview-metadata.json
+Source134: org.gnome.shell.extensions.force-click-preview.gschema.xml
+Source135: 60_aurora-force-click.gschema.override
 
 %description
 Aurora Apple Silicon hardware stack.
@@ -193,6 +197,13 @@ install -Dm644 %{SOURCE130} %{buildroot}%{_udevrulesdir}/70-aurora-accel.rules
 install -Dm644 %{SOURCE131} %{buildroot}%{_sysusersdir}/aurora-accel.conf
 install -Dm644 %{SOURCE126} %{buildroot}%{_datadir}/libinput/60-aurora-t6041-trackpad.quirks
 install -Dm644 %{SOURCE129} %{buildroot}%{_datadir}/glib-2.0/schemas/60_aurora-apple-keys.gschema.override
+# Force click in Files opens the preview: the GNOME Shell extension that turns
+# hid-magicmouse's force-click key (XF86Info) into Files' preview, its schema,
+# and the default that enables it.
+install -Dm644 %{SOURCE132} %{buildroot}%{_datadir}/gnome-shell/extensions/force-click-preview@aurorasilicon.org/extension.js
+install -Dm644 %{SOURCE133} %{buildroot}%{_datadir}/gnome-shell/extensions/force-click-preview@aurorasilicon.org/metadata.json
+install -Dm644 %{SOURCE134} %{buildroot}%{_datadir}/glib-2.0/schemas/org.gnome.shell.extensions.force-click-preview.gschema.xml
+install -Dm644 %{SOURCE135} %{buildroot}%{_datadir}/glib-2.0/schemas/60_aurora-force-click.gschema.override
 install -Dm644 %{SOURCE127} %{buildroot}%{_unitdir}/aurora-power-defaults.service
 # Wanted by sysinit.target itself: a preset would not reach Macs that
 # already have aurora-platform-core. ConditionFirmware skips machines that
@@ -286,6 +297,9 @@ fi
 %{_sysusersdir}/aurora-accel.conf
 %{_datadir}/libinput/60-aurora-t6041-trackpad.quirks
 %{_datadir}/glib-2.0/schemas/60_aurora-apple-keys.gschema.override
+%{_datadir}/gnome-shell/extensions/force-click-preview@aurorasilicon.org/
+%{_datadir}/glib-2.0/schemas/org.gnome.shell.extensions.force-click-preview.gschema.xml
+%{_datadir}/glib-2.0/schemas/60_aurora-force-click.gschema.override
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 %{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
@@ -312,6 +326,13 @@ fi
 %files -n aurora-extra-hardware-firmware
 
 %changelog
+* Tue Nov 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-54
+- A force click on an item in Files opens its preview, like Quick Look:
+  force-click-preview@aurorasilicon.org binds XF86Info, the key
+  hid-magicmouse holds during the deep stage of a Force Touch click, and
+  sends Files the Space that opens its previewer. It does nothing in other
+  windows. Enabled by default (60_aurora-force-click.gschema.override).
+
 * Tue Nov 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-53
 - Use the Aurora firmware refresh tool.
 
