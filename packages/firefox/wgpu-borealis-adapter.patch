@@ -1,0 +1,23 @@
+wgpu-hal: admit Borealis (VK_DRIVER_ID_AURORA_BOREALIS) for WebGPU
+
+wgpu-hal hides every Vulkan driver reporting conformanceVersion.major == 0
+unless it is MoltenVK or InstanceFlags::ALLOW_UNDERLYING_NONCOMPLIANT_ADAPTER
+is set. Borealis (Aurora Silicon's Apple Silicon Vulkan driver, registered
+Khronos driver ID 35) reports conformanceVersion 0.0.0.0 until a formal
+Khronos submission is completed, causing Firefox WebGPU to either return
+no adapter or silently fall back to CPU llvmpipe.
+
+Admit driver ID 35 (VK_DRIVER_ID_AURORA_BOREALIS) alongside MoltenVK so
+Firefox selects the hardware Borealis adapter by default on Apple Silicon.
+
+--- a/third_party/rust/wgpu-hal/src/vulkan/adapter.rs	2026-11-25 01:28:57.893990292 +1100
++++ b/third_party/rust/wgpu-hal/src/vulkan/adapter.rs	2026-11-25 01:28:57.940885087 +1100
+@@ -2374,6 +2374,8 @@
+             if driver.conformance_version.major == 0 {
+                 if driver.driver_id == vk::DriverId::MOLTENVK {
+                     log::debug!("Adapter is not Vulkan compliant, but is MoltenVK, continuing");
++                } else if driver.driver_id == vk::DriverId::from_raw(35) {
++                    log::debug!("Adapter is not Vulkan compliant, but is Borealis, continuing");
+                 } else if self
+                     .shared
+                     .flags

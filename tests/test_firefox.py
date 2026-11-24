@@ -43,6 +43,8 @@ rm -f .mozconfig
 %ifarch %{ix86} s390x ppc64le
 export RUSTFLAGS="-Cdebuginfo=0"
 %endif
+%install
+cp %{SOURCE12} %{buildroot}%{mozappdir}/browser/defaults/preferences
 %changelog
 * Fri Nov 06 2026 Fedora Packager <p@example.invalid> - 161.0-2
 - Update
@@ -53,18 +55,24 @@ class FirefoxRecipeTests(unittest.TestCase):
     def test_spec_edit_adds_the_patch_and_an_aurora_release(self):
         text = importer.edit_spec(FEDORA_SPEC, '0' * 40, 'Wed Nov 11 2026')
         self.assertTrue(text.startswith('# aurora-builder: heavy\n'))
-        self.assertIn('Release:        2%{?dist}.aurora3\n', text)
+        self.assertIn('Release:        2%{?dist}.aurora4\n', text)
         self.assertIn('Patch604:       last.patch\n\n# Aurora: V4L2 stateless decoders in RDD', text)
         self.assertIn('Patch900:       rdd-v4l2-request.patch\n', text)
         self.assertIn('Patch901:       wayland-shm-texture2d.patch\n', text)
+        self.assertIn('Patch902:       wgpu-borealis-adapter.patch\n', text)
+        self.assertIn('Patch903:       sanitize-agx-renderer.patch\n', text)
         self.assertIn('%patch -P900 -p1 -b .rdd-v4l2-request\n'
-                      '%patch -P901 -p1 -b .wayland-shm-texture2d\n\nrm -f .mozconfig\n', text)
+                      '%patch -P901 -p1 -b .wayland-shm-texture2d\n'
+                      '%patch -P902 -p1 -b .wgpu-borealis-adapter\n'
+                      '%patch -P903 -p1 -b .sanitize-agx-renderer\n', text)
+        self.assertIn('third_party/rust/wgpu-hal/.cargo-checksum.json', text)
+        self.assertIn('pref("dom.webgpu.enabled", true);', text)
         self.assertIn('%global create_debuginfo  0\n', text)
         self.assertIn('%if 0%{?rhel}\n%global use_bundled_cbindgen  1\n'
                       '%else\n%global use_bundled_cbindgen  0\n%endif\n', text)
         self.assertIn('%else\n  %bcond wasi_sdk 0\n%endif\n%endif', text)
         self.assertIn('%ifarch %{ix86} s390x ppc64le aarch64\nexport RUSTFLAGS="-Cdebuginfo=0"\n', text)
-        self.assertIn('%changelog\n* Wed Nov 11 2026 Aurora Silicon <hey@djdev.me> - 161.0-2.aurora3\n'
+        self.assertIn('%changelog\n* Wed Nov 11 2026 Aurora Silicon <hey@djdev.me> - 161.0-2.aurora4\n'
                       "- Rebuild of Fedora's firefox-161.0-2.\n", text)
         self.assertIn('* Fri Nov 06 2026 Fedora Packager', text)
 
@@ -86,6 +94,13 @@ class FirefoxRecipeTests(unittest.TestCase):
         self.assertRegex(spec, r'(?m)^Patch901:\s+wayland-shm-texture2d\.patch$')
         self.assertRegex(spec, r'(?m)^%patch -P901 -p1 ')
         self.assertTrue((PACKAGE / 'wayland-shm-texture2d.patch').is_file())
+        self.assertRegex(spec, r'(?m)^Patch902:\s+wgpu-borealis-adapter\.patch$')
+        self.assertRegex(spec, r'(?m)^%patch -P902 -p1 ')
+        self.assertTrue((PACKAGE / 'wgpu-borealis-adapter.patch').is_file())
+        self.assertRegex(spec, r'(?m)^Patch903:\s+sanitize-agx-renderer\.patch$')
+        self.assertRegex(spec, r'(?m)^%patch -P903 -p1 ')
+        self.assertTrue((PACKAGE / 'sanitize-agx-renderer.patch').is_file())
+        self.assertIn('pref("dom.webgpu.enabled", true);', spec)
 
     def test_fedora_keys_are_fetched_not_committed(self):
         for directory in (PACKAGE, PACKAGE / 'f45'):
@@ -128,6 +143,14 @@ class FirefoxRecipeTests(unittest.TestCase):
         patch = (PACKAGE / 'wayland-shm-texture2d.patch').read_text()
         self.assertIn('+  auto textureType = UseExternalTextures() ? wr::ImageBufferKind::Texture2D\n', patch)
         self.assertIn('-                                          wr::ImageBufferKind::TextureRect)\n', patch)
+
+    def test_wgpu_admits_borealis_driver_id_35(self):
+        patch = (PACKAGE / 'wgpu-borealis-adapter.patch').read_text()
+        self.assertIn('+                } else if driver.driver_id == vk::DriverId::from_raw(35) {\n', patch)
+
+    def test_sanitize_renderer_recognizes_agx(self):
+        patch = (PACKAGE / 'sanitize-agx-renderer.patch').read_text()
+        self.assertIn('+  if (str.starts_with("AGX")) return "AGX";\n', patch)
 
     def test_broker_admits_media_nodes_only_through_an_allowed_video_node(self):
         patch = (PACKAGE / 'rdd-v4l2-request.patch').read_text()
