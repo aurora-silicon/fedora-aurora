@@ -1,4 +1,4 @@
-%global commit b3aaa4a7c75f0fe203ddbf10a161b2328e06aa7d
+%global commit 6c714e3b7db99a79606d28492486608392fd9849
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
 %global snapdate 20261124
 %global selinuxtype targeted
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.2
-Release: 0.58.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.59.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -250,6 +250,11 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.59.20261124git6c714e3b7db9
+- Rebuilt from speakerguardd main 6c714e3b. speakerguardd#252: a new BuzzKill
+  line starts shallower and released tracks that still cut are kept,
+  with parity attestations for all four builds (AID2/6/12 now pass).
+
 * Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.58.20261124gitb3aaa4a7c75f
 - Rebuilt from speakerguardd main b3aaa4a7. speakerguardd#249: the BuzzKill
   rejection rings out at the analysis design's rate, with parity
