@@ -146,7 +146,8 @@ class FirefoxRecipeTests(unittest.TestCase):
 
     def test_wgpu_admits_borealis_driver_id_35(self):
         patch = (PACKAGE / 'wgpu-borealis-adapter.patch').read_text()
-        self.assertIn('+                } else if driver.driver_id == vk::DriverId::from_raw(35) {\n', patch)
+        self.assertIn('+        const VK_DRIVER_ID_AURORA_BOREALIS: vk::DriverId = vk::DriverId::from_raw(35);\n', patch)
+        self.assertIn('+                } else if driver.driver_id == VK_DRIVER_ID_AURORA_BOREALIS {\n', patch)
 
     def test_sanitize_renderer_recognizes_agx(self):
         patch = (PACKAGE / 'sanitize-agx-renderer.patch').read_text()
