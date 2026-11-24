@@ -1,6 +1,6 @@
 Name: aurora-repos
 Version: 44
-Release: 6%{?dist}
+Release: 7%{?dist}
 Summary: Aurora Silicon package repository, signing key and dnf vendor policies
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -49,6 +49,10 @@ install -Dm644 %{SOURCE105} %{buildroot}/usr/share/dnf5/repos.override.d/50-auro
 /usr/share/dnf5/repos.override.d/50-aurora.repo
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-7
+- Keep power-profiles-daemon on Aurora's vendor policy so systems using it
+  instead of tuned-ppd upgrade cleanly to Aurora's class-interface build.
+
 * Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-6
 - Check the repository metadata signature again (repo_gpgcheck=1 in the
   dnf5 override). Fedora 44 and 45 now ship dnf5 5.4.7 or later, whose
