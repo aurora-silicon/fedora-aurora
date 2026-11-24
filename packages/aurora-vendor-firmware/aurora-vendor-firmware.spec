@@ -3,7 +3,7 @@
 
 Name: aurora-vendor-firmware
 Version: 20250713
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Load the target Mac's firmware from its EFI system partition
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -14,8 +14,11 @@ Requires: dracut cpio systemd-udev
 # Replace Fedora's matching dracut hook and directory-owner package together.
 # Existing firmware consumers still know the old dracut module names.
 Provides: dracut-asahi = %{version}-%{release}
-# Retained boot helpers still require the old package name and source path.
+# Retained Aurora updaters require the old package name. Fedora's stock F44 and
+# F45 updaters require the exact scripts build, including during distro-sync.
 Provides: asahi-scripts = %{version}-%{release}
+Provides: asahi-scripts = 20250713-7.fc44
+Provides: asahi-scripts = 20250713-8.fc45
 Obsoletes: asahi-scripts < 20250714
 Obsoletes: dracut-asahi < 20250714
 Obsoletes: linux-firmware-vendor < 20250714
@@ -56,6 +59,9 @@ install -d %{buildroot}%{_prefix}/lib/firmware/vendor
 %dir %{_prefix}/lib/firmware/vendor
 
 %changelog
+* Tue Nov 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 20250713-3
+- Satisfy the exact script dependency of pinned Fedora 44 and 45 boot updaters.
+
 * Tue Nov 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 20250713-2
 - Replace the old helper RPM and keep its source path for pinned updaters.
 
