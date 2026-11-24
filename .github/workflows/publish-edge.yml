@@ -276,7 +276,8 @@ jobs:
           for archive in site/repository-metadata-*.tar.gz; do gpg --batch --verify "$archive.asc" "$archive"; done
           jq -e '.dry_run != true and .channel == "edge" and .signing_key == $fpr' --arg fpr "$(cat keys/fingerprint.txt)" \
             site/44/edge/aarch64/manifest.json
-          jq -e '.schema == 1 and .channel == "edge"' site/edge-sources.json
+          jq -e '.schema == 1 and .channel == "edge" and .kernel_release.tag == "aurora-edge"
+                 and (.kernel_release.source_sha256 | test("^[0-9a-f]{64}$"))' site/edge-sources.json
           mkdir assets
           cp site/44/edge/aarch64/*.rpm site/44/edge/aarch64/manifest.json site/RPM-GPG-KEY-aurora site/edge-sources.json \
             site/repository-metadata-*.tar.gz site/repository-metadata-*.tar.gz.asc assets/
