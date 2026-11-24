@@ -869,8 +869,8 @@ class Update:
         print(f'Stage 2 trial for kernel {details.get("kernel")} withdrawn before it was booted: '
               f'{reason}; live image kept')
 
-    def withdraw_stale_trial(self, selected):
-        """The selected Stage 2 is live already, so an armed trial would only replace it."""
+    def withdraw_stale_trial(self, selected, reason=None):
+        """Disarm an armed trial when `target` already holds `payload`."""
         esp = self.env.get('ESP_ROOT')
         if not esp or not (self.path(esp) / 'aura-try').exists():
             return
@@ -887,7 +887,7 @@ class Update:
             print(f'update-aura: leaving the armed trial at {relative}: this updater did not arm it',
                   file=sys.stderr)
             return
-        self.withdraw_trial(paths, armed, f'the Stage 2 for kernel {selected} is already live')
+        self.withdraw_trial(paths, armed, reason or f'the Stage 2 for kernel {selected} is already live')
 
     def stage_trial(self, selected, payload):
         paths = self.trial_paths()
@@ -907,7 +907,7 @@ class Update:
             if armed and armed.get('kernel') != selected:
                 # It pairs another kernel's trees with the kernel GRUB boots.
                 stale = f'GRUB boots kernel {selected}'
-            elif armed and hold:
+            elif armed:
                 # Armed before these checks, or before a newer Stage 2 ran: it never booted.
                 stale = unloaded or self.downgrade_hold(candidate.read_bytes())
             if stale:
@@ -1119,7 +1119,10 @@ class Update:
             if previous != payload:
                 self.stage_trial(selected, payload)
             else:
-                self.withdraw_stale_trial(selected)
+                unloaded = self.stage1_hold(target)
+                self.withdraw_stale_trial(selected, reason=unloaded)
+                if unloaded:
+                    self.keep(selected, target, unloaded)
         elif previous != payload and (hold := self.stage2_hold(target, payload)):
             self.keep(selected, target, hold)
         elif previous != payload:
@@ -1140,6 +1143,8 @@ class Update:
                 sync_dir(target.parent)
             finally:
                 staged.unlink(missing_ok=True)
+        elif (unloaded := self.stage1_hold(target)):
+            self.keep(selected, target, unloaded)
         link = self.path('/boot/dtb')
         if self.env.get('AURORA_FIRMWARE_DT') == 'True':
             # Preserve grubby's firmware-DT policy, but defer link removal

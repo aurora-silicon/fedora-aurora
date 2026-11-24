@@ -1427,6 +1427,61 @@ class Stage1PathTests(unittest.TestCase):
         self.assertFalse(self.target.with_name('boot.bin.next').exists())
         self.assertIn('withdrawn before it was booted', out)
 
+    def test_an_armed_downgrade_is_withdrawn_and_replaced_by_an_upgrade(self):
+        self.setup()
+        self.loaded(self.target.read_bytes())
+        self.running('1.0.0b12')
+        self.put('/usr/lib64/m1n1/m1n1.bin', b'AURA##aura_ver##1.0.0b12-gea20cedb\0')
+        self.hook()
+        stale = self.target.with_name('boot.bin.next').read_bytes()
+        self.assertIn(b'1.0.0b12-gea20cedb', stale)
+        self.assertTrue(self.attempt(stale).exists())
+        # Running Stage 2 advances to 1.0.0b13, and a newer 1.0.0b14 package arrives.
+        self.running('1.0.0b13')
+        self.put('/usr/lib64/m1n1/m1n1.bin', b'AURA##aura_ver##1.0.0b14-g11111111\0')
+        out, _ = self.hook()
+        self.assertIn('withdrawn before it was booted', out)
+        self.assertIn('Stage 2 trial armed for kernel 7.3', out)
+        self.assertFalse(self.attempt(stale).exists())
+        armed = self.target.with_name('boot.bin.next').read_bytes()
+        self.assertIn(b'1.0.0b14-g11111111', armed)
+        self.assertEqual(self.marker.read_bytes(), b'armed\nm1n1/boot.bin.next\n')
+
+    def test_unloaded_slot_with_matching_bytes_still_checks_stage1_and_dt_abi(self):
+        self.setup()
+        # Stage 1 loads aura/stage2.bin (recorded at DT ABI generation 1), not m1n1/boot.bin.
+        live_image = b'AURA##aura_ver##1.0.0b13-gc0a50c00\0LIVE-STAGE2'
+        self.put('/esp/aura/stage2.bin', live_image)
+        self.loaded(live_image)
+        live_digest = hashlib.sha256(live_image).hexdigest()
+        self.put(f'/var/lib/aurora-stage2/attempts/{live_digest}',
+                 json.dumps({'kernel': '7.3', 'path': 'aura/stage2.bin', 'sha256': live_digest,
+                             'generation': 1, 'result': 'committed'}).encode())
+        # Pre-seed m1n1/boot.bin with exact bytes for kernel 7.4 (generation 2).
+        self.kernel('7.4', cells=2, generation=2)
+        shutil.rmtree(self.root / 'usr/lib/modules/7.3')
+        self.env.update(AURORA_KERNEL_ACTION='add', AURORA_KERNEL_VERSION='7.4')
+        payload_74 = bootchain.Update(self.root, self.env).plan()[3]
+        self.target.write_bytes(payload_74)
+        before_link = os.readlink(self.link)
+        with self.assertRaisesRegex(bootchain.Refused, 'requires DT ABI generation 2 while the live Stage 2 carries generation 1'):
+            self.hook()
+        self.assertEqual(os.readlink(self.link), before_link)
+        # Same check applies when Stage 1 does not support aura-try (direct replacement path).
+        self.stage1('1.0.0b3')
+        with self.assertRaisesRegex(bootchain.Refused, 'requires DT ABI generation 2 while the live Stage 2 carries generation 1'):
+            self.hook()
+        self.assertEqual(os.readlink(self.link), before_link)
+        # When generation matches, report held/unchanged rather than verified.
+        self.stage1('1.0.0b13-g3d517e63')
+        self.kernel('7.4', cells=2, generation=1)
+        payload_74_g1 = bootchain.Update(self.root, self.env).plan()[3]
+        self.target.write_bytes(payload_74_g1)
+        out, err = self.hook()
+        self.assertIn('Stage 1 loads aura/stage2.bin, not m1n1/boot.bin', err)
+        self.assertIn('Stage 2 left unchanged', out)
+        self.assertNotIn('Stage 2 verified', out)
+
     def test_a_foreign_marker_is_never_touched(self):
         self.setup()
         self.marker.write_bytes(b'armed\nm1n1/lab.bin\n')
