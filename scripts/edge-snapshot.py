@@ -2,9 +2,9 @@
 """Assemble the RPM set of one Edge snapshot: a Testing snapshot with its kernel and Mesa
 packages replaced by the signed Edge build of one aurora-edge pair.
 
-The Edge RPMs are the exact bytes the Edge signer (edge-f44-sign-rpms.yml)
-produced and the hardware rows ran; nothing is rebuilt. Writes the complete
-RPM directory and `edge-sources.json`, the packaged Linux and Mesa records.
+The Edge RPMs are the exact signed bytes from the overlay signer or from the
+authenticated Fedora 45 Testing snapshot that already packages the selected
+pair. Writes the complete RPM directory and `edge-sources.json`.
 """
 import argparse
 import json
@@ -81,7 +81,9 @@ def packaged_sources(sources, trees, mesa_sources=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--base', type=Path, required=True, help='downloaded Testing snapshot RPMs')
-    parser.add_argument('--edge', type=Path, required=True, help='the Edge signer RPMs')
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--edge', type=Path, help='the Edge signer RPMs')
+    mode.add_argument('--signed-base', action='store_true', help='the Fedora 45 signed base already carries the pair')
     parser.add_argument('--sources', type=Path, required=True, help='sources.json the Edge RPMs were packaged from')
     parser.add_argument('--mesa-edge', type=Path, help='the Mesa replacement signer RPMs, when the pair has one')
     parser.add_argument('--mesa-sources', type=Path, help='sources.json the replacement Mesa was packaged from')
@@ -90,13 +92,25 @@ def main():
     parser.add_argument('--record', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--base-release', required=True)
-    parser.add_argument('--signing-run', type=int, required=True)
+    parser.add_argument('--base-record', type=Path)
+    parser.add_argument('--signing-run', type=int)
     args = parser.parse_args()
     if args.output.exists():
         parser.error('use a fresh output directory')
     base = [(identity(path), path.name) for path in sorted(args.base.glob('*.rpm'))]
-    edge = [(identity(path), path.name) for path in sorted(args.edge.glob('*.rpm'))
-            if not path.name.endswith(('.src.rpm', '.nosrc.rpm'))]
+    if args.signed_base:
+        if not args.base_record:
+            parser.error('a signed base requires its verified publication record')
+        if args.signing_run or args.mesa_edge or args.mesa_sources or args.mesa_signing_run:
+            parser.error('a signed base cannot have a separate Edge RPM signer')
+        edge = [row for row in base if edgelib.family(row[0].rsplit('.', 1)[0]) is not None]
+        edge_path = args.base
+    else:
+        if not args.signing_run:
+            parser.error('an overlay requires an Edge signing run')
+        edge = [(identity(path), path.name) for path in sorted(args.edge.glob('*.rpm'))
+                if not path.name.endswith(('.src.rpm', '.nosrc.rpm'))]
+        edge_path = args.edge
     if bool(args.mesa_edge) != bool(args.mesa_sources) or bool(args.mesa_edge) != bool(args.mesa_signing_run):
         parser.error('a Mesa replacement needs its RPMs, sources and signing run together')
     mesa = None if not args.mesa_edge else [
@@ -107,7 +121,7 @@ def main():
     for name in keep:
         shutil.copyfile(args.base / name, args.output / name)
     for name in add:
-        shutil.copyfile((args.mesa_edge if origin[name] == 'mesa' else args.edge) / name, args.output / name)
+        shutil.copyfile((args.mesa_edge if origin[name] == 'mesa' else edge_path) / name, args.output / name)
     trees = json.loads(args.trees.read_text())
     record = {'schema': 1, 'channel': 'edge', 'base_release': args.base_release,
               'signing_run': args.signing_run, 'mesa_signing_run': args.mesa_signing_run,
@@ -117,6 +131,8 @@ def main():
               'edge_rpms': add}
     if 'linux_release_sha256' in trees:
         record['kernel_release'] = {'tag': 'aurora-edge', 'source_sha256': trees['linux_release_sha256']}
+    if args.base_record:
+        record['base_publication'] = json.loads(args.base_record.read_text())
     args.record.write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')
     print(f'Edge snapshot: {len(keep)} Testing RPMs from {args.base_release}, {len(add)} Edge RPMs')
 

@@ -104,9 +104,13 @@ def main():
     parser.add_argument("--channel", choices=("testing", "edge"), default="testing",
                         help="publication lane: edge snapshots carry one aurora-edge kernel and Mesa pair")
     parser.add_argument("--credentials-stdin", action="store_true")
+    parser.add_argument("--presigned-rpms", action="store_true",
+                        help="verify and keep the exact RPM bytes supplied to an Edge snapshot")
     parser.add_argument("--dry-run-public-key", type=Path,
                         help="sign with a throwaway key whose public half is given here (dry runs only)")
     args = parser.parse_args()
+    if args.presigned_rpms and args.channel != "edge":
+        parser.error("presigned RPMs are supported for Edge snapshots")
     if args.output.exists():
         parser.error("output exists; use a fresh repository snapshot")
     if args.snapshot:
@@ -168,11 +172,16 @@ def main():
         for package in packages:
             target = destination / asset_name(package.name)
             shutil.copyfile(package, target)
-            run("rpmsign", "--define", f"_gpg_path {home}",
-                "--define", f"_openpgp_sign_id {expected}",
-                "--define", f"_gpg_sign_cmd_extra_args --batch --pinentry-mode loopback --passphrase-file {passfile}",
-                "--addsign", str(target))
-            run("rpmkeys", "--checksig", str(target))
+            if args.presigned_rpms:
+                verified = subprocess.check_output(["rpmkeys", "--checksig", str(target)], text=True)
+                if "digests signatures OK" not in verified:
+                    raise ValueError(f"RPM lacks a valid signature: {target.name}")
+            else:
+                run("rpmsign", "--define", f"_gpg_path {home}",
+                    "--define", f"_openpgp_sign_id {expected}",
+                    "--define", f"_gpg_sign_cmd_extra_args --batch --pinentry-mode loopback --passphrase-file {passfile}",
+                    "--addsign", str(target))
+                run("rpmkeys", "--checksig", str(target))
             with target.open("rb") as stream:
                 digest = hashlib.file_digest(stream, "sha256").hexdigest()
             manifest.append({"filename": target.name, "sha256": digest, "bytes": target.stat().st_size})

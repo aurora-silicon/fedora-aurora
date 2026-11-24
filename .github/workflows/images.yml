@@ -13,10 +13,10 @@ on:
         options: [testing, stable, edge]
         default: testing
       edge-snapshot:
-        description: For edge, the signed Edge snapshot (edge-YYYYMMDD.N) the image installs from
+        description: Signed Edge snapshot of the selected Fedora release
         default: ''
       fedora-release:
-        description: Fedora release of the image (45 has a testing channel only)
+        description: Fedora release of the image (45 supports testing and Edge)
         type: choice
         options: ['44', '45']
         default: '44'
@@ -45,8 +45,7 @@ jobs:
           EDGE_SNAPSHOT: ${{ inputs.edge-snapshot }}
         run: |
           set -euo pipefail
-          [[ $FEDORA_RELEASE == 44 ]]
-          python3 -c 'import os,sys; sys.path.insert(0,"scripts"); import edgelib; edgelib.snapshot(os.environ["EDGE_SNAPSHOT"])'
+          python3 -c 'import os,sys; sys.path.insert(0,"scripts"); import edgelib; edgelib.snapshot(os.environ["EDGE_SNAPSHOT"], os.environ["FEDORA_RELEASE"])'
           download="$RUNNER_TEMP/edge-snapshot"
           gh release download "$EDGE_SNAPSHOT" --repo "$GITHUB_REPOSITORY" --dir "$download" \
             --pattern 'repository-metadata-*' --pattern edge-sources.json --pattern SHA256SUMS
@@ -65,14 +64,15 @@ jobs:
           with tarfile.open(sys.argv[1]) as bundle:
               bundle.extractall(sys.argv[2], filter='data')
           PY
-          gpg --batch --verify out/edge-snapshot/44/edge/aarch64/repodata/repomd.xml.asc \
-            out/edge-snapshot/44/edge/aarch64/repodata/repomd.xml
-          jq -e --arg tag "$EDGE_SNAPSHOT" '.channel == "edge" and .dry_run != true
-                 and (.asset_base | endswith("/" + $tag))' out/edge-snapshot/44/edge/aarch64/manifest.json
+          repository="out/edge-snapshot/$FEDORA_RELEASE/edge/aarch64"
+          gpg --batch --verify "$repository/repodata/repomd.xml.asc" "$repository/repodata/repomd.xml"
+          jq -e --arg tag "$EDGE_SNAPSHOT" --argjson release "$FEDORA_RELEASE" \
+            '.channel == "edge" and .fedora == $release and .dry_run != true
+             and (.asset_base | endswith("/" + $tag))' "$repository/manifest.json"
           cp "$download/edge-sources.json" out/edge-snapshot/edge-sources.json
           {
             echo "AURORA_EDGE_SNAPSHOT=$EDGE_SNAPSHOT"
-            echo "AURORA_EDGE_REPOSITORY=/src/out/edge-snapshot/44/edge/aarch64"
+            echo "AURORA_EDGE_REPOSITORY=/src/$repository"
             echo "AURORA_EDGE_SOURCES=/src/out/edge-snapshot/edge-sources.json"
           } >> "$GITHUB_ENV"
       - name: Build the image using verified Fedora and Aurora repositories
@@ -83,7 +83,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ $FEDORA_RELEASE == 44 || $FEDORA_RELEASE == 45 ]]
-          [[ $FEDORA_RELEASE == 44 || $CHANNEL == testing ]] || { echo 'Fedora 45 has testing images only' >&2; exit 1; }
+          [[ $FEDORA_RELEASE == 44 || $CHANNEL != stable ]] || { echo 'Fedora 45 stable images are unavailable' >&2; exit 1; }
           [[ $CHANNEL != edge || -n ${AURORA_EDGE_SNAPSHOT:-} ]] || { echo 'An Edge image needs its Edge snapshot' >&2; exit 1; }
           docker run --rm --privileged -v /dev:/dev -v /run/udev:/run/udev:ro -v "$PWD:/src" -w /src \
             -e AURORA_EDGE_SNAPSHOT -e AURORA_EDGE_REPOSITORY -e AURORA_EDGE_SOURCES \
@@ -103,9 +103,8 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          # Fedora 45 candidates keep a separate name, so the payload workflow,
-          # which takes only <profile>-candidate, never publishes them.
-          name: ${{ inputs.profile }}${{ inputs.fedora-release == '45' && '-f45' || '' }}-candidate
+          # Fedora 45 Testing keeps a separate artifact name from train images.
+          name: ${{ inputs.profile }}${{ inputs.fedora-release == '45' && inputs.channel != 'edge' && '-f45' || '' }}-candidate
           compression-level: 0
           path: |
             image-build.log

@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       fedora-release:
-        description: Fedora release (45 supports testing only)
+        description: Fedora release (45 supports testing and Edge)
         type: choice
         options: ['44', '45']
         default: '44'

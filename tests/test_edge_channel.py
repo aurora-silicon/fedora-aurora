@@ -72,12 +72,29 @@ class ChannelSiteTests(unittest.TestCase):
         return {'schema_version': 1, 'release': 'alpha.4', 'pair': pair or {'linux': LINUX, 'mesa': MESA},
                 'distributions': {'fedora': {'repository': 'aurora-silicon/fedora-aurora', 'snapshot': tag}}}
 
-    def test_edge_is_a_fedora_44_slot(self):
+    def test_edge_has_separate_release_slots(self):
         self.assertIn('edge', site.CHANNELS)
         self.assertEqual(site.SLOTS['edge'], (44, 'edge'))
         self.assertEqual(site.channel_key('edge', 44), 'edge')
+        self.assertEqual(site.SLOTS['45/edge'], (45, 'edge'))
+        self.assertEqual(site.channel_key('edge', 45), '45/edge')
+        self.assertEqual(edgelib.snapshot('edge-f45-20261121.1', 45), 'edge-f45-20261121.1')
         with self.assertRaises(ValueError):
-            site.channel_key('edge', 45)
+            edgelib.snapshot('edge-20261121.1', 45)
+        with self.assertRaises(ValueError):
+            edgelib.snapshot('edge-f45-20261121.1', 44)
+
+    def test_fedora_45_requires_the_exact_v2_adopted_snapshot(self):
+        record = self.record()
+        record['schema_version'] = 2
+        adopted = 'edge-f45-20261121.1'
+        record['distributions']['fedora'].update(release=45, snapshot=adopted)
+        sources = self.sources()
+        self.assertEqual(site.edge_gate(record, adopted, sources, fedora=45), 'train')
+        with self.assertRaisesRegex(ValueError, 'adopted Fedora 45'):
+            site.edge_gate(record, 'edge-f45-20261121.2', sources, sources, fedora=45)
+        with self.assertRaisesRegex(ValueError, 'no adopted Edge train'):
+            site.edge_gate(record, adopted, sources, fedora=44)
 
     def sources(self, mesa=None, signing_run=44700000001, rpms=('kernel-aurora-core-7.3.0-43.rpm',)):
         return {'schema': 1, 'channel': 'edge', 'signing_run': signing_run, 'edge_rpms': list(rpms),
@@ -215,6 +232,35 @@ class EdgeSnapshotTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'one Mesa'):
             snapshot.packaged_sources(sources, trees)
 
+    def test_signed_base_copies_every_rpm_and_records_the_published_pair(self):
+        rows = [('kernel-aurora-core', b'kernel'), ('mesa-aurora-vulkan-drivers', b'mesa'), ('aura', b'aura')]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            base = root / 'base'
+            base.mkdir()
+            files = {}
+            for package, contents in rows:
+                name = f'{package}-1-1.fc45.aurora.aarch64.rpm'
+                (base / name).write_bytes(contents)
+                files[name] = package + '.aarch64'
+            sources = {'kernel-aurora': {'commit': LINUX['revision']},
+                       'mesa-aurora': {'commit': MESA['revision']}}
+            (root / 'sources.json').write_text(json.dumps(sources))
+            (root / 'trees.json').write_text(json.dumps({'linux': LINUX['tree'], 'mesa': MESA['tree']}))
+            publication = {'packaging_commit': '5' * 40}
+            (root / 'base.json').write_text(json.dumps(publication))
+            args = ['edge-snapshot', '--base', str(base), '--signed-base', '--sources', str(root / 'sources.json'),
+                    '--trees', str(root / 'trees.json'), '--output', str(root / 'out'),
+                    '--record', str(root / 'record.json'), '--base-record', str(root / 'base.json'),
+                    '--base-release', 'testing-f45-20261121.1']
+            with patch.object(sys, 'argv', args), patch.object(snapshot, 'identity', lambda path: files[path.name]):
+                snapshot.main()
+            self.assertEqual({path.name: path.read_bytes() for path in base.iterdir()},
+                             {path.name: path.read_bytes() for path in (root / 'out').iterdir()})
+            record = json.loads((root / 'record.json').read_text())
+            self.assertEqual(record['base_publication'], publication)
+            self.assertEqual(len(record['edge_rpms']), 2)
+
 
 class ImageProofTests(unittest.TestCase):
     def setUp(self):
@@ -230,6 +276,12 @@ class ImageProofTests(unittest.TestCase):
         (self.root / 'etc/yum.repos.d/aurora.repo').write_text(
             '[aurora]\nbaseurl=https://aurorasilicon.org/fedora-aurora/$releasever/edge/aarch64\nenabled=1\n')
         self.sources = {'linux': LINUX, 'mesa': MESA}
+
+    def test_fedora_45_images_record_the_matching_snapshot_feed(self):
+        tag = 'edge-f45-20261121.1'
+        result = proof.proof(self.root, 'fedora-gnome', tag, self.sources, fedora=45)
+        self.assertEqual(result['snapshot'], tag)
+        self.assertEqual(result['feed'], 'https://aurorasilicon.org/fedora-aurora/45/edge/aarch64')
 
     def test_proof_records_the_edge_build_the_image_carries(self):
         result = proof.proof(self.root, 'fedora-gnome', 'edge-20261121.1', self.sources)

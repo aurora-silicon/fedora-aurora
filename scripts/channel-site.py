@@ -30,13 +30,13 @@ import fedoralib  # noqa: E402
 CHANNELS = ('testing', 'stable', 'edge')
 SITE_BUDGET = 200_000_000
 SLOTS = {'testing': (44, 'testing'), 'stable': (44, 'stable'), '45/testing': (45, 'testing'),
-         'edge': (44, 'edge')}
+         'edge': (44, 'edge'), '45/edge': (45, 'edge')}
 
 
 def channel_key(channel, fedora=44):
     fedora = fedoralib.release(fedora)
-    if fedora == 45 and channel != 'testing':
-        raise ValueError('Fedora 45 is testing-only; stable and edge remain Fedora 44')
+    if fedora == 45 and channel == 'stable':
+        raise ValueError('stable remains Fedora 44')
     return channel if fedora == 44 else f'{fedora}/{channel}'
 
 
@@ -67,6 +67,8 @@ def edge_gate(record, tag, sources, adopted=None, fedora=44):
         raise ValueError(f'{tag} packaged another Linux/Mesa pair than the adopted Edge train')
     if tag == entry['snapshot']:
         return 'train'
+    if fedora == 45:
+        raise ValueError(f'{tag} is not the adopted Fedora 45 Edge snapshot')
     if (not adopted or adopted.get('packaged_sources') != record.get('pair')
             or any(sources.get(key) != adopted.get(key) for key in ('signing_run', 'mesa_signing_run', 'edge_rpms'))):
         raise ValueError(f'{tag} is neither the adopted Edge train snapshot nor a refresh of its kernel and Mesa RPMs')
@@ -215,7 +217,7 @@ def assemble(args):
         named = ((record.get('distributions') or {}).get('fedora') or {}).get('snapshot')
         sources = verified_edge_sources(work, args.fedora_release)
         adopted = None
-        if named and named != tag:
+        if args.fedora_release == 44 and named and named != tag:
             reference = work / 'adopted-edge'
             fetch_snapshot(repository, named, 'edge', reference / 'site', reference, home, fingerprint, args.fedora_release)
             adopted = verified_edge_sources(reference, args.fedora_release)

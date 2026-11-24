@@ -1,22 +1,26 @@
-name: Publish a signed Fedora 44 Edge snapshot
-# An Edge snapshot is a Testing snapshot whose kernel and Mesa packages are the
-# exact signed RPMs of one aurora-edge pair (edge-f44-sign-rpms.yml). Publishing
-# serves nothing: the Edge feed moves only with the adopted aurora-distributions
-# Edge train (deploy-snapshot.yml channel=edge).
+name: Publish a signed Fedora Edge snapshot
+# Fedora 44 uses a signed RPM overlay. Fedora 45 uses the signed Testing
+# package set with the selected Linux and Mesa pair. Both deploy through the
+# adopted aurora-distributions Edge train.
 on:
   workflow_dispatch:
     inputs:
+      fedora-release:
+        description: Fedora release of the signed Edge snapshot
+        type: choice
+        options: ['44', '45']
+        default: '44'
       signing-run:
-        description: Successful edge-f44-sign-rpms.yml run on main (sign=true) holding the Edge RPMs
-        required: true
+        description: Fedora 44 only, successful edge-f44-sign-rpms.yml run on main holding the signed Edge RPMs
+        default: ''
       mesa-signing-run:
         description: Optional edge-f44-sign-mesa-replacement.yml run on main whose Mesa replaces the signing run's
         default: ''
       base-release:
-        description: Testing snapshot (testing-YYYYMMDD.N) supplying every other package
+        description: Signed Testing snapshot of the selected Fedora release
         required: true
       release-tag:
-        description: Optional new tag. Empty creates edge-YYYYMMDD.N
+        description: Optional new tag. Defaults to edge-YYYYMMDD.N or edge-f45-YYYYMMDD.N
         default: ''
 permissions: {}
 defaults:
@@ -26,8 +30,8 @@ concurrency:
   group: repository-publication-edge
   cancel-in-progress: false
 env:
-  FEDORA_RELEASE: '44'
-  FEDORA_IMAGE: registry.fedoraproject.org/fedora:44@sha256:b96f024cecbe9515eb049107d2856e7ad923f7aac09a3c90e7a0d52a46fa3454
+  FEDORA_RELEASE: ${{ inputs.fedora-release }}
+  FEDORA_IMAGE: ${{ inputs.fedora-release == '45' && 'registry.fedoraproject.org/fedora:45' || 'registry.fedoraproject.org/fedora:44@sha256:b96f024cecbe9515eb049107d2856e7ad923f7aac09a3c90e7a0d52a46fa3454' }}
 jobs:
   collect:
     if: github.repository == 'aurora-silicon/fedora-aurora' && github.ref == 'refs/heads/main'
@@ -51,19 +55,29 @@ jobs:
           RELEASE_TAG: ${{ inputs.release-tag }}
           BASE_RELEASE: ${{ inputs.base-release }}
           SIGNING_RUN: ${{ inputs.signing-run }}
+          MESA_SIGNING_RUN: ${{ inputs.mesa-signing-run }}
         run: |
           set -euo pipefail
-          [[ $SIGNING_RUN =~ ^[1-9][0-9]*$ ]]
-          python3 -c 'import os,sys; sys.path.insert(0,"scripts"); import fedoralib; fedoralib.snapshot(os.environ["BASE_RELEASE"], 44)'
-          if [[ -z $RELEASE_TAG ]]; then
-            RELEASE_TAG=$(git tag --list 'edge-*' | python3 scripts/next-tag.py edge-)
+          if [[ $FEDORA_RELEASE == 44 ]]; then
+            [[ $SIGNING_RUN =~ ^[1-9][0-9]*$ ]]
+            prefix=edge-
+          elif [[ $FEDORA_RELEASE == 45 ]]; then
+            [[ -z $SIGNING_RUN && -z $MESA_SIGNING_RUN ]]
+            prefix=edge-f45-
+          else
+            exit 2
           fi
-          python3 -c 'import os,sys; sys.path.insert(0,"scripts"); import edgelib; edgelib.snapshot(os.environ["RELEASE_TAG"])'
+          python3 -c 'import os,sys; sys.path.insert(0,"scripts"); import fedoralib; fedoralib.snapshot(os.environ["BASE_RELEASE"], os.environ["FEDORA_RELEASE"])'
+          if [[ -z $RELEASE_TAG ]]; then
+            RELEASE_TAG=$(git tag --list "$prefix*" | python3 scripts/next-tag.py "$prefix")
+          fi
+          python3 -c 'import os,sys; sys.path.insert(0,"scripts"); import edgelib; edgelib.snapshot(os.environ["RELEASE_TAG"], os.environ["FEDORA_RELEASE"])'
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $RELEASE_TAG already exists" >&2; exit 1
           fi
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
       - name: Authenticate the signed Edge RPMs and their packaged sources
+        if: inputs.fedora-release == '44'
         env:
           GH_TOKEN: ${{ github.token }}
           SIGNING_RUN: ${{ inputs.signing-run }}
@@ -89,33 +103,8 @@ jobs:
           [[ $package_head == "$(jq -r .head_sha signed/build-run.json)" ]]
           gh api "repos/$GITHUB_REPOSITORY/contents/sources.json?ref=$package_head" \
             -H 'Accept: application/vnd.github.raw+json' > edge-build-sources.json
-          linux=$(jq -r '.["kernel-aurora"].commit' edge-build-sources.json)
-          mesa=$(jq -r '.["mesa-aurora"].commit' edge-build-sources.json)
-          [[ $linux =~ ^[0-9a-f]{40}$ && $mesa =~ ^[0-9a-f]{40}$ ]]
-          kernel_repo=aurora-silicon/linux
-          gh api "repos/$kernel_repo/releases/tags/aurora-edge" > linux-edge.json
-          digest=$(jq -er 'select(.draft == false and .prerelease == true)
-                           | .assets[] | select(.name == "source.commit") | .digest' linux-edge.json)
-          [[ $digest =~ ^sha256:[a-f0-9]{64}$ ]]
-          gh release download aurora-edge --repo "$kernel_repo" --pattern source.commit --output linux-source.commit
-          printf '%s  linux-source.commit\n' "${digest#sha256:}" | sha256sum --check -
-          [[ $linux == "$(cat linux-source.commit)" ]]
-          [[ $linux == "$(gh api "repos/$kernel_repo/commits/refs%2Ftags%2Faurora-edge" --jq .sha)" ]]
-          gh attestation verify linux-source.commit --repo "$kernel_repo" \
-            --signer-workflow "$kernel_repo/.github/workflows/kernel-release.yml" \
-            --source-ref refs/heads/main --source-digest "$linux" --deny-self-hosted-runners
-          gh api "repos/$kernel_repo/compare/$linux...main" --jq .status | grep -Eqx 'ahead|identical'
-          mesa_repo=aurora-silicon/mesa
-          [[ $(gh api "repos/$mesa_repo" --jq .default_branch) == aurora-wip ]]
-          mesa_tip=$(gh api "repos/$mesa_repo/git/ref/heads/aurora-wip" --jq .object.sha)
-          [[ $mesa_tip =~ ^[0-9a-f]{40}$ ]]
-          gh api "repos/$mesa_repo/compare/$mesa...$mesa_tip" --jq .status | grep -Eqx 'ahead|identical'
-          jq -n --arg linux "$(gh api "repos/aurora-silicon/linux/git/commits/$linux" --jq .tree.sha)" \
-                --arg mesa "$(gh api "repos/aurora-silicon/mesa/git/commits/$mesa" --jq .tree.sha)" \
-                --arg linux_release_sha256 "${digest#sha256:}" \
-                '{linux: $linux, mesa: $mesa, linux_release_sha256: $linux_release_sha256}' > edge-trees.json
       - name: Authenticate the Mesa replacement signer
-        if: inputs.mesa-signing-run != ''
+        if: inputs.fedora-release == '44' && inputs.mesa-signing-run != ''
         env:
           GH_TOKEN: ${{ github.token }}
           MESA_SIGNING_RUN: ${{ inputs.mesa-signing-run }}
@@ -142,15 +131,6 @@ jobs:
           [[ $package_head == "$(jq -r .head_sha signed-mesa/build-run.json)" ]]
           gh api "repos/$GITHUB_REPOSITORY/contents/sources.json?ref=$package_head" \
             -H 'Accept: application/vnd.github.raw+json' > edge-mesa-sources.json
-          mesa=$(jq -r '.["mesa-aurora"].commit' edge-mesa-sources.json)
-          [[ $mesa =~ ^[0-9a-f]{40}$ ]]
-          mesa_repo=aurora-silicon/mesa
-          [[ $(gh api "repos/$mesa_repo" --jq .default_branch) == aurora-wip ]]
-          mesa_tip=$(gh api "repos/$mesa_repo/git/ref/heads/aurora-wip" --jq .object.sha)
-          [[ $mesa_tip =~ ^[0-9a-f]{40}$ ]]
-          gh api "repos/$mesa_repo/compare/$mesa...$mesa_tip" --jq .status | grep -Eqx 'ahead|identical'
-          jq --arg mesa "$(gh api "repos/aurora-silicon/mesa/git/commits/$mesa" --jq .tree.sha)" '.mesa = $mesa' \
-            edge-trees.json > edge-trees.next && mv edge-trees.next edge-trees.json
           echo "MESA_ARGS=--mesa-edge signed-mesa/rpms --mesa-sources edge-mesa-sources.json --mesa-signing-run $MESA_SIGNING_RUN" >> "$GITHUB_ENV"
       - name: Authenticate the Testing base snapshot
         env:
@@ -158,11 +138,19 @@ jobs:
           BASE_RELEASE: ${{ inputs.base-release }}
         run: |
           set -euo pipefail
+          build_args=()
+          if [[ $FEDORA_RELEASE == 45 ]]; then build_args+=(--pattern builds.json); fi
           gh release download "$BASE_RELEASE" --repo "$GITHUB_REPOSITORY" --dir base \
-            --pattern '*.rpm' --pattern manifest.json --pattern SHA256SUMS
+            --pattern '*.rpm' --pattern manifest.json --pattern SHA256SUMS "${build_args[@]}"
+          provenance=()
+          if [[ $FEDORA_RELEASE == 45 ]]; then
+            base_commit=$(jq -er '.publishing_commit' base/builds.json)
+            [[ $base_commit =~ ^[0-9a-f]{40}$ ]]
+            provenance+=(--source-ref refs/heads/main --source-digest "$base_commit")
+          fi
           gh attestation verify base/manifest.json --repo "$GITHUB_REPOSITORY" \
             --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/publish.yml" \
-            --deny-self-hosted-runners --format json > base-attestation.json
+            "${provenance[@]}" --deny-self-hosted-runners --format json > base-attestation.json
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -170,12 +158,56 @@ jobs:
           for line in Path('base/SHA256SUMS').read_text().splitlines():
               digest, name = line.split(maxsplit=1)
               listed[name.lstrip('*')] = digest
-          subjects = {(s['name'], s['digest']['sha256']) for v in json.load(open('base-attestation.json'))
-                      for s in v['verificationResult']['statement']['subject']}
-          if not set(listed.items()) <= subjects:
+          subjects = ({(s['name'], s['digest']['sha256']) for s in v['verificationResult']['statement']['subject']}
+                      for v in json.load(open('base-attestation.json')))
+          if not any(listed.items() <= statement for statement in subjects):
               raise ValueError('the base snapshot attestation does not cover every asset')
           PY
           (cd base && sha256sum --strict --ignore-missing -c SHA256SUMS)
+          if [[ $FEDORA_RELEASE == 45 ]]; then
+            python3 scripts/verify-edge-base.py base > base-publication.json
+            mkdir "$RUNNER_TEMP/edge-base-source"
+            git fetch --no-tags --depth 1 origin "$base_commit"
+            git archive "$base_commit" sources.json packages | tar -xf - -C "$RUNNER_TEMP/edge-base-source"
+            python3 - "$RUNNER_TEMP/edge-base-source" <<'PY' > edge-build-sources.json
+          import json, sys
+          sys.path.insert(0, 'scripts')
+          import fedoralib
+          print(json.dumps(fedoralib.sources(sys.argv[1], 45)))
+          PY
+          fi
+      - name: Authenticate Linux and Mesa packaged source ancestry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          linux=$(jq -r '.["kernel-aurora"].commit' edge-build-sources.json)
+          mesa_sources=edge-build-sources.json
+          [[ ! -f edge-mesa-sources.json ]] || mesa_sources=edge-mesa-sources.json
+          mesa=$(jq -r '.["mesa-aurora"].commit' "$mesa_sources")
+          [[ $linux =~ ^[0-9a-f]{40}$ && $mesa =~ ^[0-9a-f]{40}$ ]]
+          kernel_repo=aurora-silicon/linux
+          gh api "repos/$kernel_repo/releases/tags/aurora-edge" > linux-edge.json
+          digest=$(jq -er 'select(.draft == false and .prerelease == true)
+                           | .assets[] | select(.name == "source.commit") | .digest' linux-edge.json)
+          [[ $digest =~ ^sha256:[a-f0-9]{64}$ ]]
+          gh release download aurora-edge --repo "$kernel_repo" --pattern source.commit --output linux-source.commit
+          printf '%s  linux-source.commit\n' "${digest#sha256:}" | sha256sum --check -
+          [[ $linux == "$(cat linux-source.commit)" ]]
+          [[ $linux == "$(gh api "repos/$kernel_repo/commits/refs%2Ftags%2Faurora-edge" --jq .sha)" ]]
+          gh attestation verify linux-source.commit --repo "$kernel_repo" \
+            --signer-workflow "$kernel_repo/.github/workflows/kernel-release.yml" \
+            --source-ref refs/heads/main --source-digest "$linux" --deny-self-hosted-runners
+          gh api "repos/$kernel_repo/compare/$linux...main" --jq .status | grep -Eqx 'ahead|identical'
+          mesa_repo=aurora-silicon/mesa
+          [[ $(gh api "repos/$mesa_repo" --jq .default_branch) == aurora-wip ]]
+          mesa_tip=$(gh api "repos/$mesa_repo/git/ref/heads/aurora-wip" --jq .object.sha)
+          [[ $mesa_tip =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/$mesa_repo/compare/$mesa...$mesa_tip" --jq .status | grep -Eqx 'ahead|identical'
+          jq -n --arg linux "$(gh api "repos/aurora-silicon/linux/git/commits/$linux" --jq .tree.sha)" \
+                --arg mesa "$(gh api "repos/aurora-silicon/mesa/git/commits/$mesa" --jq .tree.sha)" \
+                --arg linux_release_sha256 "${digest#sha256:}" \
+                '{linux: $linux, mesa: $mesa, linux_release_sha256: $linux_release_sha256}' > edge-trees.json
       - id: candidate
         name: Assemble the Edge snapshot from verified, signed RPMs
         env:
@@ -183,16 +215,21 @@ jobs:
           SIGNING_RUN: ${{ inputs.signing-run }}
         run: |
           set -euo pipefail
-          docker run --rm -e BASE_RELEASE -e SIGNING_RUN -e MESA_ARGS -v "$PWD:/src" -w /src "$FEDORA_IMAGE" bash -euo pipefail -c '
+          docker run --rm -e FEDORA_RELEASE -e BASE_RELEASE -e SIGNING_RUN -e MESA_ARGS -v "$PWD:/src" -w /src "$FEDORA_IMAGE" bash -euo pipefail -c '
             dnf install -y python3 rpm
             rpmkeys --import keys/RPM-GPG-KEY-aurora
             for rpm in base/*.rpm signed/rpms/*.rpm signed-mesa/rpms/*.rpm; do
               [[ -e $rpm ]] || continue
               [[ $(rpmkeys --checksig "$rpm") == *"digests signatures OK"* ]] || { echo "unsigned: $rpm" >&2; exit 1; }
             done
-            python3 scripts/edge-snapshot.py --base base --edge signed/rpms --sources edge-build-sources.json \
+            if [[ $FEDORA_RELEASE == 45 ]]; then
+              mode=(--signed-base --base-record base-publication.json)
+            else
+              mode=(--edge signed/rpms --signing-run "$SIGNING_RUN")
+            fi
+            python3 scripts/edge-snapshot.py --base base "${mode[@]}" --sources edge-build-sources.json \
               --trees edge-trees.json --record candidate/edge-sources.json --output candidate/complete-rpms \
-              --base-release "$BASE_RELEASE" --signing-run "$SIGNING_RUN" ${MESA_ARGS:-}
+              --base-release "$BASE_RELEASE" ${MESA_ARGS:-}
             # The base keeps its other packages as they are, so an Edge kernel or Mesa
             # whose Requires they do not satisfy would be skipped by dnf: refuse it.
             bash scripts/check-repository-closure candidate/complete-rpms
@@ -241,8 +278,8 @@ jobs:
           set -euo pipefail
           jq -n '{key: env.FEDORA_RPM_SIGNING_KEY, passphrase: env.FEDORA_RPM_SIGNING_PASSPHRASE}' |
             docker run --rm -i --network none -v "$PWD:/src" -w /src aurora-signer \
-              python3 scripts/sign-repository.py --fedora-release 44 --channel edge --credentials-stdin \
-                --rpms candidate/complete-rpms --output site --snapshot "$RELEASE_TAG" \
+              python3 scripts/sign-repository.py --fedora-release "$FEDORA_RELEASE" --channel edge --credentials-stdin \
+                --presigned-rpms --rpms candidate/complete-rpms --output site --snapshot "$RELEASE_TAG" \
                 --asset-base "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG"
           sudo chown -R "$(id -u):$(id -g)" site
           cp candidate/edge-sources.json site/
@@ -271,23 +308,30 @@ jobs:
       - name: Verify every signature against the committed key
         run: |
           set -euo pipefail
-          docker run --rm -v "$PWD:/src" -w /src "$FEDORA_IMAGE" bash -euo pipefail -c '
+          docker run --rm -e FEDORA_RELEASE -v "$PWD:/src" -w /src "$FEDORA_IMAGE" bash -euo pipefail -c '
             rpmkeys --import keys/RPM-GPG-KEY-aurora
-            for rpm in site/44/edge/aarch64/*.rpm; do
+            for rpm in site/"$FEDORA_RELEASE"/edge/aarch64/*.rpm; do
               [[ $(rpmkeys --checksig "$rpm") == *"digests signatures OK"* ]] || { echo "unsigned: $rpm" >&2; exit 1; }
             done
           '
           export GNUPGHOME="$RUNNER_TEMP/verify"
           mkdir -m 0700 "$GNUPGHOME"
           gpg --batch --import keys/RPM-GPG-KEY-aurora
-          gpg --batch --verify site/44/edge/aarch64/repodata/repomd.xml.asc site/44/edge/aarch64/repodata/repomd.xml
+          repository="site/$FEDORA_RELEASE/edge/aarch64"
+          gpg --batch --verify "$repository/repodata/repomd.xml.asc" "$repository/repodata/repomd.xml"
           for archive in site/repository-metadata-*.tar.gz; do gpg --batch --verify "$archive.asc" "$archive"; done
-          jq -e '.dry_run != true and .channel == "edge" and .signing_key == $fpr' --arg fpr "$(cat keys/fingerprint.txt)" \
-            site/44/edge/aarch64/manifest.json
+          jq -e '.dry_run != true and .channel == "edge" and .signing_key == $fpr and .fedora == $release' \
+            --argjson release "$FEDORA_RELEASE" --arg fpr "$(cat keys/fingerprint.txt)" \
+            "$repository/manifest.json"
           jq -e '.schema == 1 and .channel == "edge" and .kernel_release.tag == "aurora-edge"
                  and (.kernel_release.source_sha256 | test("^[0-9a-f]{64}$"))' site/edge-sources.json
+          if [[ $FEDORA_RELEASE == 45 ]]; then
+            jq -e '(.base_publication.packaging_commit | test("^[0-9a-f]{40}$"))
+                  and ([.base_publication.manifest_sha256, .base_publication.builds_sha256]
+                       | all(test("^[0-9a-f]{64}$")))' site/edge-sources.json
+          fi
           mkdir assets
-          cp site/44/edge/aarch64/*.rpm site/44/edge/aarch64/manifest.json site/RPM-GPG-KEY-aurora site/edge-sources.json \
+          cp "$repository"/*.rpm "$repository/manifest.json" site/RPM-GPG-KEY-aurora site/edge-sources.json \
             site/repository-metadata-*.tar.gz site/repository-metadata-*.tar.gz.asc assets/
           (cd assets && sha256sum -- * > ../SHA256SUMS) && mv SHA256SUMS assets/
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
