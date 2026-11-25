@@ -11,7 +11,7 @@
 
 Name:           gnome-settings-daemon
 Version:        51.1
-Release:        1%{?dist}.aurora1
+Release:        1%{?dist}.aurora2
 Summary:        The daemon sharing settings from GNOME to GTK+/KDE applications
 
 License:        GPL-2.0-or-later AND LGPL-2.1-or-later
@@ -20,6 +20,8 @@ Source0:        https://download.gnome.org/sources/%{name}/%{gnome_major_version
 
 # Aurora: opt-in ambient white point (colour plugin), off by default
 Patch0:         0001-color-ambient-white-point.patch
+# Aurora: normalize ambient brightness baseline to neutral 50% (fixes reboot ratchet & 0% floor)
+Patch1:         0002-power-Normalize-ambient-brightness-to-neutral-50-percent.patch
 
 # gsetting overrides for RHEL in general
 Source1:    	org.gnome.settings-daemon.plugins.housekeeping.gschema.override
@@ -206,6 +208,11 @@ cp %{SOURCE1} %{SOURCE100} $RPM_BUILD_ROOT%{_datadir}/glib-2.0/schemas
 %endif
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-1.aurora2
+- Normalize power plugin ambient brightness baseline to neutral 50% (factor
+  2.0) and reset the accumulator on re-normalization so constant room light
+  does not ratchet brightness across reboots or floor the 0% slider.
+
 * Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-1.aurora1
 - Fedora 45: rebase the opt-in ambient white point onto GNOME 51.1
   (51 already names the compiled test schemas target, so that hunk is gone)

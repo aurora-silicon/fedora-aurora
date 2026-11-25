@@ -19,7 +19,7 @@
 
 Name:          mutter
 Version:       50.6
-Release:       5%{?dist}.aurora
+Release:       6%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -41,6 +41,9 @@ Patch:         0003-onscreen-native-Use-variable-refresh-rate-on-the-whole-deskt
 
 # Aurora: gnome-shell does not crash at shutdown while outputs are in power save
 Patch:         0004-renderer-native-Drop-power-save-page-flip-onscreens-on-dispose.patch
+
+# Aurora: map linear sysfs backlights perceptually with CIE 1931 L* and a 1-nit floor
+Patch:         0005-backends-backlight-sysfs-Perceptual-CIE-1931-scale-for-linear-backlights.patch
 
 
 BuildRequires: cvt
@@ -226,6 +229,10 @@ Viewer for nested mutter instances.
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 50.6-6.aurora
+- Map sysfs backlights with scale=linear perceptually using CIE 1931 L*
+  and lower their hardware floor to 1 nit instead of max/100.
+
 * Fri Nov 13 2026 Ryan Murray <ryan@aurorasilicon.org> - 50.6-5.aurora
 - Drop the onscreens queued for power save page flips when the renderer is
   disposed, before the Cogl display goes away. gnome-shell no longer

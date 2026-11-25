@@ -1,0 +1,11 @@
+{
+  "gnome-shell": {
+    "repository": "https://gitlab.gnome.org/GNOME/gnome-shell",
+    "commit": "33da06854e229c256afd5872fedd83c28cbfa176",
+    "version": "51.1",
+    "source_url": "https://download.gnome.org/sources/gnome-shell/51/gnome-shell-51.1.tar.xz",
+    "archive_root": "gnome-shell-51.1",
+    "archive_file": "gnome-shell-51.1.tar.xz",
+    "sha256": "c1eb08d9651a567ed5d9b2791371f1898e657cf45e75e1d88adefbab807977d6"
+  }
+}
