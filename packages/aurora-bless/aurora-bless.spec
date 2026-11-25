@@ -51,7 +51,7 @@ again. Pairings made only on Linux are left alone. Replaces asahi-btsync; the
 asahi-btsync command and asahi-btsync.service stay available as aliases.
 
 %prep
-%autosetup -n aurora-bless-9b47a17827854588d458b1dcc8018c66f5c3237f
+%autosetup -n aurora-bless-%{commit}
 
 %build
 cargo build --locked --release -p asahi-bless -p aurora-nvram -p aurora-btsync -p aurora-panel-nits
