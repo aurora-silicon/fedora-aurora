@@ -1,4 +1,4 @@
-%global commit 7205ea0ac6569c8b7c2d6916960fcc0da91cfa8d
+%global commit 65a82f97d597a4582f6db5a940206ab1e7e3858d
 Name: aurora-bless
 Version: 0.4.4
 Release: 6%{?dist}
@@ -116,6 +116,8 @@ install -Dm644 aurora-btsync/etc/udev/rules.d/96-aurora-btsync.rules %{buildroot
 
 %changelog
 * Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.4.4-6
+- Pin aurora-bless 65a82f97: preserve non-zero dark-room NVRAM backlight-nits
+  levels verbatim on restore while keeping the 5% safety floor for zero entries.
 - Add systemd post/preun scriptlets for aurora-panel-nits so upgrades reload
   the service unit cleanly.
 
