@@ -1,52 +1,39 @@
 Name: aurora-m5-platform-config
 Version: 1
-Release: 1%{?dist}
-Summary: MacBook Pro (M5 Pro) deep sleep configuration
+Release: 2%{?dist}
+Summary: Lid policy for kernel-selected deep sleep
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
-Source0: 50-aurora-m5-rtc-safety
-Source1: aurora-m5-sleep-policy.service
-Source2: 90-aurora-m5-deep.conf
-Source3: 90-aurora-m5-lid.conf
-Source4: aurora-m5-sleep.conf
-Source5: README.md
-Source6: LICENSE
+Source0: aurora-m5-sleep-policy.service
+Source1: 90-aurora-m5-lid.conf
+Source2: README.md
+Source3: LICENSE
 BuildArch: noarch
 BuildRequires: systemd-rpm-macros
-Requires: systemd coreutils grep sed util-linux
+Requires: systemd coreutils grep
 
 %description
-Deep sleep on the MacBook Pro (M5 Pro, J714s): suspend is deep sleep only,
-the lid suspends on battery, on AC and docked, and a system-sleep hook arms
-the PMU RTC safety alarm that the T6050 sleep driver needs. It does nothing
-on any other Mac. See README.md.
+Configure logind to suspend on lid close when the kernel selects deep sleep.
+Logind applies the settings to systems reporting a lid switch.
 
 %prep
-cp %{SOURCE5} %{SOURCE6} .
+cp %{SOURCE2} %{SOURCE3} .
 
 %build
 
 %install
-install -Dm755 %{SOURCE0} %{buildroot}%{_systemd_util_dir}/system-sleep/50-aurora-m5-rtc-safety
-install -Dm644 %{SOURCE1} %{buildroot}%{_unitdir}/aurora-m5-sleep-policy.service
-# Wanted by sysinit.target itself: a preset would not reach Macs that already
-# have the package. ConditionFirmware skips every Mac but the J714s.
+install -Dm644 %{SOURCE0} %{buildroot}%{_unitdir}/aurora-m5-sleep-policy.service
+# The sysinit dependency also reaches systems that already have the package.
 install -d %{buildroot}%{_unitdir}/sysinit.target.wants
 ln -s ../aurora-m5-sleep-policy.service %{buildroot}%{_unitdir}/sysinit.target.wants/aurora-m5-sleep-policy.service
-install -Dm644 %{SOURCE2} %{buildroot}%{_datadir}/%{name}/90-aurora-m5-deep.conf
-install -Dm644 %{SOURCE3} %{buildroot}%{_datadir}/%{name}/90-aurora-m5-lid.conf
-install -Dm644 %{SOURCE4} %{buildroot}%{_sysconfdir}/aurora-m5-sleep.conf
+install -Dm644 %{SOURCE1} %{buildroot}%{_datadir}/%{name}/90-aurora-m5-lid.conf
 
 %check
-sh -n %{SOURCE0}
-grep -q "grep -qx 'apple,j714s' || exit 0" %{SOURCE0}
-grep -qx 'ConditionFirmware=device-tree-compatible(apple,j714s)' %{SOURCE1}
-grep -qx 'MemorySleepMode=deep' %{SOURCE2}
-grep -qx 'HandleLidSwitchDocked=suspend' %{SOURCE3}
+grep -Fxq 'ExecCondition=/usr/bin/grep -Fq [deep] /sys/power/mem_sleep' %{SOURCE0}
+grep -Fxq 'HandleLidSwitchDocked=suspend' %{SOURCE1}
 
 %post
-# On a running J714s the sleep policy applies from the next suspend; the lid
-# setting from the next boot. The unit's condition skips every other Mac.
+# Logind reads the lid policy on its next start.
 if [ "$1" -eq 1 ]; then
   systemctl start aurora-m5-sleep-policy.service >/dev/null 2>&1 || :
 fi
@@ -54,13 +41,14 @@ fi
 %files
 %license LICENSE
 %doc README.md
-%{_systemd_util_dir}/system-sleep/50-aurora-m5-rtc-safety
 %{_unitdir}/aurora-m5-sleep-policy.service
 %{_unitdir}/sysinit.target.wants/aurora-m5-sleep-policy.service
 %{_datadir}/%{name}/
-%config(noreplace) %{_sysconfdir}/aurora-m5-sleep.conf
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-2
+- Follow the kernel-selected deep sleep mode and logind lid detection.
+- Drop the superseded automatic RTC alarm and sleep-mode override.
 * Fri Nov 20 2026 Diljit Singh <hey@djdev.me> - 1-1
 - Initial package: the MacBook Pro (M5 Pro, J714s) rootfs deep-sleep
   pieces that the M5 deep-sleep gates ran (m5-sleep-root.sh): deep sleep
