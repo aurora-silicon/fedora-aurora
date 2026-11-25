@@ -813,7 +813,9 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(audio, r'(?m)^Requires: speakersafetyd speakerguardd$')
         self.assertIn('Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33\n', audio)
         self.assertIn('Conflicts: speakerguardd-v2 < 1.0.0~alpha.1-0.33\n', audio)
-        self.assertIn('0001-restore-legacy-speaker-graphs.patch', audio)
+        # The pinned asahi-audio installs the legacy speaker graphs itself.
+        self.assertNotRegex(audio, r'(?m)^Patch\d*: 0001-restore-legacy-speaker-graphs\.patch$')
+        self.assertIn('for graph in firs/*/graph.json; do', audio)
         kernel = (ROOT / 'packages/kernel-aurora/kernel-aurora.spec').read_text()
         self.assertIn('Requires: aurora-audio >= 4.1-12', kernel)
         self.assertIn('Requires: (aurora-platform-core >= 44-23 if aurora-platform-core)', kernel)

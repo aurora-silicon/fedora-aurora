@@ -1,7 +1,7 @@
-%global commit c967141161bea3badc7754e23d80b39ffb1bdafd
+%global commit ab20b3f0e6a0f948377b9c5cb8c2d3bb69fbc0bc
 Name: aurora-audio
 Version: 4.1
-Release: 16%{?dist}
+Release: 17%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
@@ -9,7 +9,6 @@ Source0: aurora-audio-%{commit}.tar.gz
 Source1: module-setup.sh
 Source2: aurora-audio-v2-cleanup
 Source3: 99-aurora-speaker-irq.conf
-Patch0: 0001-restore-legacy-speaker-graphs.patch
 BuildArch: noarch
 BuildRequires: make
 # Fedora Asahi installs carry asahi-audio, which ships the same files.
@@ -28,13 +27,15 @@ Requires(posttrans): glibc-common coreutils
 Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -p1 -n asahi-audio-c967141161bea3badc7754e23d80b39ffb1bdafd
+%autosetup -p1 -n asahi-audio-ab20b3f0e6a0f948377b9c5cb8c2d3bb69fbc0bc
 
 %build
 
 %check
 make install DESTDIR="$PWD/check-root" PREFIX=/usr
-for board in j316 j413 j616 j700; do
+# Every board's speaker graph in the source is installed and has a rule.
+for graph in firs/*/graph.json; do
+    board=${graph#firs/}; board=${board%%/graph.json}
     test -s "check-root/usr/share/asahi-audio/$board/graph.json"
     grep -q "/usr/share/asahi-audio/$board/graph.json" check-root/usr/share/wireplumber/wireplumber.conf.d/99-asahi.conf
 done
@@ -61,6 +62,13 @@ install -Dm644 %{SOURCE3} %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d
 %{_libexecdir}/aurora-audio/
 
 %changelog
+* Thu Nov 19 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-17
+- Pin asahi-audio ab20b3f0, which installs the J316, J413, J616 and J700
+  speaker graphs itself (aurora-silicon/asahi-audio#34), and drop
+  0001-restore-legacy-speaker-graphs.patch, which did that at packaging
+  time. Also brings the J604, J713 and J714 graphs merged since c9671411.
+- %check covers every board with a speaker graph in the source, not a list.
+
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 4.1-16
 - Retire only the speakerguardd v2 previews up to release candidate 7
   (1.0.0~alpha.1-0.32 and older), so release candidate 8 can be installed by
