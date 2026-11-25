@@ -20,6 +20,11 @@ concurrency:
 jobs:
   plan:
     runs-on: ubuntu-24.04
+    # ci-plan.py diffs a push from the last successful main build, which it
+    # looks up in this workflow's run history.
+    permissions:
+      contents: read
+      actions: read
     outputs:
       full: ${{ steps.plan.outputs.full }}
       packages: ${{ steps.plan.outputs.packages }}
@@ -33,6 +38,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           python3 scripts/ci-plan.py >> "$GITHUB_OUTPUT"
       - id: matrix
