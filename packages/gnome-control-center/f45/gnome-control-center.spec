@@ -24,7 +24,7 @@ URL:            https://gitlab.gnome.org/GNOME/gnome-control-center/
 Source0:        https://download.gnome.org/sources/%{name}/%{gnome_major_version}/%{name}-%{gnome_tarball_version}.tar.xz
 
 # Aurora: touchpad scroll speed slider (org.gnome.desktop.peripherals.touchpad scroll-speed)
-Patch0:         0001-mouse-Add-a-touchpad-scroll-speed-slider.patch
+Patch1:         0002-mouse-Add-a-touchpad-scroll-speed-slider.patch
 
 %gnome_check_version
 

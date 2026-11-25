@@ -17,7 +17,7 @@
 %bcond malcontent %[!0%{?rhel}]
 
 Name:           gnome-control-center
-Version:        50.5
+Version:        50.4
 Release:        1%{?dist}.aurora1
 Summary:        Utilities to configure the GNOME desktop
 
@@ -26,7 +26,7 @@ URL:            https://gitlab.gnome.org/GNOME/gnome-control-center/
 Source0:        https://download.gnome.org/sources/%{name}/50/%{name}-%{tarball_version}.tar.xz
 
 # Aurora: touchpad scroll speed slider (org.gnome.desktop.peripherals.touchpad scroll-speed)
-Patch0:         0001-mouse-Add-a-touchpad-scroll-speed-slider.patch
+Patch1:         0002-mouse-Add-a-touchpad-scroll-speed-slider.patch
 
 BuildRequires:  blueprint-compiler >= %{blueprint_compiler_version}
 BuildRequires:  desktop-file-utils
@@ -227,7 +227,7 @@ rm -rf $RPM_BUILD_ROOT%{_datadir}/gnome/cursor-fonts
 %dir %{_datadir}/gnome/wm-properties
 
 %changelog
-* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 50.5-1.aurora1
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 50.4-1.aurora1
 - Add a Scroll Speed slider to the Touchpad page (touchpad scroll-speed
   key, applied by Mutter); the row shows only when the schema has the key
-- Earlier history is in Fedora dist-git rpms/gnome-control-center (f44, eda05d5)
+- Earlier history is in Fedora dist-git rpms/gnome-control-center (f44, 0dee50f)
