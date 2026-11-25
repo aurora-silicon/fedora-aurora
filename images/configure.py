@@ -423,11 +423,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--upstream", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--profile", choices=PROFILES, default="fedora-kde")
+    parser.add_argument("--profile", choices=PROFILES, default="fedora-gnome")
     parser.add_argument("--repository-url", required=True)
     parser.add_argument("--signing-key", type=Path, required=True)
     parser.add_argument("--signing-key-fingerprint", required=True)
-    parser.add_argument("--fedora-release", choices=sorted(LOCKS), default="44")
+    parser.add_argument("--fedora-release", choices=sorted(LOCKS), default="45")
     parser.add_argument("--build-repository", type=Path,
                         help="signed Edge snapshot metadata to install from (images that follow the Edge feed)")
     args = parser.parse_args()
