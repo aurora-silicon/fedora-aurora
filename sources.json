@@ -559,5 +559,14 @@
     "archive_root": "power-profiles-daemon-0.30",
     "archive_file": "power-profiles-daemon-0.30.tar.bz2",
     "sha256": "528ee5b8ca0a27d8d66128ebf850e23be9571dc130cf2a82dd2463dac7d3a92f"
+  },
+  "gnome-control-center": {
+    "repository": "https://gitlab.gnome.org/GNOME/gnome-control-center",
+    "commit": "5fbe825f7d2399ba5f5540e523a4c99686714619",
+    "version": "50.5",
+    "source_url": "https://download.gnome.org/sources/gnome-control-center/50/gnome-control-center-50.5.tar.xz",
+    "archive_root": "gnome-control-center-50.5",
+    "archive_file": "gnome-control-center-50.5.tar.xz",
+    "sha256": "72553f5ad05bd41ac2002c462877886f585d39e27fa5373cbff27342ffd5ee13"
   }
 }

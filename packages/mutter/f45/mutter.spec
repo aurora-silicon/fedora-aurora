@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       22%{?dist}.aurora
+Release:       23%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -89,6 +89,8 @@ Patch54:       0054-wayland-session-lock-Keep-the-lock-above-restacked-s.patch
 Patch55:       0055-wayland-foreign-toplevel-Freeze-the-toplevel-list-wh.patch
 Patch56:       0056-wayland-session-lock-Keep-captures-from-showing-what.patch
 Patch57:       0057-tests-Add-session-lock-capture-window-list-and-grab-.patch
+# Aurora: apply org.gnome.desktop.peripherals.touchpad scroll-speed to finger scrolling
+Patch58:       0058-backends-native-Apply-the-touchpad-scroll-speed-sett.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -307,6 +309,12 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-23.aurora
+- Apply the touchpad scroll-speed setting (gsettings-desktop-schemas 51):
+  finger scroll deltas from libinput are multiplied by the factor before
+  they become events, so clients and their kinetic scrolling follow it;
+  wheel and other scroll sources are unchanged, 1.0 is the old behaviour
+
 * Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-22.aurora
 - Keep what is behind a session lock out of every capture and window
   list: window screen casts and window screenshots get transparent
