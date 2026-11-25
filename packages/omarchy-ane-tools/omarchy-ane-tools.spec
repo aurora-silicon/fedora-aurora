@@ -1,9 +1,9 @@
-%global commit a0acd9af12346c870ee1538947cbe9f2740cb7fe
+%global commit 7a8963096b49409a6a38c7df3358bccd457ab368
 # The upstream Makefiles set their own flags (-O3 -Werror) and no -g.
 %global debug_package %{nil}
 Name: omarchy-ane-tools
-Version: 0.5.13
-Release: 2%{?dist}
+Version: 0.5.14
+Release: 1%{?dist}
 Summary: Apple Neural Engine userspace tools for the in-kernel ANE driver
 License: GPL-2.0-only OR MIT
 URL: https://github.com/joshuaswarren/omarchy-ane
@@ -58,6 +58,9 @@ done
 %{_datadir}/omarchy-ane/
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.5.14-1
+- Update to upstream v0.5.14 (7a896309).
+
 * Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.5.13-2
 - Drop the udev rule and the accel group: aurora-platform-core 44-51 sets
   the /dev/accel policy on every install, so it no longer depends on

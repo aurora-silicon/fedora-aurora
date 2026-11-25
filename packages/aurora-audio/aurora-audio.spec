@@ -1,7 +1,7 @@
-%global commit c967141161bea3badc7754e23d80b39ffb1bdafd
+%global commit a8c68c27c448ff39c915b46b8d33c53f2c56b705
 Name: aurora-audio
 Version: 4.1
-Release: 16%{?dist}
+Release: 17%{?dist}
 Summary: Aurora Apple Silicon audio DSP profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
@@ -28,7 +28,7 @@ Requires(posttrans): glibc-common coreutils
 Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -p1 -n asahi-audio-c967141161bea3badc7754e23d80b39ffb1bdafd
+%autosetup -p1 -n asahi-audio-%{commit}
 
 %build
 
@@ -61,6 +61,9 @@ install -Dm644 %{SOURCE3} %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d
 %{_libexecdir}/aurora-audio/
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-17
+- Refresh to asahi-audio a8c68c27 (J604/J714 mics, J713/J714 audio rules); rebase legacy speaker graph patch.
+
 * Mon Nov 09 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 4.1-16
 - Retire only the speakerguardd v2 previews up to release candidate 7
   (1.0.0~alpha.1-0.32 and older), so release candidate 8 can be installed by

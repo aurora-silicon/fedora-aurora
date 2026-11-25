@@ -1,10 +1,10 @@
-%global commit b3aaa4a7c75f0fe203ddbf10a161b2328e06aa7d
+%global commit 4136af409161d8aa44e12b6aa2d0502bb5ea2490
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261124
+%global snapdate 20261125
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.25.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.26.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -62,6 +62,9 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.pr
 %{_presetdir}/50-aurora-speaker-upgrade.preset
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.26.20261125git4136af409161
+- Refresh to speakerguardd 4136af40 (aligned with speakerguardd-v2).
+
 * Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.25.20261124gitb3aaa4a7c75f
 - Rebuilt from speakerguardd main b3aaa4a7 (speakerguardd#250, #251): a
   restore image range cut short is retried and then treated as "not now",
