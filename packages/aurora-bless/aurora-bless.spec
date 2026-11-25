@@ -67,7 +67,6 @@ ln -s aurora-nvram %{buildroot}%{_bindir}/asahi-nvram
 install -Dm755 target/release/aurora-btsync %{buildroot}%{_bindir}/aurora-btsync
 ln -s aurora-btsync %{buildroot}%{_bindir}/asahi-btsync
 install -Dm644 aurora-btsync/etc/systemd/system/aurora-btsync.service %{buildroot}%{_unitdir}/aurora-btsync.service
-%{_unitdir}/aurora-btsync-resolve.service
 install -Dm644 aurora-btsync/etc/systemd/system/aurora-btsync-resolve.service %{buildroot}%{_unitdir}/aurora-btsync-resolve.service
 ln -s aurora-btsync.service %{buildroot}%{_unitdir}/asahi-btsync.service
 install -Dm644 aurora-btsync/etc/udev/rules.d/96-aurora-btsync.rules %{buildroot}%{_udevrulesdir}/96-aurora-btsync.rules
@@ -96,6 +95,7 @@ install -Dm644 aurora-btsync/etc/udev/rules.d/96-aurora-btsync.rules %{buildroot
 %{_bindir}/aurora-btsync
 %{_bindir}/asahi-btsync
 %{_unitdir}/aurora-btsync.service
+%{_unitdir}/aurora-btsync-resolve.service
 %{_unitdir}/asahi-btsync.service
 %{_udevrulesdir}/96-aurora-btsync.rules
 
