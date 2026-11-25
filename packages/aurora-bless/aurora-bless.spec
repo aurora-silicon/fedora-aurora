@@ -1,7 +1,7 @@
-%global commit 9b47a17827854588d458b1dcc8018c66f5c3237f
+%global commit 7205ea0ac6569c8b7c2d6916960fcc0da91cfa8d
 Name: aurora-bless
 Version: 0.4.4
-Release: 4%{?dist}
+Release: 5%{?dist}
 Summary: Apple Silicon startup volume selector with Neo NVRAM support
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-bless
@@ -67,6 +67,8 @@ ln -s aurora-nvram %{buildroot}%{_bindir}/asahi-nvram
 install -Dm755 target/release/aurora-btsync %{buildroot}%{_bindir}/aurora-btsync
 ln -s aurora-btsync %{buildroot}%{_bindir}/asahi-btsync
 install -Dm644 aurora-btsync/etc/systemd/system/aurora-btsync.service %{buildroot}%{_unitdir}/aurora-btsync.service
+%{_unitdir}/aurora-btsync-resolve.service
+install -Dm644 aurora-btsync/etc/systemd/system/aurora-btsync-resolve.service %{buildroot}%{_unitdir}/aurora-btsync-resolve.service
 ln -s aurora-btsync.service %{buildroot}%{_unitdir}/asahi-btsync.service
 install -Dm644 aurora-btsync/etc/udev/rules.d/96-aurora-btsync.rules %{buildroot}%{_udevrulesdir}/96-aurora-btsync.rules
 %make_install -C aurora-panel-nits BINDIR=%{_bindir} UNITDIR=%{_unitdir} UDEVDIR=%{_udevrulesdir}
@@ -107,6 +109,14 @@ install -Dm644 aurora-btsync/etc/udev/rules.d/96-aurora-btsync.rules %{buildroot
 %{_udevrulesdir}/90-aurora-panel-nits.rules
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.4.4-5
+- Pin aurora-bless 7205ea0a: aurora-btsync gives keyboards, mice and
+  trackpads paired in macOS the HID service, so bluetoothd no longer refuses
+  them and sends them a virtual cable unplug, and the new
+  aurora-btsync-resolve.service reads their SDP records over the device's
+  own link the first time it connects. They then work in Linux with the
+  macOS pairing, without pairing again.
+
 * Wed Nov 11 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.4.4-4
 - Pin aurora-bless 9b47a178 and ship aurora-nvram and aurora-btsync, which
   replace asahi-nvram (0.2.3 panics on current NVRAM v3 stores) and
