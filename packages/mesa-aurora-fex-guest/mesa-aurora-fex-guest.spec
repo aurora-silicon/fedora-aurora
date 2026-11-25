@@ -10,9 +10,9 @@
 #            --define 'host_release 0.12.aurora.borealis.<12-hex>%%{?dist}' ...
 # Both lines provide mesa-dri-drivers and mesa-vulkan-drivers at their own
 # version-release, which is what this package requires.
-%{!?commit:%global commit d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614}
+%{!?commit:%global commit 7c34f6f22416cf8697274f440810a4334e2ec069}
 %{!?host_version:%global host_version 26.3.0}
-%{!?host_release:%global host_release 30%{?dist}.aurora}
+%{!?host_release:%global host_release 31%{?dist}.aurora}
 %global debug_package %{nil}
 # Fedora's x86_64 build flags carry -m64 and would turn the i686 build into a
 # second x86_64 one; meson's release buildtype sets the optimisation instead.
@@ -199,6 +199,47 @@ fi
 %{_presetdir}/80-aurora-fex-mesa.preset
 
 %changelog
+* Mon Nov 16 2026 Diljit Singh <hey@djdev.me> - 26.3.0-31
+- Pin aurora-silicon/mesa aurora-wip 7c34f6f2241 (25 first-parent commits
+  since 5fe9c10c6f9, the aurora-wip base of 26.3.0-30; mesa#346, mesa#351,
+  mesa#352 and mesa#356 were already in 26.3.0-30 through cts/b11-rc30); the
+  other 21:
+  - mesa#389 hk: ask the kernel to size the G17P tiler heap for mesh renders
+  - mesa#387 hk: give separately compiled M5 mesh shaders a zero layer
+  - mesa#378 asahi: describe the G17P loop and tile-access forms without
+    binary offsets
+  - mesa#377 agx: no M5 register-cache discard for a register read twice in
+    one instruction
+  - mesa#384 asahi/layout: parenthesize the vld1q_u8_x4 template arguments
+    (fix aarch64 clang build)
+  - mesa#376 agx: G17P: export a mesh primitive's layer and viewport from
+    threadgroup memory
+  - mesa#368 hk: refuse device memory that would leave too little system
+    memory
+  - mesa#360 hk: overlap G17P tiling with fragment work of renders that
+    wrote only attachments
+  - mesa#359 asahi,hk: launch M4 Pro workgroups that share nothing in groups
+    of at most 256
+  - mesa#358 nir/divergence: let load_agx follow its sources like
+    load_global
+  - mesa#357 hk: copy up to 10 buffer regions per dispatch on G17P
+  - mesa#355 agx: legalize mixed f16/f32 8x8 cooperative matrix products
+  - mesa#350 hk: expose VK_KHR_shader_bfloat16 on AGX3B
+  - mesa#344 asahi: G17G: one-pass MRT draws, GPU mipmaps, larger primitive
+    budget
+  - mesa#343 hk: elide the barrier between application dispatches on the M4
+    Pro
+  - mesa#331 asahi/layout: line-tile the whole lines of partially covered
+    tiles
+  - mesa#369 asahi: put the M5 task payload at +0 when the mesh does not
+    read the grid
+  - mesa#365 asahi: move M5 mesh lines drawn toward +y off the row boundary
+  - mesa#364 asahi: build M5 mesh pipelines whose per-primitive outputs
+    exceed 256 private vertices
+  - mesa#361 hk: compile an M5 compute kernel without its constant program
+    if it fails
+  - mesa#347 hk: ride every timestamp on a command end on M5
+
 * Sun Nov 15 2026 Diljit Singh <hey@djdev.me> - 26.3.0-30
 - Pin aurora-silicon/mesa cts/b11-rc30 d4ad4a4dce6 (3 first-parent commits since 3b511dc1592):
   - st/mesa: reject links mixing GLSL and SPIR-V shaders in either order
