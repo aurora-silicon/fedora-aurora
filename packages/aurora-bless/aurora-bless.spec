@@ -1,7 +1,7 @@
 %global commit 7205ea0ac6569c8b7c2d6916960fcc0da91cfa8d
 Name: aurora-bless
 Version: 0.4.4
-Release: 5%{?dist}
+Release: 6%{?dist}
 Summary: Apple Silicon startup volume selector with Neo NVRAM support
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-bless
@@ -83,6 +83,12 @@ install -Dm644 aurora-btsync/etc/udev/rules.d/96-aurora-btsync.rules %{buildroot
 %preun -n aurora-btsync
 %systemd_preun aurora-btsync.service
 
+%post -n aurora-panel-nits
+%systemd_post aurora-panel-nits.service
+
+%preun -n aurora-panel-nits
+%systemd_preun aurora-panel-nits.service
+
 %files -n aurora-nvram
 %license LICENSE
 %doc aurora-nvram/README.md NEO.md
@@ -109,6 +115,10 @@ install -Dm644 aurora-btsync/etc/udev/rules.d/96-aurora-btsync.rules %{buildroot
 %{_udevrulesdir}/90-aurora-panel-nits.rules
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.4.4-6
+- Add systemd post/preun scriptlets for aurora-panel-nits so upgrades reload
+  the service unit cleanly.
+
 * Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.4.4-5
 - Pin aurora-bless 7205ea0a: aurora-btsync gives keyboards, mice and
   trackpads paired in macOS the HID service, so bluetoothd no longer refuses
