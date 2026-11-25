@@ -1,7 +1,7 @@
-%global commit 65a82f97d597a4582f6db5a940206ab1e7e3858d
+%global commit 8cbf35282c2170d7cdf7a805d803189d2b8e5954
 Name: aurora-bless
 Version: 0.4.4
-Release: 6%{?dist}
+Release: 7%{?dist}
 Summary: Apple Silicon startup volume selector with Neo NVRAM support
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-bless
@@ -40,6 +40,8 @@ is kept as a symlink.
 %package -n aurora-btsync
 Summary: Use the Bluetooth pairings made in macOS on Linux
 Requires: bluez
+# The Wi-Fi counterpart, installed with it by default (weak dependency).
+Recommends: aurora-wifisync
 Provides: asahi-btsync = %{version}-%{release}
 Obsoletes: asahi-btsync < %{version}-%{release}
 Conflicts: asahi-btsync
@@ -50,17 +52,26 @@ the NVRAM device appears, and refreshes the keys of devices macOS paired
 again. Pairings made only on Linux are left alone. Replaces asahi-btsync; the
 asahi-btsync command and asahi-btsync.service stay available as aliases.
 
+%package -n aurora-wifisync
+Summary: Join the Wi-Fi networks saved in macOS on Linux
+Recommends: NetworkManager
+
+%description -n aurora-wifisync
+Adds the Wi-Fi networks macOS keeps in NVRAM to NetworkManager when the
+NVRAM device appears, before NetworkManager starts, so a first boot joins
+a network macOS knows. Profiles made on Linux are left alone.
+
 %prep
 %autosetup -n aurora-bless-%{commit}
 
 %build
-cargo build --locked --release -p asahi-bless -p aurora-nvram -p aurora-btsync -p aurora-panel-nits
+cargo build --locked --release -p aurora-bless -p aurora-nvram -p aurora-btsync -p aurora-panel-nits -p aurora-wifisync
 
 %check
-cargo test --locked -p asahi-bless -p apple-nvram -p aurora-nvram -p aurora-btsync -p aurora-panel-nits
+cargo test --locked -p aurora-bless -p apple-nvram -p aurora-nvram -p aurora-btsync -p aurora-panel-nits -p aurora-wifisync
 
 %install
-install -Dm755 target/release/asahi-bless %{buildroot}%{_bindir}/aurora-bless
+install -Dm755 target/release/aurora-bless %{buildroot}%{_bindir}/aurora-bless
 ln -s aurora-bless %{buildroot}%{_bindir}/asahi-bless
 install -Dm755 target/release/aurora-nvram %{buildroot}%{_bindir}/aurora-nvram
 ln -s aurora-nvram %{buildroot}%{_bindir}/asahi-nvram
@@ -68,8 +79,14 @@ install -Dm755 target/release/aurora-btsync %{buildroot}%{_bindir}/aurora-btsync
 ln -s aurora-btsync %{buildroot}%{_bindir}/asahi-btsync
 install -Dm644 aurora-btsync/etc/systemd/system/aurora-btsync.service %{buildroot}%{_unitdir}/aurora-btsync.service
 install -Dm644 aurora-btsync/etc/systemd/system/aurora-btsync-resolve.service %{buildroot}%{_unitdir}/aurora-btsync-resolve.service
+install -Dm644 aurora-btsync/etc/systemd/system/aurora-btsync-connect.service %{buildroot}%{_unitdir}/aurora-btsync-connect.service
+install -d %{buildroot}%{_unitdir}/suspend.target.wants
+ln -s ../aurora-btsync-connect.service %{buildroot}%{_unitdir}/suspend.target.wants/aurora-btsync-connect.service
 ln -s aurora-btsync.service %{buildroot}%{_unitdir}/asahi-btsync.service
 install -Dm644 aurora-btsync/etc/udev/rules.d/96-aurora-btsync.rules %{buildroot}%{_udevrulesdir}/96-aurora-btsync.rules
+install -Dm755 target/release/aurora-wifisync %{buildroot}%{_bindir}/aurora-wifisync
+install -Dm644 aurora-wifisync/etc/systemd/system/aurora-wifisync.service %{buildroot}%{_unitdir}/aurora-wifisync.service
+install -Dm644 aurora-wifisync/etc/udev/rules.d/96-aurora-wifisync.rules %{buildroot}%{_udevrulesdir}/96-aurora-wifisync.rules
 %make_install -C aurora-panel-nits BINDIR=%{_bindir} UNITDIR=%{_unitdir} UDEVDIR=%{_udevrulesdir}
 
 %files
@@ -82,6 +99,12 @@ install -Dm644 aurora-btsync/etc/udev/rules.d/96-aurora-btsync.rules %{buildroot
 
 %preun -n aurora-btsync
 %systemd_preun aurora-btsync.service
+
+%post -n aurora-wifisync
+%systemd_post aurora-wifisync.service
+
+%preun -n aurora-wifisync
+%systemd_preun aurora-wifisync.service
 
 %post -n aurora-panel-nits
 %systemd_post aurora-panel-nits.service
@@ -102,8 +125,17 @@ install -Dm644 aurora-btsync/etc/udev/rules.d/96-aurora-btsync.rules %{buildroot
 %{_bindir}/asahi-btsync
 %{_unitdir}/aurora-btsync.service
 %{_unitdir}/aurora-btsync-resolve.service
+%{_unitdir}/aurora-btsync-connect.service
+%{_unitdir}/suspend.target.wants/aurora-btsync-connect.service
 %{_unitdir}/asahi-btsync.service
 %{_udevrulesdir}/96-aurora-btsync.rules
+
+%files -n aurora-wifisync
+%license LICENSE
+%doc aurora-wifisync/README.md
+%{_bindir}/aurora-wifisync
+%{_unitdir}/aurora-wifisync.service
+%{_udevrulesdir}/96-aurora-wifisync.rules
 
 %files -n aurora-panel-nits
 %license LICENSE
@@ -115,6 +147,14 @@ install -Dm644 aurora-btsync/etc/udev/rules.d/96-aurora-btsync.rules %{buildroot
 %{_udevrulesdir}/90-aurora-panel-nits.rules
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.4.4-7
+- Pin aurora-bless 8cbf3528: the new aurora-btsync-connect.service connects the
+  keyboards, mice and trackpads paired in macOS at boot and after a resume,
+  so they work at the login screen without a key press first.
+- New aurora-wifisync subpackage (recommended by aurora-btsync): adds the
+  Wi-Fi networks saved in macOS to NetworkManager before it starts.
+- Build the aurora-bless crate under its new name (was asahi-bless).
+
 * Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.4.4-6
 - Pin aurora-bless 65a82f97: preserve non-zero dark-room NVRAM backlight-nits
   levels verbatim on restore while keeping the 5% safety floor for zero entries.
