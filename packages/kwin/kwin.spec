@@ -1,6 +1,6 @@
 Name:    kwin
 Version: 6.8.2
-Release: 3%{?dist}.aurora2
+Release: 3%{?dist}.aurora3
 Summary: KDE Window manager
 
 License: BSD-2-Clause AND BSD-3-Clause AND CC0-1.0 AND GPL-2.0-only AND GPL-2.0-or-later AND GPL-3.0-only AND GPL-3.0-or-later AND LGPL-2.0-only AND LGPL-2.0-or-later AND LGPL-2.1-only AND LGPL-2.1-or-later AND LGPL-3.0-only AND (GPL-2.0-only OR GPL-3.0-only) AND (LGPL-2.1-only OR LGPL-3.0-only) AND MIT
@@ -20,7 +20,8 @@ Patch1: c9d720793bbcef9483ab290673032d39441c0e6f.patch
 
 ## proposed patches
 
-# Aurora: opt-in ambient white point in Night Light, off by default
+# Aurora: ambient white point in Night Light, on by default where a light
+# sensor reports colour
 Patch0: 0001-nightlight-ambient-white-point.patch
 # Aurora: the Mission Control key (F3 on Apple keyboards, Qt::Key_LaunchA)
 # also toggles the overview, next to Meta+W
@@ -300,6 +301,11 @@ sed -i \
 
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 6.8.2-3.aurora3
+- Turn the ambient white point on by default (AmbientWhitePoint in kwinrc).
+  KWin claims the light sensor for it only when an IIO device has the
+  in_colortemp_input channel, so a light sensor without colour is left alone
+
 * Sat Nov 21 2026 Ryan Murray <ryan@aurorasilicon.org> - 6.8.2-3.aurora2
 - The Mission Control key (F3 on Apple keyboards) also toggles the overview
 
