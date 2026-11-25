@@ -518,6 +518,15 @@
     "archive_file": "gnome-settings-daemon-50.1.tar.xz",
     "sha256": "dd2c9730914f0ececa0229dd8a8c2940a57ddeb0802434558d4b164d79cfe05c"
   },
+  "gnome-shell": {
+    "repository": "https://gitlab.gnome.org/GNOME/gnome-shell",
+    "commit": "f56828ce31c9c68a808ee63692368d36802c95dc",
+    "version": "50.6",
+    "source_url": "https://download.gnome.org/sources/gnome-shell/50/gnome-shell-50.6.tar.xz",
+    "archive_root": "gnome-shell-50.6",
+    "archive_file": "gnome-shell-50.6.tar.xz",
+    "sha256": "e9ad99948c7f50eb4f6b307b241b5e60ad8383aeddf908139e4601dc46637ae2"
+  },
   "kwin": {
     "repository": "https://invent.kde.org/plasma/kwin",
     "commit": "f130ab33c8e6f3b9d728aade87836086ae9a8ed4",

@@ -1,7 +1,7 @@
 %global commit 8cbf35282c2170d7cdf7a805d803189d2b8e5954
 Name: aurora-bless
 Version: 0.4.4
-Release: 6%{?dist}
+Release: 7%{?dist}
 Summary: Apple Silicon startup volume selector with Neo NVRAM support
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-bless
@@ -106,6 +106,12 @@ install -Dm644 aurora-wifisync/etc/udev/rules.d/96-aurora-wifisync.rules %{build
 %preun -n aurora-wifisync
 %systemd_preun aurora-wifisync.service
 
+%post -n aurora-panel-nits
+%systemd_post aurora-panel-nits.service
+
+%preun -n aurora-panel-nits
+%systemd_preun aurora-panel-nits.service
+
 %files -n aurora-nvram
 %license LICENSE
 %doc aurora-nvram/README.md NEO.md
@@ -141,13 +147,19 @@ install -Dm644 aurora-wifisync/etc/udev/rules.d/96-aurora-wifisync.rules %{build
 %{_udevrulesdir}/90-aurora-panel-nits.rules
 
 %changelog
-* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.4.4-6
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.4.4-7
 - Pin aurora-bless 8cbf3528: the new aurora-btsync-connect.service connects the
   keyboards, mice and trackpads paired in macOS at boot and after a resume,
   so they work at the login screen without a key press first.
 - New aurora-wifisync subpackage (recommended by aurora-btsync): adds the
   Wi-Fi networks saved in macOS to NetworkManager before it starts.
 - Build the aurora-bless crate under its new name (was asahi-bless).
+
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.4.4-6
+- Pin aurora-bless 65a82f97: preserve non-zero dark-room NVRAM backlight-nits
+  levels verbatim on restore while keeping the 5% safety floor for zero entries.
+- Add systemd post/preun scriptlets for aurora-panel-nits so upgrades reload
+  the service unit cleanly.
 
 * Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.4.4-5
 - Pin aurora-bless 7205ea0a: aurora-btsync gives keyboards, mice and
