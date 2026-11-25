@@ -167,7 +167,7 @@ jobs:
           PY
           (cd base && sha256sum --strict --ignore-missing -c SHA256SUMS)
           if [[ $FEDORA_RELEASE == 45 ]]; then
-            python3 scripts/verify-edge-base.py base > base-publication.json
+            python3 scripts/verify-edge-base.py base --repository "$GITHUB_REPOSITORY" > base-publication.json
             mkdir "$RUNNER_TEMP/edge-base-source"
             git fetch --no-tags --depth 1 origin "$base_commit"
             git archive "$base_commit" sources.json packages | tar -xf - -C "$RUNNER_TEMP/edge-base-source"

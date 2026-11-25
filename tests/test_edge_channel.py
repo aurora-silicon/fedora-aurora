@@ -280,6 +280,34 @@ class EdgeSnapshotTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'differ from the authenticated manifest'):
             base_verifier.verify_index(manifest, builds, checksums, downloaded - {next(iter(binaries))})
 
+    def test_signed_base_resolves_only_identical_carried_rpms_with_matching_inputs(self):
+        recipes = ('kernel-aurora', 'mesa-aurora', 'mesa-aurora-fex-guest', 'aurora-flatpak-gl', 'firefox')
+        files = {f'{recipe}-1-1.fc45.aarch64.rpm': recipe for recipe in recipes}
+        digest = '7' * 64
+        checksums = dict.fromkeys(files, digest)
+        manifest = {'channel': 'testing', 'fedora': 45, 'architecture': 'aarch64', 'dry_run': False,
+                    'packages': [{'filename': filename, 'sha256': digest} for filename in files]}
+        tag = 'testing-f45-20261125.1'
+        current, previous = '2' * 40, '1' * 40
+        firefox = 'firefox-1-1.fc45.aarch64.rpm'
+        def receipt(name, filename):
+            return {'fedora': 45, 'succeeded': True, 'package': name, 'artifacts': [{'filename': filename}]}
+        builds = {'publishing_commit': current, 'base_release': tag,
+                  'receipts': [receipt(name, filename) for filename, name in files.items() if name != 'firefox']}
+        old_builds = {'publishing_commit': previous, 'receipts': [receipt('firefox', firefox)]}
+        def prior(ref):
+            self.assertEqual(ref, tag)
+            return {firefox: digest}, old_builds
+        def same_recipe(new, old, origin):
+            self.assertEqual((new, old, origin['package']), (current, previous, 'firefox'))
+            return True
+        base_verifier.verify_index(manifest, builds, checksums, files.keys(), prior, same_recipe)
+        with self.assertRaisesRegex(ValueError, 'differs from its authenticated predecessor'):
+            base_verifier.verify_index(manifest, builds, checksums, files.keys(),
+                                       lambda _: ({firefox: '8' * 64}, old_builds), same_recipe)
+        with self.assertRaisesRegex(ValueError, 'lacks matching authenticated recipe inputs'):
+            base_verifier.verify_index(manifest, builds, checksums, files.keys(), prior, lambda *_: False)
+
 
 class ImageProofTests(unittest.TestCase):
     def setUp(self):
