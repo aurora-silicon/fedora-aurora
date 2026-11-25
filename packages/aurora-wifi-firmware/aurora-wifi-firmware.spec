@@ -1,10 +1,10 @@
-%global commit 873ce2e1f48c66bf2e6b66bdedbfb32559c865b8
+%global commit 4085a62eadbbd296f3acab00ec8890baab370e2d
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261124
+%global snapdate 20261125
 
 Name: aurora-wifi-firmware
 Version: 0.3
-Release: 1.%{snapdate}git%{shortcommit}%{?dist}
+Release: 2.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Keep the Wi-Fi and Bluetooth firmware on the stub firmware's restore image
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-installer/tree/main/tools/wifi-firmware
@@ -59,6 +59,9 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/80-aurora-wifi-firmware.pres
 %{_presetdir}/80-aurora-wifi-firmware.preset
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.3-2.20261125git4085a62eadbb
+- Refresh to aurora-installer 4085a62e.
+
 * Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.3-1.20261124git873ce2e1f48c
 - Radio firmware comes only from Apple's restore image of the stub
   firmware's macOS version for this board (aurora-installer#226), never

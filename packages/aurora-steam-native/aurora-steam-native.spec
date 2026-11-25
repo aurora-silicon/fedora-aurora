@@ -1,11 +1,11 @@
 # Aurora's Steam: the aurora-steam-native launcher for Valve's native ARM64
 # Linux client, plus `steam` so that `dnf install steam` installs it. Valve's
 # client is downloaded per user on the first start; nothing from Valve ships.
-%global commit c06f610e3604c3f2b1b8466dff60d6878d0cd0da
+%global commit 9054e3a1984869e0e62c42aa55719f73dbb2270c
 %global lib %{_libexecdir}/aurora-steam-native
 Name: aurora-steam-native
 Version: 0
-Release: 3.gitc06f610%{?dist}
+Release: 4.git9054e3a%{?dist}
 Summary: Valve's native ARM64 Steam client in a 4 KiB page process tree
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-steam-native
@@ -103,6 +103,9 @@ done
 %{_datadir}/applications/steam.desktop
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0-4.git9054e3a
+- Refresh to aurora-steam-native 9054e3a1.
+
 * Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 0-3.gitc06f610
 - `steam` runs games under GameMode: a watcher follows the client's
   logs/gameprocess_log.txt through inotify and registers every PID Steam
