@@ -46,6 +46,21 @@ class FedoraSpecTests(unittest.TestCase):
                       f'- Track aurora-silicon/x main at {NEW[:7]}.\n', text)
         self.assertEqual(notes, [])
 
+    def test_additional_recipes_track_their_merged_source_with_manual_review(self):
+        tracking = module.tl.load_tracking(ROOT)['sources']
+        for name in ('aurora-diag', 'aurora-firstboot', 'aurora-kbd-light',
+                     'aurora-neo-platform-config', 'aurora-xart', 'upower-aurora'):
+            with self.subTest(name=name):
+                before = module.tl.spec_field(self.spec(name), 'Release').split('%')[0]
+                notes = module.update_recipe(self.root, self.item(name), TODAY)
+                text = self.spec(name)
+                self.assertEqual(tracking[name]['merge'], 'manual')
+                self.assertIn(f'%global commit {NEW}\n', text)
+                self.assertEqual(int(module.tl.spec_field(text, 'Release').split('%')[0]), int(before) + 1)
+                self.assertEqual(notes, [])
+                self.assertTrue(any(re.fullmatch(pattern, f'packages/{name}/{name}.spec')
+                                    for pattern in module.PATCH_PATHS))
+
     def test_kernel_release_candidate_uses_an_rpm_safe_version_and_resets_release(self):
         item = self.item('kernel-aurora', version='7.9.0-rc1')
         notes = module.update_recipe(self.root, item, TODAY)

@@ -7,6 +7,36 @@
       "branch": "main",
       "merge": "auto"
     },
+    "aurora-diag": {
+      "repository": "aurora-silicon/aurora-diag",
+      "branch": "main",
+      "merge": "manual"
+    },
+    "aurora-firstboot": {
+      "repository": "aurora-silicon/aurora-platform",
+      "branch": "main",
+      "merge": "manual"
+    },
+    "aurora-kbd-light": {
+      "repository": "aurora-silicon/kbd-light",
+      "branch": "main",
+      "merge": "manual"
+    },
+    "aurora-neo-platform-config": {
+      "repository": "aurora-silicon/aurora-neo-platform-config",
+      "branch": "main",
+      "merge": "manual"
+    },
+    "aurora-xart": {
+      "repository": "aurora-silicon/aurora-xart",
+      "branch": "main",
+      "merge": "manual"
+    },
+    "upower-aurora": {
+      "repository": "aurora-silicon/upower",
+      "branch": "main",
+      "merge": "manual"
+    },
     "kernel-aurora": {
       "repository": "aurora-silicon/linux",
       "branch": "main",
