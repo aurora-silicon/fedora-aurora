@@ -1,6 +1,6 @@
 Name: aurora-m5-platform-config
 Version: 1
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Lid policy for kernel-selected deep sleep
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -29,7 +29,8 @@ ln -s ../aurora-m5-sleep-policy.service %{buildroot}%{_unitdir}/sysinit.target.w
 install -Dm644 %{SOURCE1} %{buildroot}%{_datadir}/%{name}/90-aurora-m5-lid.conf
 
 %check
-grep -Fxq 'ExecCondition=/usr/bin/grep -Fq [deep] /sys/power/mem_sleep' %{SOURCE0}
+grep -Fxq 'RemainAfterExit=yes' %{SOURCE0}
+grep -Fq 'grep -Fq "[deep]" /sys/power/mem_sleep' %{SOURCE0}
 grep -Fxq 'HandleLidSwitchDocked=suspend' %{SOURCE1}
 
 %post
@@ -46,6 +47,8 @@ fi
 %{_datadir}/%{name}/
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-3
+- Complete the boot unit without installing a policy on s2idle kernels.
 * Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-2
 - Follow the kernel-selected deep sleep mode and logind lid detection.
 - Drop the superseded automatic RTC alarm and sleep-mode override.

@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import os
 import re
+import shlex
 import shutil
 import struct
 import subprocess
@@ -731,28 +732,44 @@ class SpecTests(unittest.TestCase):
         unit.read_string((package / 'aurora-m5-sleep-policy.service').read_text())
         self.assertNotIn('ConditionFirmware', unit['Unit'])
         self.assertEqual(unit['Service']['Type'], 'oneshot')
+        self.assertTrue(unit['Service'].getboolean('RemainAfterExit'))
+        self.assertNotIn('ExecCondition', unit['Service'])
         self.assertIn('systemd-logind.service', unit['Unit']['Before'].split())
         self.assertNotIn('Install', unit)
-        condition = unit['Service']['ExecCondition'].split()
-        self.assertEqual(condition[-1], '/sys/power/mem_sleep')
-        self.assertEqual(unit['Service']['ExecStart'].split()[-1],
-                         '/run/systemd/logind.conf.d/90-aurora-m5-lid.conf')
+        shell, flags, script = shlex.split(unit['Service']['ExecStart'])
         with tempfile.TemporaryDirectory() as tmp:
             mem_sleep = Path(tmp) / 'mem_sleep'
-            for modes, expected in (
-                ('s2idle [deep]', 0),
-                ('[s2idle] deep', 1),
-                ('[s2idle]', 1),
+            dropin = '90-aurora-m5-lid.conf'
+            source = package / dropin
+            destination = Path(tmp) / 'logind.conf.d' / dropin
+            script = script.replace('/sys/power/mem_sleep', shlex.quote(str(mem_sleep)))
+            script = script.replace(f'/usr/share/aurora-m5-platform-config/{dropin}',
+                                    shlex.quote(str(source)))
+            script = script.replace(f'/run/systemd/logind.conf.d/{dropin}',
+                                    shlex.quote(str(destination)))
+            for modes, installs_policy in (
+                ('s2idle [deep]', True),
+                ('[s2idle] deep', False),
+                ('[s2idle]', False),
+                (None, False),
             ):
                 with self.subTest(modes=modes):
-                    mem_sleep.write_text(modes + '\n')
-                    result = subprocess.run([*condition[:-1], str(mem_sleep)],
-                                            capture_output=True, text=True, timeout=5)
-                    self.assertEqual(result.returncode, expected)
-            mem_sleep.unlink()
-            missing = subprocess.run([*condition[:-1], str(mem_sleep)],
-                                     capture_output=True, text=True, timeout=5)
-            self.assertEqual(missing.returncode, 2)
+                    if modes is None:
+                        mem_sleep.unlink()
+                    else:
+                        mem_sleep.write_text(modes + '\n')
+                    subprocess.run([shell, flags, script], check=True, timeout=5)
+                    self.assertEqual(destination.is_file(), installs_policy)
+                    if installs_policy:
+                        self.assertEqual(destination.read_bytes(), source.read_bytes())
+                        self.assertEqual(destination.stat().st_mode & 0o777, 0o644)
+                        destination.unlink()
+
+            mem_sleep.write_text('s2idle [deep]\n')
+            destination.parent.rmdir()
+            destination.parent.touch()
+            failure = subprocess.run([shell, flags, script], capture_output=True, timeout=5)
+            self.assertNotEqual(failure.returncode, 0)
 
         lid = configparser.ConfigParser(interpolation=None)
         lid.optionxform = str

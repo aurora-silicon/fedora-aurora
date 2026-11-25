@@ -10,5 +10,6 @@ Conflicts=shutdown.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecCondition=/usr/bin/grep -Fq [deep] /sys/power/mem_sleep
-ExecStart=/usr/bin/install -D -m 0644 /usr/share/aurora-m5-platform-config/90-aurora-m5-lid.conf /run/systemd/logind.conf.d/90-aurora-m5-lid.conf
+# Complete the start even when no policy is needed, so repeated dependency
+# starts during sysinit cannot exhaust the unit's start rate limit.
+ExecStart=/usr/bin/sh -ec 'if /usr/bin/grep -Fq "[deep]" /sys/power/mem_sleep 2>/dev/null; then exec /usr/bin/install -D -m 0644 /usr/share/aurora-m5-platform-config/90-aurora-m5-lid.conf /run/systemd/logind.conf.d/90-aurora-m5-lid.conf; fi'
