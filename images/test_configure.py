@@ -138,6 +138,7 @@ class ConfigureTests(unittest.TestCase):
                 self.assertIn("update-aura", names)
                 self.assertIn("kernel-aurora", names)
                 self.assertIn("mesa-aurora-vulkan-drivers", names)
+                self.assertIn("mesa-aurora-libOpenCL", names)
                 self.assertIn("aurora-flatpak-gl", names)
                 self.assertIn("libva-v4l2-request-avd", names)
                 exclusions = {n.get("name") for p in out.rglob("*.xml")
