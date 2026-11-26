@@ -1,6 +1,6 @@
-%global commit 4136af409161d8aa44e12b6aa2d0502bb5ea2490
+%global commit 7a1f538ca7947ce988eeaaf3c095d40d0f560590
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261125
+%global snapdate 20261126
 
 Name: aurora-speaker-upgrade
 Version: 0.1
@@ -70,7 +70,10 @@ systemctl --no-reload --preset-mode=enable-only preset aurora-speaker-upgrade.se
 %{_presetdir}/50-aurora-speaker-upgrade.preset
 
 %changelog
-* Thu Nov 26 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.27.20261125git4136af409161
+* Thu Nov 26 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.27.20261126git7a1f538ca794
+- Rebuilt from speakerguardd main 7a1f538c (speakerguardd#265, #266, #268):
+  speakerguardd-v2's gate data now carries the J713 (AID37) and J615 (AID21)
+  playback rows, so the boot unit moves those installs to v2.
 - Apply the preset once on the upgrade from an older build: installs made
   before 0.1-0.18 kept the unit disabled through every upgrade since, so
   their speakers never moved to v2 at boot. A masked unit stays masked.
