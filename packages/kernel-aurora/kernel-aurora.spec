@@ -1,4 +1,4 @@
-%global commit 9125b31475836ce0a6634df45b539c6d604f36a5
+%global commit a851ca0edfc9bf1cc5e0a5cca8756f068e1d2e48
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # modules_install signs every module (CONFIG_MODULE_SIG_ALL) after
@@ -14,7 +14,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 41%{?dist}.aurora
+Release: 42%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -50,8 +50,9 @@ Conflicts: aurora-fido < 0.2.0-2
 # SN012776 amp settings come from the DT that aura 1.0.0b5 fills in
 # (https://github.com/aurora-silicon/linux/pull/981,
 # https://github.com/aurora-silicon/aura/pull/75); under an older Stage 2
-# the speakers stay off.
-Requires: aura >= 1.0.0~b12
+# the speakers stay off. This pin's device trees were qualified with
+# aura 1.0.0b17 (the Stage 2 this repository ships), so require it.
+Requires: aura >= 1.0.0~b17
 # apple-avd loads apple/avd-fw-v*.bin from /usr/lib/firmware; without the
 # images the decoder does not probe. Its queued transport needs queue ABI 2
 # with per-image codec VP pools (avd-fw 6756ca99), and the T8122 (M3) device
@@ -184,6 +185,17 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Fri Nov 27 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-42
+- Pin aurora-silicon/linux main at a851ca0e (merge of linux#3236). 9125b314
+  was an 11-14 candidate outside main; its two G17 render-pool commits
+  are on main as linux#1946 and linux#1948. The pin brings two weeks of
+  merged fixes, among them linux#3133 (T6030 DCP on firmware 27.2),
+  linux#2533 (T8132 PMP on 27.2), linux#2189 (M4 Air display DART),
+  linux#2576 (M3 Air MTP), linux#3177 (M2 mini AFK display services),
+  linux#3182 (G14 firmware 27.2 pool lifetime) and linux#3236 (DCP
+  DisplayPort service endpoint).
+- Require aura 1.0.0b17, the Stage 2 these device trees are qualified with.
+
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-41
 - Require avd-fw 0.1-3 or later, so a kernel installed or upgraded on its
   own always has the video decoder firmware it loads (queue ABI 2 with
