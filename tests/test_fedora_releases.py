@@ -198,6 +198,18 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(old['check-firmware.py'].read_bytes(), new['check-firmware.py'].read_bytes())
         self.assertIn('python3 %{SOURCE1} build', new['avd-fw.spec'].read_text())
 
+    def test_platform_core_installs_both_avd_packages_without_the_kernel(self):
+        for fedora in (44, 45):
+            with self.subTest(fedora=fedora):
+                files = fedoralib.recipe_files(ROOT, 'aurora-platform', fedora)
+                spec = files['aurora-platform.spec'].read_text()
+                core = spec.split('\n%package core\n', 1)[1].split('\n%description core\n', 1)[0]
+                requires = {name for value in re.findall(r'(?m)^Requires:\s+(.*)$', for_fedora(core, fedora))
+                            for name in value.split()}
+                self.assertIn('avd-fw', requires)
+                self.assertIn('libva-v4l2-request-avd', requires)
+                self.assertNotIn('kernel-aurora', requires)
+
     def test_kernel_requires_the_avd_firmware_that_fits_the_t8122_sram_window(self):
         # linux#2586 maps the T8122 (M3) CM3 SRAM at +0x90000, which only the
         # 64 KiB v4 image of avd-fw ea8ae7c8 fits; the older 0x12000-byte image
