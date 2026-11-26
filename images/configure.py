@@ -40,7 +40,7 @@ PACKAGES = {
         # Flatpak apps load GL and Vulkan from the runtime's GL extension, not
         # the host: without GL.aurora they run Flathub's GL.default Mesa.
         "aurora-flatpak-gl",
-        "aurora-firmware", "avd-fw", "libva-v4l2-request-avd", "upower", "alsa-ucm-conf-aurora", "aurora-audio", "speakerguardd",
+        "aurora-firmware", "avd-fw", "libva-v4l2-request-avd", "libavcodec-freeworld", "upower", "alsa-ucm-conf-aurora", "aurora-audio", "speakerguardd",
         "speakersafetyd-aurora-profiles",
         # Fedora's SSH server, on every profile; aurora-release presets it off.
         "openssh-server",
@@ -235,8 +235,13 @@ def prepare(source, destination, profile, repository_url, key, fingerprint, lock
             node.set("from", "this://./repositories/aurora.xml")
     write_xml(tree, destination / "config.xml")
 
+    packages_by_component = PACKAGES.copy()
+    if lock["fedora_release"] == "45":
+        component = "components/desktop-environments.xml"
+        desktop_profile, desktop_packages = packages_by_component[component]
+        packages_by_component[component] = (desktop_profile, [*desktop_packages, "aurora-mpv-defaults"])
     for (name, (selected_profile, packages)), tag in [
-            *((item, "package") for item in PACKAGES.items()),
+            *((item, "package") for item in packages_by_component.items()),
             *((item, "ignore") for item in EXCLUDED.items())]:
         path = destination / name
         tree = ET.parse(path)
@@ -397,7 +402,7 @@ exit 0
                    "root_label": "AURORA_ROOT",
                    "root_subvolume": "root", "home_subvolume": "home",
                    "boot_manager": "grub2", "initramfs": "dracut"},
-        "packages": {name: packages for name, (_, packages) in PACKAGES.items()},
+        "packages": {name: packages for name, (_, packages) in packages_by_component.items()},
         "excluded_packages": {name: packages for name, (_, packages) in EXCLUDED.items()},
         "build_command": ["kiwi-ng", "--target-arch=aarch64", "--type=oem", f"--profile={PROFILES[profile]}",
                           "system", "build", "--description", str(destination.resolve()),

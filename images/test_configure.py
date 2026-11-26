@@ -140,6 +140,7 @@ class ConfigureTests(unittest.TestCase):
                 self.assertIn("mesa-aurora-vulkan-drivers", names)
                 self.assertIn("aurora-flatpak-gl", names)
                 self.assertIn("libva-v4l2-request-avd", names)
+                self.assertIn("libavcodec-freeworld", names)
                 exclusions = {n.get("name") for p in out.rglob("*.xml")
                               for n in ET.parse(p).getroot().iter("ignore")}
                 self.assertTrue(set(configure.STOCK_FIRMWARE) <= exclusions)
@@ -443,6 +444,20 @@ class ConfigureTests(unittest.TestCase):
         self.assertLessEqual({"gamemode", "aurora-gamemode"}, desktop_packages)
         base = ET.parse(output / "components/base.xml").getroot()
         self.assertFalse({"gamemode", "aurora-gamemode"} & {n.get("name") for n in base.iter("package")})
+
+    def test_mpv_defaults_are_fedora_45_desktop_only(self):
+        component = "components/desktop-environments.xml"
+        for release in ("44", "45"):
+            with self.subTest(release=release):
+                output = self.root / f"mpv-{release}"
+                receipt = self.prepare(output, lock={**self.lock, "fedora_release": release})
+                groups = ET.parse(output / component).iter("packages")
+                profiles = [group.get("profiles") for group in groups
+                            if group.find("package[@name='aurora-mpv-defaults']") is not None]
+                self.assertEqual(profiles, ["DesktopCommon"] if release == "45" else [])
+                self.assertEqual("aurora-mpv-defaults" in receipt["packages"][component], release == "45")
+                base = ET.parse(output / "components/base.xml")
+                self.assertIsNone(base.find(".//package[@name='aurora-mpv-defaults']"))
 
     def test_image_rejects_a_stale_kernel_before_export(self):
         output = self.root / "kernel-gate"

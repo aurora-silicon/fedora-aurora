@@ -83,6 +83,7 @@ class IncompleteSnapshot(ValueError):
 # the repository serves.
 REQUIRED_TOGETHER = {
     'firefox': (('firefox', 'aarch64'), ('firefox-langpacks', 'aarch64')),
+    'ffmpeg': (('libavcodec-free', 'aarch64'), ('libavcodec-freeworld', 'aarch64')),
 }
 
 

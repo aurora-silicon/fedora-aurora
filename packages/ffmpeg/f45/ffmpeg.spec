@@ -8,6 +8,7 @@
 # We can't handle this with a conditional, as srpm
 # generation would not take it into account.
 %global pkg_suffix -free
+%global basepkg_suffix -free
 
 # For alternative builds (do not enable in Fedora!)
 %bcond freeworld_lavc 0
@@ -17,7 +18,6 @@
 %global with_all_codecs 1
 # Freeworld builds do not need a package suffix
 %global pkg_suffix %{nil}
-%global basepkg_suffix -free
 %endif
 
 # Fails due to asm issue
@@ -100,7 +100,7 @@ Name:           ffmpeg
 %global pkg_name %{name}%{?pkg_suffix}
 
 Version:        9.0.2
-Release:        4%{?dist}.aurora1
+Release:        4%{?dist}.aurora2
 Summary:        A complete solution to record, convert and stream audio and video
 License:        GPL-3.0-or-later
 URL:            https://ffmpeg.org/
@@ -671,24 +671,23 @@ This subpackage contains the headers for FFmpeg libswscale.
 
 %dnl --------------------------------------------------------------------------------
 
-%if %{with freeworld_lavc}
+%if %{with freeworld_lavc} || %{without all_codecs}
 %package -n libavcodec-freeworld
 Summary:        FFmpeg codec library - freeworld overlay
-Requires:       libavutil%{?basepkg_suffix}%{_isa} >= %{version}-%{release}
-Requires:       libswresample%{?basepkg_suffix}%{_isa} >= %{version}-%{release}
-Supplements:    libavcodec%{?basepkg_suffix}%{_isa} >= %{version}-%{release}
-# We require libopenh264 library, which has a dummy implementation and a real one
-# In the event that this is being installed, we want to install this version
-Requires:       openh264%{_isa}
-# Avoid installing mismatched -free and -freeworld builds
-Conflicts:      libavcodec-free%{_isa} < %{version}
+Provides:       aurora-avd-codecs = %{version}-%{release}
+Requires:       libavcodec%{?basepkg_suffix}%{_isa} = %{version}-%{release}
+Requires:       libavutil%{?basepkg_suffix}%{_isa} = %{version}-%{release}
+Requires:       libswresample%{?basepkg_suffix}%{_isa} = %{version}-%{release}
+Supplements:    libavcodec%{?basepkg_suffix}%{_isa} = %{version}-%{release}
+# Native H.264 decoding uses no OpenH264 implementation. RPM still records
+# the OpenH264 library ABI dependency for the existing FFmpeg wrapper.
 
 %description -n libavcodec-freeworld
 The libavcodec library provides a generic encoding/decoding framework
 and contains multiple decoders and encoders for audio, video and
 subtitle streams, and several bitstream filters.
 
-This build includes the full range of codecs offered by ffmpeg.
+This build includes native H.264 and HEVC decoding and Aurora's V4L2 codecs.
 
 %files -n libavcodec-freeworld
 %{_sysconfdir}/ld.so.conf.d/%{name}-%{_lib}.conf
@@ -717,7 +716,8 @@ cp -a doc/examples/{*.c,Makefile,README} _doc/examples/
 %set_build_flags
 
 # This is not a normal configure script, don't use %%configure
-./configure \
+configure_ffmpeg() {
+    ./configure \
     --prefix=%{_prefix} \
     --bindir=%{_bindir} \
     --datadir=%{_datadir}/%{name} \
@@ -900,16 +900,6 @@ cp -a doc/examples/{*.c,Makefile,README} _doc/examples/
     --enable-vulkan \
     --enable-xlib \
     --enable-zlib \
-%if %{without all_codecs}
-    --enable-muxers \
-    --enable-demuxers \
-    --enable-hwaccels \
-    --disable-encoders \
-    --disable-decoders \
-    --disable-decoder="h264,hevc,vc1,vvc" \
-    --enable-encoder="$(perl -pe 's{^(\w*).*}{$1,}gs' <enable_encoders)" \
-    --enable-decoder="$(perl -pe 's{^(\w*).*}{$1,}gs' <enable_decoders)" \
-%endif
 %ifarch %{power64}
 %ifarch ppc64
     --cpu=g5 \
@@ -939,7 +929,26 @@ cp -a doc/examples/{*.c,Makefile,README} _doc/examples/
     --enable-neon \
 %endif
 %endif
-    || cat ffbuild/config.log
+    "$@" || { cat ffbuild/config.log; return 1; }
+}
+
+restricted_options=()
+%if %{without all_codecs}
+restricted_options=(
+    --enable-muxers
+    --enable-demuxers
+    --enable-hwaccels
+    --disable-encoders
+    --disable-decoders
+    --disable-decoder="h264,hevc,vc1,vvc"
+    --enable-encoder="$(perl -pe 's{^(\w*).*}{$1,}gs' <enable_encoders)"
+    --enable-decoder="$(perl -pe 's{^(\w*).*}{$1,}gs' <enable_decoders)"
+)
+codec_source=$(mktemp -d "$PWD-aurora-codecs.XXXXXXXX")
+cp -a --reflink=auto . "$codec_source"
+printf '%s\n' "$codec_source" > .aurora-codec-source
+%endif
+configure_ffmpeg "${restricted_options[@]}"
 
 cat config.h
 cat config_components.h
@@ -965,6 +974,21 @@ done
 for i in DECODER ENCODER; do
     grep -q "#define CONFIG_PRORES_V4L2M2M_${i} 1" config_components.h
 done
+%if %{with freeworld_lavc} || %{without all_codecs}
+(
+%if %{without all_codecs}
+    cd "$codec_source"
+    configure_ffmpeg --disable-programs --disable-doc
+%endif
+    for codec in H264 HEVC VP9; do
+        grep -q "#define CONFIG_${codec}_DECODER 1" config_components.h
+        grep -q "#define CONFIG_${codec}_VAAPI_HWACCEL 1" config_components.h
+    done
+    for direction in DECODER ENCODER; do
+        grep -q "#define CONFIG_PRORES_V4L2M2M_${direction} 1" config_components.h
+    done
+)
+%endif
 
 %build
 %set_build_flags
@@ -972,6 +996,10 @@ done
 %make_build V=1
 %make_build documentation V=1
 %make_build alltools V=1
+%if %{without all_codecs}
+codec_source=$(cat .aurora-codec-source)
+%make_build -C "$codec_source" V=1 libavcodec/libavcodec.so
+%endif
 
 %install
 %make_install V=1
@@ -979,11 +1007,16 @@ done
 # We will package is as %%doc in the devel package
 rm -rf %{buildroot}%{_datadir}/%{name}/examples
 
-%if %{with freeworld_lavc}
+%if %{with freeworld_lavc} || %{without all_codecs}
 # Install the libavcodec freeworld counterpart
 mkdir -p %{buildroot}%{_sysconfdir}/ld.so.conf.d/
 mkdir -p %{buildroot}%{_libdir}/%{name}
 echo -e "%{_libdir}/%{name}\n" > %{buildroot}%{_sysconfdir}/ld.so.conf.d/%{name}-%{_lib}.conf
+%if %{without all_codecs}
+codec_source=$(cat .aurora-codec-source)
+make -C "$codec_source" V=1 SHLIBDIR="$codec_source/.aurora-install" install-libavcodec-shared
+cp -pa "$codec_source"/.aurora-install/libavcodec.so.%{av_codec_soversion}{,.*} %{buildroot}%{_libdir}/%{name}
+%else
 cp -pa %{buildroot}%{_libdir}/libavcodec.so.%{av_codec_soversion}{,.*} %{buildroot}%{_libdir}/%{name}
 # Drop unneeded stuff
 rm -f %{buildroot}%{_libdir}/*.*
@@ -992,9 +1025,13 @@ rm -rf %{buildroot}%{_includedir}
 rm -rf %{buildroot}%{_bindir}
 rm -rf %{buildroot}%{_datadir}
 %endif
+%endif
 
 
 %changelog
+* Tue Nov 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 9.0.2-4.aurora2
+- Build the Aurora codec overlay with the same V4L2 mem2mem codecs and VA-API support.
+
 * Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 9.0.2-4.aurora1
 - Rebuild of Fedora 45's ffmpeg-9.0.2-4
 - Add the prores_v4l2m2m decoder and encoder (V4L2 mem2mem ProRes, the
