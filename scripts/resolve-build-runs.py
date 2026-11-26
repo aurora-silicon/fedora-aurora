@@ -9,8 +9,9 @@ without one are carried from the base snapshot by assemble-repository.py,
 which still requires the current spec's exact source NVR. Nothing is
 downloaded here.
 
-`action` is `publish` when some chosen build is not in any published
-snapshot yet, otherwise `up-to-date`.
+`action` is `missing` if a current recipe has neither an eligible build nor
+matching inputs in the base snapshot. When the set is complete, the plan
+publishes changed inputs or a newly selected build.
 """
 import argparse
 import datetime
@@ -108,6 +109,30 @@ def published_runs(repository, limit=30, fedora=44):
     return found, (snapshots[0]['tag_name'] if snapshots else None)
 
 
+def changed_snapshot_recipes(root, snapshot, fedora):
+    """Find current recipes whose selected inputs differ from the snapshot tag."""
+    base = f'refs/tags/{snapshot}'
+    previous = lib.json_at(root, base, 'sources.json')
+    overlay = f'f{fedora}'
+    if fedora != 44:
+        base_files = lib.git(root, 'ls-tree', '-r', '--name-only', '-z', base, '--', 'packages')
+        for path in base_files.split('\0'):
+            if re.fullmatch(rf'packages/[^/]+/{overlay}/sources\.json', path):
+                previous.update(lib.json_at(root, base, path))
+    current = fedoralib.sources(root, fedora)
+    changed = {name for name in previous.keys() | current.keys() if previous.get(name) != current.get(name)}
+    paths = lib.git(root, 'diff', '--name-only', '--no-renames', '-z', base, 'HEAD', '--', 'packages')
+    for path in paths.split('\0'):
+        parts = path.split('/')
+        if len(parts) == 3:
+            _, name, filename = parts
+            if fedora == 44 or not (root / 'packages' / name / overlay / filename).is_file():
+                changed.add(name)
+        elif fedora != 44 and len(parts) == 4 and parts[2] == overlay:
+            changed.add(parts[1])
+    return changed
+
+
 def resolve(root, repository, runs, artifacts_for, published=frozenset(), base_release=None, fedora=44):
     fedora = fedoralib.release(fedora)
     if base_release:
@@ -127,15 +152,15 @@ def resolve(root, repository, runs, artifacts_for, published=frozenset(), base_r
             if artifact:
                 chosen[name] = {'run': run['id'], 'head_sha': run['head_sha'], 'artifact': artifact['id'],
                                 'digest': artifact['digest'], 'bytes': artifact['size_in_bytes']}
-    carried = [name for name in wanted if name not in chosen]
-    if all(item['run'] in published for item in chosen.values()):
-        # Nothing newer than the published snapshots; with no snapshot at all
-        # every package needs a build.
-        action = 'up-to-date' if base_release else 'missing'
-    elif carried and not base_release:
+    changed = changed_snapshot_recipes(root, base_release, fedora) & set(wanted) if base_release else set(wanted)
+    rebuild = sorted(changed - chosen.keys())
+    carried = [name for name in wanted if name not in chosen and name not in changed]
+    if rebuild:
         action = 'missing'
-    else:
+    elif changed or any(item['run'] not in published for item in chosen.values()):
         action = 'publish'
+    else:
+        action = 'up-to-date'
     groups = {}
     for name, item in chosen.items():
         groups.setdefault(item['run'], []).append(name)
@@ -143,7 +168,7 @@ def resolve(root, repository, runs, artifacts_for, published=frozenset(), base_r
             'base_release': base_release, 'packages': chosen, 'carried': carried,
             **({'fedora': fedora} if fedora != 44 else {}),
             'runs': [{'run': run, 'packages': sorted(names)} for run, names in sorted(groups.items())],
-            'rebuild': carried if action == 'missing' else []}
+            'rebuild': rebuild}
 
 
 def main():

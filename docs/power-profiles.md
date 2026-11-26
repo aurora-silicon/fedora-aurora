@@ -96,6 +96,14 @@ out) has macOS's optional "Low Power Mode on battery" setting (default
 
 ## Distribution parity
 
+Fedora systems installed with `power-profiles-daemon` instead of `tuned-ppd`
+receive Aurora's `power-profiles-daemon` build (`0.30-4.aurora1` on Fedora 45,
+`0.30-3.aurora1` on Fedora 44), which carries the same
+`/sys/class/platform-profile` fallback patch as ALARM and NixOS so GNOME
+exposes all three kernel platform-profile modes (`Power Saver`, `Balanced`,
+`Performance`) through `apple-clpc` instead of falling back to two placeholder
+profiles. Systems using `tuned-ppd` are unaffected.
+
 ALARM and NixOS use power-profiles-daemon rather than tuned-ppd. Its current
 Apple path has no Apple CPU/platform-profile driver. The placeholder path
 provides no equivalent CPU performance tuning and does not pin CPU clocks.

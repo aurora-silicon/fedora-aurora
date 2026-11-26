@@ -74,7 +74,7 @@ Version:        %{majorversion}.%{minorversion}.%{microversion}
 # Fedora's release plus a suffix, so this sorts above the Fedora 1.6.9 build
 # it replaces (1.fc44 < 1.fc44.aurora5). Hold it with a versionlock: a newer
 # Fedora PipeWire would replace it and drop these patches.
-Release:        %{baserelease}%{?snapdate:.%{snapdate}git%{shortcommit}}%{?dist}.aurora1
+Release:        %{baserelease}%{?snapdate:.%{snapdate}git%{shortcommit}}%{?dist}.aurora2
 Vendor:         Aurora Silicon
 # PipeWire is generally MIT but includes plugins using libraries under other licenses.
 # See the module specific License for details.
@@ -125,6 +125,10 @@ Patch1009:      1009-alsa-put-the-ELD-product-name-on-HDMI-DP-nodes.patch
 # stream marked prepared, so every later start skipped the silence prefill
 # and failed with -EPIPE until PipeWire restarted: prepare it again.
 Patch1010:      1010-alsa-prepare-a-stream-again-after-its-start-failed.patch
+# The ELD of a display often reaches ALSA after its node was announced
+# (hotplug, or a display read after PipeWire started): announce the node
+# again when its monitor name arrives, so the sink is named after it.
+Patch1011:      1011-alsa-announce-an-HDMI-DP-node-again-when-its-monitor.patch
 
 ## upstream patches
 
@@ -982,6 +986,10 @@ systemctl --no-reload preset --global pipewire.socket >/dev/null 2>&1 || :
 %{_datadir}/pipewire/pipewire.conf.d/50-raop.conf
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.6.11-1.aurora2
+- alsa: announce an HDMI/DP node again when its ELD monitor name arrives
+  after the node was created (Patch1011)
+
 * Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.6.11-1.aurora1
 - Update to 1.6.11 (Fedora 1.6.10-1, 1.6.11-1); the eleven Aurora patches
   apply unchanged

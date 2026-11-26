@@ -194,7 +194,7 @@ ExcludeArch: i686
 Summary:        Mozilla Firefox Web browser
 Name:           firefox
 Version:        161.0
-Release:        1%{?dist}.aurora3
+Release:        1%{?dist}.aurora4
 URL:            https://www.mozilla.org/firefox/
 # Automatically converted from old format: MPLv1.1 or GPLv2+ or LGPLv2+ - review is highly recommended.
 License:        LicenseRef-Callaway-MPLv1.1 OR GPL-2.0-or-later OR LicenseRef-Callaway-LGPLv2+
@@ -272,6 +272,10 @@ Patch900:       rdd-v4l2-request.patch
 BuildRequires:  kernel-headers >= 6.5
 # Aurora: Wayland SHM video textures are Texture2D (Mozilla bug 2084900 backport)
 Patch901:       wayland-shm-texture2d.patch
+# Aurora: admit Borealis (VK_DRIVER_ID_AURORA_BOREALIS = 35) in wgpu-hal for WebGPU
+Patch902:       wgpu-borealis-adapter.patch
+# Aurora: recognize Mesa AGX GL_RENDERER in WebGL SanitizeRenderer
+Patch903:       sanitize-agx-renderer.patch
 
 %if %{?system_nss}
 BuildRequires:  pkgconfig(nspr) >= %{nspr_version}
@@ -558,6 +562,9 @@ patch -p1 -b --suffix .wasi < wasi.patch
 
 %patch -P900 -p1 -b .rdd-v4l2-request
 %patch -P901 -p1 -b .wayland-shm-texture2d
+%patch -P902 -p1 -b .wgpu-borealis-adapter
+%patch -P903 -p1 -b .sanitize-agx-renderer
+python3 -c 'import hashlib,json,pathlib; p=pathlib.Path("third_party/rust/wgpu-hal/.cargo-checksum.json"); d=json.loads(p.read_text()); d["files"]["src/vulkan/adapter.rs"]=hashlib.sha256(pathlib.Path("third_party/rust/wgpu-hal/src/vulkan/adapter.rs").read_bytes()).hexdigest(); p.write_text(json.dumps(d))'
 
 rm -f .mozconfig
 cp %{SOURCE10} .mozconfig
@@ -1060,6 +1067,7 @@ cp failures-* %{buildroot}/%{version}-%{release}/ || true
 
 # Default
 cp %{SOURCE12} %{buildroot}%{mozappdir}/browser/defaults/preferences
+echo 'pref("dom.webgpu.enabled", true);' >> %{buildroot}%{mozappdir}/browser/defaults/preferences/firefox-redhat-default-prefs.js
 
 %if %{?use_pipewire_camera}
 echo 'pref("media.webrtc.camera.allow-pipewire", true);' >> %{buildroot}%{mozappdir}/browser/defaults/preferences/firefox-redhat-default-prefs.js
@@ -1193,7 +1201,7 @@ fi
 #---------------------------------------------------------------------
 
 %changelog
-* Mon Nov 23 2026 Aurora Silicon <hey@djdev.me> - 161.0-1.aurora3
+* Mon Nov 23 2026 Aurora Silicon <hey@djdev.me> - 161.0-1.aurora4
 - Rebuild of Fedora's firefox-161.0-1.
 - Allow V4L2 stateless (Request API) decoders in the RDD sandbox.
 - Allow sysinfo in the RDD sandbox, so Mesa's zink driver can create the
@@ -1204,6 +1212,10 @@ fi
 - Tag SHM video frames on the Wayland WebRender compositor path as Texture2D
   (backport from Mozilla bug 2084900): fixes the parent-process panic
   "ps_quad_textured TEXTURE_RECT variant not loaded" on GLES with HDR on.
+- Admit Borealis (VK_DRIVER_ID_AURORA_BOREALIS, driver ID 35) in wgpu-hal and
+  enable dom.webgpu.enabled by default for hardware WebGPU on Apple Silicon.
+- Recognize Mesa's "AGX" GL_RENDERER prefix in WebGL SanitizeRenderer to
+  eliminate GraphicsCriticalError annotations on every WebGL page.
 
 * Mon Nov 23 2026 Martin Stransky <stransky@redhat.com> - 161.0-1
 - Update to latest upstream (161.0)

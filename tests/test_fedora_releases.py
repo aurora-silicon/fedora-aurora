@@ -58,6 +58,7 @@ def plan_fixture(resolver, fedora=44):
                  for f in (44, 45) for i, n in enumerate(names, start=f)}
     with patch.object(resolver, 'packages', return_value=names), \
          patch.object(resolver, 'eligible_packages', return_value=set(names)), \
+         patch.object(resolver, 'changed_snapshot_recipes', return_value=set()), \
          patch.object(resolver.lib, 'git', return_value='1' * 40):
         args = {} if fedora == 44 else {'fedora': fedora}
         plan = resolver.resolve(ROOT, 'aurora-silicon/fedora-aurora', [{'id': 123, 'head_sha': '2' * 40}],

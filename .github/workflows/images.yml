@@ -5,8 +5,8 @@ on:
       profile:
         description: Installation profile
         type: choice
-        options: [fedora-minimal, fedora-kde, fedora-gnome]
-        default: fedora-minimal
+        options: [fedora-gnome, fedora-kde, fedora-minimal]
+        default: fedora-gnome
       channel:
         description: Update channel the installed system follows (testing keeps today's repository URL)
         type: choice
@@ -18,8 +18,8 @@ on:
       fedora-release:
         description: Fedora release of the image (45 supports testing and Edge)
         type: choice
-        options: ['44', '45']
-        default: '44'
+        options: ['45', '44']
+        default: '45'
 permissions:
   contents: read
 defaults:
@@ -79,7 +79,7 @@ jobs:
         env:
           PROFILE: ${{ inputs.profile }}
           CHANNEL: ${{ inputs.channel || 'testing' }}
-          FEDORA_RELEASE: ${{ inputs.fedora-release || '44' }}
+          FEDORA_RELEASE: ${{ inputs.fedora-release || '45' }}
         run: |
           set -euo pipefail
           [[ $FEDORA_RELEASE == 44 || $FEDORA_RELEASE == 45 ]]

@@ -1,7 +1,7 @@
-%global commit 168fcb3852ce2562cda9de90ca9315733e0ab5f6
+%global commit 32f232c6abc4d4bf1f88d3d104a97020b1bf5d42
 Name: aurora-diag
 Version: 0.5.0
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Bring-up diagnostics for Apple silicon Macs (development only)
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-diag
@@ -47,6 +47,9 @@ make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
 %{_datadir}/applications/org.aurorasilicon.Diag.desktop
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.5.0-2
+- Refresh to aurora-diag 32f232c6 (interrupt diagnostics and fixes).
+
 * Thu Nov 12 2026 Aurora Silicon <ryan@aurorasilicon.org> - 0.5.0-1
 - Initial package: aurora-diag 0.5.0 and aurora-panic-log, opt-in.
 - aurora-diag status: kernel, fleet tag, boot chain and firmware versions,

@@ -215,10 +215,12 @@ jobs:
             ' assemble "${options[@]}"; then
             status=complete
           elif [[ -s missing-packages.txt ]]; then
+            missing=$(cat missing-packages.txt)
             echo 'status=missing' >> "$GITHUB_OUTPUT"
-            echo "rebuild=$(cat missing-packages.txt)" >> "$GITHUB_OUTPUT"
-            echo "Packages without a current build: $(cat missing-packages.txt)" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+            echo "rebuild=$missing" >> "$GITHUB_OUTPUT"
+            echo "Testing snapshot rejected. Packages without a current build: $missing" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Testing snapshot rejected::Wait for a successful native main build of: $missing"
+            exit 1
           else
             exit 1
           fi
