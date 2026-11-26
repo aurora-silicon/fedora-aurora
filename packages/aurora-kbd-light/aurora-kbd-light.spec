@@ -1,7 +1,7 @@
-%global commit 72c3bb35f28d60fbc2e6db0eb8933a669832f16f
+%global commit 6a29bb1fb301209a5ed8e56d25b1756ccbfefa35
 Name: aurora-kbd-light
 Version: 0.1.0
-Release: 3%{?dist}
+Release: 4%{?dist}
 Summary: Keyboard backlight that follows the ambient light sensor
 License: MIT
 URL: https://github.com/aurora-silicon/kbd-light
@@ -49,6 +49,10 @@ install -Dm644 %{SOURCE2} %{buildroot}%{_udevrulesdir}/90-aurora-kbd-light.rules
 %{_udevrulesdir}/90-aurora-kbd-light.rules
 
 %changelog
+* Fri Nov 27 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-4
+- Turn the keyboard backlight off after 30 seconds without keyboard activity.
+- Count a nonzero manual brightness adjustment as activity.
+
 * Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.0-3
 - Move to kbd-light 72c3bb35 (kbd-light#1), as Arch Linux ARM ships since
   alarm-aurora#336: optional idle dimming. With AURORA_KBD_LIGHT_IDLE_SECONDS
