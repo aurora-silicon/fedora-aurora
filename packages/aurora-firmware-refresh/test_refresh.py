@@ -1,17 +1,16 @@
 # SPDX-License-Identifier: MIT
 import contextlib
+import hashlib
 import io
 import json
 from pathlib import Path
 import tarfile
 import tempfile
 import unittest
-from unittest import mock
 
 from asahi_firmware.core import FWFile, FWPackage
 from aurora_wifi_firmware import Refused, tree_hashes
-import refresh as refresh_module
-from refresh import manifest, refresh, sha256
+from refresh import manifest, refresh
 
 KVER = "6.18.4-400.aurora.fc44.aarch64"
 FAKE_SECBOOT = """#!/bin/sh
@@ -25,7 +24,7 @@ esac
 
 
 def archive_pin(esp):
-    return "sha256:" + sha256((esp / "vendorfw" / "firmware.cpio").read_bytes()) + "\n"
+    return "sha256:" + hashlib.sha256((esp / "vendorfw" / "firmware.cpio").read_bytes()).hexdigest() + "\n"
 
 
 def edit_tar(path, name, data):
@@ -132,85 +131,63 @@ class SecureBootTest(Case):
         log = self.secboot / "hooks"
         return log.read_text().splitlines() if log.exists() else []
 
-    def refused(self, why):
+    def refused(self):
         hashes = tree_hashes(self.vendor)
-        with self.assertRaisesRegex(Refused, why):
+        with self.assertRaisesRegex(Refused, f"remove {self.pin} and run aurora-firmware-refresh again"):
             self.refresh()
         self.assertEqual(tree_hashes(self.vendor), hashes)
+        self.assertFalse(self.backup.exists())
         self.assertEqual(self.hooks(), [])
 
-    def test_refresh_pins_the_archive_it_built_and_rebuilds_each_uki(self):
-        self.assertEqual(self.refresh(check=True), 1)
-        self.assertEqual(self.pin.read_text(), self.old)
-        self.assertEqual(self.refresh(), 1)
-        self.assertNotEqual(archive_pin(self.esp), self.old)
-        self.assertEqual(self.pin.read_text(), archive_pin(self.esp))
-        self.assertEqual(self.pin.stat().st_mode & 0o777, 0o600)
-        self.assertEqual(sorted(p.name for p in self.keys.iterdir()), ["vendorfw.sha256"])
-        self.assertEqual(self.hooks(), [f"hook add {KVER}"])
-        self.assertIn("asahi/all_firmware.tar.gz), which nothing can check", self.output)
+    def test_a_pin_in_place_refuses_the_refresh_and_changes_nothing(self):
+        # What a refresh adds comes from the ESP, which nothing can check; the
+        # pin follows only verified files, so the owner must remove it.
+        for pinned in [self.old, "none\n"]:
+            with self.subTest(pin=pinned):
+                self.pin.write_text(pinned)
+                self.refused()
+                self.assertEqual(self.pin.read_text(), pinned)
 
-    def test_an_edited_firmware_tar_is_not_built_on(self):
-        # Boots use only firmware.cpio, so an edited firmware.tar goes unnoticed
-        # until a rebuild keeps its files; then the pin would bless them.
+    def test_an_edited_esp_is_refused_too(self):
         edit_tar(self.vendor / "firmware.tar", "apple/audio-tuning/unit.bin", b"planted")
-        self.refused("firmware.tar does not hold what the pinned firmware.cpio holds")
+        self.refused()
         self.assertEqual(self.pin.read_text(), self.old)
 
-    def test_an_archive_signed_boots_refuse_is_not_built_on(self):
-        with open(self.vendor / "firmware.cpio", "ab") as archive:
-            archive.write(bytes(4))
-        self.refused("is not the archive aurora-secboot's pin names")
+    def test_a_preview_says_why_a_refresh_would_be_refused(self):
+        hashes = tree_hashes(self.vendor)
+        self.assertEqual(self.refresh(check=True), 1)
+        self.assertIn(f"Secure boot: aurora-secboot's vendor firmware pin {self.pin} is in place", self.output)
+        self.assertEqual(tree_hashes(self.vendor), hashes)
         self.assertEqual(self.pin.read_text(), self.old)
 
-    def test_an_edited_manifest_is_not_built_on(self):
-        listing = self.vendor / "manifest.txt"
-        listing.write_text(listing.read_text().replace("FILE apple/audio-tuning/unit.bin", "FILE apple/x.bin"))
-        self.refused("is not the manifest in the pinned firmware.cpio")
-
-    def test_a_pinned_none_is_not_replaced(self):
-        # The owner pinned no archive; a new one needs them to remove the pin.
-        self.pin.write_text("none\n")
-        self.refused("not an archive digest")
-        self.assertEqual(self.pin.read_text(), "none\n")
-
-    def test_an_esp_that_changes_after_the_commit_is_not_pinned(self):
-        real = refresh_module.commit
-
-        def commit_then_swap(*args, **kwargs):
-            real(*args, **kwargs)
-            (self.vendor / "firmware.cpio").write_bytes(b"swapped")
-
-        with mock.patch.object(refresh_module, "commit", side_effect=commit_then_swap), \
-                self.assertRaisesRegex(Refused, "not the one this refresh built"):
-            self.refresh()
-        self.assertEqual(self.pin.read_text(), self.old)
-        self.assertEqual(self.hooks(), [])
-
-    def test_failed_rebuild_names_the_command(self):
-        self.fail_hooks(True)
-        with self.assertRaisesRegex(Refused, f"'aurora-secboot hook add {KVER}' succeeds"):
-            self.refresh()
-        self.assertEqual(self.pin.read_text(), archive_pin(self.esp))
-
-    def test_without_a_pin_only_the_ukis_are_rebuilt(self):
-        # aurora-secboot pins on its next build.
+    def test_after_the_owner_removes_the_pin_the_ukis_are_rebuilt(self):
+        # Removing the pin is the owner's explicit acceptance; aurora-secboot
+        # then pins the new archive on the UKI build, not this tool.
         self.pin.unlink()
         self.assertEqual(self.refresh(), 1)
+        self.assertNotEqual(archive_pin(self.esp), self.old)
         self.assertFalse(self.pin.exists())
         self.assertEqual(self.hooks(), [f"hook add {KVER}"])
 
-    def test_unconfigured_secure_boot_or_another_esp_is_left_alone(self):
-        self.status(present=False)
-        self.assertEqual(self.refresh(), 1)
-        self.assertEqual(self.pin.read_text(), self.old)
-        other = self.root / "other-esp"
-        other.mkdir()
-        self.status(esp=other)
+    def test_failed_rebuild_names_the_command(self):
+        self.pin.unlink()
+        self.fail_hooks(True)
+        with self.assertRaisesRegex(Refused, f"'aurora-secboot hook add {KVER}' succeeds"):
+            self.refresh()
+
+    def left_alone(self):
         with contextlib.redirect_stderr(io.StringIO()):
-            refresh_module.rebind_secure_boot(self.esp, "0" * 64, cli=self.cli)
+            self.assertEqual(self.refresh(), 1)
         self.assertEqual(self.pin.read_text(), self.old)
         self.assertEqual(self.hooks(), [])
+
+    def test_unconfigured_secure_boot_is_left_alone(self):
+        self.status(present=False)
+        self.left_alone()
+
+    def test_secure_boot_on_another_esp_is_left_alone(self):
+        self.status(esp=self.root)
+        self.left_alone()
 
 
 if __name__ == "__main__":

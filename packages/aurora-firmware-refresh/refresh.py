@@ -3,13 +3,10 @@
 """Add firmware from the installer archive without replacing live files."""
 import argparse
 import fcntl
-import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import shutil
-import stat
 import subprocess
 import sys
 import tarfile
@@ -31,13 +28,6 @@ def manifest(directory):
 SECBOOT = "aurora-secboot"
 SECBOOT_PIN = "vendorfw.sha256"
 
-
-def sha256(data):
-    return hashlib.sha256(data).hexdigest()
-
-
-# The secure boot checks below match aurora-installer's aurora-wifi-firmware
-# (aurora-installer#248), which this package's pinned helpers predate.
 
 def secure_boot(esp, cli=SECBOOT, run=subprocess.run):
     """(aurora-secboot, its status) when it is set up for this ESP, else None."""
@@ -62,121 +52,19 @@ def secure_boot(esp, cli=SECBOOT, run=subprocess.run):
     return tool, status
 
 
-def read_pin(status):
-    """aurora-secboot's vendor firmware pin as the file holds it, or None
-    when nothing is pinned."""
-    try:
-        return (Path(status["key_dir"]) / SECBOOT_PIN).read_text().strip()
-    except FileNotFoundError:
-        return None
+def pin_path(status):
+    """aurora-secboot's vendor firmware pin, when one is in place, else None."""
+    path = Path(status["key_dir"]) / SECBOOT_PIN
+    return path if path.exists() else None
 
 
-def cpio_files(data):
-    """{name: (mode, bytes)} of the files in a newc archive, hard links
-    resolved; directories are left out and anything else is refused."""
-    entries, bodies, off = [], {}, 0
-    while True:
-        off = (off + 3) & ~3
-        head = data[off:off + 110]
-        if len(head) < 110 or head[:6] not in (b"070701", b"070702"):
-            raise Refused("firmware.cpio is not a newc archive")
-        try:
-            fields = [int(head[6 + 8 * i:14 + 8 * i], 16) for i in range(13)]
-            name = data[off + 110:off + 110 + fields[11] - 1].decode("ascii")
-        except ValueError:
-            raise Refused("firmware.cpio has a malformed header") from None
-        inode, mode, size = fields[0], fields[1], fields[6]
-        off = (off + 110 + fields[11] + 3) & ~3
-        if name == "TRAILER!!!":
-            return {n: (m, bodies[i]) for n, i, m in entries}
-        body = data[off:off + size]
-        if len(body) != size:
-            raise Refused("firmware.cpio is truncated")
-        off += size
-        if stat.S_ISDIR(mode):
-            continue
-        if not stat.S_ISREG(mode):
-            raise Refused(f"firmware.cpio holds {name}, which is not a file")
-        # A hard link's data is in one of its entries; the others are empty.
-        if size or inode not in bodies:
-            bodies[inode] = body
-        entries.append((name, inode, mode & 0o777))
-
-
-def tar_files(path):
-    """{name: (mode, bytes)} of firmware.tar's files, hard links resolved."""
-    out = {}
-    with tarfile.open(path) as archive:
-        for member in archive.getmembers():
-            if member.isdir():
-                continue
-            source, hops = member, 0
-            while source.islnk() and hops < 64:
-                source, hops = archive.getmember(source.linkname), hops + 1
-            if not source.isfile():
-                raise Refused(f"firmware.tar holds {member.name}, which is not a file")
-            out[member.name] = (source.mode & 0o777, archive.extractfile(source).read())
-    return out
-
-
-def check_vendorfw(vendorfw, pin):
-    """Refuse unless vendorfw/ is the package aurora-secboot's pin names:
-    firmware.cpio, the only part a signed boot uses, has the pinned digest,
-    and firmware.tar and manifest.txt, which the rebuild keeps files from,
-    hold what it holds."""
-    if not re.fullmatch(r"sha256:[0-9a-f]{64}", pin or ""):
-        raise Refused(f"aurora-secboot's vendor firmware pin is {pin or 'empty'!r}, not an archive digest: "
-                      "signed boots trust no archive, so a new one needs the owner to remove the pin")
-    try:
-        data = (vendorfw / "firmware.cpio").read_bytes()
-    except OSError as error:
-        raise Refused(f"cannot read {vendorfw / 'firmware.cpio'}: {error}") from None
-    if "sha256:" + sha256(data) != pin:
-        raise Refused(f"{vendorfw / 'firmware.cpio'} is not the archive aurora-secboot's pin names: "
-                      "signed boots refuse it, and nothing is built on it")
-    files = cpio_files(data)
-    _, packed = files.pop("vendorfw/.vendorfw.manifest", (None, None))
-    try:
-        if packed is None or (vendorfw / "manifest.txt").read_bytes() != packed:
-            raise Refused(f"{vendorfw / 'manifest.txt'} is not the manifest in the pinned firmware.cpio")
-        if {f"vendorfw/{k}": v for k, v in tar_files(vendorfw / "firmware.tar").items()} != files:
-            raise Refused(f"{vendorfw / 'firmware.tar'} does not hold what the pinned firmware.cpio holds")
-    except (OSError, KeyError, tarfile.TarError) as error:
-        raise Refused(f"{vendorfw} does not read as the pinned package: {error}") from None
-
-
-def rebind_secure_boot(esp, digest, *, cli=SECBOOT, run=subprocess.run):
-    """Make aurora-secboot's pin and UKIs name the firmware.cpio this
-    refresh built (digest). The pin is the only source of the binding a
-    signed boot checks, so it follows only that archive, and only when the
-    ESP holds exactly it; then each UKI is rebuilt, as kernel-install does.
-    Without a pin, aurora-secboot pins on its next build."""
-    secboot = secure_boot(esp, cli, run)
-    if secboot is None:
-        return
-    tool, status = secboot
-    pin = Path(status["key_dir"]) / SECBOOT_PIN
-    if read_pin(status) is not None:
-        try:
-            on_esp = sha256((esp / "vendorfw" / "firmware.cpio").read_bytes())
-        except OSError as error:
-            on_esp = f"unreadable ({error})"
-        if on_esp != digest:
-            raise Refused("the firmware is installed, but the ESP's firmware.cpio is not the one this refresh "
-                          "built, so it is not pinned: signed boots refuse it")
-        partial = pin.with_name(f".{SECBOOT_PIN}.new")
-        fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as file:
-            file.write(f"sha256:{digest}\n")
-            file.flush()
-            os.fsync(file.fileno())
-        os.replace(partial, pin)
-        print(f"Pinned the new vendor firmware for secure boot in {pin}.")
+def rebuild_ukis(tool, status, run=subprocess.run):
+    """kernel-install's aurora-secboot step for each UKI: it builds the UKI
+    and, on the secure path, the boot loader copy too. With no pin in place
+    (the owner removed it), the first build pins the ESP's archive."""
     for image in status.get("ukis", []):
         if not image.get("kernel"):
             continue
-        # The kernel-install hook: it builds the UKI and, on the secure
-        # path, the boot loader copy too.
         if run([tool, "hook", "add", image["kernel"]]).returncode:
             raise Refused(f"the firmware is installed, but the UKI of {image['kernel']} was not rebuilt; "
                           f"signed boots refuse the new firmware until 'aurora-secboot hook add "
@@ -190,15 +78,20 @@ def refresh(esp, *, check=False, backup_root=Path("/var/lib/aurora-rollback"),
     if not (source / "all_firmware.tar.gz").is_file():
         print("No installer firmware archive; keeping the current firmware.")
         return 0
-    # The rebuild keeps every file of the ESP's package, so on the secure
-    # path that package must be the one aurora-secboot pinned.
+    # A signed boot unpacks only the vendor firmware aurora-secboot's pin
+    # names, and the pin follows only verified files. What a refresh adds
+    # comes from the installer's archive on the ESP and the ESP's own
+    # package, which nothing can check, so with a pin in place the refresh
+    # changes nothing: removing the pin is the owner's explicit acceptance.
     secboot = secure_boot(esp, cli, run)
-    pin = read_pin(secboot[1]) if secboot else None
-    if pin is not None:
-        check_vendorfw(live, pin)
-        print("Secure boot: the files this adds come from the installer's archive on the ESP "
-              "(asahi/all_firmware.tar.gz), which nothing can check; refreshing trusts it, "
-              "and the pin follows the new firmware.cpio.")
+    pin = pin_path(secboot[1]) if secboot else None
+    refusal = (f"aurora-secboot's vendor firmware pin {pin} is in place, and a refresh adds files from the "
+               f"ESP (asahi/all_firmware.tar.gz and the current vendorfw/) that nothing can check, so it "
+               f"does not re-pin them and changes nothing. To accept what the ESP holds now, remove {pin} "
+               f"and run aurora-firmware-refresh again: it then rebuilds the UKIs, which pin the new "
+               f"archive.") if pin else None
+    if refusal and not check:
+        raise Refused(refusal)
     original = manifest(live)
     original_extras = package_extras(live)
     with tempfile.TemporaryDirectory(prefix="aurora-firmware-refresh-") as directory:
@@ -227,9 +120,10 @@ def refresh(esp, *, check=False, backup_root=Path("/var/lib/aurora-rollback"),
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(live / name, target)
         check_package(live, staged, added, added.__contains__)
-        built = sha256((staged / "firmware.cpio").read_bytes())
         if check:
             print(f"Would add {len(added)} firmware files and keep {len(original)}.")
+            if refusal:
+                print(f"Secure boot: {refusal}")
             return len(added)
 
         require_space(esp, tree_size(staged))
@@ -238,7 +132,8 @@ def refresh(esp, *, check=False, backup_root=Path("/var/lib/aurora-rollback"),
         copy_verified(live, backup / "vendorfw")
         commit(esp, [(staged, live)], backup)
         print(f"Added {len(added)} firmware files and kept {len(original)}.")
-        rebind_secure_boot(esp, built, cli=cli, run=run)
+        if secboot:
+            rebuild_ukis(*secboot, run=run)
         return len(added)
 
 

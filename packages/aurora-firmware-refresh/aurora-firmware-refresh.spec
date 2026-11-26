@@ -24,9 +24,9 @@ Use the Aurora installer's converter to add missing vendor firmware from
 this Mac's existing firmware archive. Keep the files already in use,
 including radio firmware and speaker tuning. Installing the RPM never
 rewrites the ESP. The package contains tools and no firmware.
-On the aurora-secboot secure path it builds only on the pinned package
-and pins what it built; the installer's archive it adds files from
-cannot be checked, so running a refresh trusts it.
+On the aurora-secboot secure path it changes nothing while a vendor
+firmware pin is in place, as the installer's archive it adds files from
+cannot be checked; removing the pin is the owner's explicit acceptance.
 
 %prep
 %setup -q -n aurora-installer-%{commit}
@@ -55,10 +55,11 @@ PYTHONPATH=%{buildroot}%{refreshdir} %{python3} -B %{SOURCE2}
 
 %changelog
 * Thu Nov 26 2026 DjDeveloperr <hey@djdev.me> - 20261125-2
-- On the aurora-secboot secure path, refuse unless the ESP's vendor
-  firmware package is the pinned one (firmware.cpio, firmware.tar and
-  manifest.txt), then pin the firmware.cpio this refresh built and
-  rebuild the UKIs, so signed boots accept it.
+- On the aurora-secboot secure path, with a vendor firmware pin in place,
+  refuse and change nothing: what a refresh adds comes from the ESP, which
+  nothing can check, and the pin follows only verified files. The owner
+  removes the pin to accept the ESP's content; the refresh then rebuilds
+  the UKIs, which pin the new archive.
 
 * Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261125-1
 - Refresh to aurora-installer 4085a62e.
