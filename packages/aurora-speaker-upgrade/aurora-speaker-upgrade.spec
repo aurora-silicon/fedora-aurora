@@ -1,10 +1,10 @@
-%global commit 7a1f538ca7947ce988eeaaf3c095d40d0f560590
+%global commit 89b6e40e6dab5bee69790d783a11628f85591338
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261126
+%global snapdate 20261127
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.27.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.28.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -70,6 +70,11 @@ systemctl --no-reload --preset-mode=enable-only preset aurora-speaker-upgrade.se
 %{_presetdir}/50-aurora-speaker-upgrade.preset
 
 %changelog
+* Fri Nov 27 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.28.20261127git89b6e40e6dab
+- Rebuilt from speakerguardd main 89b6e40e. speakerguardd#270: the gate
+  data carries the AID12 (J473, Mac mini M2) playback row, so the boot
+  unit moves Mac mini M2 installs to v2.
+
 * Thu Nov 26 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.27.20261126git7a1f538ca794
 - Rebuilt from speakerguardd main 7a1f538c (speakerguardd#265, #266, #268):
   speakerguardd-v2's gate data now carries the J713 (AID37) and J615 (AID21)
