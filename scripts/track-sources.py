@@ -137,6 +137,8 @@ def run_checks(root):
 
 
 def ci_inputs(packages):
+    if 'mesa-aurora' in packages:
+        packages = sorted(set(packages) | {GUEST, FLATPAK_GL})
     return {'rpms.yml': {'packages': ' '.join(packages)}}
 
 
