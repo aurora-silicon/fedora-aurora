@@ -1,0 +1,7 @@
+# A force click on an item in Files opens its preview, as Quick Look does on
+# macOS (force-click-preview@aurorasilicon.org: hid-magicmouse reports the deep
+# stage of a Force Touch click as XF86Info, and the extension turns that into
+# Files' preview). Fedora enables no extensions by default; a user's own list,
+# set in Extensions or with gsettings, wins over this default.
+[org.gnome.shell]
+enabled-extensions=['force-click-preview@aurorasilicon.org']
