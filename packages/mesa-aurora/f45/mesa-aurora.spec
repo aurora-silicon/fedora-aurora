@@ -3,7 +3,7 @@
 Name: mesa-aurora
 Epoch: 1
 Version: 26.3.0
-Release: 32%{?dist}.aurora
+Release: 33%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -202,6 +202,9 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Thu Nov 26 2026 DjDeveloperr <hey@djdev.me> - 1:26.3.0-33
+- Mount the FEX guest graphics provider (mesa-aurora-fex-guest) ro,nosuid,nodev.
+
 * Thu Nov 26 2026 Aurora Silicon <hey@djdev.me> - 1:26.3.0-32
 - Track aurora-silicon/mesa aurora-wip at 36623c0.
 - Upstream head: Merge pull request #1115

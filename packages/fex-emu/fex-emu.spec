@@ -19,7 +19,7 @@
 
 Name:       fex-emu
 Version:    2610
-Release:    8%{?dist}.aurora
+Release:    9%{?dist}.aurora
 Summary:    Fast usermode x86 and x86-64 emulator for ARM64
 
 # FEX itself is MIT, see below for the bundled libraries
@@ -378,6 +378,10 @@ fi
 %endif
 
 %changelog
+* Thu Nov 26 2026 DjDeveloperr <hey@djdev.me> - 2610-9.aurora
+- aurora-fex-rootfs: bind the guest graphics provider ro,nosuid,nodev, and remount
+  the bind with those options in place.
+
 * Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 2610-8.aurora
 - Refresh to aurora-silicon/fex 05d26188.
 
