@@ -45,7 +45,33 @@
     "version": "26.3.0",
     "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614",
     "archive_root": "mesa-d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614",
-    "sha256": "6f8d930b3d846af6416dab55c82a9ccf8ec0d4cbbbe739016262268d7dc9ec4b"
+    "sha256": "6f8d930b3d846af6416dab55c82a9ccf8ec0d4cbbbe739016262268d7dc9ec4b",
+    "extra_sources": {
+      "mesa-libclc-22.1.8.3-spirv-mesa3d-.spv": {
+        "commit": "87f66007242ff10e9e84bf32be84f9057f6abc75",
+        "source_url": "https://gitlab.freedesktop.org/api/v4/projects/27606/packages/generic/mesa-libclc/22.1.8.3/spirv-mesa3d-.spv",
+        "archive_file": "mesa-libclc-22.1.8.3-spirv-mesa3d-.spv",
+        "sha256": "59552f9e22ec221061e9939fc90a46e4159d1400b2e1f85eff46924489d532aa"
+      },
+      "mesa-libclc-22.1.8.3-spirv64-mesa3d-.spv": {
+        "commit": "87f66007242ff10e9e84bf32be84f9057f6abc75",
+        "source_url": "https://gitlab.freedesktop.org/api/v4/projects/27606/packages/generic/mesa-libclc/22.1.8.3/spirv64-mesa3d-.spv",
+        "archive_file": "mesa-libclc-22.1.8.3-spirv64-mesa3d-.spv",
+        "sha256": "728cdfa747a1857829c104291984964971783a301a62e9468a3d5a4f1750c949"
+      },
+      "mesa-libclc-22.1.8.3.pc.in": {
+        "commit": "87f66007242ff10e9e84bf32be84f9057f6abc75",
+        "source_url": "https://gitlab.freedesktop.org/api/v4/projects/27606/packages/generic/mesa-libclc/22.1.8.3/mesa-libclc.pc.in",
+        "archive_file": "mesa-libclc-22.1.8.3.pc.in",
+        "sha256": "84f479ff8ac759315aff18bb572f5ed96ad58a1b49869825cc1cb3e730ce22c6"
+      },
+      "mesa-libclc-22.1.8.3.LICENSE.TXT": {
+        "commit": "87f66007242ff10e9e84bf32be84f9057f6abc75",
+        "source_url": "https://gitlab.freedesktop.org/api/v4/projects/27606/repository/files/LICENSE.TXT/raw?ref=87f66007242ff10e9e84bf32be84f9057f6abc75",
+        "archive_file": "mesa-libclc-22.1.8.3.LICENSE.TXT",
+        "sha256": "3c536c052db9afd997809e38785c9f2a9e54e2892330fa7c5b438e18a7413479"
+      }
+    }
   },
   "speakerguardd": {
     "repository": "https://github.com/aurora-silicon/speakerguardd",
@@ -150,7 +176,33 @@
     "version": "26.3.0",
     "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614",
     "archive_root": "mesa-d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614",
-    "sha256": "6f8d930b3d846af6416dab55c82a9ccf8ec0d4cbbbe739016262268d7dc9ec4b"
+    "sha256": "6f8d930b3d846af6416dab55c82a9ccf8ec0d4cbbbe739016262268d7dc9ec4b",
+    "extra_sources": {
+      "mesa-libclc-22.1.8.3-spirv-mesa3d-.spv": {
+        "commit": "87f66007242ff10e9e84bf32be84f9057f6abc75",
+        "source_url": "https://gitlab.freedesktop.org/api/v4/projects/27606/packages/generic/mesa-libclc/22.1.8.3/spirv-mesa3d-.spv",
+        "archive_file": "mesa-libclc-22.1.8.3-spirv-mesa3d-.spv",
+        "sha256": "59552f9e22ec221061e9939fc90a46e4159d1400b2e1f85eff46924489d532aa"
+      },
+      "mesa-libclc-22.1.8.3-spirv64-mesa3d-.spv": {
+        "commit": "87f66007242ff10e9e84bf32be84f9057f6abc75",
+        "source_url": "https://gitlab.freedesktop.org/api/v4/projects/27606/packages/generic/mesa-libclc/22.1.8.3/spirv64-mesa3d-.spv",
+        "archive_file": "mesa-libclc-22.1.8.3-spirv64-mesa3d-.spv",
+        "sha256": "728cdfa747a1857829c104291984964971783a301a62e9468a3d5a4f1750c949"
+      },
+      "mesa-libclc-22.1.8.3.pc.in": {
+        "commit": "87f66007242ff10e9e84bf32be84f9057f6abc75",
+        "source_url": "https://gitlab.freedesktop.org/api/v4/projects/27606/packages/generic/mesa-libclc/22.1.8.3/mesa-libclc.pc.in",
+        "archive_file": "mesa-libclc-22.1.8.3.pc.in",
+        "sha256": "84f479ff8ac759315aff18bb572f5ed96ad58a1b49869825cc1cb3e730ce22c6"
+      },
+      "mesa-libclc-22.1.8.3.LICENSE.TXT": {
+        "commit": "87f66007242ff10e9e84bf32be84f9057f6abc75",
+        "source_url": "https://gitlab.freedesktop.org/api/v4/projects/27606/repository/files/LICENSE.TXT/raw?ref=87f66007242ff10e9e84bf32be84f9057f6abc75",
+        "archive_file": "mesa-libclc-22.1.8.3.LICENSE.TXT",
+        "sha256": "3c536c052db9afd997809e38785c9f2a9e54e2892330fa7c5b438e18a7413479"
+      }
+    }
   },
   "alsa-utils": {
     "repository": "https://github.com/alsa-project/alsa-utils",

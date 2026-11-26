@@ -1,19 +1,22 @@
 %global commit d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614
+%global mesa_libclc_version 22.1.8.3
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 30%{?dist}.aurora
+Release: 32%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
 Source0: mesa-aurora-%{commit}.tar.gz
+Source1: mesa-libclc-%{mesa_libclc_version}-spirv-mesa3d-.spv
+Source2: mesa-libclc-%{mesa_libclc_version}-spirv64-mesa3d-.spv
+Source3: mesa-libclc-%{mesa_libclc_version}.pc.in
+Source4: mesa-libclc-%{mesa_libclc_version}.LICENSE.TXT
 ExclusiveArch: aarch64
 BuildRequires: gcc gcc-c++ clang clang-devel systemd-devel llvm-devel lld rust cargo bindgen-cli cbindgen
 BuildRequires: meson ninja-build python3-mako python3-pyyaml python3-packaging
 BuildRequires: bison flex binutils elfutils-libelf-devel opencl-headers
-# Fedora 45 ships the LLVM 23 libclc without pkg-config data; the LLVM 22
-# libclc22-devel still provides it there, and Rusticl needs the same libclc.
-BuildRequires: pkgconfig(libclc)
+BuildRequires: pkgconf-pkg-config
 BuildRequires: spirv-llvm-translator-devel spirv-tools-devel glslang-devel
 BuildRequires: libdrm-devel expat-devel libglvnd-devel libX11-devel libxcb-devel
 BuildRequires: libXext-devel libXfixes-devel libXrandr-devel libxshmfence-devel libXxf86vm-devel
@@ -109,11 +112,8 @@ Summary: Aurora Mesa Rusticl OpenCL driver
 Requires: mesa-aurora-dri-drivers%{?_isa} = %{version}-%{release}
 Requires: (ocl-icd%{?_isa} or OpenCL-ICD-Loader%{?_isa})
 Requires: opencl-filesystem
-%if 0%{?fedora} >= 45
-Requires: libclc22%{?_isa}
-%else
-Requires: libclc%{?_isa}
-%endif
+License: MIT AND (Apache-2.0 WITH LLVM-exception)
+Provides: bundled(mesa-libclc) = %{mesa_libclc_version}
 Provides: mesa-libOpenCL = %{version}-%{release}
 Provides: mesa-libOpenCL%{?_isa} = %{version}-%{release}
 Obsoletes: mesa-libOpenCL < %{version}-%{release}
@@ -135,6 +135,12 @@ Linker interface for the matching Aurora Rusticl OpenCL library.
 %prep
 %autosetup -n mesa-%{commit} -p1
 
+# Use the release inputs selected by Mesa CI for this OpenCL compiler.
+install -Dm644 "%{SOURCE1}" mesa-libclc/spirv-mesa3d-.spv
+install -Dm644 "%{SOURCE2}" mesa-libclc/spirv64-mesa3d-.spv
+sed "s|^libexecdir=.*|libexecdir=$PWD/mesa-libclc|" "%{SOURCE3}" > mesa-libclc/mesa-libclc.pc
+install -pm644 "%{SOURCE4}" LICENSE.mesa-libclc
+
 %build
 # Release archives have no .git directory; stamp both Meson builds explicitly.
 export MESA_GIT_SHA1_OVERRIDE=%{commit}
@@ -143,7 +149,9 @@ options=(--prefix=/usr --libdir=lib64 --libexecdir=libexec --buildtype=release -
   -Degl=enabled -Dgbm=enabled -Dglx=dri -Dgles1=enabled -Dgles2=enabled
   -Dglvnd=enabled -Dvideo-codecs=all -Dvulkan-layers=
   -Dexpat=enabled -Dzstd=enabled -Dlmsensors=enabled -Dlibunwind=disabled -Dvalgrind=disabled)
-meson setup tools "${options[@]/#-Dvulkan-drivers=asahi/-Dvulkan-drivers=asahi,swrast}" -Dllvm=enabled -Dgallium-rusticl=true -Dbuild-tests=false
+meson setup tools "${options[@]/#-Dvulkan-drivers=asahi/-Dvulkan-drivers=asahi,swrast}" \
+  --pkg-config-path="$PWD/mesa-libclc" -Dstatic-libclc=all \
+  -Dllvm=enabled -Dgallium-rusticl=true -Dbuild-tests=false
 ninja -C tools %{?_smp_mflags} src/compiler/clc/mesa_clc src/compiler/spirv/vtn_bindgen2 src/asahi/clc/asahi_clc src/gallium/targets/rusticl/libRusticlOpenCL.so.1.0.0 \
   src/gallium/targets/lavapipe/libvulkan_lvp.so src/gallium/targets/lavapipe/lvp_icd.aarch64.json
 printf "[binaries]\nmesa_clc = '%s'\nvtn_bindgen2 = '%s'\nasahi_clc = '%s'\n" \
@@ -194,12 +202,16 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_datadir}/vulkan/icd.d/lvp_icd.aarch64.json
 %files -n mesa-aurora-devel -f devel.files
 %files -n mesa-aurora-libOpenCL
+%license LICENSE.mesa-libclc
 %{_libdir}/libRusticlOpenCL.so.1*
 %{_sysconfdir}/OpenCL/vendors/rusticl.icd
 %files -n mesa-aurora-libOpenCL-devel
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 26.3.0-32
+- Build Rusticl with the patched Mesa libclc release to fix OpenCL program linking.
+
 * Sun Nov 15 2026 Diljit Singh <hey@djdev.me> - 26.3.0-30
 - Pin aurora-silicon/mesa cts/b11-rc30 d4ad4a4dce6 (3 first-parent commits since 3b511dc1592):
   - st/mesa: reject links mixing GLSL and SPIR-V shaders in either order
