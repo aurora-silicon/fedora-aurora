@@ -48,7 +48,8 @@ class FedoraSpecTests(unittest.TestCase):
 
     def test_additional_recipes_track_their_merged_source_with_manual_review(self):
         tracking = module.tl.load_tracking(ROOT)['sources']
-        for name in ('aurora-diag', 'aurora-firstboot', 'aurora-kbd-light',
+        for name in ('alsa-ucm-conf-aurora', 'aurora-bless',
+                     'aurora-diag', 'aurora-firstboot', 'aurora-kbd-light',
                      'aurora-neo-platform-config', 'aurora-xart', 'upower-aurora'):
             with self.subTest(name=name):
                 before = module.tl.spec_field(self.spec(name), 'Release').split('%')[0]

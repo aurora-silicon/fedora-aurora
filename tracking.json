@@ -2,10 +2,20 @@
   "schema": 1,
   "branch": "auto/track-sources",
   "sources": {
+    "alsa-ucm-conf-aurora": {
+      "repository": "aurora-silicon/alsa-ucm-conf-asahi",
+      "branch": "main",
+      "merge": "manual"
+    },
     "aura": {
       "repository": "aurora-silicon/aura",
       "branch": "main",
       "merge": "auto"
+    },
+    "aurora-bless": {
+      "repository": "aurora-silicon/aurora-bless",
+      "branch": "master",
+      "merge": "manual"
     },
     "aurora-diag": {
       "repository": "aurora-silicon/aurora-diag",
