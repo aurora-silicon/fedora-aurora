@@ -4,7 +4,7 @@
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.26.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.27.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -52,6 +52,14 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.pr
 %postun
 %systemd_postun aurora-speaker-upgrade.service
 
+# %%systemd_post applies the preset on the first install only, so a Mac that
+# was installed before the preset shipped (0.1-0.18) and upgraded since still
+# has the unit disabled and never moves to v2. Apply the preset once, on the
+# upgrade from any older build. enable-only: a masked unit stays masked, and
+# the boot unit still moves only a speaker whose playback rows are on record.
+%triggerpostun -- aurora-speaker-upgrade < 0.1-0.27
+systemctl --no-reload --preset-mode=enable-only preset aurora-speaker-upgrade.service >/dev/null 2>&1 || :
+
 %files
 %license LICENSE
 %doc packaging/upgrade/README.md
@@ -62,6 +70,11 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.pr
 %{_presetdir}/50-aurora-speaker-upgrade.preset
 
 %changelog
+* Thu Nov 26 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.27.20261125git4136af409161
+- Apply the preset once on the upgrade from an older build: installs made
+  before 0.1-0.18 kept the unit disabled through every upgrade since, so
+  their speakers never moved to v2 at boot. A masked unit stays masked.
+
 * Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.26.20261125git4136af409161
 - Refresh to speakerguardd 4136af40 (aligned with speakerguardd-v2).
 

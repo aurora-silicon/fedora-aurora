@@ -830,6 +830,12 @@ class SpecTests(unittest.TestCase):
         self.assertIn('%{_presetdir}/50-aurora-speaker-upgrade.preset', upgrade)
         preset = (ROOT / 'packages/aurora-speaker-upgrade/50-aurora-speaker-upgrade.preset').read_text()
         self.assertRegex(preset, r'(?m)^enable aurora-speaker-upgrade\.service$')
+        # %systemd_post presets on the first install only: installs from before
+        # the preset get it once, on the upgrade from an older build.
+        post = upgrade.split('%triggerpostun -- aurora-speaker-upgrade < 0.1-0.27\n', 1)
+        self.assertEqual(len(post), 2)
+        self.assertTrue(post[1].startswith(
+            'systemctl --no-reload --preset-mode=enable-only preset aurora-speaker-upgrade.service'))
         audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
         self.assertRegex(audio, r'(?m)^Requires: speakersafetyd speakerguardd$')
         self.assertIn('Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33\n', audio)
