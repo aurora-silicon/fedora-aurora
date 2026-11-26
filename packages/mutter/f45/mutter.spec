@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       24%{?dist}.aurora
+Release:       25%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -92,6 +92,8 @@ Patch57:       0057-tests-Add-session-lock-capture-window-list-and-grab-.patch
 Patch58:       0058-backends-backlight-sysfs-Perceptual-CIE-1931-scale-for-linear-backlights.patch
 # Aurora: apply org.gnome.desktop.peripherals.touchpad scroll-speed to finger scrolling
 Patch59:       0059-backends-native-Apply-the-touchpad-scroll-speed-sett.patch
+# Upstream 5bdc78fd (MR !5432): ref-white backlight use-after-free on monitor hotplug
+Patch60:       0060-backlight-ref-white-Fix-use-after-free-on-monitor-hotplug.patch
 
 BuildRequires: cvt
 BuildRequires: desktop-file-utils
@@ -310,6 +312,14 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Fri Nov 27 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-25.aurora
+- Backport upstream 5bdc78fd (backlight/ref-white: Fix use-after-free on
+  monitor hotplug): a monitor removed while a reference-white brightness
+  change is pending no longer leaves its idle callback running against
+  the freed monitor (gnome-shell SIGSEGV in on_change_ref_white when an
+  HDMI monitor re-plugs during login); the test hunk is left out, the
+  51.1 test fixture has no reference-white backlight
+
 * Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-24.aurora
 - Apply the touchpad scroll-speed setting (gsettings-desktop-schemas 51):
   finger scroll deltas from libinput are multiplied by the factor before
