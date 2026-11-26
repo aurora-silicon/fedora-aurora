@@ -267,11 +267,20 @@ provider=/usr/share/guestos/aurora-fex-mesa
 rootfs=/run/fex-emu/rootfs
 config=/run/fex-emu/Config.json
 expected=$(printf '{"Config": {"RootFS": "%s"}}' "$rootfs")
+# The newest mount at $1 is read-only, nosuid and nodev, as the stock guest
+# image is mounted.
+ro_nosuid_nodev() {
+  local options
+  options=,$(findmnt -n -o OPTIONS -M "$1" | tail -n1),
+  [[ $options == *,ro,* && $options == *,nosuid,* && $options == *,nodev,* ]]
+}
 selected() {
   [[ $(python3 -c 'import json, sys; print(json.dumps(json.load(open(sys.argv[1]))))' "$config") == "$expected" ]]
   mountpoint -q "$rootfs"
   [[ $(stat -c %d "$rootfs") == $(stat -c %d "$provider") ]]
   refute touch "$rootfs/read-only-probe"
+  ro_nosuid_nodev "$provider"
+  ro_nosuid_nodev "$rootfs"
 }
 stock() {
   [[ ! -e $config ]]
