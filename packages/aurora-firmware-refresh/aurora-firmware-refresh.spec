@@ -3,7 +3,7 @@
 
 Name: aurora-firmware-refresh
 Version: 20261125
-Release: 1%{?dist}
+Release: 2%{?dist}
 Summary: Refresh the firmware supplied by the Aurora installer
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -51,6 +51,10 @@ PYTHONPATH=%{buildroot}%{refreshdir} %{python3} -B %{SOURCE2}
 %{refreshdir}/
 
 %changelog
+* Thu Nov 26 2026 DjDeveloperr <hey@djdev.me> - 20261125-2
+- After rewriting the vendor firmware archive, pin its digest for
+  aurora-secboot and rebuild the UKIs, so signed boots accept it.
+
 * Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261125-1
 - Refresh to aurora-installer 4085a62e.
 

@@ -3,8 +3,12 @@
 """Add firmware from the installer archive without replacing live files."""
 import argparse
 import fcntl
+import hashlib
+import json
+import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -22,8 +26,48 @@ def manifest(directory):
     return parse_manifest((directory / "manifest.txt").read_text("ascii"))
 
 
+def rebind_secure_boot(archive, *, cli="aurora-secboot", run=subprocess.run):
+    """Make aurora-secboot's UKIs name the archive this tool just wrote.
+
+    A signed boot unpacks only the vendor firmware archive whose digest its
+    UKI command line carries (aurora.vendorfw=), which aurora-secboot takes
+    from the pin in its key directory. Pin the new archive and rebuild each
+    UKI, so the next signed boot does not refuse the firmware."""
+    tool = shutil.which(cli)
+    if not tool:
+        return
+    try:
+        result = run([tool, "status", "--json"], check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as error:
+        raise Refused(f"aurora-secboot status failed: {error.stderr.strip()}") from None
+    status = json.loads(result.stdout)
+    if not status["config_present"]:
+        return
+    key_dir = Path(status["key_dir"])
+    if key_dir.is_dir():
+        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        pin = key_dir / "vendorfw.sha256"
+        partial = key_dir / ".vendorfw.sha256.new"
+        fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as file:
+            file.write(f"sha256:{digest}\n")
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(partial, pin)
+        print(f"Pinned the new vendor firmware for secure boot in {pin}.")
+    for image in status["ukis"]:
+        if not image["kernel"]:
+            continue
+        # The kernel-install hook: it builds the UKI and, on the secure
+        # path, the boot loader copy too.
+        if run([tool, "hook", "add", image["kernel"]]).returncode:
+            raise Refused(f"the firmware is installed, but the UKI of {image['kernel']} was not rebuilt; "
+                          f"signed boots refuse the new firmware until 'aurora-secboot hook add "
+                          f"{image['kernel']}' succeeds")
+
+
 def refresh(esp, *, check=False, backup_root=Path("/var/lib/aurora-rollback"),
-            extract=update_firmware):
+            extract=update_firmware, secure_boot=rebind_secure_boot):
     source = esp / "asahi"
     live = esp / "vendorfw"
     if not (source / "all_firmware.tar.gz").is_file():
@@ -67,6 +111,7 @@ def refresh(esp, *, check=False, backup_root=Path("/var/lib/aurora-rollback"),
         copy_verified(live, backup / "vendorfw")
         commit(esp, [(staged, live)], backup)
         print(f"Added {len(added)} firmware files and kept {len(original)}.")
+        secure_boot(live / "firmware.cpio")
         return len(added)
 
 
