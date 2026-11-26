@@ -94,6 +94,11 @@ class FedoraSpecTests(unittest.TestCase):
         self.assertTrue(any(re.fullmatch(pattern, f'packages/{name}/{name}.spec')
                             for pattern in module.PATCH_PATHS))
 
+    def test_mesa_dispatch_builds_the_lockstep_packages(self):
+        requested = module.ci_inputs(['aura', 'mesa-aurora'])['rpms.yml']['packages'].split()
+        self.assertEqual(requested, ['aura', module.FLATPAK_GL, 'mesa-aurora', module.GUEST])
+        self.assertEqual(module.ci_inputs(['aura'])['rpms.yml']['packages'], 'aura')
+
     def test_mesa_moves_its_fedora45_overlays_with_it(self):
         name = module.GUEST
         shutil.copytree(ROOT / 'packages' / name, self.root / 'packages' / name)

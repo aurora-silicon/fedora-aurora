@@ -41,11 +41,11 @@
   },
   "mesa-aurora": {
     "repository": "https://github.com/aurora-silicon/mesa",
-    "commit": "d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614",
+    "commit": "36623c0a4a5a3e2a94fedd5f0874258d8126648d",
     "version": "26.3.0",
-    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614",
-    "archive_root": "mesa-d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614",
-    "sha256": "6f8d930b3d846af6416dab55c82a9ccf8ec0d4cbbbe739016262268d7dc9ec4b"
+    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/36623c0a4a5a3e2a94fedd5f0874258d8126648d",
+    "archive_root": "mesa-36623c0a4a5a3e2a94fedd5f0874258d8126648d",
+    "sha256": "7906acc54411e0c61b6c4a5539d555cc0831b95603c80d37311a2bcd49313336"
   },
   "speakerguardd": {
     "repository": "https://github.com/aurora-silicon/speakerguardd",
@@ -146,11 +146,11 @@
   },
   "mesa-aurora-fex-guest": {
     "repository": "https://github.com/aurora-silicon/mesa",
-    "commit": "d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614",
+    "commit": "36623c0a4a5a3e2a94fedd5f0874258d8126648d",
     "version": "26.3.0",
-    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614",
-    "archive_root": "mesa-d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614",
-    "sha256": "6f8d930b3d846af6416dab55c82a9ccf8ec0d4cbbbe739016262268d7dc9ec4b"
+    "source_url": "https://codeload.github.com/aurora-silicon/mesa/tar.gz/36623c0a4a5a3e2a94fedd5f0874258d8126648d",
+    "archive_root": "mesa-36623c0a4a5a3e2a94fedd5f0874258d8126648d",
+    "sha256": "7906acc54411e0c61b6c4a5539d555cc0831b95603c80d37311a2bcd49313336"
   },
   "alsa-utils": {
     "repository": "https://github.com/alsa-project/alsa-utils",
