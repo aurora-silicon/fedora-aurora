@@ -37,8 +37,31 @@ class Tree(dict):
         return {name: data for name, data in self.items() if board in self.boards[name]}
 
 
+FDT_MAGIC = b'\xd0\x0d\xfe\xed'
 # FDT structure block tokens
 FDT_BEGIN_NODE, FDT_END_NODE, FDT_PROP, FDT_NOP, FDT_END = 1, 2, 3, 4, 9
+
+
+def stage2_dtbs(image):
+    """The device trees of a composed Stage 2: aura, the trees, then U-Boot's gzip stream.
+
+    The aura in front of the trees can be an older build than the installed
+    one, so its length is unknown. The trees start at the first FDT magic
+    from which whole FDTs lead exactly to the gzip header.
+    """
+    start = image.find(FDT_MAGIC)
+    while start >= 0:
+        blobs, offset = [], start
+        while image[offset:offset + 4] == FDT_MAGIC:
+            size = int.from_bytes(image[offset + 4:offset + 8], 'big')
+            if size < 40 or offset + size > len(image):
+                break
+            blobs.append(image[offset:offset + size])
+            offset += size
+        if blobs and image[offset:offset + 2] == b'\x1f\x8b':
+            return blobs
+        start = image.find(FDT_MAGIC, start + 1)
+    return []
 
 
 def dtb_nodes(blob):
@@ -945,6 +968,96 @@ class Update:
                 temporary.unlink(missing_ok=True)
         print(f'Stage 2 verified at {target}; /boot/dtb -> {destination.name}')
 
+    def esp_relative(self, path):
+        esp = self.env.get('ESP_ROOT')
+        if esp and path.is_relative_to(self.path(esp)):
+            return path.relative_to(self.path(esp)).as_posix()
+        return str(path)
+
+    def next_boot_images(self):
+        """The Stage 2 images the next boot can start.
+
+        Stage 1 starts the target, or an armed trial. A running trial can
+        still commit its candidate over the target during this boot.
+        """
+        images = [self.target()]
+        esp = self.env.get('ESP_ROOT')
+        current = self.marker(self.path(esp) / 'aura-try') if esp else None
+        if current:
+            state, relative = current
+            if not re.fullmatch(r'[A-Za-z0-9_./-]+', relative) or any(
+                    part in ('', '.', '..') for part in relative.split('/')):
+                raise Refused(f'invalid aura-try path {relative!r}')
+            trial = self.path(esp) / relative
+            if (state == 'armed' or self.chosen('aurora,trial') == relative) and (
+                    trial.exists() or trial.is_symlink()):
+                images.append(trial)
+        return images
+
+    def loaded_dtb(self, image, board):
+        """The device tree aura hands Linux from a Stage 2: the last one for this board."""
+        loaded = None
+        for blob in stage2_dtbs(image):
+            with tempfile.NamedTemporaryFile(suffix='.dtb') as stream:
+                stream.write(blob)
+                stream.flush()
+                found = subprocess.run(['fdtget', '-t', 's', stream.name, '/', 'compatible'],
+                                       capture_output=True, text=True)
+            if not found.returncode and board in found.stdout.split():
+                loaded = blob
+        return loaded
+
+    def finish_add(self):
+        """Whether kernel-install may finish adding a kernel whose Stage 2 update was refused.
+
+        kernel-install stops at the first plugin that fails, before the
+        kernel's initramfs and boot entry, and leaves the package installed
+        without them. Stage 2 is kept either way. The added kernel boots it
+        when every image the next boot can start hands this Mac a device tree
+        that an installed kernel of the same DT ABI generation ships: within a
+        generation, device trees change only compatibly.
+        """
+        if self.action != 'add':
+            raise Refused('finishing requires an add action')
+        try:
+            board = self.board()
+            if board is None:
+                raise Refused("this Mac's board is unknown")
+            generation = self.generation(self.version)
+            shipped = {}
+            for version in self.kernel_images():
+                try:
+                    if self.generation(version) != generation:
+                        continue
+                    for blob in self.tree(self.dtb_dir(version)).proof(board).values():
+                        shipped.setdefault(blob, version)
+                except (Refused, OSError, subprocess.SubprocessError):
+                    continue  # A kernel without provable trees proves nothing.
+            sources = []
+            for image in self.next_boot_images():
+                name = self.esp_relative(image)
+                if image.is_symlink() or not image.is_file():
+                    raise Refused(f'{name} is not a regular file')
+                loaded = self.loaded_dtb(image.read_bytes(), board)
+                if loaded is None:
+                    raise Refused(f'{name} has no {board} device tree')
+                if loaded not in shipped:
+                    raise Refused(f'no installed kernel of DT ABI generation {generation} '
+                                  f'ships the {board} device tree in {name}')
+                sources.append(f'{name} carries the {board} device tree of kernel {shipped[loaded]}')
+        except (Refused, OSError, ValueError, subprocess.SubprocessError) as error:
+            print(f'update-aura: kernel-install stops before kernel {self.version} gets an initramfs '
+                  f'and a boot entry: it cannot be shown to boot the kept Stage 2 ({error}). '
+                  f'Fix the problem above, then finish with '
+                  f'`sudo kernel-install add {self.version} /usr/lib/modules/{self.version}/vmlinuz`',
+                  file=sys.stderr)
+            return False
+        print(f'update-aura: WARNING: Stage 2 was not updated for kernel {self.version}. It is installed '
+              f'anyway, since it boots the kept Stage 2 with DT ABI generation {generation} device trees: '
+              f'{"; ".join(sources)}. Fix the problem above, then run `sudo update-aura` to compose '
+              f'Stage 2 from kernel {self.version}', file=sys.stderr)
+        return True
+
     def drop_removed_link(self):
         link = self.path('/boot/dtb')
         if link.is_symlink() and os.readlink(link) in (
@@ -1033,9 +1146,18 @@ class Update:
         return due
 
 
-def main():
+REFUSALS = (Refused, OSError, ValueError, subprocess.SubprocessError)
+
+
+def refuse(error):
+    print(f'update-aura: {error}; keeping the last complete Stage 2 and trial evidence', file=sys.stderr)
+
+
+def main(argv=None, root=Path('/'), env=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check', action='store_true')
+    # After a refused --check for an added kernel: exit 0 when kernel-install may finish adding it.
+    parser.add_argument('--finish-add', action='store_true')
     parser.add_argument('--commit', action='store_true')
     parser.add_argument('--guard', action='store_true')
     parser.add_argument('--cleanup-remove', action='store_true')
@@ -1044,9 +1166,9 @@ def main():
     parser.add_argument('--transaction-begin', action='store_true')
     # Exit 0 when removals in the finished transaction left Stage 2 to a refresh.
     parser.add_argument('--transaction-end', action='store_true')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
-        update = Update()
+        update = Update(root, env)
         if args.guard:
             update.guard()
         elif args.commit:
@@ -1061,10 +1183,18 @@ def main():
             return 0 if update.end_transaction() else 1
         elif args.check:
             update.plan()
+        elif args.finish_add:
+            return 0 if update.finish_add() else 1
+        elif update.action == 'add':
+            try:
+                update.apply()
+            except REFUSALS as error:
+                refuse(error)
+                return 0 if update.finish_add() else 1
         else:
             update.apply()
-    except (Refused, OSError, ValueError, subprocess.SubprocessError) as error:
-        print(f'update-aura: {error}; keeping the last complete Stage 2 and trial evidence', file=sys.stderr)
+    except REFUSALS as error:
+        refuse(error)
         return 1
     return 0
 

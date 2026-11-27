@@ -111,6 +111,15 @@ Stage 2 and `/boot/dtb`, lists the older kernels, and suggests an explicit remov
 verify a working compatible fallback. No fallback is deleted automatically, and failed erase-time
 refreshes still allow the erased kernel's own boot files to be cleaned up.
 
+kernel-install stops at the first plugin that fails, before dracut's initramfs and GRUB's boot entry.
+So when Stage 2 is refused for a kernel being added, for example over a hand-installed kernel whose
+boot entry has no device trees, the hook checks whether the new kernel boots the Stage 2 it keeps. It
+does when every image the next boot can start (the live Stage 2, and an armed or running trial) hands
+this Mac the device tree aura picks, the last one for its board, byte for byte as an installed kernel
+of the new kernel's DT ABI generation ships it. The kernel is then installed with a warning to fix the
+refusal and run `sudo update-aura`. Otherwise the hook fails as before, with the
+`kernel-install add` command that finishes the kernel once the refusal is fixed.
+
 ## Checking updater changes
 
 Run `scripts/test-stage2-transactions <proof-directory>` in a disposable Fedora 44 aarch64 container

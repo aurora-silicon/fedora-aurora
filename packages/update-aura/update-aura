@@ -57,16 +57,24 @@ cleanup() {
 trap cleanup EXIT
 
 # Preflight before mounting the ESP. The apply pass checks again under the lock.
+refused=false
 if [[ $mode != --commit && $mode != --guard ]] && ! python3 /usr/libexec/aurora/bootchain.py --check; then
-    if [[ ${AURORA_KERNEL_ACTION:-} == remove ]]; then
-        python3 /usr/libexec/aurora/bootchain.py --cleanup-remove
-        exit 0
-    fi
-    exit 1
+    case ${AURORA_KERNEL_ACTION:-} in
+        remove)
+            python3 /usr/libexec/aurora/bootchain.py --cleanup-remove
+            exit 0
+            ;;
+        # Stage 2 stays as it is. kernel-install stops at a failing plugin,
+        # before the kernel's initramfs and boot entry, so the ESP below
+        # shows whether the added kernel boots the kept Stage 2.
+        add) refused=true ;;
+        *) exit 1 ;;
+    esac
 fi
 # An image build has no device tree and no ESP: the check above validated
 # every board, and the image builder writes Stage 2 itself.
 if [[ -z $TARGET && $mode != --commit && $mode != --guard && ! -e $AURORA_DEVICE_TREE_COMPATIBLE ]]; then
+    ! $refused || exit 1
     echo "update-aura: no device tree; Stage 2 is left to the image builder" >&2
     exit 0
 fi
@@ -84,6 +92,7 @@ ESP_FSTYPE=$(findmnt -nro FSTYPE --target "$ESP_ROOT")
 export ESP_ROOT ESP_DEVICE ESP_FSTYPE
 args=()
 [[ $mode != --commit && $mode != --guard ]] || args+=("$mode")
+! $refused || args=(--finish-add)
 if ! python3 /usr/libexec/aurora/bootchain.py "${args[@]}"; then
     if [[ ${AURORA_KERNEL_ACTION:-} == remove ]]; then
         python3 /usr/libexec/aurora/bootchain.py --cleanup-remove

@@ -522,20 +522,27 @@ class Recipes(unittest.TestCase):
                 self.assertEqual('MOUNTED' in result.stdout, mount, result.stdout + result.stderr)
                 self.assertEqual(result.returncode, 1 if mount else 0, result.stderr)
 
-    def run_entry_point(self, *args, defer=1, end=1, **env):
-        """The shell entry point with a stubbed helper: its result and the helper modes it ran."""
+    def run_entry_point(self, *args, defer=1, end=1, check=0, finish=0, target=None,
+                        compatible=True, **env):
+        """The shell entry point with a stubbed helper: its result and the helper modes it ran.
+
+        Without a target the ESP mount fails, so nothing after it runs.
+        """
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / 'bin').mkdir()
             calls = root / 'calls'
             (root / 'bin/python3').write_text(
                 f'#!/bin/sh\necho "${{2:-apply}}" >> {calls}\n'
-                f'case "$2" in --defer-remove) exit {defer};; --transaction-end) exit {end};; esac\nexit 0\n')
+                f'case "$2" in --defer-remove) exit {defer};; --transaction-end) exit {end};; '
+                f'--check) exit {check};; --finish-add) exit {finish};; esac\nexit 0\n')
             (root / 'bin/flock').write_text('#!/bin/sh\nexit 0\n')
-            for tool in ('python3', 'flock'):
+            (root / 'bin/findmnt').write_text('#!/bin/sh\necho /esp\n')
+            for tool in ('python3', 'flock', 'findmnt'):
                 (root / 'bin' / tool).chmod(0o755)
             (root / 'functions.sh').write_text('mount_sys_esp() { echo MOUNTED; return 1; }\n')
-            (root / 'present').write_bytes(compatible_file('j700', 't8140'))
+            if compatible:
+                (root / 'present').write_bytes(compatible_file('j700', 't8140'))
             script = SCRIPT.read_text().replace('/run/lock', str(root / 'lock')).replace(
                 '/etc/sysconfig/update-m1n1', str(root / 'none')).replace(
                 '/etc/u-boot.conf', str(root / 'none')).replace(
@@ -544,6 +551,8 @@ class Recipes(unittest.TestCase):
             settings = dict(os.environ, PATH=f'{root / "bin"}:{os.environ["PATH"]}',
                             AURORA_DEVICE_TREE_COMPATIBLE=str(root / 'present'), **env)
             settings.pop('TARGET', None)
+            if target:
+                settings['TARGET'] = target
             result = subprocess.run(['bash', str(root / 'update-m1n1'), *args], env=settings,
                                     capture_output=True, text=True)
             return result, calls.read_text().split() if calls.exists() else []
@@ -563,6 +572,31 @@ class Recipes(unittest.TestCase):
         result, calls = self.run_entry_point(defer=0, AURORA_KERNEL_ACTION='add', AURORA_KERNEL_VERSION='7.3')
         self.assertEqual(calls[:1], ['--check'])
         self.assertIn('MOUNTED', result.stdout)
+
+    def test_a_refused_add_leaves_kernel_install_to_the_finish_check(self):
+        # kernel-install stops at a failing plugin, before the kernel's
+        # initramfs and boot entry: only --finish-add decides that.
+        for finish in (0, 1):
+            with self.subTest(finish=finish):
+                result, calls = self.run_entry_point(check=1, finish=finish, target='/esp/m1n1/boot.bin',
+                                                     AURORA_KERNEL_ACTION='add', AURORA_KERNEL_VERSION='7.3')
+                self.assertEqual((result.returncode, calls), (finish, ['--check', '--finish-add']),
+                                 result.stderr)
+        # Without a target, the check runs on the mounted system ESP.
+        result, calls = self.run_entry_point(check=1, AURORA_KERNEL_ACTION='add', AURORA_KERNEL_VERSION='7.3')
+        self.assertEqual(calls, ['--check'])
+        self.assertIn('MOUNTED', result.stdout)
+
+    def test_a_refused_add_in_an_image_build_still_fails(self):
+        result, calls = self.run_entry_point(check=1, compatible=False, AURORA_KERNEL_ACTION='add',
+                                             AURORA_KERNEL_VERSION='7.3')
+        self.assertEqual((result.returncode, calls), (1, ['--check']), result.stderr)
+        self.assertNotIn('MOUNTED', result.stdout)
+
+    def test_a_refused_refresh_stops_before_the_esp(self):
+        result, calls = self.run_entry_point(check=1)
+        self.assertEqual((result.returncode, calls), (1, ['--check']), result.stderr)
+        self.assertNotIn('MOUNTED', result.stdout)
 
     def test_transaction_triggers_touch_the_esp_only_for_a_deferred_removal(self):
         result, calls = self.run_entry_point('--transaction-begin', AURORA_RPM_TRANSACTION_PID='4242')

@@ -1,6 +1,6 @@
 Name: update-aura
 Version: 20261124
-Release: 1%{?dist}.aurora
+Release: 2%{?dist}.aurora
 Summary: Transactional Aurora Stage 2 updates with retained-kernel DTB checks
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -140,6 +140,17 @@ AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-aura --transaction-begin || 
 %config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1
 
 %changelog
+* Fri Nov 27 2026 Diljit Singh <hey@djdev.me> - 20261124-2
+- A kernel whose Stage 2 update is refused still gets its initramfs and
+  boot entry when it boots the Stage 2 that is kept. A refusal over
+  another kernel, such as a hand-installed kernel whose boot entry has
+  no device trees, failed 15-update-m1n1.install, and kernel-install
+  stopped before the new kernel's initramfs and boot entry. Stage 2 and
+  /boot/dtb are still kept, with a warning. The kernel goes on only when
+  every image the next boot can start hands this Mac a device tree that
+  an installed kernel of its DT ABI generation ships; otherwise the hook
+  fails as before and names the kernel-install command that finishes it.
+
 * Tue Nov 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261124-1
 - Rename the updater and carry its ESP mount helper in the package.
 - Keep the enrolled Stage 2 target, settings and kernel-install hook.

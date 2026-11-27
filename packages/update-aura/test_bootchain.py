@@ -1474,5 +1474,149 @@ class KernelTransactionTests(unittest.TestCase):
         self.assertEqual(menu[0], (self.entry_id(self.NEW), self.NEW, ''))
 
 
+@unittest.skipUnless(shutil.which('dtc') and shutil.which('fdtget'), 'requires dtc')
+class RefusedAddTests(unittest.TestCase):
+    """A kernel add whose Stage 2 update is refused, through kernel-install's later plugins."""
+    setUp = BootchainTests.setUp
+    put = BootchainTests.put
+    dtb = BootchainTests.dtb
+    kernel = BootchainTests.kernel
+    MACHINE = KernelTransactionTests.MACHINE
+    OLDER = KernelTransactionTests.OLDER
+    DEFAULT = KernelTransactionTests.DEFAULT
+    NEW = KernelTransactionTests.NEW
+    LOCAL = KernelTransactionTests.LOCAL
+    boot_setup = KernelTransactionTests.boot_setup
+    install = KernelTransactionTests.install
+    entry_id = KernelTransactionTests.entry_id
+    entry = KernelTransactionTests.entry
+    set_default = KernelTransactionTests.set_default
+    update = KernelTransactionTests.update
+    assert_no_trial = KernelTransactionTests.assert_no_trial
+    assert_trial_for = KernelTransactionTests.assert_trial_for
+    NEWER = '7.3.0-42.fc44.aurora.aarch64'
+    STALE = '7.3.0-40.s2r7.fc44.aurora.aarch64+'
+
+    def stale_kernel(self):
+        """A hand-installed kernel with a boot entry but no device trees, as a local experiment leaves it."""
+        self.put(f'/boot/vmlinuz-{self.STALE}', b'local kernel')
+        self.entry(self.STALE)
+
+    def kernel_install_add(self, version):
+        """kernel-install add: this plugin as its entry point runs it, then the later plugins if it passed."""
+        settings = dict(self.env, AURORA_KERNEL_ACTION='add', AURORA_KERNEL_VERSION=version)
+        log = io.StringIO()
+        with contextlib.redirect_stderr(log), contextlib.redirect_stdout(io.StringIO()):
+            status = bootchain.main(['--check'], self.root, settings)
+            status = bootchain.main(['--finish-add'] if status else [], self.root, settings)
+        if status == 0:
+            # dracut's initramfs and GRUB's boot entry, which becomes the default.
+            self.put(f'/boot/initramfs-{version}.img', b'initramfs')
+            self.entry(version)
+            self.set_default(version)
+        return status, log.getvalue()
+
+    def installed(self, version):
+        """Whether the kernel has its initramfs and its boot entry."""
+        return ((self.root / f'boot/initramfs-{version}.img').is_file(),
+                (self.root / f'boot/loader/entries/{self.entry_id(version)}.conf').is_file())
+
+    def assert_stopped(self, status, log, version):
+        self.assertEqual(status, 1, log)
+        self.assertIn(f'kernel-install stops before kernel {version} gets an initramfs', log)
+        self.assertIn(f'`sudo kernel-install add {version} /usr/lib/modules/{version}/vmlinuz`', log)
+        self.assertEqual(self.installed(version), (False, False))
+
+    def test_a_stale_entry_without_trees_keeps_stage2_and_the_new_kernel_installs(self):
+        self.boot_setup()
+        self.stale_kernel()
+        self.install(self.NEW, 6)
+        status, log = self.kernel_install_add(self.NEW)
+        self.assertEqual(status, 0, log)
+        self.assertIn(f'kernel {self.STALE} has no DTB directory', log)
+        self.assertIn(f'WARNING: Stage 2 was not updated for kernel {self.NEW}', log)
+        self.assertIn(f'm1n1/boot.bin carries the apple,j413 device tree of kernel {self.DEFAULT}', log)
+        self.assertEqual(self.installed(self.NEW), (True, True))
+        # Stage 2, its backup and /boot/dtb are exactly as they were.
+        self.assert_no_trial()
+        self.assertEqual(self.backup.read_bytes(), b'OLDER-STAGE2')
+        self.assertEqual(os.readlink(self.link), f'dtb-{self.DEFAULT}')
+        self.assertFalse((self.root / f'boot/dtb-{self.NEW}').exists())
+        # Once the local kernel is gone, an update stages the new default kernel's trees.
+        (self.root / f'boot/loader/entries/{self.entry_id(self.STALE)}.conf').unlink()
+        (self.root / f'boot/vmlinuz-{self.STALE}').unlink()
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.update().apply()
+        self.assert_trial_for(self.NEW)
+
+    def test_a_kernel_of_another_generation_than_the_kept_trees_stops_kernel_install(self):
+        # Generation 1 fallbacks refuse generation 2 trees, and the kept
+        # generation 1 trees are not shown to boot the new kernel.
+        self.boot_setup()
+        self.trees[self.NEW] = self.kernel(self.NEW, 6, generation=2).read_bytes()
+        status, log = self.kernel_install_add(self.NEW)
+        self.assertIn('require an older generation', log)
+        self.assertIn(f'no installed kernel of DT ABI generation 2 ships the apple,j413 device tree '
+                      f'in m1n1/boot.bin', log)
+        self.assert_stopped(status, log, self.NEW)
+        self.assert_no_trial()
+        self.assertEqual(os.readlink(self.link), f'dtb-{self.DEFAULT}')
+
+    def test_kept_trees_that_no_installed_kernel_ships_stop_kernel_install(self):
+        self.boot_setup()
+        self.stale_kernel()
+        self.install(self.NEW, 6)
+        self.live = b'AURA' + self.dtb('j413', 9) + gzip.compress(b'U-BOOT', mtime=0)
+        self.target.write_bytes(self.live)
+        status, log = self.kernel_install_add(self.NEW)
+        self.assertIn('no installed kernel of DT ABI generation 1 ships the apple,j413 device tree '
+                      'in m1n1/boot.bin', log)
+        self.assert_stopped(status, log, self.NEW)
+        self.assert_no_trial()
+
+    def test_an_armed_trial_must_carry_shipped_trees_too(self):
+        self.boot_setup()
+        self.install(self.NEW, 6)
+        status, log = self.kernel_install_add(self.NEW)
+        self.assertEqual(status, 0, log)
+        self.assert_trial_for(self.NEW)
+        armed = self.candidate.read_bytes()
+        self.stale_kernel()
+        self.install(self.NEWER, 7)
+        status, log = self.kernel_install_add(self.NEWER)
+        self.assertEqual(status, 0, log)
+        self.assertIn(f'm1n1/boot.bin.next carries the apple,j413 device tree of kernel {self.NEW}', log)
+        self.assertEqual(self.candidate.read_bytes(), armed)
+        # The next boot tries the armed candidate first, so its trees count as well.
+        self.candidate.write_bytes(b'AURA' + self.dtb('j413', 9) + gzip.compress(b'U-BOOT', mtime=0))
+        later = '7.3.0-43.fc44.aurora.aarch64'
+        self.install(later, 8)
+        status, log = self.kernel_install_add(later)
+        self.assertIn('ships the apple,j413 device tree in m1n1/boot.bin.next', log)
+        self.assert_stopped(status, log, later)
+
+    def test_finishing_needs_an_added_kernel(self):
+        self.boot_setup()
+        with self.assertRaisesRegex(bootchain.Refused, 'requires an add action'):
+            self.update().finish_add()
+
+
+@unittest.skipUnless(shutil.which('dtc') and shutil.which('fdtget'), 'requires dtc')
+class Stage2TreeTests(unittest.TestCase):
+    dtb = BootchainTests.dtb
+
+    def test_the_trees_run_from_after_aura_to_u_boots_gzip_stream(self):
+        first, second = self.dtb('j413', 1), self.dtb('j413', 2)
+        other = self.dtb('j700', 1)
+        aura = b'AURA' + bootchain.FDT_MAGIC + b'\xff' * 60  # A magic inside aura is not a tree.
+        image = aura + first + other + second + gzip.compress(b'U-BOOT', mtime=0) + b'display=1\n'
+        self.assertEqual(bootchain.stage2_dtbs(image), [first, other, second])
+        # aura keeps the last tree for the board, as its payload loader does.
+        self.assertEqual(bootchain.Update(Path('/'), {}).loaded_dtb(image, 'apple,j413'), second)
+        self.assertIsNone(bootchain.Update(Path('/'), {}).loaded_dtb(image, 'apple,j316c'))
+        self.assertEqual(bootchain.stage2_dtbs(b'GOOD-STAGE2'), [])
+        self.assertEqual(bootchain.stage2_dtbs(aura + first), [])
+
+
 if __name__ == '__main__':
     unittest.main()
