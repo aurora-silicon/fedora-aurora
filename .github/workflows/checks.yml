@@ -21,8 +21,9 @@ jobs:
           python-version: '3.12'
       - run: |
           sudo apt-get update
-          sudo apt-get install -y device-tree-compiler shellcheck
+          sudo apt-get install -y device-tree-compiler shellcheck cpio
           shellcheck -s bash packages/update-aura/mount-system-esp.sh
+          shellcheck -s sh packages/aurora-firmware/verify-vendor-firmware.sh
           shellcheck packages/update-aura/update-aura packages/update-aura/aurora-stage2-commit packages/update-aura/*.install scripts/test-stage2-transactions scripts/test-bootchain-upgrade
           python3 -m unittest discover -s tests -p 'test_*.py'
           python3 images/test_configure.py
