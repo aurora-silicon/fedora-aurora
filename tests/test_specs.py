@@ -497,6 +497,9 @@ class SpecTests(unittest.TestCase):
         self.assertIn('secboot_sign.pubkey(os.urandom(32))', secure)
         self.assertIn('SECBOOT=audit SECBOOT_FLAVOUR=secure SECBOOT_PUBKEY=../aurora-stage1/nobody.pub', secure)
         self.assertIn('cp build/aura.bin ../aurora-stage1/aura-secure-raw.bin\n', secure)
+        self.assertIn('cp build/aura-boot.macho ../aurora-stage1/aura-secure-boot.macho\n', secure)
+        self.assertIn('install -Dm644 ../aurora-stage1/aura-secure-boot.macho '
+                      '%{buildroot}%{_datadir}/aura/stage1/aura-secure-boot.macho\n', spec)
         self.assertIn('ESP_STAGE2=1', build.split('make clean', 2)[2])
         install = spec.split('%install', 1)[1].split('%files', 1)[0]
         self.assertIn('install -Dm644 ../aurora-stage1/aura-secure-raw.bin '
