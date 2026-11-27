@@ -8,5 +8,6 @@
     "fprintd.spec": "8ebcce78640b1a75579894f0859af1799fae798e13cf15ea7c3665cfb29eb9da",
     "0003-say-why-the-reader-needs-the-password.patch": "1db338603ce2bbf15688c909d4c24120c7933755ca390358b940ac4579cb82d3",
     "0004-dont-ask-for-a-finger-the-reader-will-not-take.patch": "ca498a36e63e39450e8bd7bb090134093942e4ffc7919bd8748a579e1669db1a"
-  }
+  },
+  "adaptations": "Local Patch4 (0005) skips DATA_FULL garbage collection for apple-sep and explains storage exhaustion in fprintd-enroll. The aurora5 package provides fprintd(aurora-no-enroll-gc) = 1 and compiles test_enroll_capacity.py against its patched source during %check. The imported file hashes above remain the original provenance."
 }
