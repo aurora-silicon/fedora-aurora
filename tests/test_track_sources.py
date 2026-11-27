@@ -34,6 +34,20 @@ class FedoraSpecTests(unittest.TestCase):
         return {'key': key, 'old': self.pins[key]['commit'], 'new': NEW, 'repository': 'aurora-silicon/x',
                 'branch': 'main', 'archive_root': root, 'new_subject': 'Merge pull request #1', **extra}
 
+    def test_guard_snapshot_increments_its_counter_and_records_exact_evr(self):
+        key = 'speakerguardd-v2'
+        item = self.item(key)
+        self.assertEqual(module.tl.load_tracking(ROOT)['sources'][key]['merge'], 'manual')
+        before = self.spec(key)
+        version = module.tl.spec_field(before, 'Version')
+        counter, _ = module.guard_snapshot_release(before, item['old'])
+        date = datetime.date(2099, 11, 28)
+        module.update_recipe(self.root, item, date)
+        release = f'0.{counter + 1}.20991128git{NEW[:12]}'
+        self.assertEqual(item['package_version'], f'{version}-{release}.fc44')
+        self.assertIn('%global snapdate 20991128', self.spec(key))
+        self.assertIn(f' - {version}-{release}\n', self.spec(key))
+
     def test_aura_bumps_release_and_records_a_changelog_entry(self):
         before = int(module.tl.spec_field(self.spec('aura'), 'Release').split('%')[0])
         version = module.tl.spec_field(self.spec('aura'), 'Version')
