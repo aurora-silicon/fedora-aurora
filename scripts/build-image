@@ -74,7 +74,7 @@ if (( basics == 0 )); then
 fi
 if (( basics == 0 )) && [[ -n ${AURORA_EDGE_SNAPSHOT:-} ]]; then
   python3 "$root/scripts/edge-image-proof.py" --root "$basics_root" --profile "$profile" \
-    --snapshot "$AURORA_EDGE_SNAPSHOT" --edge-sources "$AURORA_EDGE_SOURCES" \
+    --fedora-release "$release" --snapshot "$AURORA_EDGE_SNAPSHOT" --edge-sources "$AURORA_EDGE_SOURCES" \
     --kiwi-description "$root/out/$profile-description/config.xml" \
     --output "$installer/edge-image-proof.json" || basics=$?
 fi

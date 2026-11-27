@@ -235,7 +235,7 @@ class ReleaseTests(unittest.TestCase):
         site = module('channel-site')
         state = updatelib.empty_channels('aurora-silicon/fedora-aurora')
         for key, tag in [('testing', 'testing-old.1'), ('stable', 'testing-old.1'), ('45/testing', 'testing-f45-old.1'),
-                         ('edge', 'edge-20261121.1')]:
+                         ('edge', 'edge-20261121.1'), ('45/edge', 'edge-f45-20261121.1')]:
             state = updatelib.record_channel(state, key, {'tag': tag})
         for fedora in (44, 45):
             with self.subTest(fedora=fedora), tempfile.TemporaryDirectory() as temporary:

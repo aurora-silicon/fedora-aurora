@@ -5,7 +5,9 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -23,6 +25,7 @@ def module(name, path):
 signing = module('edge_repository_signing', 'scripts/sign-repository.py')
 site = module('edge_channel_site', 'scripts/channel-site.py')
 snapshot = module('edge_snapshot', 'scripts/edge-snapshot.py')
+base_verifier = module('edge_base_verifier', 'scripts/verify-edge-base.py')
 proof = module('edge_image_proof', 'scripts/edge-image-proof.py')
 configure = module('edge_configure', 'images/configure.py')
 
@@ -70,12 +73,29 @@ class ChannelSiteTests(unittest.TestCase):
         return {'schema_version': 1, 'release': 'alpha.4', 'pair': pair or {'linux': LINUX, 'mesa': MESA},
                 'distributions': {'fedora': {'repository': 'aurora-silicon/fedora-aurora', 'snapshot': tag}}}
 
-    def test_edge_is_a_fedora_44_slot(self):
+    def test_edge_has_separate_release_slots(self):
         self.assertIn('edge', site.CHANNELS)
         self.assertEqual(site.SLOTS['edge'], (44, 'edge'))
         self.assertEqual(site.channel_key('edge', 44), 'edge')
+        self.assertEqual(site.SLOTS['45/edge'], (45, 'edge'))
+        self.assertEqual(site.channel_key('edge', 45), '45/edge')
+        self.assertEqual(edgelib.snapshot('edge-f45-20261121.1', 45), 'edge-f45-20261121.1')
         with self.assertRaises(ValueError):
-            site.channel_key('edge', 45)
+            edgelib.snapshot('edge-20261121.1', 45)
+        with self.assertRaises(ValueError):
+            edgelib.snapshot('edge-f45-20261121.1', 44)
+
+    def test_fedora_45_requires_the_exact_v2_adopted_snapshot(self):
+        record = self.record()
+        record['schema_version'] = 2
+        adopted = 'edge-f45-20261121.1'
+        record['distributions']['fedora'].update(release=45, snapshot=adopted)
+        sources = self.sources()
+        self.assertEqual(site.edge_gate(record, adopted, sources, fedora=45), 'train')
+        with self.assertRaisesRegex(ValueError, 'adopted Fedora 45'):
+            site.edge_gate(record, 'edge-f45-20261121.2', sources, sources, fedora=45)
+        with self.assertRaisesRegex(ValueError, 'no adopted Edge train'):
+            site.edge_gate(record, adopted, sources, fedora=44)
 
     def sources(self, mesa=None, signing_run=44700000001, rpms=('kernel-aurora-core-7.3.0-43.rpm',)):
         return {'schema': 1, 'channel': 'edge', 'signing_run': signing_run, 'edge_rpms': list(rpms),
@@ -106,6 +126,50 @@ class ChannelSiteTests(unittest.TestCase):
         self.assertEqual(site.lane('testing'), 'testing')
         self.assertTrue(site.publisher('edge').endswith('/publish-edge.yml'))
         self.assertTrue(site.publisher('stable').endswith('/publish.yml'))
+
+    def test_edge_provenance_checks_the_downloaded_source_record(self):
+        files = {'repository-metadata-edge-20261121.1.tar.gz': b'archive',
+                 'edge-sources.json': json.dumps(self.sources()).encode()}
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            for name, data in files.items():
+                (directory / name).write_bytes(data)
+            hashes = {name: hashlib.sha256(data).hexdigest() for name, data in files.items()}
+            (directory / 'SHA256SUMS').write_text(''.join(f'{digest}  {name}\n' for name, digest in hashes.items()))
+            subjects = [{'name': name, 'digest': {'sha256': digest}} for name, digest in hashes.items()]
+            verification = {'verificationResult': {'statement': {'subject': subjects}}}
+            with patch.object(site.subprocess, 'run') as command:
+                command.return_value.stdout = json.dumps([verification])
+                self.assertEqual(site.verify_attestation(directory, 'aurora-silicon/fedora-aurora', 'edge'),
+                                 'verified')
+                (directory / 'edge-sources.json').write_text('{}')
+                with self.assertRaisesRegex(ValueError, 'downloaded snapshot assets'):
+                    site.verify_attestation(directory, 'aurora-silicon/fedora-aurora', 'edge')
+
+    def test_refresh_gates_both_authenticated_snapshots(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            train = root / 'train.json'
+            train.write_text(json.dumps(self.record()))
+            args = SimpleNamespace(repository='aurora-silicon/fedora-aurora', channel='edge', fedora_release=44,
+                                   tag='edge-20261128.1', edge_train=train, work=root / 'work',
+                                   site=root / 'site', site_url='unused')
+
+            def fetch(repository, tag, channel, destination, work, home, fingerprint, fedora):
+                download = work / f'{fedora}-{channel}-download'
+                download.mkdir(parents=True)
+                (download / 'edge-sources.json').write_text(json.dumps(self.sources()))
+                return 'verified'
+
+            with (patch.object(site.lib, 'load_channels', return_value={'channels': {}}),
+                  patch.object(site.lib, 'gh', side_effect=AssertionError('separate source download')),
+                  patch.object(site, 'keyring', return_value=(root / 'keys', 'key')),
+                  patch.object(site, 'fetch_snapshot', side_effect=fetch) as snapshot_fetch,
+                  patch.object(site, 'live_repository', side_effect=RuntimeError('gate passed'))):
+                with self.assertRaisesRegex(RuntimeError, 'gate passed'):
+                    site.assemble(args)
+            self.assertEqual([call.args[1] for call in snapshot_fetch.call_args_list],
+                             ['edge-20261128.1', 'edge-20261121.1'])
 
 
 class EdgeSnapshotTests(unittest.TestCase):
@@ -163,10 +227,86 @@ class EdgeSnapshotTests(unittest.TestCase):
         sources = {'kernel-aurora': {'commit': LINUX['revision']}, 'mesa-aurora': {'commit': MESA['revision']},
                    'mesa-aurora-fex-guest': {'commit': MESA['revision']}}
         trees = {'linux': LINUX['tree'], 'mesa': MESA['tree']}
-        self.assertEqual(snapshot.packaged_sources(sources, trees), {'linux': LINUX, 'mesa': MESA})
+        self.assertEqual(snapshot.packaged_sources(sources, trees),
+                         {'linux': dict(LINUX, branch='main'), 'mesa': dict(MESA, branch='aurora-wip')})
         sources['mesa-aurora-fex-guest']['commit'] = '6' * 40
         with self.assertRaisesRegex(ValueError, 'one Mesa'):
             snapshot.packaged_sources(sources, trees)
+
+    def test_signed_base_copies_every_binary_rpm_and_records_the_published_pair(self):
+        rows = [('kernel-aurora-core', b'kernel'), ('mesa-aurora-vulkan-drivers', b'mesa'), ('aura', b'aura')]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            base = root / 'base'
+            base.mkdir()
+            files = {}
+            for package, contents in rows:
+                name = f'{package}-1-1.fc45.aurora.aarch64.rpm'
+                (base / name).write_bytes(contents)
+                files[name] = package + '.aarch64'
+            (base / 'kernel-aurora-1-1.fc45.src.rpm').write_bytes(b'source')
+            (base / 'mesa-aurora-1-1.fc45.nosrc.rpm').write_bytes(b'limited source')
+            sources = {'kernel-aurora': {'commit': LINUX['revision']},
+                       'mesa-aurora': {'commit': MESA['revision']}}
+            (root / 'sources.json').write_text(json.dumps(sources))
+            (root / 'trees.json').write_text(json.dumps({'linux': LINUX['tree'], 'mesa': MESA['tree']}))
+            publication = {'packaging_commit': '5' * 40}
+            (root / 'base.json').write_text(json.dumps(publication))
+            args = ['edge-snapshot', '--base', str(base), '--signed-base', '--sources', str(root / 'sources.json'),
+                    '--trees', str(root / 'trees.json'), '--output', str(root / 'out'),
+                    '--record', str(root / 'record.json'), '--base-record', str(root / 'base.json'),
+                    '--base-release', 'testing-f45-20261121.1']
+            with patch.object(sys, 'argv', args), patch.object(snapshot, 'identity', lambda path: files[path.name]):
+                snapshot.main()
+            self.assertEqual({name: (base / name).read_bytes() for name in files},
+                             {path.name: path.read_bytes() for path in (root / 'out').iterdir()})
+            record = json.loads((root / 'record.json').read_text())
+            self.assertEqual(record['base_publication'], publication)
+            self.assertEqual(len(record['edge_rpms']), 2)
+
+    def test_signed_base_binds_source_assets_without_counting_them_as_binaries(self):
+        recipes = ('kernel-aurora', 'mesa-aurora', 'mesa-aurora-fex-guest', 'aurora-flatpak-gl')
+        binaries = {f'{recipe}-1-1.fc45.aarch64.rpm': recipe for recipe in recipes}
+        sources = {'kernel-aurora-1-1.fc45.src.rpm', 'mesa-aurora-1-1.fc45.nosrc.rpm'}
+        checksums = dict.fromkeys(binaries.keys() | sources, '1' * 64)
+        manifest = {'channel': 'testing', 'fedora': 45, 'architecture': 'aarch64', 'dry_run': False,
+                    'packages': [{'filename': filename, 'sha256': checksums[filename]} for filename in binaries]}
+        builds = {'receipts': [{'fedora': 45, 'succeeded': True, 'package': recipe,
+                                'artifacts': [{'filename': filename}]} for filename, recipe in binaries.items()]}
+        downloaded = binaries.keys() | sources
+        base_verifier.verify_index(manifest, builds, checksums, downloaded)
+        with self.assertRaisesRegex(ValueError, 'differ from the authenticated manifest'):
+            base_verifier.verify_index(manifest, builds, checksums, downloaded | {'extra.src.rpm'})
+        with self.assertRaisesRegex(ValueError, 'differ from the authenticated manifest'):
+            base_verifier.verify_index(manifest, builds, checksums, downloaded - {next(iter(binaries))})
+
+    def test_signed_base_resolves_only_identical_carried_rpms_with_matching_inputs(self):
+        recipes = ('kernel-aurora', 'mesa-aurora', 'mesa-aurora-fex-guest', 'aurora-flatpak-gl', 'firefox')
+        files = {f'{recipe}-1-1.fc45.aarch64.rpm': recipe for recipe in recipes}
+        digest = '7' * 64
+        checksums = dict.fromkeys(files, digest)
+        manifest = {'channel': 'testing', 'fedora': 45, 'architecture': 'aarch64', 'dry_run': False,
+                    'packages': [{'filename': filename, 'sha256': digest} for filename in files]}
+        tag = 'testing-f45-20261125.1'
+        current, previous = '2' * 40, '1' * 40
+        firefox = 'firefox-1-1.fc45.aarch64.rpm'
+        def receipt(name, filename):
+            return {'fedora': 45, 'succeeded': True, 'package': name, 'artifacts': [{'filename': filename}]}
+        builds = {'publishing_commit': current, 'base_release': tag,
+                  'receipts': [receipt(name, filename) for filename, name in files.items() if name != 'firefox']}
+        old_builds = {'publishing_commit': previous, 'receipts': [receipt('firefox', firefox)]}
+        def prior(ref):
+            self.assertEqual(ref, tag)
+            return {firefox: digest}, old_builds
+        def same_recipe(new, old, origin):
+            self.assertEqual((new, old, origin['package']), (current, previous, 'firefox'))
+            return True
+        base_verifier.verify_index(manifest, builds, checksums, files.keys(), prior, same_recipe)
+        with self.assertRaisesRegex(ValueError, 'differs from its authenticated predecessor'):
+            base_verifier.verify_index(manifest, builds, checksums, files.keys(),
+                                       lambda _: ({firefox: '8' * 64}, old_builds), same_recipe)
+        with self.assertRaisesRegex(ValueError, 'lacks matching authenticated recipe inputs'):
+            base_verifier.verify_index(manifest, builds, checksums, files.keys(), prior, lambda *_: False)
 
 
 class ImageProofTests(unittest.TestCase):
@@ -183,6 +323,12 @@ class ImageProofTests(unittest.TestCase):
         (self.root / 'etc/yum.repos.d/aurora.repo').write_text(
             '[aurora]\nbaseurl=https://aurorasilicon.org/fedora-aurora/$releasever/edge/aarch64\nenabled=1\n')
         self.sources = {'linux': LINUX, 'mesa': MESA}
+
+    def test_fedora_45_images_record_the_matching_snapshot_feed(self):
+        tag = 'edge-f45-20261121.1'
+        result = proof.proof(self.root, 'fedora-gnome', tag, self.sources, fedora=45)
+        self.assertEqual(result['snapshot'], tag)
+        self.assertEqual(result['feed'], 'https://aurorasilicon.org/fedora-aurora/45/edge/aarch64')
 
     def test_proof_records_the_edge_build_the_image_carries(self):
         result = proof.proof(self.root, 'fedora-gnome', 'edge-20261121.1', self.sources)

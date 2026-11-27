@@ -30,13 +30,13 @@ import fedoralib  # noqa: E402
 CHANNELS = ('testing', 'stable', 'edge')
 SITE_BUDGET = 200_000_000
 SLOTS = {'testing': (44, 'testing'), 'stable': (44, 'stable'), '45/testing': (45, 'testing'),
-         'edge': (44, 'edge')}
+         'edge': (44, 'edge'), '45/edge': (45, 'edge')}
 
 
 def channel_key(channel, fedora=44):
     fedora = fedoralib.release(fedora)
-    if fedora == 45 and channel != 'testing':
-        raise ValueError('Fedora 45 is testing-only; stable and edge remain Fedora 44')
+    if fedora == 45 and channel == 'stable':
+        raise ValueError('stable remains Fedora 44')
     return channel if fedora == 44 else f'{fedora}/{channel}'
 
 
@@ -49,7 +49,7 @@ def publisher(channel):
     return '.github/workflows/' + ('publish-edge.yml' if lane(channel) == 'edge' else 'publish.yml')
 
 
-def edge_gate(record, tag, sources, adopted=None):
+def edge_gate(record, tag, sources, adopted=None, fedora=44):
     """Edge serves the qualified kernel and Mesa of the adopted aurora-distributions Edge train.
 
     `sources` is the snapshot's edge-sources.json. The snapshot the train names
@@ -58,13 +58,17 @@ def edge_gate(record, tag, sources, adopted=None):
     carry the very same signed kernel and Mesa RPMs. A new pair is a new train.
     """
     entry = ((record or {}).get('distributions') or {}).get('fedora') or {}
-    if (not record or record.get('schema_version') != 1
+    version = (record or {}).get('schema_version')
+    release = entry.get('release') if version == 2 else 44
+    if (version not in (1, 2) or release != fedora
             or entry.get('repository') != 'aurora-silicon/fedora-aurora' or not entry.get('snapshot')):
         raise ValueError(f'{tag}: there is no adopted Edge train for Fedora')
     if (sources or {}).get('packaged_sources') != record.get('pair'):
         raise ValueError(f'{tag} packaged another Linux/Mesa pair than the adopted Edge train')
     if tag == entry['snapshot']:
         return 'train'
+    if fedora == 45:
+        raise ValueError(f'{tag} is not the adopted Fedora 45 Edge snapshot')
     if (not adopted or adopted.get('packaged_sources') != record.get('pair')
             or any(sources.get(key) != adopted.get(key) for key in ('signing_run', 'mesa_signing_run', 'edge_rpms'))):
         raise ValueError(f'{tag} is neither the adopted Edge train snapshot nor a refresh of its kernel and Mesa RPMs')
@@ -95,16 +99,19 @@ def verify_attestation(directory, repository, channel='testing'):
         return 'none (snapshot predates attestations)'
     listed = dict(reversed(line.split(maxsplit=1)) for line in sums.read_text().splitlines())
     listed = {name.lstrip('*'): digest for name, digest in listed.items()}
-    archive = next(name for name in listed if name.startswith('repository-metadata-') and name.endswith('.tar.gz'))
-    if listed[archive] != lib.sha256_file(directory / archive):
-        raise ValueError('SHA256SUMS does not match the metadata archive')
+    downloaded = {path.name: lib.sha256_file(path)
+                  for path in directory.iterdir() if path != sums}
+    if not downloaded.items() <= listed.items():
+        raise ValueError('SHA256SUMS does not match the downloaded snapshot assets')
+    archive, = (name for name in downloaded
+                if name.startswith('repository-metadata-') and name.endswith('.tar.gz'))
     result = subprocess.run(['gh', 'attestation', 'verify', str(directory / archive), '--repo', repository,
                              '--signer-workflow', f'{repository}/{publisher(channel)}',
                              '--deny-self-hosted-runners', '--format', 'json'],
                             check=True, capture_output=True, text=True)
-    subjects = {(s['name'], s['digest']['sha256']) for v in json.loads(result.stdout)
-                for s in v['verificationResult']['statement']['subject']}
-    if not set(listed.items()) <= subjects:
+    attestations = ({(s['name'], s['digest']['sha256']) for s in v['verificationResult']['statement']['subject']}
+                    for v in json.loads(result.stdout))
+    if not any(listed.items() <= subjects for subjects in attestations):
         raise ValueError('the provenance attestation does not cover every snapshot asset')
     return 'verified'
 
@@ -122,8 +129,8 @@ def fetch_snapshot(repository, tag, channel, site, work, home, fingerprint, fedo
     archive = download / f'repository-metadata-{tag}.tar.gz'
     gpg_verify(home, archive.with_name(archive.name + '.asc'), archive)
     provenance = verify_attestation(download, repository, channel)
-    if lane(channel) == 'edge' and provenance != 'verified':
-        raise ValueError(f'{tag}: an Edge snapshot requires hosted provenance')
+    if lane(channel) == 'edge' and (provenance != 'verified' or not (download / 'edge-sources.json').is_file()):
+        raise ValueError(f'{tag}: an Edge snapshot requires a source record and hosted provenance')
     extracted = work / f'{fedora}-{channel}-metadata'
     with tarfile.open(archive) as bundle:
         bundle.extractall(extracted, filter='data')
@@ -140,6 +147,14 @@ def fetch_snapshot(repository, tag, channel, site, work, home, fingerprint, fedo
     target.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source, target)
     return provenance
+
+
+def verified_edge_sources(work, fedora):
+    path = work / f'{fedora}-edge-download/edge-sources.json'
+    sources = json.loads(path.read_text())
+    if sources.get('schema') != 1 or sources.get('channel') != 'edge':
+        raise ValueError(f'{path}: expected an authenticated Edge source record')
+    return sources
 
 
 def live_repository(site_url, channel, work, home, fedora=44):
@@ -186,21 +201,6 @@ def assemble(args):
         edgelib.snapshot(tag, args.fedora_release)
         if not args.edge_train:
             raise SystemExit('An Edge deploy needs the adopted Edge train record (--edge-train).')
-        record = json.loads(Path(args.edge_train).read_text())
-        download = Path(args.work) / 'edge-gate'
-        download.mkdir(parents=True)
-        def edge_sources(snapshot):
-            target = download / snapshot
-            lib.gh('release', 'download', edgelib.snapshot(snapshot), '--repo', repository, '--dir', str(target),
-                   '--pattern', 'edge-sources.json')
-            sources = json.loads((target / 'edge-sources.json').read_text())
-            if sources.get('schema') != 1 or sources.get('channel') != 'edge':
-                raise SystemExit(f'{snapshot} is not an Edge snapshot.')
-            return sources
-        named = ((record.get('distributions') or {}).get('fedora') or {}).get('snapshot', '')
-        sources = edge_sources(tag)
-        kind = edge_gate(record, tag, sources, None if named == tag else edge_sources(named))
-        print(f'Edge {kind}: {tag} (adopted train {record.get("release")}, snapshot {named})')
     else:
         fedoralib.snapshot(tag, args.fedora_release)
     target = dict(current, **{key: tag})
@@ -212,6 +212,17 @@ def assemble(args):
     for slot, (fedora, channel) in SLOTS.items():
         if target[slot]:
             provenance[slot] = fetch_snapshot(repository, target[slot], channel, site, work, home, fingerprint, fedora)
+    if args.channel == 'edge':
+        record = json.loads(Path(args.edge_train).read_text())
+        named = ((record.get('distributions') or {}).get('fedora') or {}).get('snapshot')
+        sources = verified_edge_sources(work, args.fedora_release)
+        adopted = None
+        if args.fedora_release == 44 and named and named != tag:
+            reference = work / 'adopted-edge'
+            fetch_snapshot(repository, named, 'edge', reference / 'site', reference, home, fingerprint, args.fedora_release)
+            adopted = verified_edge_sources(reference, args.fedora_release)
+        kind = edge_gate(record, tag, sources, adopted, args.fedora_release)
+        print(f'Edge {kind}: {tag} (adopted train {record.get("release")}, snapshot {named})')
     report = ''
     live = live_repository(args.site_url, args.channel, work, home, args.fedora_release)
     if live is not None:

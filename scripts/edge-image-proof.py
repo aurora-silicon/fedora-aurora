@@ -44,11 +44,11 @@ def file_digest(path):
         return 'sha256:' + hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def proof(root, profile, tag, sources, kiwi=None):
+def proof(root, profile, tag, sources, kiwi=None, fedora=44):
     root = Path(root).resolve(strict=True)
     if profile not in PROFILES:
         raise ValueError('not a Fedora profile: ' + profile)
-    edgelib.snapshot(tag)
+    edgelib.snapshot(tag, fedora)
     refuse_lab_arguments(kernel_arguments(root, kiwi))
     repo = (root / 'etc/yum.repos.d/aurora.repo').read_text().splitlines()
     if ('baseurl=' + edgelib.REPOSITORY_URL) not in repo or 'enabled=1' not in repo:
@@ -65,7 +65,8 @@ def proof(root, profile, tag, sources, kiwi=None):
             for key in ('revision', 'tree')):
         raise ValueError('invalid packaged sources')
     return {'schema': 2, 'distribution': 'fedora', 'profile': profile, 'channel': 'edge',
-            'snapshot': tag, 'feed': edgelib.FEED, 'packaged_sources': sources,
+            'snapshot': tag, 'feed': edgelib.REPOSITORY_URL.replace('$releasever', str(fedora)),
+            'packaged_sources': sources,
             'files': {'kernelImageSHA256': file_digest(kernels[0]), 'mesaDsoSHA256': file_digest(dso)}}
 
 
@@ -74,6 +75,7 @@ if __name__ == '__main__':
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--profile', required=True)
     parser.add_argument('--snapshot', required=True)
+    parser.add_argument('--fedora-release', type=int, choices=(44, 45), default=44)
     parser.add_argument('--edge-sources', type=Path, required=True, help="the snapshot's edge-sources.json")
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--kiwi-description', type=Path, help="the image description's config.xml")
@@ -82,5 +84,5 @@ if __name__ == '__main__':
     if record.get('channel') != 'edge' or record.get('schema') != 1:
         parser.error('not an Edge snapshot record')
     args.output.write_text(json.dumps(proof(args.root, args.profile, args.snapshot, record['packaged_sources'],
-                                            args.kiwi_description),
+                                            args.kiwi_description, args.fedora_release),
                                       indent=2, sort_keys=True) + '\n')
