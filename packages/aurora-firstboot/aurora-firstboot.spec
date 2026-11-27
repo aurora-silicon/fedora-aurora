@@ -1,8 +1,8 @@
-%global commit 20c328448a51f680ef545b3fb5d1d3a9c6abc9a3
+%global commit 32e6b82ae7b775b552902f027ad8be976c09163d
 %global selinuxtype targeted
 Name: aurora-firstboot
 Version: 0.1.13
-Release: 8%{?dist}
+Release: 9%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-platform
@@ -202,6 +202,10 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/aurora_secboot.pp
 
 %changelog
+* Thu Nov 26 2026 DjDeveloperr <hey@djdev.me> - 0.1.13-9
+- Refresh to aurora-platform 32e6b82a: aurora-secboot binds the ESP vendor
+  firmware archive on the UKI command line (aurora.vendorfw=).
+
 * Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-8
 - Refresh to aurora-platform 20c32844.
 
