@@ -1,4 +1,4 @@
-%global commit dc7c873addc830fe3730573afd34291db26eac9c
+%global commit 94ea195b6eb59ca22dbe1a9957b6207c80bfa4c8
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # modules_install signs every module (CONFIG_MODULE_SIG_ALL) after
@@ -14,7 +14,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 43%{?dist}.aurora
+Release: 44%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -185,6 +185,12 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-44
+- Pin aurora-silicon/linux main at 94ea195b, the frozen nightly SHA. Adds
+  the rest of the K-board set: the shared internal panel (linux#3350),
+  writable NVRAM (linux#3383), PMU RTC and SD reader (linux#3363), plus
+  the other fixes merged since dc7c873a.
+
 * Fri Nov 27 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-43
 - Pin aurora-silicon/linux main at dc7c873a (merge of linux#3337). Adds the
   K114s/K116c device trees (USB-C, N1, GPU, sound/AOP, ANE, MagSafe, USB4)
