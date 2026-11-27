@@ -34,7 +34,7 @@ assert '/usr/lib/modules/%{krel}/dtb-abi' in source.split('%files core', 1)[1].s
 top = Path('/var/tmp/stage2-rpms')
 (top / 'SPECS').mkdir(parents=True)
 (top / 'SOURCES').mkdir()
-for release, generation in ((1, 1), (2, 1), (3, 2)):
+for release, generation in ((1, 1), (2, 1), (3, 2), (4, 1)):
     krel = f'7.3.0-{release}.stage2.aarch64'
     (top / f'SOURCES/abi-{release}').write_text(f'{generation}\n')
     blob = subprocess.check_output(['dtc', '-q', '-I', 'dts', '-O', 'dtb'], input=f'''
@@ -144,6 +144,41 @@ sed -i 's/Release: 1.stage2/Release: 2.stage2/; s/printf '\''aura'\''/printf '\'
 rpmbuild -bb --define '_topdir /var/tmp/stage2-rpms' /var/tmp/stage2-rpms/SPECS/aura.spec >> "$proof/fixture-build.log" 2>&1
 dnf upgrade -y "$rpms"/noarch/aura-1-2.stage2.noarch.rpm > "$proof/rpm-trigger-upgrade.log" 2>&1
 [[ $(sha256sum /boot/efi/m1n1/boot.bin) != "$before" ]]
+# A hand-installed kernel left a boot entry without device trees. Adding a
+# kernel keeps Stage 2, and kernel-install still runs the plugins after the
+# hook (here one that records it ran) since the new kernel boots the kept
+# trees. The synthetic compatible lets the hook name this Mac's tree.
+fixture=/var/tmp/stage2-refused-add
+mkdir -p "$fixture" /boot/loader/entries
+printf 'apple,j413\0apple,t8112\0' > "$fixture/compatible"
+cp /etc/sysconfig/update-m1n1 "$fixture/update-m1n1"
+echo "AURORA_DEVICE_TREE_COMPATIBLE=$fixture/compatible" >> /etc/sysconfig/update-m1n1
+cat > "$fixture/90-later.install" <<'PLUGIN'
+#!/bin/sh
+[ "$1" != add ] || : > "/var/tmp/stage2-refused-add/later-$2"
+PLUGIN
+chmod 755 "$fixture/90-later.install"
+plugins=$KERNEL_INSTALL_PLUGINS
+export KERNEL_INSTALL_PLUGINS="$plugins $fixture/90-later.install"
+stale=7.3.0-0.local.stage2.aarch64
+printf local > "/boot/vmlinuz-$stale"
+printf 'title Local\nversion %s\nlinux /vmlinuz-%s\n' "$stale" "$stale" > "/boot/loader/entries/local-$stale.conf"
+kept=$(sha256sum /boot/efi/m1n1/boot.bin)
+link=$(readlink /boot/dtb)
+dnf install -y "$rpms"/aarch64/kernel-aurora-core-7.3.0-4.stage2.aarch64.rpm > "$proof/refused-add.log" 2>&1
+grep -F "kernel $stale has no DTB directory" "$proof/refused-add.log"
+grep -F 'WARNING: Stage 2 was not updated for kernel 7.3.0-4.stage2.aarch64' "$proof/refused-add.log"
+[[ -e $fixture/later-7.3.0-4.stage2.aarch64 ]]
+[[ $(sha256sum /boot/efi/m1n1/boot.bin) == "$kept" && $(readlink /boot/dtb) == "$link" ]]
+[[ ! -e /boot/dtb-7.3.0-4.stage2.aarch64 ]]
+# Without the local kernel, an update composes Stage 2 from the new one.
+rm "/boot/vmlinuz-$stale" "/boot/loader/entries/local-$stale.conf"
+update-aura > "$proof/refused-add-update.log" 2>&1
+[[ $(readlink /boot/dtb) == dtb-7.3.0-4.stage2.aarch64 ]]
+[[ $(sha256sum /boot/efi/m1n1/boot.bin) != "$kept" ]]
+export KERNEL_INSTALL_PLUGINS=$plugins
+cp "$fixture/update-m1n1" /etc/sysconfig/update-m1n1
+rm -r "$fixture"
 # Repeat the updater suite against the installed helper. Synthetic proc/sys
 # fixtures model trial and fallback boots without exposing any host device.
 BOOTCHAIN_MODULE=/usr/libexec/aurora/bootchain.py python3 packages/update-aura/test_bootchain.py -v \
