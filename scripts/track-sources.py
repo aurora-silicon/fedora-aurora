@@ -17,7 +17,7 @@ import updatelib as lib  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 ARCHIVE_RECIPES = (
-    'alsa-ucm-conf-aurora', 'aurora-bless',
+    'alsa-ucm-conf-aurora', 'aurora-bless', 'aurora-camera-denoise',
     'aurora-diag', 'aurora-firstboot', 'aurora-kbd-light', 'aurora-neo-platform-config',
     'aurora-xart', 'upower-aurora',
 )
