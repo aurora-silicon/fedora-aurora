@@ -267,8 +267,8 @@ class SpecTests(unittest.TestCase):
         self.assertIn('/lib/dracut/modules.d/91aurora-usb4/module-setup.sh', text)
         core_files = text.split('%files core', 1)[1].split('%changelog', 1)[0]
         self.assertIn('%{_prefix}/lib/dracut/modules.d/91aurora-usb4/', core_files)
-        config = (ROOT / 'packages' / 'kernel-aurora' / 'config').read_text()
-        self.assertIn('CONFIG_USB4_APPLE_SOC=m', config.splitlines())
+        # USB4_APPLE_SOC=m comes from the kernel's asahi.config, which the
+        # kernel-aurora build validates against the resolved configuration.
     def test_initramfs_coldplugs_the_display_first(self):
         # F45's initramfs pivots before udev reaches the display; a pre-trigger
         # hook queues it (and its suppliers) ahead of systemd-udev-trigger.

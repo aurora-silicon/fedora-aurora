@@ -449,8 +449,6 @@ class Recipes(unittest.TestCase):
         if self.macro('aura', 'monitor_free'):
             self.assertEqual(self.macro('kernel-aurora', 'ctxr_execmem'), 1,
                              'aura without the monitor needs CONFIG_ARM64_CTXR_EXECMEM=y')
-        config = (ROOT / 'packages/kernel-aurora/config').read_text().splitlines()
-        self.assertIn('CONFIG_ARM64_CTXR_EXECMEM=y', config)
 
     def test_the_macros_become_the_requirement_and_its_provider(self):
         self.assertIn('%if %{monitor_free}\nRequires: aurora-ctxr-execmem\n%endif\n', self.spec('aura'))
