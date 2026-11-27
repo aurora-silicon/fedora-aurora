@@ -915,7 +915,8 @@ class SpecTests(unittest.TestCase):
         self.assertIn("! grep -qs '^[[:space:]]*DeviceScale[[:space:]]*=' $conf", post)
         self.assertIn('DeviceScale=1$/d}', spec.split('%postun', 1)[1])
 
-    def run_theme_post(self, current, cmdline=None, entries=None, dracut_status=0):
+    def run_theme_post(self, current, cmdline=None, entries=None, dracut_status=0, dt=None, grubby_status=0,
+                       removed=False):
         """Run the theme's %post and %posttrans against a fake Plymouth with CURRENT set."""
         spec = (ROOT / 'packages' / 'plymouth-theme-aurora' / 'plymouth-theme-aurora.spec').read_text()
         post = spec.split('\n%post\n', 1)[1].split('\n%posttrans\n', 1)[0]
@@ -936,7 +937,15 @@ class SpecTests(unittest.TestCase):
             dracut.chmod(0o755)
             grubby = tmp / 'bin/grubby'
             grubby.write_text(f'#!/bin/bash\nif [[ $1 == --info=ALL ]]; then cat {tmp / "entries"} 2>/dev/null; exit 0; fi\n'
-                              f'echo "$@" >> {tmp / "grubby.log"}\n')
+                              f'echo "$@" >> {tmp / "grubby.log"}\nexit {grubby_status}\n')
+            # The running device tree: {relative path: property bytes}. None is a
+            # system without one (an image build's chroot).
+            for name, value in (dt or {}).items():
+                (tmp / 'dt' / name).parent.mkdir(parents=True, exist_ok=True)
+                (tmp / 'dt' / name).write_bytes(value)
+            if removed:
+                (tmp / 'var/lib/aurora').mkdir(parents=True)
+                (tmp / 'var/lib/aurora/plymouth-serial-arg-removed').touch()
             if entries is not None:
                 (tmp / 'entries').write_text(entries)
             grubby.chmod(0o755)
@@ -946,7 +955,8 @@ class SpecTests(unittest.TestCase):
             def render(script):
                 return (script.replace('%{_bindir}', str(tmp / 'bin')).replace('%{_sbindir}', str(tmp / 'bin'))
                         .replace('%{_sysconfdir}', str(tmp / 'etc'))
-                        .replace('%{_localstatedir}', str(tmp / 'var')).replace('/run/systemd/system', str(tmp)))
+                        .replace('%{_localstatedir}', str(tmp / 'var')).replace('/run/systemd/system', str(tmp))
+                        .replace('/sys/firmware/devicetree/base', str(tmp / 'dt')))
             env = dict(os.environ, PATH=f"{tmp / 'bin'}:{os.environ['PATH']}")
             subprocess.run(['bash', '-euc', render(post)], check=True, env=env)
             self.posttrans = subprocess.run(['bash', '-euc', render(posttrans)], env=env,
@@ -954,28 +964,82 @@ class SpecTests(unittest.TestCase):
             if not dracut_status:
                 self.assertEqual(self.posttrans.returncode, 0, self.posttrans.stderr)
             self.grubby = (tmp / 'grubby.log').read_text() if (tmp / 'grubby.log').exists() else ''
+            self.serial_arg_settled = (tmp / 'var/lib/aurora/plymouth-serial-arg-removed').exists()
             return state.read_text(), log.read_text() if log.exists() else ''
 
-    def test_theme_keeps_a_serial_console_from_forcing_the_text_view(self):
-        # The Neo's device tree names its DockChannel UART as stdout-path; with it as a
-        # console Plymouth shows only its details view, passphrase prompt included.
-        for cmdline, expected in (
-                ('root=UUID=x ro rhgb quiet user4k=on', '--update-kernel=ALL --args=plymouth.ignore-serial-consoles'),
-                ('root=UUID=x ro rhgb quiet plymouth.ignore-serial-consoles', ''),
-                ('root=UUID=x ro quiet', ''),
-                (None, '')):
-            with self.subTest(cmdline=cmdline):
-                self.run_theme_post('aurora', cmdline)
-                self.assertEqual(self.grubby.strip(), expected)
-        # Entries made before the argument reached /etc/kernel/cmdline still get it.
-        fix = '--update-kernel=ALL --args=plymouth.ignore-serial-consoles'
-        for entries, expected in (
-                ('kernel="/boot/vmlinuz-a"\nargs="ro rhgb quiet"\n', fix),
-                ('args="ro rhgb quiet plymouth.ignore-serial-consoles"\n', ''),
-                ('args="ro quiet"\n', '')):
-            with self.subTest(entries=entries):
-                self.run_theme_post('aurora', 'root=UUID=x ro rhgb quiet plymouth.ignore-serial-consoles', entries)
-                self.assertEqual(self.grubby.strip(), expected)
+    # Device trees as the kernel shows them under /sys/firmware/devicetree/base.
+    # U-Boot's stdout-path leaves out the node's unit address (an M2's and an
+    # M1 Pro's /proc/device-tree both read like this).
+    FRAMEBUFFER = {'chosen/framebuffer@9e18b0000/compatible': b'apple,simple-framebuffer\0simple-framebuffer\0'}
+    UART = {'aliases/serial0': b'/soc/serial@235200000\0',
+            'soc/serial@235200000/compatible': b'apple,s5l-uart\0'}
+    DOCKCHANNEL = {'aliases/serial0': b'/soc/dockchannel-uart@2b8128000\0',
+                   'soc/dockchannel-uart@2b8128000/compatible': b'apple,dockchannel-uart\0'}
+    # No stdout-path (aura removed it), or U-Boot's, which names the display.
+    DISPLAY_CONSOLE = (
+        {'chosen/bootargs': b'ro\0'},
+        {**FRAMEBUFFER, 'chosen/stdout-path': b'/chosen/framebuffer\0'},
+        {**FRAMEBUFFER, **UART, 'chosen/linux,stdout-path': b'/chosen/framebuffer\0'},
+        {'chosen/framebuffer/compatible': b'simple-framebuffer\0', 'chosen/stdout-path': b'/chosen/framebuffer\0'},
+    )
+    # An aura before 1.0.0b5, or a debug boot: a UART is the console.
+    SERIAL_CONSOLE = (
+        {**UART, 'chosen/stdout-path': b'serial0\0'},
+        {**DOCKCHANNEL, 'chosen/stdout-path': b'serial0:115200n8\0'},
+        {**UART, 'chosen/stdout-path': b'/soc/serial@235200000\0'},
+        {**UART, 'chosen/linux,stdout-path': b'serial0\0'},
+        {**UART, 'chosen/stdout-path': b'/soc/serial\0'},
+        # Not resolvable: no proof that the display is the only console.
+        {'chosen/stdout-path': b'serial0\0'},
+        {'chosen/stdout-path': b'/soc/gone\0'},
+    )
+
+    def test_theme_takes_the_old_serial_console_argument_out_once(self):
+        # aura drops a debug UART's stdout-path on normal boots, so the argument
+        # earlier releases added goes from every entry, once.
+        fix = '--update-kernel=ALL --remove-args=plymouth.ignore-serial-consoles'
+        carried = 'root=UUID=x ro rhgb quiet plymouth.ignore-serial-consoles'
+        clean = 'root=UUID=x ro rhgb quiet'
+        for dt in self.DISPLAY_CONSOLE:
+            for cmdline, entries, expected in (
+                    (carried, None, fix),
+                    (clean, 'args="ro rhgb quiet plymouth.ignore-serial-consoles"\n', fix),
+                    (clean, 'args="ro rhgb quiet"\n', ''),
+                    (None, None, '')):
+                with self.subTest(dt=dt, cmdline=cmdline, entries=entries):
+                    self.run_theme_post('aurora', cmdline, entries, dt=dt)
+                    self.assertEqual(self.grubby.strip(), expected)
+                    self.assertTrue(self.serial_arg_settled)
+        # Done once: an owner who put the argument back keeps it.
+        self.run_theme_post('aurora', carried, dt=self.DISPLAY_CONSOLE[0], removed=True)
+        self.assertEqual(self.grubby, '')
+        spec = (ROOT / 'packages' / 'plymouth-theme-aurora' / 'plymouth-theme-aurora.spec').read_text()
+        posttrans = spec.split('\n%posttrans\n', 1)[1].split('\n%postun\n', 1)[0]
+        self.assertNotIn('--args=plymouth', posttrans)
+
+    def test_theme_keeps_the_serial_console_argument_under_a_boot_loader_that_needs_it(self):
+        # The fix is in the boot loader that started this system, not in a
+        # package: while the running device tree names a UART as stdout-path
+        # (an older aura, a debug boot), the argument stays and the removal is
+        # not recorded, so a later update tries again.
+        carried = 'root=UUID=x ro rhgb quiet plymouth.ignore-serial-consoles'
+        for dt in self.SERIAL_CONSOLE + (None,):
+            with self.subTest(dt=dt):
+                self.run_theme_post('aurora', carried, dt=dt)
+                self.assertEqual(self.grubby, '')
+                self.assertFalse(self.serial_arg_settled)
+                # Nothing to remove is settled whatever the device tree says:
+                # a new image records it at build time.
+                self.run_theme_post('aurora', 'root=UUID=x ro rhgb quiet', dt=dt)
+                self.assertEqual(self.grubby, '')
+                self.assertTrue(self.serial_arg_settled)
+
+    def test_theme_retries_a_failed_removal_of_the_serial_console_argument(self):
+        self.run_theme_post('aurora', 'ro rhgb plymouth.ignore-serial-consoles',
+                            dt=self.DISPLAY_CONSOLE[0], grubby_status=1)
+        self.assertEqual(self.grubby.strip(), '--update-kernel=ALL --remove-args=plymouth.ignore-serial-consoles')
+        self.assertEqual(self.posttrans.returncode, 0, self.posttrans.stderr)
+        self.assertFalse(self.serial_arg_settled)
 
     def test_theme_replaces_only_a_stock_default_and_rebuilds_the_initramfs(self):
         for stock in ('', 'bgrt', 'spinner', 'charge'):

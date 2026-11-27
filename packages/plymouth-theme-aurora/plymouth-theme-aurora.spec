@@ -1,6 +1,6 @@
 Name: plymouth-theme-aurora
 Version: 1
-Release: 9%{?dist}
+Release: 10%{?dist}
 Summary: Aurora boot splash: the bootloader's logo, kept in place, with the distribution's branding
 # The spinner, password entry and watermark images come from the distribution's
 # spinner theme (ImageDir); this package adds the script and aura's logos.
@@ -86,19 +86,56 @@ if [ "$(%{_bindir}/plymouth-set-default-theme 2>/dev/null)" = aurora ]; then
 fi
 
 %posttrans
-# Without console=, the kernel also makes the device tree's stdout-path a
-# console (the Neo's DockChannel UART, ttyDC0), and Plymouth then forces its
-# text "details" view on every display, the disk passphrase prompt included.
-# Images are built with plymouth.ignore-serial-consoles next to rhgb; add it
-# to an installed system's boot entries and future kernels. The kernel keeps
-# the serial console.
-# Check the boot entries themselves: /etc/kernel/cmdline can carry the
-# argument while existing entries were made without it.
+# aura names a debug UART as the device tree's stdout-path only on a debug
+# boot (aura-debug, aura-console or chosen.aura,serial-console=1), so a normal
+# boot has no serial console and Plymouth keeps its graphical view without
+# plymouth.ignore-serial-consoles. Earlier releases added that argument to
+# every boot entry; take it out once, so a later owner's choice stays.
+# The boot loader that started this system decides, not a package: the
+# argument goes only when the running device tree names no stdout-path, or
+# one that is the display. Under an older aura, or on a debug boot, it stays
+# and a later update of this package tries again.
+removed=%{_localstatedir}/lib/aurora/plymouth-serial-arg-removed
 cmdline=%{_sysconfdir}/kernel/cmdline
-graphical() { grep -E '(^|[[:space:]"])rhgb([[:space:]"]|$)' | grep -vqE '(^|[[:space:]"])plymouth\.ignore-serial-consoles([[:space:]"]|$)'; }
-if { [ -f $cmdline ] && graphical < $cmdline; } ||
-   %{_sbindir}/grubby --info=ALL 2>/dev/null | grep -E '^args=' | graphical; then
-  %{_sbindir}/grubby --update-kernel=ALL --args=plymouth.ignore-serial-consoles || :
+dt=/sys/firmware/devicetree/base
+carries() { grep -qE '(^|[[:space:]"])plymouth\.ignore-serial-consoles([[:space:]"]|$)'; }
+# True unless the running device tree shows that no serial port is the
+# console: no stdout-path, or one that names the framebuffer, as U-Boot's
+# does. stdout-path is a node path or an alias, then optional ":options".
+serial_stdout() {
+  [ -d $dt/chosen ] || return 0
+  stdout=$dt/chosen/stdout-path
+  [ -e $stdout ] || stdout=$dt/chosen/linux,stdout-path
+  [ -e $stdout ] || return 1
+  node=$(tr -d '\0' < $stdout | sed 's/:.*//')
+  [ -n "$node" ] || return 1
+  case $node in
+    /*) ;;
+    *) [ -e "$dt/aliases/$node" ] || return 0
+       node=$(tr -d '\0' < "$dt/aliases/$node") ;;
+  esac
+  # U-Boot writes /chosen/framebuffer for the node framebuffer@<address>.
+  for node in "$dt$node" "$dt$node"@*; do
+    [ -e "$node/compatible" ] || continue
+    ! tr '\0' '\n' < "$node/compatible" | grep -qx simple-framebuffer
+    return
+  done
+  return 0
+}
+if [ ! -e $removed ]; then
+  settled=1
+  if { [ -f $cmdline ] && carries < $cmdline; } ||
+     %{_sbindir}/grubby --info=ALL 2>/dev/null | grep -E '^args=' | carries; then
+    if serial_stdout ||
+       ! %{_sbindir}/grubby --update-kernel=ALL --remove-args=plymouth.ignore-serial-consoles; then
+      settled=
+    fi
+  fi
+  # Record it only when no entry carries the argument any more, so that a
+  # removal that was put off or failed is tried again.
+  if [ -n "$settled" ]; then
+    mkdir -p "$(dirname $removed)" && touch $removed || :
+  fi
 fi
 # Rebuild the initramfs once per transaction when asked above, on a running
 # system; an image build makes its own initramfs afterwards.
@@ -134,6 +171,14 @@ fi
 %{_prefix}/lib/dracut/modules.d/96aurora-plymouth
 
 %changelog
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-10
+- Stop adding plymouth.ignore-serial-consoles: aura (1.0.0b5 and later)
+  keeps a debug UART out of stdout-path on normal boots, so there is no
+  serial console for Plymouth to give way to. The argument is removed once
+  from installed boot entries and /etc/kernel/cmdline, and only when the
+  running device tree names no serial port as stdout-path; under an older
+  aura or on a debug boot it stays until a later update.
+
 * Fri Nov 20 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-9
 - Report a failed initramfs rebuild instead of discarding its output and
   status.
