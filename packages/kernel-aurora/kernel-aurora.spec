@@ -1,4 +1,4 @@
-%global commit a851ca0edfc9bf1cc5e0a5cca8756f068e1d2e48
+%global commit dc7c873addc830fe3730573afd34291db26eac9c
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # modules_install signs every module (CONFIG_MODULE_SIG_ALL) after
@@ -14,7 +14,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 42%{?dist}.aurora
+Release: 43%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -185,6 +185,13 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Fri Nov 27 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-43
+- Pin aurora-silicon/linux main at dc7c873a (merge of linux#3337). Adds the
+  K114s/K116c device trees (USB-C, N1, GPU, sound/AOP, ANE, MagSafe, USB4)
+  and the fixes merged since a851ca0e, among them linux#2818, linux#3252,
+  linux#3256 (SEP HDCP client), linux#3343 (J615 DP855), linux#2395 (T8132
+  MagSafe) and linux#3178.
+
 * Fri Nov 27 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-42
 - Pin aurora-silicon/linux main at a851ca0e (merge of linux#3236). 9125b314
   was an 11-14 candidate outside main; its two G17 render-pool commits
