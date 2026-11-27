@@ -20,7 +20,7 @@
 
 Name:          mutter
 Version:       51.1
-Release:       25%{?dist}.aurora
+Release:       26%{?dist}.aurora
 Summary:       Window and compositing manager based on Clutter
 
 # Automatically converted from old format: GPLv2+ - review is highly recommended.
@@ -260,7 +260,7 @@ trap 'status=$?; cp -a "%{_vpath_builddir}/meson-logs/." "$log_dir/"; rm -rf "$X
 # Timing-dependent tests that flake on shared CI runners under xvfb (failed
 # in turn across reruns of the same sources, passed on others): skip them,
 # as Fedora does for flaky tests. Every other test still gates the build.
-flaky='input-capture wayland-keyboard sloppy-focus-auto-raise closed-transient-no-input-parents-queued-default-focus-destroyed'
+flaky='input-capture wayland-keyboard sloppy-focus-auto-raise closed-transient-no-input-parents-queued-default-focus-destroyed map-after-headless map-fixed-size'
 # --list prints "suite - project:name" (or a bare name); keep the name.
 tests=$(meson test -C %{_vpath_builddir} --no-rebuild --list | awk 'NF {print $NF}' | sed 's/^.*://' | sort -u)
 for name in $flaky; do
@@ -312,6 +312,13 @@ xvfb-run -a meson test -C %{_vpath_builddir} --no-rebuild --print-errorlogs --nu
 %{_libexecdir}/mutter-devkit
 
 %changelog
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-26.aurora
+- Skip the stacking tests map-after-headless and map-fixed-size in %check.
+  On the same 51.1-25 sources each failed one native F45 attempt and
+  passed the other (run 45965074175, attempts 1 and 2): the headless
+  virtual monitor's size races the map under xvfb on shared runners.
+  Every other test still gates the build.
+
 * Fri Nov 27 2026 Ryan Murray <ryan@aurorasilicon.org> - 51.1-25.aurora
 - Backport upstream 5bdc78fd (backlight/ref-white: Fix use-after-free on
   monitor hotplug): a monitor removed while a reference-white brightness
