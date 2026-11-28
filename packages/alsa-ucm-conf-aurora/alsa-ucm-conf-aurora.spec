@@ -1,7 +1,7 @@
-%global commit d480f68a5b02c43fbba81b6937d61d7c7f2c4a83
+%global commit 4d1cf44b641a633cc2da471add68a06489912ea1
 Name: alsa-ucm-conf-aurora
 Version: 10
-Release: 7%{?dist}
+Release: 8%{?dist}
 Summary: Aurora ALSA use-case profiles
 License: BSD-3-Clause
 URL: https://github.com/aurora-silicon/alsa-ucm-conf-asahi
@@ -28,6 +28,9 @@ cp -a ucm2 %{buildroot}%{_datadir}/alsa/
 %{_datadir}/alsa/ucm2/*
 
 %changelog
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 10-8
+- Refresh to alsa-ucm-conf-asahi 4d1cf44b (J716 UCM and generic headphone-jack fallback).
+
 * Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 10-7
 - Refresh to alsa-ucm-conf-asahi d480f68a (display-port naming, J604/J614/J713/J714/J815/J575 profiles).
 
