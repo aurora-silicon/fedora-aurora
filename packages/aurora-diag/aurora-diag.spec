@@ -1,7 +1,7 @@
-%global commit 32f232c6abc4d4bf1f88d3d104a97020b1bf5d42
+%global commit 9a389236a13038c8b201b29cbda204088ccf75b5
 Name: aurora-diag
 Version: 0.5.0
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Bring-up diagnostics for Apple silicon Macs (development only)
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-diag
@@ -47,6 +47,9 @@ make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
 %{_datadir}/applications/org.aurorasilicon.Diag.desktop
 
 %changelog
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.5.0-3
+- Refresh to aurora-diag 9a389236 (show panel backlight off when eDP is disconnected).
+
 * Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.5.0-2
 - Refresh to aurora-diag 32f232c6 (interrupt diagnostics and fixes).
 

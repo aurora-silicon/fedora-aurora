@@ -4,7 +4,7 @@
 # fex-emu.spec (f44, FEX 2604); the sysroot, its macros and the toolchain files
 # are Fedora's. The fork's submodules are pinned as extra sources in
 # sources.json at the gitlinks of %%{commit}.
-%global commit 05d2618882d41bca4492ccb0385919121bee20cd
+%global commit 4f0c04b785fa9d07f1c085474ee4c9f0f2f23ded
 %global shortcommit %(c=%{commit}; echo ${c:0:7})
 %global fex_describe FEX-%{version}-aurora-g%{shortcommit}
 %global steamtool %{_datadir}/steam/compatibilitytools.d/fex-aurora
@@ -19,7 +19,7 @@
 
 Name:       fex-emu
 Version:    2610
-Release:    9%{?dist}.aurora
+Release:    10%{?dist}.aurora
 Summary:    Fast usermode x86 and x86-64 emulator for ARM64
 
 # FEX itself is MIT, see below for the bundled libraries
@@ -378,6 +378,9 @@ fi
 %endif
 
 %changelog
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 2610-10
+- Refresh to aurora-silicon/fex 4f0c04b7 (secure execution config, binfmts without C flag, Apple APFLG ARM64EC RA, JIT/LookupCache/syscall fast paths).
+
 * Thu Nov 26 2026 DjDeveloperr <hey@djdev.me> - 2610-9.aurora
 - aurora-fex-rootfs: bind the guest graphics provider ro,nosuid,nodev, and remount
   the bind with those options in place.

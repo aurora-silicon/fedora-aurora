@@ -1,7 +1,7 @@
-%global commit 0996f01f55c64cfebadb5b48602690ca9d5f72aa
+%global commit d0355b1d4aabbda605da5def13af1097310f6d45
 Name:           aurora-touchid-rearm
 Version:        1
-Release:        5%{?dist}
+Release:        6%{?dist}
 Summary:        Re-arm Touch ID with the password after a lockout
 
 License:        GPL-2.0-only
@@ -83,6 +83,9 @@ systemctl --no-reload preset aurora-touchid-boot.service >/dev/null 2>&1 || :
 %{_presetdir}/80-aurora-touchid-rearm.preset
 
 %changelog
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-6
+- Refresh to aurora-sep-userspace d0355b1d (set DefaultDependencies=no on aurora-touchid-boot.service).
+
 * Tue Nov 10 2026 Ryan Murray <ryan@aurorasilicon.org> - 1-5
 - aurora-touchid-boot.service is ordered before fprintd only, not before the
   display manager and user sessions (aurora-sep-userspace#20): every match

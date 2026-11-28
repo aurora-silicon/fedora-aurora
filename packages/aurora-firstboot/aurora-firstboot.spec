@@ -1,8 +1,8 @@
-%global commit 20c328448a51f680ef545b3fb5d1d3a9c6abc9a3
+%global commit 0d07f1ba78b15a54afa0aa9fbb616609fa7f3db7
 %global selinuxtype targeted
 Name: aurora-firstboot
 Version: 0.1.13
-Release: 8%{?dist}
+Release: 9%{?dist}
 Summary: Aurora per-install root encryption and Linux account setup
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-platform
@@ -202,6 +202,9 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/aurora_secboot.pp
 
 %changelog
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-9
+- Refresh to aurora-platform 0d07f1ba (Secure Boot owner-key Stage 2 U-Boot seed, secure-flavour Stage 1 on ESP, KEY_OWNER=both).
+
 * Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1.13-8
 - Refresh to aurora-platform 20c32844.
 

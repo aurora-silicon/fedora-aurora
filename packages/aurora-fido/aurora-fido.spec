@@ -1,7 +1,7 @@
-%global commit 2ea454e0a222aea7b970f9bf061ee6ea3cd326ec
+%global commit d0355b1d4aabbda605da5def13af1097310f6d45
 Name: aurora-fido
 Version: 0.2.0
-Release: 2%{?dist}
+Release: 3%{?dist}
 Summary: Touch ID as a FIDO2/U2F security key (opt in)
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-sep-userspace
@@ -79,6 +79,9 @@ make -C fido check PYTHON=%{python3}
 %config(noreplace) %{_sysconfdir}/aurora-fido/aurora-fido.conf
 
 %changelog
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.2.0-3
+- Refresh to aurora-sep-userspace d0355b1d (serve native passkey front-end only to a configured portal; thread-safe D-Bus cancel test).
+
 * Thu Nov 12 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.2.0-2
 - Per-user passkey agent (aurora-passkeyd, a user unit, installed off) for
   [authenticator] vault = user: keys and the vault key under the user's own
