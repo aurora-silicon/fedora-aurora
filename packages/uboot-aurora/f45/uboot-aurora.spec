@@ -1,5 +1,5 @@
 %global debug_package %{nil}
-%global commit 5445237f1dcb0d30213741f85158816d04d65aa7
+%global commit 84382f65f6725263f1bdb3c9594607cef610e0a7
 Name: uboot-aurora
 Version: 2026.07
 Release: 14%{?dist}
@@ -16,7 +16,7 @@ BuildRequires: gcc make bc bison flex dtc python3 python3-pyelftools swig openss
 Aurora U-Boot for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n u-boot-5445237f1dcb0d30213741f85158816d04d65aa7
+%autosetup -n u-boot-84382f65f6725263f1bdb3c9594607cef610e0a7
 
 %build
 make O=build-aurora apple_m1_defconfig
@@ -32,7 +32,11 @@ install -Dm644 build-aurora/u-boot-nodtb.bin %{buildroot}/usr/lib/asahi-boot/u-b
 /usr/lib/asahi-boot/u-boot-nodtb.bin
 
 %changelog
-* Sun Nov 22 2026 Ryan Murray <ryan@aurorasilicon.org> - 2026.07-14
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 2026.07-14
+- Track U-Boot aurora-wip at 84382f65: adds cold MTP handoff (u-boot#69),
+  blinking text cursor and ANSI line-start fix for GRUB (u-boot#74),
+  faster /reserved-memory parsing (u-boot#75) and default Aura enforce
+  policy support (u-boot#78), on top of 5445237:
 - Track U-Boot aurora-wip at 5445237. U-Boot binds the T8140 and T8142
   NVMe controllers (u-boot#47) and picks the ESP on every Apple NVMe
   controller (u-boot#50), so an M5 MacBook Air boots from its internal
