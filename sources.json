@@ -47,14 +47,6 @@
     "archive_root": "mesa-36623c0a4a5a3e2a94fedd5f0874258d8126648d",
     "sha256": "7906acc54411e0c61b6c4a5539d555cc0831b95603c80d37311a2bcd49313336"
   },
-  "speakerguardd": {
-    "repository": "https://github.com/aurora-silicon/speakerguardd",
-    "commit": "0287029648842be7b62ce9869ceaf5dbe9555831",
-    "version": "0.1.12",
-    "source_url": "https://codeload.github.com/aurora-silicon/speakerguardd/tar.gz/0287029648842be7b62ce9869ceaf5dbe9555831",
-    "archive_root": "speakerguardd-0287029648842be7b62ce9869ceaf5dbe9555831",
-    "sha256": "2692684c895396aec23fec34d1b9a71f789bbc2a58f35104470a66869f4fca77"
-  },
   "alsa-ucm-conf-aurora": {
     "repository": "https://github.com/aurora-silicon/alsa-ucm-conf-asahi",
     "commit": "d480f68a5b02c43fbba81b6937d61d7c7f2c4a83",
@@ -466,15 +458,6 @@
     "archive_root": "NetworkManager-1.56.1",
     "archive_file": "NetworkManager-1.56.1.tar.xz",
     "sha256": "b0ee9a89dfba39d2a1a69d60868be99096d3b6b66a1a22bf8a9d5a38b8aed50e"
-  },
-  "speakersafetyd": {
-    "repository": "https://crates.io/crates/speakersafetyd",
-    "commit": "63a92658a4daec170c6472e38162374206e593fb",
-    "version": "2.0.1",
-    "source_url": "https://static.crates.io/crates/speakersafetyd/speakersafetyd-2.0.1.crate",
-    "archive_root": "speakersafetyd-2.0.1",
-    "archive_file": "speakersafetyd-2.0.1.crate",
-    "sha256": "30101e673466072a080e321df3b7d1165dd8b79246ba393b82bb09d8325dd814"
   },
   "aurora-speaker-upgrade": {
     "repository": "https://github.com/aurora-silicon/speakerguardd",

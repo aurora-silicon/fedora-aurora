@@ -92,7 +92,7 @@ class SpecTests(unittest.TestCase):
                     if '%{' not in value and not value.startswith('http') and value not in fetched:
                         self.assertTrue((spec.parent / value).is_file(), value)
     def test_noarch_recipes_do_not_claim_machine_specific_binaries(self):
-        for name in ['aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-release', 'aurora-repos', 'aurora-logos', 'speakersafetyd-aurora-profiles']:
+        for name in ['aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-release', 'aurora-repos', 'aurora-logos']:
             text = (ROOT / 'packages' / name / (name + '.spec')).read_text()
             self.assertIn('BuildArch: noarch', text)
     def test_release_identity_is_named_aurora_fedora_remix(self):
@@ -799,10 +799,11 @@ class SpecTests(unittest.TestCase):
                      'aurora-audio', 'alsa-ucm-conf-aurora', 'aurora-camera-denoise',
                      'aurora-kbd-light']:
             self.assertIn(name, requires)
-        # The established protection stack stays as the fallback; v2 comes with
-        # the upgrade tool, whose preset switches a Mac only on a passing self-check.
-        self.assertRegex(core, r'(?m)^Requires: speakersafetyd speakerguardd$')
-        self.assertRegex(core, r'(?m)^Requires: speakerguardd-v2 >= 1\.0\.0~alpha\.2-0\.51 aurora-speaker-upgrade >= 0\.1-0\.18$')
+        # speakerguardd v2 is the only speaker stack; aurora-audio 4.1-18 retires
+        # speakersafetyd and speakerguardd 0.1.
+        self.assertRegex(core, r'(?m)^Requires: speakerguardd-v2 >= 1\.0\.0~alpha\.2-0\.63 aurora-speaker-upgrade >= 0\.1-0\.29$')
+        self.assertRegex(core, r'(?m)^Requires: aurora-audio >= 4\.1-18$')
+        self.assertNotRegex(core, r'(?m)^(Requires|Recommends):.*\b(speakersafetyd|speakerguardd)\b(?!-v2)')
         for name in requires:
             self.assertFalse(name.startswith(('kernel', 'uboot', 'm1n1')) or name == 'aura', name)
         self.assertNotIn('aurora-release', requires)
@@ -812,12 +813,11 @@ class SpecTests(unittest.TestCase):
         self.assertEqual((d / 'aurora-platform-core.conf').read_text().split(), ['aurora-platform-core'])
         self.assertIn('protected.d/aurora-platform-core.conf', text.split('%files core', 1)[1])
         self.assertRegex(text, r'(?m)^Requires: aurora-platform-core = %\{version\}-%\{release\}$')
-    def test_audio_keeps_legacy_profiles_and_v2_switches_by_preset(self):
-        # aurora-platform-core pulls v2 and the upgrade tool, whose preset moves
-        # a Mac to v2 at boot on a passing self-check; aurora-audio and the
-        # kernel keep the legacy stack as the fallback and retire only RC7 and older.
+    def test_speakerguardd_v2_is_the_only_speaker_stack(self):
+        # Every install has aurora-audio: it brings v2 and the upgrade tool and
+        # retires the Asahi stack on the upgrade. No recipe of it remains.
         spec = (ROOT / 'packages/speakerguardd-v2/speakerguardd-v2.spec').read_text()
-        self.assertRegex(spec, r'(?m)^Release: 0\.(3[3-9]|[4-9][0-9])\.')
+        self.assertRegex(spec, r'(?m)^Release: 0\.(6[3-9]|[7-9][0-9])\.')
         self.assertIn('install -Dm644 packaging/session/parity.json', spec)
         # The speaker graph needs Aurora's PipeWire; Fedora's never provides it.
         self.assertRegex(spec, r'(?m)^Requires: pipewire-speaker-graph >= 2$')
@@ -826,27 +826,56 @@ class SpecTests(unittest.TestCase):
         self.assertRegex(libs, r'(?m)^Provides:\s+pipewire-speaker-graph = 2$')
         for n in ('1006', '1007', '1008', '1010'):
             self.assertRegex(pw, rf'(?m)^Patch{n}:')
-        for name in ('aurora-audio', 'kernel-aurora'):
-            text = (ROOT / 'packages' / name / f'{name}.spec').read_text()
-            self.assertNotRegex(text, r'(?m)^(Requires|Recommends):.*\b(speakerguardd-v2|aurora-speaker-upgrade)\b', name)
+        # No gate drop-in for daemons that no longer exist.
+        self.assertNotIn('legacy-gate.conf %{buildroot}', spec)
+        self.assertNotRegex(spec, r'(?m)^%\{_unitdir\}/(speakersafetyd|speakerguardd)\.service\.d')
+        for name in ('speakersafetyd', 'speakersafetyd-aurora-profiles', 'speakerguardd'):
+            self.assertFalse((ROOT / 'packages' / name).exists(), name)
+        pins = json.loads((ROOT / 'sources.json').read_text())
+        for name in ('speakersafetyd', 'speakerguardd'):
+            self.assertNotIn(name, pins)
+        audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
+        self.assertRegex(audio, r'(?m)^Requires: speakerguardd-v2 >= 1\.0\.0~alpha\.2-0\.63 aurora-speaker-upgrade$')
+        # Versioned: only the builds this repository shipped, so a speakersafetyd
+        # a user installs and selects later is not removed by the next upgrade.
+        self.assertNotRegex(audio, r'(?m)^(Obsoletes|Conflicts): speakersafetyd(-aurora-profiles)?$')
+        self.assertNotRegex(audio, r'(?m)^Conflicts: speakersafetyd')
+        for line in ('Obsoletes: speakersafetyd < 2.0.1-2', 'Obsoletes: speakersafetyd-aurora-profiles < 1-2',
+                     'Obsoletes: speakerguardd < 0.2', 'Conflicts: speakerguardd < 0.2',
+                     'Provides: asahi-audio = %{version}-%{release}', 'Obsoletes: asahi-audio < %{version}-%{release}',
+                     'Conflicts: asahi-audio',
+                     'Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33', 'Conflicts: speakerguardd-v2 < 1.0.0~alpha.1-0.33'):
+            self.assertRegex(audio, rf'(?m)^{re.escape(line)}$')
+        self.assertNotRegex(audio, r'(?m)^(Requires|Recommends):.*\bspeakersafetyd\b')
+        # The Asahi speaker graphs are not restored or installed for any Mac.
+        self.assertNotIn('0001-restore-legacy-speaker-graphs.patch', audio)
+        self.assertFalse((ROOT / 'packages/aurora-audio/0001-restore-legacy-speaker-graphs.patch').exists())
+        self.assertRegex(audio, r'(?m)^Patch0: 0001-install-no-speaker-graphs\.patch$')
+        patch = (ROOT / 'packages/aurora-audio/0001-install-no-speaker-graphs.patch').read_text()
+        self.assertIn('-\tinstall -pm0644 conf/asahi-lock-volume.lua', patch)
+        self.assertNotRegex(patch, r'(?m)^\+.*filter-path = .*/graph')
+        # Kept: the period-interrupt rule and the dracut module.
+        self.assertIn('99-aurora-speaker-irq.conf', audio)
+        self.assertIn('90aurora-audio/module-setup.sh', audio)
         upgrade = (ROOT / 'packages/aurora-speaker-upgrade/aurora-speaker-upgrade.spec').read_text()
+        self.assertRegex(upgrade, r'(?m)^Requires: speakerguardd-v2$')
         self.assertIn('%{_presetdir}/50-aurora-speaker-upgrade.preset', upgrade)
         preset = (ROOT / 'packages/aurora-speaker-upgrade/50-aurora-speaker-upgrade.preset').read_text()
         self.assertRegex(preset, r'(?m)^enable aurora-speaker-upgrade\.service$')
+        self.assertNotIn('speakersafetyd', preset)
         # %systemd_post presets on the first install only: installs from before
         # the preset get it once, on the upgrade from an older build.
         post = upgrade.split('%triggerpostun -- aurora-speaker-upgrade < 0.1-0.27\n', 1)
         self.assertEqual(len(post), 2)
         self.assertTrue(post[1].startswith(
             'systemctl --no-reload --preset-mode=enable-only preset aurora-speaker-upgrade.service'))
-        audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
-        self.assertRegex(audio, r'(?m)^Requires: speakersafetyd speakerguardd$')
-        self.assertIn('Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33\n', audio)
-        self.assertIn('Conflicts: speakerguardd-v2 < 1.0.0~alpha.1-0.33\n', audio)
-        self.assertIn('0001-restore-legacy-speaker-graphs.patch', audio)
         kernel = (ROOT / 'packages/kernel-aurora/kernel-aurora.spec').read_text()
+        self.assertNotRegex(kernel, r'(?m)^(Requires|Recommends):.*\b(speakersafetyd|speakerguardd|speakerguardd-v2|aurora-speaker-upgrade)\b')
         self.assertIn('Requires: aurora-audio >= 4.1-12', kernel)
         self.assertIn('Requires: (aurora-platform-core >= 44-23 if aurora-platform-core)', kernel)
+        images = (ROOT / 'images/configure.py').read_text()
+        self.assertNotRegex(images, r'"(speakersafetyd[^"]*|speakerguardd)"')
+        self.assertIn('"speakerguardd-v2"', images)
 
     def test_aurora_repos_owns_the_repository_key_and_vendor_policies(self):
         d = ROOT / 'packages' / 'aurora-repos'

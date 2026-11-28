@@ -1,31 +1,43 @@
 %global commit a8c68c27c448ff39c915b46b8d33c53f2c56b705
 Name: aurora-audio
 Version: 4.1
-Release: 17%{?dist}
-Summary: Aurora Apple Silicon audio DSP profiles
+Release: 18%{?dist}
+Summary: Aurora Apple Silicon audio profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
 Source0: aurora-audio-%{commit}.tar.gz
 Source1: module-setup.sh
-Source2: aurora-audio-v2-cleanup
 Source3: 99-aurora-speaker-irq.conf
-Patch0: 0001-restore-legacy-speaker-graphs.patch
+# speakerguardd v2 drives every Mac's speakers from the Mac's own tuning: no
+# speaker graph, speaker FIR or raw speaker volume lock is installed.
+Patch0: 0001-install-no-speaker-graphs.patch
 BuildArch: noarch
 BuildRequires: make
 # Fedora Asahi installs carry asahi-audio, which ships the same files.
 Provides: asahi-audio = %{version}-%{release}
+Obsoletes: asahi-audio < %{version}-%{release}
 Conflicts: asahi-audio
 Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplumber >= 0.5.16 bankstown lv2-triforce lsp-plugins-lv2
-# Restore the established Asahi protection stack on existing installations.
-Requires: speakersafetyd speakerguardd
+# speakerguardd v2 is the speaker protection: every install has this package,
+# so it brings v2 and retires the Asahi stack (speakersafetyd, its Aurora
+# profiles and speakerguardd 0.1) on the upgrade. The speakersafetyd
+# Obsoletes are versioned to the builds this repository shipped (2.0.1-1.*,
+# profiles 1-1), so a speakersafetyd a user later installs and selects on
+# purpose is not removed again by the next upgrade.
+Requires: speakerguardd-v2 >= 1.0.0~alpha.2-0.63 aurora-speaker-upgrade
+Obsoletes: speakersafetyd < 2.0.1-2
+Obsoletes: speakersafetyd-aurora-profiles < 1-2
+Obsoletes: speakerguardd < 0.2
+Conflicts: speakerguardd < 0.2
 Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33
 Obsoletes: speakerguardd-v2-selinux < 1.0.0~alpha.1-0.33
 Conflicts: speakerguardd-v2 < 1.0.0~alpha.1-0.33
-# The v2 cleanup reads the user database.
-Requires(posttrans): glibc-common coreutils
 
 %description
-Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source revision.
+Aurora Apple Silicon audio profiles: the microphone DSP graphs, the headphone
+jack and built-in card rules for WirePlumber, and the speaker PCM's period
+interrupts. Built from the recorded Aurora source revision. The speakers are
+speakerguardd v2's, which this package requires.
 
 %prep
 %autosetup -p1 -n asahi-audio-%{commit}
@@ -34,23 +46,26 @@ Aurora Apple Silicon audio DSP profiles. Built from the recorded Aurora source r
 
 %check
 make install DESTDIR="$PWD/check-root" PREFIX=/usr
-for board in j316 j413 j616 j700; do
-    test -s "check-root/usr/share/asahi-audio/$board/graph.json"
-    grep -q "/usr/share/asahi-audio/$board/graph.json" check-root/usr/share/wireplumber/wireplumber.conf.d/99-asahi.conf
+wp=check-root/usr/share/wireplumber/wireplumber.conf.d/99-asahi.conf
+# No speaker graph, speaker FIR or speaker rule of the Asahi stack.
+test -z "$(find check-root/usr/share/asahi-audio \( -name 'graph*.json' -o -name '*.wav' \) -print)"
+if grep -Eq 'graph[^"/]*\.json|RawSpeakers|asahi-lock-volume' "$wp"; then
+    echo '99-asahi.conf still creates or locks a speaker path' >&2; exit 1
+fi
+test ! -e check-root/usr/share/wireplumber/scripts/device/asahi-lock-volume.lua
+# Every filter the rules create is installed: the microphone graphs.
+for f in $(grep -o '/usr/share/asahi-audio/[^"]*' "$wp"); do
+    test -s "check-root$f"
 done
-test -s check-root/usr/share/asahi-audio/j700/48.wav
+for board in j293 j313 j314 j316 j413 j415 j604 j614 j616 j700 j714; do
+    test -s "check-root/usr/share/asahi-audio/$board/mic.json"
+done
 rm -rf check-root
 
 %install
 make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
 install -Dm755 %{SOURCE1} %{buildroot}%{_prefix}/lib/dracut/modules.d/90aurora-audio/module-setup.sh
-install -Dm755 %{SOURCE2} %{buildroot}%{_libexecdir}/aurora-audio/aurora-audio-v2-cleanup
 install -Dm644 %{SOURCE3} %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d/99-aurora-speaker-irq.conf
-
-%posttrans
-# The v2 preview left per-user links into /run/speakerguardd-graph that
-# dangle once it is gone (PipeWire logs an error at every login).
-%{_libexecdir}/aurora-audio/aurora-audio-v2-cleanup || :
 
 %files
 %license LICENSE
@@ -58,9 +73,21 @@ install -Dm644 %{SOURCE3} %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d
 %{_datadir}/wireplumber/
 %{_datadir}/pipewire/
 %{_prefix}/lib/dracut/modules.d/90aurora-audio/
-%{_libexecdir}/aurora-audio/
 
 %changelog
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-18
+- speakerguardd v2 is the speaker stack of every install: require it and
+  aurora-speaker-upgrade, and obsolete the speakersafetyd 2.0.1-1 and
+  speakersafetyd-aurora-profiles 1-1 builds, speakerguardd 0.1 and
+  asahi-audio, so an upgrade removes them. A speakersafetyd installed
+  later on purpose is not obsoleted.
+- Drop the patch that restored the Asahi speaker graphs, and install no
+  speaker graph, speaker FIR or raw speaker volume lock for any Mac. A Mac
+  that v2 does not qualify keeps its speakers at the kernel's floor.
+- The microphone graphs, the headphone jack and built-in card rules, the
+  speaker PCM's period interrupts and the dracut module stay.
+- Drop aurora-audio-v2-cleanup: v2 is always installed now, so it never ran.
+
 * Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-17
 - Refresh to asahi-audio a8c68c27 (J604/J714 mics, J713/J714 audio rules); rebase legacy speaker graph patch.
 

@@ -4,7 +4,7 @@
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.28.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.29.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -15,21 +15,20 @@ Source1: 50-aurora-speaker-upgrade.preset
 BuildArch: noarch
 BuildRequires: make systemd-rpm-macros python3 python3-cryptography lzfse-libs
 Requires: python3 python3-cryptography lzfse-libs util-linux alsa-utils systemd
-# The switch needs speakerguardd v2; without it the tool refuses and the
-# legacy protection keeps the speakers.
-Recommends: speakerguardd-v2
+# The switch needs speakerguardd v2, the only speaker stack.
+Requires: speakerguardd-v2
 %{?systemd_requires}
 
 %description
-aurora-speaker-upgrade moves an existing install's speakers from the legacy
-protection (speakersafetyd, speakerguardd 0.1) to speakerguardd v2 with the
-Mac's own tuning, and back (--revert). It collects the installer's tuning
+aurora-speaker-upgrade moves an existing install's speakers to speakerguardd
+v2 with the Mac's own tuning. It collects the installer's tuning
 bundle from Linux: from an installer bundle of this unit, the installed
 macOS's System volume, Apple's restore image of that build by HTTP ranges, or
 a collection made on macOS. It stores the bundle root-only, lets v2's silent
 self-check prove it, and switches the kernel's speaker interface only on a
-pass. The legacy stack stays installed and keeps any Mac whose self-check
-refuses. The service is enabled by preset.
+pass. A Mac whose self-check refuses keeps its speakers at the kernel's
+floor: speakersafetyd and speakerguardd 0.1 are no longer shipped. The
+service is enabled by preset.
 
 %prep
 %autosetup -n speakerguardd-%{commit}
@@ -70,6 +69,11 @@ systemctl --no-reload --preset-mode=enable-only preset aurora-speaker-upgrade.se
 %{_presetdir}/50-aurora-speaker-upgrade.preset
 
 %changelog
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.29.20261127git89b6e40e6dab
+- speakerguardd v2 is the only speaker stack: require it, and say that a
+  Mac whose self-check refuses keeps its speakers at the kernel's floor
+  (speakersafetyd and speakerguardd 0.1 are no longer shipped).
+
 * Fri Nov 27 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.28.20261127git89b6e40e6dab
 - Rebuilt from speakerguardd main 89b6e40e. speakerguardd#270: the gate
   data carries the AID12 (J473, Mac mini M2) playback row, so the boot
