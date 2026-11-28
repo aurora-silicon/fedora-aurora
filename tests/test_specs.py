@@ -836,13 +836,17 @@ class SpecTests(unittest.TestCase):
             self.assertNotIn(name, pins)
         audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
         self.assertRegex(audio, r'(?m)^Requires: speakerguardd-v2 >= 1\.0\.0~alpha\.2-0\.63 aurora-speaker-upgrade$')
-        for line in ('Obsoletes: speakersafetyd', 'Obsoletes: speakersafetyd-aurora-profiles',
-                     'Obsoletes: speakerguardd < 0.2', 'Conflicts: speakersafetyd', 'Conflicts: speakerguardd < 0.2',
+        for line in ('Obsoletes: speakersafetyd < 2.0.1-2', 'Obsoletes: speakersafetyd-aurora-profiles',
+                     'Obsoletes: speakerguardd < 0.2', 'Conflicts: speakerguardd < 0.2',
                      'Provides: asahi-audio = %{version}-%{release}', 'Obsoletes: asahi-audio < %{version}-%{release}',
                      'Conflicts: asahi-audio',
                      'Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33', 'Conflicts: speakerguardd-v2 < 1.0.0~alpha.1-0.33'):
             self.assertRegex(audio, rf'(?m)^{re.escape(line)}$')
+        self.assertNotRegex(audio, r'(?m)^Conflicts:.*\bspeakersafetyd\b')
         self.assertNotRegex(audio, r'(?m)^(Requires|Recommends):.*\bspeakersafetyd\b')
+        self.assertIn('aurora-speaker-stack migrate --on-upgrade', audio)
+        self.assertIn('%{_bindir}/aurora-speaker-stack', audio)
+        self.assertIn('%{_mandir}/man8/aurora-speaker-stack.8*', audio)
         # The Asahi speaker graphs are not restored or installed for any Mac.
         self.assertNotIn('0001-restore-legacy-speaker-graphs.patch', audio)
         self.assertFalse((ROOT / 'packages/aurora-audio/0001-restore-legacy-speaker-graphs.patch').exists())

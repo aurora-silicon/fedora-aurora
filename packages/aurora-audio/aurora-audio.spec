@@ -8,28 +8,32 @@ URL: https://github.com/aurora-silicon/asahi-audio
 Source0: aurora-audio-%{commit}.tar.gz
 Source1: module-setup.sh
 Source3: 99-aurora-speaker-irq.conf
+Source4: aurora-speaker-stack
+Source5: aurora-speaker-stack.8
+Source6: README.md
 # speakerguardd v2 drives every Mac's speakers from the Mac's own tuning: no
 # speaker graph, speaker FIR or raw speaker volume lock is installed.
 Patch0: 0001-install-no-speaker-graphs.patch
 BuildArch: noarch
-BuildRequires: make
+BuildRequires: make python3
 # Fedora Asahi installs carry asahi-audio, which ships the same files.
 Provides: asahi-audio = %{version}-%{release}
 Obsoletes: asahi-audio < %{version}-%{release}
 Conflicts: asahi-audio
-Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplumber >= 0.5.16 bankstown lv2-triforce lsp-plugins-lv2
-# speakerguardd v2 is the only speaker protection: every install has this
-# package, so it brings v2 and retires the Asahi stack (speakersafetyd, its
-# Aurora profiles and speakerguardd 0.1) on the upgrade.
+Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplumber >= 0.5.16 bankstown lv2-triforce lsp-plugins-lv2 python3
+# speakerguardd v2 is the default speaker protection: every install has this
+# package, so it brings v2 and retires the legacy Aurora speaker packages on
+# upgrade without conflicting with a user who explicitly opts into stock
+# speakersafetyd via `aurora-speaker-stack select speakersafetyd`.
 Requires: speakerguardd-v2 >= 1.0.0~alpha.2-0.63 aurora-speaker-upgrade
-Obsoletes: speakersafetyd
+Obsoletes: speakersafetyd < 2.0.1-2
 Obsoletes: speakersafetyd-aurora-profiles
 Obsoletes: speakerguardd < 0.2
-Conflicts: speakersafetyd
 Conflicts: speakerguardd < 0.2
 Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33
 Obsoletes: speakerguardd-v2-selinux < 1.0.0~alpha.1-0.33
 Conflicts: speakerguardd-v2 < 1.0.0~alpha.1-0.33
+Requires(posttrans): python3
 
 %description
 Aurora Apple Silicon audio profiles: the microphone DSP graphs, the headphone
@@ -58,15 +62,28 @@ done
 for board in j293 j313 j314 j316 j413 j415 j604 j614 j616 j700 j714; do
     test -s "check-root/usr/share/asahi-audio/$board/mic.json"
 done
+python3 -I %{SOURCE4} --help >/dev/null
 rm -rf check-root
 
 %install
 make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
 install -Dm755 %{SOURCE1} %{buildroot}%{_prefix}/lib/dracut/modules.d/90aurora-audio/module-setup.sh
 install -Dm644 %{SOURCE3} %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d/99-aurora-speaker-irq.conf
+install -Dm755 %{SOURCE4} %{buildroot}%{_bindir}/aurora-speaker-stack
+install -Dm644 %{SOURCE5} %{buildroot}%{_mandir}/man8/aurora-speaker-stack.8
+cp -p %{SOURCE6} README.aurora-audio.md
+
+%posttrans
+# Migrate default installs to speakerguardd v2 (mask legacy units, enable v2
+# presets) while respecting an explicit user opt-out in
+# /etc/aurora/speaker-stack.conf.
+%{_bindir}/aurora-speaker-stack migrate --on-upgrade || :
 
 %files
 %license LICENSE
+%doc README.aurora-audio.md
+%{_bindir}/aurora-speaker-stack
+%{_mandir}/man8/aurora-speaker-stack.8*
 %{_datadir}/asahi-audio/
 %{_datadir}/wireplumber/
 %{_datadir}/pipewire/
@@ -74,10 +91,13 @@ install -Dm644 %{SOURCE3} %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d
 
 %changelog
 * Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-18
-- speakerguardd v2 is the only speaker stack: require it and
-  aurora-speaker-upgrade, and obsolete speakersafetyd,
-  speakersafetyd-aurora-profiles, speakerguardd 0.1 and asahi-audio, so an
-  upgrade removes them.
+- speakerguardd v2 is the default speaker stack: require it and
+  aurora-speaker-upgrade, and obsolete Aurora's legacy speakersafetyd
+  (< 2.0.1-2), speakersafetyd-aurora-profiles, speakerguardd 0.1 and
+  asahi-audio, so an upgrade removes them.
+- Ship aurora-speaker-stack (with man page and README) so users who
+  explicitly opt out (`sudo aurora-speaker-stack select speakersafetyd`)
+  have their choice respected across future upgrades.
 - Drop the patch that restored the Asahi speaker graphs, and install no
   speaker graph, speaker FIR or raw speaker volume lock for any Mac. A Mac
   that v2 does not qualify keeps its speakers at the kernel's floor.
