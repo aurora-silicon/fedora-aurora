@@ -116,14 +116,22 @@ what the kernel RPM actually contains.
 
 For the older-package enablement check, run `scripts/test-speaker-upgrade-preset`
 with the old and candidate `aurora-speaker-upgrade` RPMs in a disposable Fedora
-container. It checks the real RPM transition and leaves the service unstarted.
+container. Enable the repositories that supply the candidate's matching
+dependencies inside the container. The fixture checks the real RPM transition
+and leaves the service unstarted.
 
-On a disposable install on the target Mac, record the old packages, boot
-entry and Stage 2 hash before upgrading. After `dnf upgrade` and one regular
-reboot, verify the new booted kernel, Stage 2 commit, and speaker DAI and amp
-nodes in the live tree. Check `journalctl -b -u aurora-speaker-upgrade
--u speakerguardd-v2` for the pinned IPSW build, successful self-check and v2
-lease grant. A passing Stage 2 trial alone says nothing about speaker readiness.
+Use a disposable install on the target Mac to check the first migration.
+Record the boot ID, old package versions, boot entry and live Stage 2 hash.
+Run `dnf upgrade` and record the staged Stage 2 hash before rebooting normally.
+After the reboot, verify the boot ID changed, the new kernel is running,
+the staged hash is now live, the previous image matches the original hash,
+and the live device tree exposes the speaker DAI and amps.
+
+Use `journalctl -b -u aurora-speaker-upgrade -u speakerguardd-v2` to verify
+the automatic fetch from the pinned IPSW, a passing silent self-check, and
+`protection ready`. Check that `speakerguardd-v2.service` is active. The
+supervisor reports readiness while idle and grants the speaker lease during
+protected playback.
 
 ## DT ABI generations
 
