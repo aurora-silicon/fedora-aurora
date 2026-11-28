@@ -20,7 +20,7 @@ BuildRequires: make python3
 Provides: asahi-audio = %{version}-%{release}
 Obsoletes: asahi-audio < %{version}-%{release}
 Conflicts: asahi-audio
-Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplumber >= 0.5.16 bankstown lv2-triforce lsp-plugins-lv2 python3
+Requires: alsa-ucm-conf-aurora alsa-utils pipewire pipewire-module-filter-chain-lv2 wireplumber >= 0.5.16 bankstown lv2-triforce lsp-plugins-lv2 python3
 Requires(posttrans): python3
 # speakerguardd v2 is the speaker protection: every install has this package,
 # so it brings v2 and retires the Asahi stack (speakersafetyd, its Aurora
