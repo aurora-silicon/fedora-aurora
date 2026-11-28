@@ -46,6 +46,13 @@ def install_entry(root, kernel):
     put(root, "boot/grub2/grubenv", f"saved_entry=fixture-{kernel.name}\n".encode())
 
 
+def record_stage1_measurement(root, image):
+    node = "proc/device-tree/chosen/aurora,boot-security/measurement@0"
+    put(root, node + "/stage", b"stage1\0")
+    put(root, node + "/component", b"next-stage\0")
+    put(root, node + "/sha256", hashlib.sha256(image).digest())
+
+
 def exercise(args, root, bootchain):
     old = install_core(args.old_core, root)
     old_dtb = old / "dtb/apple" / args.dtb
@@ -68,11 +75,13 @@ def exercise(args, root, bootchain):
     classic = live.with_name("boot.bin")
     if classic != live:
         put(root, "boot/efi/m1n1/boot.bin", b"separate non-CTXR slot\n")
-    else:
-        live.parent.mkdir(parents=True)
+    # Seed an installed Stage 2 and model the running Stage 1's measurement
+    # of the file it loaded. The enrolled-target guard uses that observation.
+    _, _, _, old_stage2 = baseline.plan()
+    put(root, live.relative_to(root), old_stage2)
+    record_stage1_measurement(root, old_stage2)
     baseline.apply()
-    old_stage2 = live.read_bytes()
-    if old_dtb.read_bytes() not in old_stage2:
+    if live.read_bytes() != old_stage2 or old_dtb.read_bytes() not in old_stage2:
         raise RuntimeError("old Stage 2 does not embed the old device tree")
 
     new = install_core(args.new_core, root)
@@ -103,6 +112,7 @@ def exercise(args, root, bootchain):
                 raise RuntimeError("Stage 2 candidate does not embed the new device tree")
             marker.write_text(f"spent\n{relative}\n")
             put(root, "proc/device-tree/chosen/aurora,trial", relative.encode() + b"\0")
+            record_stage1_measurement(root, candidate_data)
             with patch.object(bootchain.Update, "sanity"):
                 bootchain.Update(root, env).commit()
             if marker.exists() or candidate.exists() or live.read_bytes() != candidate_data:
