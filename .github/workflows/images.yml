@@ -103,9 +103,10 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
-          # Fedora 45 candidates keep a separate name, so the payload workflow,
-          # which takes only <profile>-candidate, never publishes them.
-          name: ${{ inputs.profile }}${{ inputs.fedora-release == '45' && '-f45' || '' }}-candidate
+          # Fedora 44 and 45 candidates share the name the payload workflow
+          # takes; a candidate still reaches a catalog only through a
+          # deliberate publish-payload.yml run.
+          name: ${{ inputs.profile }}-candidate
           compression-level: 0
           path: |
             image-build.log
