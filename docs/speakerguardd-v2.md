@@ -3,9 +3,11 @@
 speakerguardd v2 is the only speaker protection on every Mac, and the only
 program that takes the kernel's speaker interlock. The Asahi stack is gone:
 aurora-audio 4.1-18 requires speakerguardd-v2 and aurora-speaker-upgrade,
-obsoletes speakersafetyd, speakersafetyd-aurora-profiles, speakerguardd 0.1
-and asahi-audio, and installs no Asahi speaker graph. An upgrade removes the
-old packages in the same transaction.
+obsoletes the speakersafetyd and speakersafetyd-aurora-profiles builds this
+repository shipped, speakerguardd 0.1 and asahi-audio, and installs no Asahi
+speaker graph. An upgrade removes the old packages in the same transaction.
+The Obsoletes are versioned, so a speakersafetyd that a user later installs
+and selects on purpose stays installed across upgrades.
 
 `aurora-speaker-upgrade` moves a Mac's speakers to v2 with that Mac's own
 tuning:

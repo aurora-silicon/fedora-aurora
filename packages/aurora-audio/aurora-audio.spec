@@ -18,14 +18,16 @@ Provides: asahi-audio = %{version}-%{release}
 Obsoletes: asahi-audio < %{version}-%{release}
 Conflicts: asahi-audio
 Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplumber >= 0.5.16 bankstown lv2-triforce lsp-plugins-lv2
-# speakerguardd v2 is the only speaker protection: every install has this
-# package, so it brings v2 and retires the Asahi stack (speakersafetyd, its
-# Aurora profiles and speakerguardd 0.1) on the upgrade.
+# speakerguardd v2 is the speaker protection: every install has this package,
+# so it brings v2 and retires the Asahi stack (speakersafetyd, its Aurora
+# profiles and speakerguardd 0.1) on the upgrade. The speakersafetyd
+# Obsoletes are versioned to the builds this repository shipped (2.0.1-1.*,
+# profiles 1-1), so a speakersafetyd a user later installs and selects on
+# purpose is not removed again by the next upgrade.
 Requires: speakerguardd-v2 >= 1.0.0~alpha.2-0.63 aurora-speaker-upgrade
-Obsoletes: speakersafetyd
-Obsoletes: speakersafetyd-aurora-profiles
+Obsoletes: speakersafetyd < 2.0.1-2
+Obsoletes: speakersafetyd-aurora-profiles < 1-2
 Obsoletes: speakerguardd < 0.2
-Conflicts: speakersafetyd
 Conflicts: speakerguardd < 0.2
 Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33
 Obsoletes: speakerguardd-v2-selinux < 1.0.0~alpha.1-0.33
@@ -74,10 +76,11 @@ install -Dm644 %{SOURCE3} %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d
 
 %changelog
 * Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-18
-- speakerguardd v2 is the only speaker stack: require it and
-  aurora-speaker-upgrade, and obsolete speakersafetyd,
-  speakersafetyd-aurora-profiles, speakerguardd 0.1 and asahi-audio, so an
-  upgrade removes them.
+- speakerguardd v2 is the speaker stack of every install: require it and
+  aurora-speaker-upgrade, and obsolete the speakersafetyd 2.0.1-1 and
+  speakersafetyd-aurora-profiles 1-1 builds, speakerguardd 0.1 and
+  asahi-audio, so an upgrade removes them. A speakersafetyd installed
+  later on purpose is not obsoleted.
 - Drop the patch that restored the Asahi speaker graphs, and install no
   speaker graph, speaker FIR or raw speaker volume lock for any Mac. A Mac
   that v2 does not qualify keeps its speakers at the kernel's floor.
