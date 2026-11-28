@@ -11,9 +11,33 @@
 # %posttrans.
 set -u
 entries=${AURORA_BLS_ENTRIES:-/boot/loader/entries}
+# Due until a run finishes: %posttrans creates it, and the unit runs at boot while it stays.
+marker=${AURORA_REPAIR_MARKER:-/var/lib/update-aura/repair-pending}
+
+# --after-transaction: started through systemd by update-aura's %posttrans.
+# A libdnf5 post_transaction action isn't used because dnf5-plugin-actions is
+# not installed by default on Aurora/Fedora systems and direct rpm or offline
+# upgrade transactions bypass dnf plugins. The active rpm transaction still
+# holds the database fcntl lock until it ends ("can't create transaction lock"),
+# so wait for a read-only rpm probe to succeed first.
+if [ "${1:-}" = --after-transaction ]; then
+    limit=${AURORA_RPM_WAIT_SECONDS:-900}
+    step=${AURORA_RPM_WAIT_STEP:-2}
+    waited=0
+    until rpm -q --quiet rpm 2>/dev/null; do
+        if [ "$waited" -ge "$limit" ]; then
+            echo "update-aura: the rpm database stayed locked for $limit s; no kernel was repaired" >&2
+            exit 1
+        fi
+        sleep "$step"
+        waited=$((waited + step))
+    done
+fi
 modules=${AURORA_MODULES_DIR:-/usr/lib/modules}
 
-rpm -q kernel-aurora-core >/dev/null 2>&1 || exit 0
+# Still locked (run inside a transaction): the marker keeps the repair due.
+rpm -q --quiet rpm 2>/dev/null || exit 0
+rpm -q kernel-aurora-core >/dev/null 2>&1 || { rm -f -- "$marker"; exit 0; }
 own=$(rpm -q --qf '%{INSTALLTID}\n' update-aura 2>/dev/null | sort -n | tail -n 1)
 kernels=$(rpm -q --qf '%{INSTALLTID} %{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-aurora-core |
     sort -k2,2V)
@@ -28,15 +52,27 @@ for krel in $(printf '%s\n' "$kernels" | cut -d' ' -f2); do
 done
 
 # Oldest first: each add makes its kernel the default, so the newest wins.
-printf '%s\n' "$kernels" | while read -r tid krel; do
+printf '%s\n' "$kernels" | { status=0; while read -r tid krel; do
     [ -n "$krel" ] && [ "$tid" != "$own" ] || continue
     if [ ! -f "$modules/$krel/vmlinuz" ] || has_entry "$krel"; then continue; fi
     if [ -n "$newest" ] &&
         [ "$(printf '%s\n%s\n' "$newest" "$krel" | sort -V | tail -n 1)" = "$newest" ]; then
         continue
     fi
+    # Re-check right before adding: earlier dracut runs take minutes and a
+    # concurrent dnf run may have removed this kernel or re-locked rpm.
+    if ! rpm -q --quiet "kernel-aurora-core-$krel" 2>/dev/null; then
+        if ! rpm -q --quiet rpm 2>/dev/null; then
+            echo "update-aura: rpm database locked before kernel-install add $krel; keeping repair pending" >&2
+            status=1
+        fi
+        continue
+    fi
+    if [ ! -f "$modules/$krel/vmlinuz" ] || has_entry "$krel"; then
+        continue
+    fi
     echo "update-aura: kernel $krel has no boot entry; finishing its kernel-install" >&2
     kernel-install add "$krel" "$modules/$krel/vmlinuz" ||
-        echo "update-aura: kernel-install add $krel failed" >&2
-done
+        { echo "update-aura: kernel-install add $krel failed" >&2; status=1; }
+done; exit "$status"; } && rm -f -- "$marker"
 exit 0
