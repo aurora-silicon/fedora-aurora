@@ -857,6 +857,13 @@ class SpecTests(unittest.TestCase):
         # Kept: the period-interrupt rule and the dracut module.
         self.assertIn('99-aurora-speaker-irq.conf', audio)
         self.assertIn('90aurora-audio/module-setup.sh', audio)
+        # User opt-out tool, docs, and upgrade migration hook.
+        self.assertIn('Source4: aurora-speaker-stack', audio)
+        self.assertIn('Source5: aurora-speaker-stack.8', audio)
+        self.assertIn('Source6: README.md', audio)
+        self.assertIn('%{_bindir}/aurora-speaker-stack', audio)
+        self.assertIn('%{_mandir}/man8/aurora-speaker-stack.8*', audio)
+        self.assertIn('aurora-speaker-stack migrate --on-upgrade', audio)
         upgrade = (ROOT / 'packages/aurora-speaker-upgrade/aurora-speaker-upgrade.spec').read_text()
         self.assertRegex(upgrade, r'(?m)^Requires: speakerguardd-v2$')
         self.assertIn('%{_presetdir}/50-aurora-speaker-upgrade.preset', upgrade)
