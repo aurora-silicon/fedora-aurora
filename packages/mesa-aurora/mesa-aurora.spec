@@ -1,8 +1,8 @@
-%global commit d4ad4a4dce6d1d23ecd897d6d73fadf9ab618614
+%global commit 36623c0a4a5a3e2a94fedd5f0874258d8126648d
 %global debug_package %{nil}
 Name: mesa-aurora
 Version: 26.3.0
-Release: 30%{?dist}.aurora
+Release: 33%{?dist}.aurora
 Summary: Aurora Asahi OpenGL and Vulkan drivers
 License: MIT
 URL: https://github.com/aurora-silicon/mesa
@@ -200,6 +200,17 @@ strings %{buildroot}%{_libdir}/libvulkan_asahi.so | grep -F "Mesa " | grep -F "(
 %{_libdir}/libRusticlOpenCL.so
 
 %changelog
+* Thu Nov 26 2026 DjDeveloperr <hey@djdev.me> - 26.3.0-33
+- Mount the FEX guest graphics provider (mesa-aurora-fex-guest) ro,nosuid,nodev.
+
+* Thu Nov 26 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-32
+- Track aurora-silicon/mesa aurora-wip at 36623c0.
+- Upstream head: Merge pull request #1115
+
+* Thu Nov 26 2026 Aurora Silicon <hey@djdev.me> - 26.3.0-31
+- Track aurora-silicon/mesa aurora-wip at 0539df0.
+- Upstream head: Merge pull request #1106
+
 * Sun Nov 15 2026 Diljit Singh <hey@djdev.me> - 26.3.0-30
 - Pin aurora-silicon/mesa cts/b11-rc30 d4ad4a4dce6 (3 first-parent commits since 3b511dc1592):
   - st/mesa: reject links mixing GLSL and SPIR-V shaders in either order

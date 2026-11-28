@@ -16,12 +16,19 @@ import trackerlib as tl  # noqa: E402
 import updatelib as lib  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
+ARCHIVE_RECIPES = (
+    'alsa-ucm-conf-aurora', 'aurora-bless', 'aurora-camera-denoise',
+    'aurora-diag', 'aurora-firstboot', 'aurora-kbd-light', 'aurora-neo-platform-config',
+    'aurora-xart', 'upower-aurora',
+)
 RECIPES = {'kernel-aurora': 'kernel-aurora', 'aura': 'aura', 'mesa-aurora': 'mesa-aurora',
-           'fex-emu': 'fex-emu', 'aurora-steam-native': 'aurora-steam-native'}
+           'fex-emu': 'fex-emu', 'aurora-steam-native': 'aurora-steam-native',
+           **{name: name for name in ARCHIVE_RECIPES}}
 KINDS = {'kernel-aurora': 'kernel', 'mesa-aurora': 'mesa'}
 CI_WORKFLOWS = ['rpms.yml', 'checks.yml']
 # The only files a tracker proposal may change.
-PATCH_PATHS = [r'sources\.json', r'packages/(kernel-aurora|aura|mesa-aurora|mesa-aurora-fex-guest|aurora-flatpak-gl|fex-emu|aurora-steam-native)/(f45/)?[^/]+\.spec']
+PATCH_PATHS = [r'sources\.json', r'packages/(kernel-aurora|aura|mesa-aurora|mesa-aurora-fex-guest|aurora-flatpak-gl|fex-emu|aurora-steam-native)/(f45/)?[^/]+\.spec',
+               rf"packages/({'|'.join(ARCHIVE_RECIPES)})/(f45/)?\1\.spec"]
 # Fedora 45 overlays of a tracked recipe follow it to the same commit and Release.
 OVERLAYS = ('f45',)
 # fex-emu tracks by hand (merge: manual): its submodules are pinned as
@@ -130,6 +137,8 @@ def run_checks(root):
 
 
 def ci_inputs(packages):
+    if 'mesa-aurora' in packages:
+        packages = sorted(set(packages) | {GUEST, FLATPAK_GL})
     return {'rpms.yml': {'packages': ' '.join(packages)}}
 
 

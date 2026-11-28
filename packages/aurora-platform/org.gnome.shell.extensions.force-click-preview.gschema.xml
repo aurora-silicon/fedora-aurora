@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.force-click-preview" path="/org/gnome/shell/extensions/force-click-preview/">
+    <key name="force-click" type="as">
+      <!-- hid-magicmouse holds KEY_INFO on its "Force Click" device during a deep click -->
+      <default>['XF86Info']</default>
+      <summary>Key the trackpad sends for a force click</summary>
+    </key>
+  </schema>
+</schemalist>

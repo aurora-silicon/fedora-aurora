@@ -1,0 +1,8 @@
+{
+  "uuid": "force-click-preview@aurorasilicon.org",
+  "name": "Force Click Preview",
+  "description": "A force click on an item in Files opens its preview, like Quick Look. The trackpad driver reports the deep stage of a Force Touch click as a key; in Files that key opens the previewer, elsewhere it does nothing.",
+  "shell-version": ["49", "50", "51"],
+  "settings-schema": "org.gnome.shell.extensions.force-click-preview",
+  "url": "https://github.com/aurora-silicon"
+}

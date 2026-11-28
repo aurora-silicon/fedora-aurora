@@ -46,6 +46,22 @@ class FedoraSpecTests(unittest.TestCase):
                       f'- Track aurora-silicon/x main at {NEW[:7]}.\n', text)
         self.assertEqual(notes, [])
 
+    def test_additional_recipes_track_their_merged_source_with_manual_review(self):
+        tracking = module.tl.load_tracking(ROOT)['sources']
+        for name in ('alsa-ucm-conf-aurora', 'aurora-bless',
+                     'aurora-diag', 'aurora-firstboot', 'aurora-kbd-light',
+                     'aurora-neo-platform-config', 'aurora-xart', 'upower-aurora'):
+            with self.subTest(name=name):
+                before = module.tl.spec_field(self.spec(name), 'Release').split('%')[0]
+                notes = module.update_recipe(self.root, self.item(name), TODAY)
+                text = self.spec(name)
+                self.assertEqual(tracking[name]['merge'], 'manual')
+                self.assertIn(f'%global commit {NEW}\n', text)
+                self.assertEqual(int(module.tl.spec_field(text, 'Release').split('%')[0]), int(before) + 1)
+                self.assertEqual(notes, [])
+                self.assertTrue(any(re.fullmatch(pattern, f'packages/{name}/{name}.spec')
+                                    for pattern in module.PATCH_PATHS))
+
     def test_kernel_release_candidate_uses_an_rpm_safe_version_and_resets_release(self):
         item = self.item('kernel-aurora', version='7.9.0-rc1')
         notes = module.update_recipe(self.root, item, TODAY)
@@ -77,6 +93,11 @@ class FedoraSpecTests(unittest.TestCase):
                       + module.tl.spec_field(host, 'Release') + '}\n', gl)
         self.assertTrue(any(re.fullmatch(pattern, f'packages/{name}/{name}.spec')
                             for pattern in module.PATCH_PATHS))
+
+    def test_mesa_dispatch_builds_the_lockstep_packages(self):
+        requested = module.ci_inputs(['aura', 'mesa-aurora'])['rpms.yml']['packages'].split()
+        self.assertEqual(requested, ['aura', module.FLATPAK_GL, 'mesa-aurora', module.GUEST])
+        self.assertEqual(module.ci_inputs(['aura'])['rpms.yml']['packages'], 'aura')
 
     def test_mesa_moves_its_fedora45_overlays_with_it(self):
         name = module.GUEST

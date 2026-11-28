@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import os
 import re
+import shlex
 import shutil
 import struct
 import subprocess
@@ -496,6 +497,9 @@ class SpecTests(unittest.TestCase):
         self.assertIn('secboot_sign.pubkey(os.urandom(32))', secure)
         self.assertIn('SECBOOT=audit SECBOOT_FLAVOUR=secure SECBOOT_PUBKEY=../aurora-stage1/nobody.pub', secure)
         self.assertIn('cp build/aura.bin ../aurora-stage1/aura-secure-raw.bin\n', secure)
+        self.assertIn('cp build/aura-boot.macho ../aurora-stage1/aura-secure-boot.macho\n', secure)
+        self.assertIn('install -Dm644 ../aurora-stage1/aura-secure-boot.macho '
+                      '%{buildroot}%{_datadir}/aura/stage1/aura-secure-boot.macho\n', spec)
         self.assertIn('ESP_STAGE2=1', build.split('make clean', 2)[2])
         install = spec.split('%install', 1)[1].split('%files', 1)[0]
         self.assertIn('install -Dm644 ../aurora-stage1/aura-secure-raw.bin '
@@ -724,45 +728,65 @@ class SpecTests(unittest.TestCase):
         core_files = spec.split('%files core', 1)[1].split('%files kdump', 1)[0]
         self.assertIn('%{_unitdir}/aurora-power-defaults.service', core_files)
         self.assertIn('%{_unitdir}/sysinit.target.wants/aurora-power-defaults.service', core_files)
-    def test_m5_sleep_policy_applies_on_the_j714s_only(self):
-        d = ROOT / 'packages' / 'aurora-m5-platform-config'
-        unit = configparser.ConfigParser(interpolation=None, strict=False)
+    def test_lid_policy_follows_the_active_kernel_sleep_mode(self):
+        package = ROOT / 'packages' / 'aurora-m5-platform-config'
+        unit = configparser.ConfigParser(interpolation=None)
         unit.optionxform = str
-        unit.read_string((d / 'aurora-m5-sleep-policy.service').read_text())
-        self.assertEqual(unit['Unit']['ConditionFirmware'], 'device-tree-compatible(apple,j714s)')
+        unit.read_string((package / 'aurora-m5-sleep-policy.service').read_text())
+        self.assertNotIn('ConditionFirmware', unit['Unit'])
         self.assertEqual(unit['Service']['Type'], 'oneshot')
+        self.assertTrue(unit['Service'].getboolean('RemainAfterExit'))
+        self.assertNotIn('ExecCondition', unit['Service'])
         self.assertIn('systemd-logind.service', unit['Unit']['Before'].split())
         self.assertNotIn('Install', unit)
-        lines = (d / 'aurora-m5-sleep-policy.service').read_text().splitlines()
-        self.assertEqual([l.split()[-1] for l in lines if l.startswith('ExecStart=')], [
-            '/run/systemd/sleep.conf.d/90-aurora-m5-deep.conf',
-            '/run/systemd/logind.conf.d/90-aurora-m5-lid.conf'])
-        sleep = configparser.ConfigParser(interpolation=None)
-        sleep.optionxform = str
-        sleep.read_string((d / '90-aurora-m5-deep.conf').read_text())
-        self.assertEqual(dict(sleep['Sleep']), {'AllowSuspend': 'yes', 'SuspendState': 'mem', 'MemorySleepMode': 'deep'})
+        shell, flags, script = shlex.split(unit['Service']['ExecStart'])
+        with tempfile.TemporaryDirectory() as tmp:
+            mem_sleep = Path(tmp) / 'mem_sleep'
+            dropin = '90-aurora-m5-lid.conf'
+            source = package / dropin
+            destination = Path(tmp) / 'logind.conf.d' / dropin
+            script = script.replace('/sys/power/mem_sleep', shlex.quote(str(mem_sleep)))
+            script = script.replace(f'/usr/share/aurora-m5-platform-config/{dropin}',
+                                    shlex.quote(str(source)))
+            script = script.replace(f'/run/systemd/logind.conf.d/{dropin}',
+                                    shlex.quote(str(destination)))
+            for modes, installs_policy in (
+                ('s2idle [deep]', True),
+                ('[s2idle] deep', False),
+                ('[s2idle]', False),
+                (None, False),
+            ):
+                with self.subTest(modes=modes):
+                    if modes is None:
+                        mem_sleep.unlink()
+                    else:
+                        mem_sleep.write_text(modes + '\n')
+                    subprocess.run([shell, flags, script], check=True, timeout=5)
+                    self.assertEqual(destination.is_file(), installs_policy)
+                    if installs_policy:
+                        self.assertEqual(destination.read_bytes(), source.read_bytes())
+                        self.assertEqual(destination.stat().st_mode & 0o777, 0o644)
+                        destination.unlink()
+
+            mem_sleep.write_text('s2idle [deep]\n')
+            destination.parent.rmdir()
+            destination.parent.touch()
+            failure = subprocess.run([shell, flags, script], capture_output=True, timeout=5)
+            self.assertNotEqual(failure.returncode, 0)
+
         lid = configparser.ConfigParser(interpolation=None)
         lid.optionxform = str
-        lid.read_string((d / '90-aurora-m5-lid.conf').read_text())
-        self.assertEqual(set(lid['Login'].values()), {'suspend'})
-        self.assertEqual(set(lid['Login']), {'HandleLidSwitch', 'HandleLidSwitchExternalPower', 'HandleLidSwitchDocked'})
-        hook = (d / '50-aurora-m5-rtc-safety').read_text().splitlines()
-        # The board gate comes before anything reads or writes the RTC.
-        first = next(i for i, l in enumerate(hook) if l and not l.startswith('#'))
-        self.assertEqual(hook[first], "tr '\\0' '\\n' < /proc/device-tree/compatible 2>/dev/null | grep -qx 'apple,j714s' || exit 0")
-        compatible = Path('/proc/device-tree/compatible')
-        on_j714s = compatible.is_file() and b'apple,j714s' in compatible.read_bytes().split(b'\0')
-        with tempfile.TemporaryDirectory() as tmp:
-            if on_j714s:
-                self.skipTest('would arm the RTC alarm of this J714s')
-            # Off the J714s it returns at once and leaves nothing behind.
-            result = subprocess.run(['sh', str(d / '50-aurora-m5-rtc-safety'), 'pre'], cwd=tmp,
-                                    capture_output=True, text=True, timeout=30)
-            self.assertEqual(result.returncode, 0)
-        text = (d / 'aurora-m5-platform-config.spec').read_text()
+        lid.read_string((package / '90-aurora-m5-lid.conf').read_text())
+        self.assertEqual(dict(lid['Login']), {
+            'HandleLidSwitch': 'suspend',
+            'HandleLidSwitchExternalPower': 'suspend',
+            'HandleLidSwitchDocked': 'suspend',
+        })
+        spec = (package / 'aurora-m5-platform-config.spec').read_text()
         self.assertIn('ln -s ../aurora-m5-sleep-policy.service '
-                      '%{buildroot}%{_unitdir}/sysinit.target.wants/aurora-m5-sleep-policy.service', text)
-        self.assertIn('%config(noreplace) %{_sysconfdir}/aurora-m5-sleep.conf', text)
+                      '%{buildroot}%{_unitdir}/sysinit.target.wants/aurora-m5-sleep-policy.service', spec)
+        self.assertNotIn('/system-sleep/', spec)
+        self.assertNotIn('/90-aurora-m5-deep.conf', spec)
         platform = (ROOT / 'packages' / 'aurora-platform' / 'aurora-platform.spec').read_text()
         main = platform.split('%package core', 1)[0]
         self.assertRegex(main, r'(?m)^Requires: .*\baurora-m5-platform-config\b')
@@ -809,6 +833,12 @@ class SpecTests(unittest.TestCase):
         self.assertIn('%{_presetdir}/50-aurora-speaker-upgrade.preset', upgrade)
         preset = (ROOT / 'packages/aurora-speaker-upgrade/50-aurora-speaker-upgrade.preset').read_text()
         self.assertRegex(preset, r'(?m)^enable aurora-speaker-upgrade\.service$')
+        # %systemd_post presets on the first install only: installs from before
+        # the preset get it once, on the upgrade from an older build.
+        post = upgrade.split('%triggerpostun -- aurora-speaker-upgrade < 0.1-0.27\n', 1)
+        self.assertEqual(len(post), 2)
+        self.assertTrue(post[1].startswith(
+            'systemctl --no-reload --preset-mode=enable-only preset aurora-speaker-upgrade.service'))
         audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
         self.assertRegex(audio, r'(?m)^Requires: speakersafetyd speakerguardd$')
         self.assertIn('Obsoletes: speakerguardd-v2 < 1.0.0~alpha.1-0.33\n', audio)

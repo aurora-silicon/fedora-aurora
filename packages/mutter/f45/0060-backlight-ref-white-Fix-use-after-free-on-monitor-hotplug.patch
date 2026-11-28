@@ -1,0 +1,107 @@
+From 5bdc78fd3ec49b6466f180d26070696dd679f161 Mon Sep 17 00:00:00 2001
+From: Sebastian Wick <sebastian.wick@redhat.com>
+Date: Wed, 28 Oct 2026 20:38:10 +0100
+Subject: [PATCH] backlight/ref-white: Fix use-after-free on monitor hotplug
+
+When a monitor is removed while a ref-white brightness change is
+pending, the idle callback accesses the already-freed monitor through
+the stored pointer.
+
+This commit calls g_object_run_dispose() on the backlight when the
+monitor drops it. Dispose cancels the pending GTask and removes the idle
+source immediately, so the callback never runs against a stale monitor.
+
+Part-of: <https://gitlab.gnome.org/GNOME/mutter/-/merge_requests/5432>
+
+Backported to 51.1 without the test hunk: the 51.1 monitor-backlight-tests
+fixture has no reference-white backlight to drive.
+---
+ src/backends/meta-backlight-ref-white.c | 20 ++++++++++++----
+ src/backends/meta-monitor.c             | 12 ++++++++--
+ 2 files changed, 26 insertions(+), 6 deletions(-)
+
+diff --git a/src/backends/meta-backlight-ref-white.c b/src/backends/meta-backlight-ref-white.c
+index 4152a2117d..e37bcfe3a1 100644
+--- a/src/backends/meta-backlight-ref-white.c
++++ b/src/backends/meta-backlight-ref-white.c
+@@ -32,6 +32,7 @@ struct _MetaBacklightRefWhite
+   MetaBacklight parent;
+ 
+   MetaMonitor *monitor;
++  GTask *pending_task;
+   guint change_ref_white_handle_id;
+ };
+ 
+@@ -69,8 +70,8 @@ get_factor (MetaBacklightRefWhite *backlight_ref_white)
+ static gboolean
+ on_change_ref_white (gpointer user_data)
+ {
+-  GTask *task = G_TASK (user_data);
+-  MetaBacklightRefWhite *backlight_ref_white = g_task_get_source_object (task);
++  MetaBacklightRefWhite *backlight_ref_white = user_data;
++  g_autoptr (GTask) task = g_steal_pointer (&backlight_ref_white->pending_task);
+   int brightness_target = GPOINTER_TO_INT (g_task_get_task_data (task));
+ 
+   backlight_ref_white->change_ref_white_handle_id = 0;
+@@ -102,11 +103,12 @@ meta_backlight_ref_white_set_brightness (MetaBacklight       *backlight,
+   /* We have to do this in an idle because backlights can be changed from
+    * the shell in a frame clock dispatch, and changing the ColorDevice
+    * reference white invalidates the onscreen. */
++  backlight_ref_white->pending_task = g_steal_pointer (&task);
+   backlight_ref_white->change_ref_white_handle_id =
+     mtk_idle_add_full (CLUTTER_PRIORITY_REDRAW - 1,
+                        on_change_ref_white,
+-                       g_steal_pointer (&task),
+-                       g_object_unref);
++                       backlight_ref_white,
++                       NULL);
+   mtk_source_set_name_by_id (backlight_ref_white->change_ref_white_handle_id,
+                              "[mutter] on_change_ref_white");
+ }
+@@ -120,6 +122,16 @@ meta_backlight_ref_white_dispose (GObject *object)
+   g_clear_handle_id (&backlight_ref_white->change_ref_white_handle_id,
+                      mtk_source_remove);
+ 
++  if (backlight_ref_white->pending_task)
++    {
++      g_task_return_new_error (backlight_ref_white->pending_task,
++                               G_IO_ERROR, G_IO_ERROR_CANCELLED,
++                               "Monitor was removed");
++      g_clear_object (&backlight_ref_white->pending_task);
++    }
++
++  backlight_ref_white->monitor = NULL;
++
+   G_OBJECT_CLASS (meta_backlight_ref_white_parent_class)->dispose (object);
+ }
+ 
+diff --git a/src/backends/meta-monitor.c b/src/backends/meta-monitor.c
+index 04a91104bc..3e8a96bb60 100644
+--- a/src/backends/meta-monitor.c
++++ b/src/backends/meta-monitor.c
+@@ -701,7 +701,11 @@ meta_monitor_dispose (GObject *object)
+       priv->outputs = NULL;
+     }
+ 
+-  g_clear_object (&priv->backlight);
++  if (priv->backlight)
++    {
++      g_object_run_dispose (G_OBJECT (priv->backlight));
++      g_clear_object (&priv->backlight);
++    }
+ 
+   G_OBJECT_CLASS (meta_monitor_parent_class)->dispose (object);
+ }
+@@ -1008,7 +1012,11 @@ meta_monitor_create_backlight (MetaMonitor *monitor)
+   g_autoptr (MetaBacklight) backlight = NULL;
+   g_autoptr (GError) error = NULL;
+ 
+-  g_clear_object (&priv->backlight);
++  if (priv->backlight)
++    {
++      g_object_run_dispose (G_OBJECT (priv->backlight));
++      g_clear_object (&priv->backlight);
++    }
+ 
+   backlight = meta_output_create_backlight (main_output, &error);
+   if (!backlight)

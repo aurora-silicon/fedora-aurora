@@ -1,7 +1,7 @@
-%global commit 099f2b9c32609a7eb7d4c2c4987692bbc02de1bd
+%global commit d480f68a5b02c43fbba81b6937d61d7c7f2c4a83
 Name: alsa-ucm-conf-aurora
 Version: 10
-Release: 6%{?dist}
+Release: 7%{?dist}
 Summary: Aurora ALSA use-case profiles
 License: BSD-3-Clause
 URL: https://github.com/aurora-silicon/alsa-ucm-conf-asahi
@@ -15,7 +15,7 @@ Requires: alsa-ucm
 Aurora ALSA use-case profiles. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n alsa-ucm-conf-asahi-099f2b9c32609a7eb7d4c2c4987692bbc02de1bd
+%autosetup -n alsa-ucm-conf-asahi-%{commit}
 
 %build
 
@@ -28,6 +28,9 @@ cp -a ucm2 %{buildroot}%{_datadir}/alsa/
 %{_datadir}/alsa/ucm2/*
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 10-7
+- Refresh to alsa-ucm-conf-asahi d480f68a (display-port naming, J604/J614/J713/J714/J815/J575 profiles).
+
 * Sun Nov 08 2026 Ryan Murray <ryan@aurorasilicon.org> - 10-6
 - Move to alsa-ucm-conf-asahi 099f2b9: no laptop Speaker device while
   speakerguardd v2 owns the speakers (alsa-ucm-conf-asahi#13).

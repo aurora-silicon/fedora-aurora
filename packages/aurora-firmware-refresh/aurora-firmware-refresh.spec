@@ -1,9 +1,9 @@
-%global commit 873ce2e1f48c66bf2e6b66bdedbfb32559c865b8
+%global commit 4085a62eadbbd296f3acab00ec8890baab370e2d
 %global refreshdir %{_prefix}/lib/aurora-firmware-refresh
 
 Name: aurora-firmware-refresh
-Version: 20261124
-Release: 2%{?dist}
+Version: 20261125
+Release: 1%{?dist}
 Summary: Refresh the firmware supplied by the Aurora installer
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -51,6 +51,9 @@ PYTHONPATH=%{buildroot}%{refreshdir} %{python3} -B %{SOURCE2}
 %{refreshdir}/
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261125-1
+- Refresh to aurora-installer 4085a62e.
+
 * Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 20261124-2
 - Rebuilt from aurora-installer 873ce2e1: apfs_ro moved into asahi_firmware with
   the restore image reader (aurora-installer#226).

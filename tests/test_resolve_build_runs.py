@@ -48,8 +48,10 @@ class ResolveTests(unittest.TestCase):
                                for i, name in enumerate(mapping.get(run_id, []))}
 
     def test_newest_build_per_package_and_publish_only_unpublished_runs(self):
+        self.git('tag', 'testing-1', self.first)
         (self.root / 'packages/aura/aura.spec').write_text('Release: 2\n')
         second = self.commit()
+        self.git('tag', 'testing-2', second)
         runs = [self.run_record(2, second, '2026-10-22T02:00:00Z'), self.run_record(1, self.first)]
         artifacts = self.artifacts({1: ['aura', 'kernel-aurora', 'mesa-aurora'], 2: ['aura']})
         plan = module.resolve(self.root, REPOSITORY, runs, artifacts, {1}, 'testing-1')
@@ -58,8 +60,41 @@ class ResolveTests(unittest.TestCase):
         self.assertEqual(plan['packages']['kernel-aurora']['run'], 1)
         self.assertEqual(plan['runs'], [{'run': 1, 'packages': ['kernel-aurora', 'mesa-aurora']},
                                         {'run': 2, 'packages': ['aura']}])
+        older_base = module.resolve(self.root, REPOSITORY, runs, artifacts, {1, 2}, 'testing-1')
+        self.assertEqual(older_base['action'], 'publish')
         published = module.resolve(self.root, REPOSITORY, runs, artifacts, {1, 2}, 'testing-2')
         self.assertEqual(published['action'], 'up-to-date')
+
+    def test_stale_base_requests_only_changed_recipes_without_eligible_builds(self):
+        self.git('tag', 'testing-1', self.first)
+        (self.root / 'packages/aura/aura.spec').write_text('Release: 2\n')
+        (self.root / 'sources.json').write_text(json.dumps({'mesa-aurora': {'commit': '2'}, 'aura': {'commit': '1'}}))
+        self.commit()
+        plan = module.resolve(self.root, REPOSITORY, [], self.artifacts({}), set(), 'testing-1')
+        self.assertEqual(plan['action'], 'missing')
+        self.assertEqual(plan['rebuild'], ['aura', 'mesa-aurora'])
+        self.assertEqual(plan['carried'], ['kernel-aurora'])
+
+    def test_unchanged_base_remains_current_without_eligible_builds(self):
+        self.git('tag', 'testing-1', self.first)
+        (self.root / module.importer.SHARED[0]).write_text('new builder\n')
+        self.commit()
+        plan = module.resolve(self.root, REPOSITORY, [], self.artifacts({}), set(), 'testing-1')
+        self.assertEqual(plan['action'], 'up-to-date')
+
+    def test_fedora45_overlay_change_does_not_request_a_fedora44_build(self):
+        self.git('tag', 'testing-1', self.first)
+        self.git('tag', 'testing-f45-1', self.first)
+        overlay = self.root / 'packages/aura/f45'
+        overlay.mkdir()
+        (overlay / 'aura.spec').write_text('Release: 2\n')
+        (overlay / 'sources.json').write_text(json.dumps({'aura': {'commit': '2'}}))
+        self.commit()
+        f44 = module.resolve(self.root, REPOSITORY, [], self.artifacts({}), set(), 'testing-1')
+        f45 = module.resolve(self.root, REPOSITORY, [], self.artifacts({}), set(), 'testing-f45-1', fedora=45)
+        self.assertEqual(f44['action'], 'up-to-date')
+        self.assertEqual(f45['action'], 'missing')
+        self.assertEqual(f45['rebuild'], ['aura'])
 
     def test_unmerged_failed_or_retooled_builds_do_not_qualify(self):
         self.git('checkout', '-q', '-b', 'side')

@@ -1,6 +1,6 @@
-%global commit 6c714e3b7db99a79606d28492486608392fd9849
+%global commit 89b6e40e6dab5bee69790d783a11628f85591338
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261124
+%global snapdate 20261127
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.2
-Release: 0.59.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.62.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -250,6 +250,23 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Nov 27 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.2-0.62.20261127git89b6e40e6dab
+- Rebuilt from speakerguardd main 89b6e40e. speakerguardd#270: the gate
+  data carries the AID12 (J473, Mac mini M2) playback row, so the boot
+  unit moves Mac mini M2 installs to v2.
+
+* Thu Nov 26 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.2-0.61.20261126git7a1f538ca794
+- Rebuilt from speakerguardd main 7a1f538c. speakerguardd#266 and #268:
+  protected playback rows for AID37 (J713) and AID21 (J615) in the gate
+  data, so aurora-speaker-upgrade's boot unit moves both Airs to v2;
+  speakerguardd#265: provisioning runs after sound.target and polls at 25 ms.
+
+* Wed Nov 25 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.60.20261125git4136af409161
+- Rebuilt from speakerguardd main 4136af40. speakerguardd#262: the session
+  helper links the amps by the graph's own channel counts, so ATSP Macs
+  (M1/M2 minis, Airs, 13-inch Pros) drive their speakers under v2;
+  speakerguardd#218: the self-check fails closed.
+
 * Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.59.20261124git6c714e3b7db9
 - Rebuilt from speakerguardd main 6c714e3b. speakerguardd#252: a new BuzzKill
   line starts shallower and released tracks that still cut are kept,
