@@ -1,4 +1,4 @@
-%global commit e25b4a0b3899575da49ecafd383f9346555a9455
+%global commit 4a42f31050028aa7b9e5dc007e7ea231acc66356
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # modules_install signs every module (CONFIG_MODULE_SIG_ALL) after
@@ -14,7 +14,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 45%{?dist}.aurora
+Release: 46%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -185,6 +185,11 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-46
+- Pin aurora-silicon/linux main at 4a42f310. Adds the K114s dark-panel fix
+  (linux#3427: keep iBoot's refresh rate) and linux#3416, #3436, #3358 and
+  #3423 (ANE, AVD H.264, Thunderbolt).
+
 * Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-45
 - Pin aurora-silicon/linux main at e25b4a0b. Adds the K boards' Touch ID
   (linux#3376) and the other fixes merged since 94ea195b.
