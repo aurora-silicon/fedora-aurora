@@ -1,31 +1,38 @@
 %global commit a8c68c27c448ff39c915b46b8d33c53f2c56b705
 Name: aurora-audio
 Version: 4.1
-Release: 18%{?dist}
+Release: 19%{?dist}
 Summary: Aurora Apple Silicon audio profiles
 License: MIT
 URL: https://github.com/aurora-silicon/asahi-audio
 Source0: aurora-audio-%{commit}.tar.gz
 Source1: module-setup.sh
 Source3: 99-aurora-speaker-irq.conf
+Source4: aurora-speaker-stack
+Source5: aurora-speaker-stack.8
+Source6: README.md
 # speakerguardd v2 drives every Mac's speakers from the Mac's own tuning: no
 # speaker graph, speaker FIR or raw speaker volume lock is installed.
 Patch0: 0001-install-no-speaker-graphs.patch
 BuildArch: noarch
-BuildRequires: make
+BuildRequires: make python3
 # Fedora Asahi installs carry asahi-audio, which ships the same files.
 Provides: asahi-audio = %{version}-%{release}
 Obsoletes: asahi-audio < %{version}-%{release}
 Conflicts: asahi-audio
-Requires: alsa-ucm-conf-aurora pipewire pipewire-module-filter-chain-lv2 wireplumber >= 0.5.16 bankstown lv2-triforce lsp-plugins-lv2
+Requires: alsa-ucm-conf-aurora alsa-utils pipewire pipewire-module-filter-chain-lv2 wireplumber >= 0.5.16 bankstown lv2-triforce lsp-plugins-lv2 python3
+Requires(posttrans): python3
 # speakerguardd v2 is the speaker protection: every install has this package,
 # so it brings v2 and retires the Asahi stack (speakersafetyd, its Aurora
 # profiles and speakerguardd 0.1) on the upgrade. The speakersafetyd
-# Obsoletes are versioned to the builds this repository shipped (2.0.1-1.*,
-# profiles 1-1), so a speakersafetyd a user later installs and selects on
-# purpose is not removed again by the next upgrade.
+# Obsoletes match only the builds this repository shipped (2.0.1-1.fc*.aurora1
+# and < 2.0.1-1, profiles < 1-2), not stock Fedora's 2.0.1-1.fc*, so a
+# speakersafetyd a user installs via aurora-speaker-stack select speakersafetyd
+# installs cleanly under DNF5 and is not removed again by the next upgrade.
 Requires: speakerguardd-v2 >= 1.0.0~alpha.2-0.63 aurora-speaker-upgrade
-Obsoletes: speakersafetyd < 2.0.1-2
+Obsoletes: speakersafetyd = 2.0.1-1.fc44.aurora1
+Obsoletes: speakersafetyd = 2.0.1-1.fc45.aurora1
+Obsoletes: speakersafetyd < 2.0.1-1
 Obsoletes: speakersafetyd-aurora-profiles < 1-2
 Obsoletes: speakerguardd < 0.2
 Conflicts: speakerguardd < 0.2
@@ -60,21 +67,37 @@ done
 for board in j293 j313 j314 j316 j413 j415 j604 j614 j616 j700 j714; do
     test -s "check-root/usr/share/asahi-audio/$board/mic.json"
 done
+python3 -I %{SOURCE4} --help >/dev/null
 rm -rf check-root
 
 %install
 make install DESTDIR=%{buildroot} PREFIX=%{_prefix}
 install -Dm755 %{SOURCE1} %{buildroot}%{_prefix}/lib/dracut/modules.d/90aurora-audio/module-setup.sh
 install -Dm644 %{SOURCE3} %{buildroot}%{_datadir}/wireplumber/wireplumber.conf.d/99-aurora-speaker-irq.conf
+install -Dm755 %{SOURCE4} %{buildroot}%{_bindir}/aurora-speaker-stack
+install -Dm644 %{SOURCE5} %{buildroot}%{_mandir}/man8/aurora-speaker-stack.8
+cp -p %{SOURCE6} README.aurora-audio.md
+
+%posttrans
+%{_bindir}/aurora-speaker-stack migrate --on-upgrade || :
 
 %files
 %license LICENSE
+%doc README.aurora-audio.md
+%{_bindir}/aurora-speaker-stack
+%{_mandir}/man8/aurora-speaker-stack.8*
 %{_datadir}/asahi-audio/
 %{_datadir}/wireplumber/
 %{_datadir}/pipewire/
 %{_prefix}/lib/dracut/modules.d/90aurora-audio/
 
 %changelog
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-19
+- Ship aurora-speaker-stack (CLI, man page, README) for the optional one-command
+  speakersafetyd user opt-out (aurora-speaker-stack select speakersafetyd|sgv2,
+  status, and interlock-apply for the per-bind kernel interlock), and run
+  aurora-speaker-stack migrate --on-upgrade in %posttrans to mask legacy units
+  unless the user explicitly opted out.
 * Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 4.1-18
 - speakerguardd v2 is the speaker stack of every install: require it and
   aurora-speaker-upgrade, and obsolete the speakersafetyd 2.0.1-1 and

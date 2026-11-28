@@ -836,11 +836,16 @@ class SpecTests(unittest.TestCase):
             self.assertNotIn(name, pins)
         audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
         self.assertRegex(audio, r'(?m)^Requires: speakerguardd-v2 >= 1\.0\.0~alpha\.2-0\.63 aurora-speaker-upgrade$')
-        # Versioned: only the builds this repository shipped, so a speakersafetyd
-        # a user installs and selects later is not removed by the next upgrade.
+        # Targeted: only the Aurora builds this repository shipped (never stock
+        # Fedora 2.0.1-1.fc*), so a speakersafetyd a user installs and selects
+        # later installs cleanly and is not removed by the next upgrade.
         self.assertNotRegex(audio, r'(?m)^(Obsoletes|Conflicts): speakersafetyd(-aurora-profiles)?$')
         self.assertNotRegex(audio, r'(?m)^Conflicts: speakersafetyd')
-        for line in ('Obsoletes: speakersafetyd < 2.0.1-2', 'Obsoletes: speakersafetyd-aurora-profiles < 1-2',
+        self.assertNotRegex(audio, r'(?m)^Obsoletes: speakersafetyd < 2\.0\.1-2$')
+        for line in ('Obsoletes: speakersafetyd = 2.0.1-1.fc44.aurora1',
+                     'Obsoletes: speakersafetyd = 2.0.1-1.fc45.aurora1',
+                     'Obsoletes: speakersafetyd < 2.0.1-1',
+                     'Obsoletes: speakersafetyd-aurora-profiles < 1-2',
                      'Obsoletes: speakerguardd < 0.2', 'Conflicts: speakerguardd < 0.2',
                      'Provides: asahi-audio = %{version}-%{release}', 'Obsoletes: asahi-audio < %{version}-%{release}',
                      'Conflicts: asahi-audio',
@@ -857,6 +862,13 @@ class SpecTests(unittest.TestCase):
         # Kept: the period-interrupt rule and the dracut module.
         self.assertIn('99-aurora-speaker-irq.conf', audio)
         self.assertIn('90aurora-audio/module-setup.sh', audio)
+        # User opt-out tool, docs, and upgrade migration hook.
+        self.assertIn('Source4: aurora-speaker-stack', audio)
+        self.assertIn('Source5: aurora-speaker-stack.8', audio)
+        self.assertIn('Source6: README.md', audio)
+        self.assertIn('%{_bindir}/aurora-speaker-stack', audio)
+        self.assertIn('%{_mandir}/man8/aurora-speaker-stack.8*', audio)
+        self.assertIn('aurora-speaker-stack migrate --on-upgrade', audio)
         upgrade = (ROOT / 'packages/aurora-speaker-upgrade/aurora-speaker-upgrade.spec').read_text()
         self.assertRegex(upgrade, r'(?m)^Requires: speakerguardd-v2$')
         self.assertIn('%{_presetdir}/50-aurora-speaker-upgrade.preset', upgrade)

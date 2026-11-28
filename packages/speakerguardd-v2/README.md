@@ -62,11 +62,17 @@ Overrides, all optional, go in `/etc/speakerguardd/provision.conf`:
 | `/usr/share/speakerguardd/` | `gate.json` and the reference graphs |
 | SELinux module `speakerguardd` (Fedora) | Upstream's policy: `speakerguardd_t`, with the program, `/run/speakerguardd` and `/var/lib/speakerguardd` labelled |
 
-## Turning it off
+## Turning it off / user opt-out
 
 `systemctl disable speakerguardd-v2.service` (NixOS:
 `aurora.speakerguardd.v2.enable = false;`) leaves the speakers at the
-kernel's floor. There is no other speaker stack to fall back to.
+kernel's floor.
+
+Users who explicitly prefer to run `speakersafetyd` can switch with
+`sudo aurora-speaker-stack select speakersafetyd` (NixOS:
+`aurora.speakers.stack = "speakersafetyd";`), which is preserved across later
+upgrades. Return to speakerguardd v2 with
+`sudo aurora-speaker-stack select sgv2`. See `man 8 aurora-speaker-stack`.
 
 ## Source
 
