@@ -1,10 +1,10 @@
-%global commit 4085a62eadbbd296f3acab00ec8890baab370e2d
+%global commit b2383137c7f6049ca3652722a2346dd928d54c45
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261125
+%global snapdate 20261128
 
 Name: aurora-wifi-firmware
 Version: 0.3
-Release: 2.%{snapdate}git%{shortcommit}%{?dist}
+Release: 3.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Keep the Wi-Fi and Bluetooth firmware on the stub firmware's restore image
 License: MIT
 URL: https://github.com/aurora-silicon/aurora-installer/tree/main/tools/wifi-firmware
@@ -59,6 +59,11 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/80-aurora-wifi-firmware.pres
 %{_presetdir}/80-aurora-wifi-firmware.preset
 
 %changelog
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.3-3.20261128gitb2383137c7f6
+- Refresh to aurora-installer b2383137: add the Apple N1 Wi-Fi and Bluetooth
+  firmware (apple/centauri/<board>-ftab.bin) from the stub's restore image on
+  Macs whose device tree has an N1 (aurora-installer#266).
+
 * Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.3-2.20261125git4085a62eadbb
 - Refresh to aurora-installer 4085a62e.
 
