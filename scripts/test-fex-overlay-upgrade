@@ -11,6 +11,13 @@ candidate=("$new"/mesa-aurora-fex-guest-[0-9]*.noarch.rpm)
 [[ ${#candidate[@]} == 1 && -f ${candidate[0]} ]]
 evr=$(rpm -qp --qf '%{VERSION}-%{RELEASE}' "${candidate[0]}")
 mkdir -p "$proof" /usr/share/guestos/fex-mesa/usr
+# The newest mount at $1 is read-only, nosuid and nodev, as the stock guest
+# image is mounted.
+ro_nosuid_nodev() {
+  local options
+  options=,$(findmnt -n -o OPTIONS -M "$1" | tail -n1),
+  [[ $options == *,ro,* && $options == *,nosuid,* && $options == *,nodev,* ]]
+}
 exec > >(tee "$proof/fex-overlay.log") 2>&1
 printf 'stock guest\n' > /usr/share/guestos/fex-mesa/usr/stock-marker
 cat > /etc/yum.repos.d/aurora-overlay-test.repo <<REPO
@@ -54,6 +61,7 @@ systemctl is-active aurora-fex-mesa.service
 mountpoint -q /usr/share/guestos/aurora-fex-mesa
 refute touch /usr/share/guestos/aurora-fex-mesa/read-only-probe
 findmnt /usr/share/guestos/aurora-fex-mesa > "$proof/mount-before.txt"
+ro_nosuid_nodev /usr/share/guestos/aurora-fex-mesa
 # A real DNF transaction executes the incoming %pre before relabel/unpack.
 dnf -y --enable-repo=aurora-overlay-test --setopt=install_weak_deps=False upgrade 'mesa*' aurora-flatpak-gl
 cat /run/aurora-fex-overlay-witness | tee "$proof/unmounted-before-posttrans.txt"
@@ -66,6 +74,7 @@ refute touch /usr/share/guestos/aurora-fex-mesa/read-only-probe
 rpm -V mesa-aurora-fex-guest
 rpm -qa | sort > "$proof/after.txt"
 findmnt /usr/share/guestos/aurora-fex-mesa > "$proof/mount-after.txt"
+ro_nosuid_nodev /usr/share/guestos/aurora-fex-mesa
 # An inactive unit with a stale mount must fail in %pre before unpacking.
 mkdir -p /run/systemd/system/aurora-fex-mesa.service.d
 printf '[Service]\nExecStop=\nExecStop=/usr/bin/true\n' > /run/systemd/system/aurora-fex-mesa.service.d/stale-test.conf

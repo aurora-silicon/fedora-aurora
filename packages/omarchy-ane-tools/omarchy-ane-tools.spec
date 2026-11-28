@@ -1,8 +1,8 @@
-%global commit a0acd9af12346c870ee1538947cbe9f2740cb7fe
+%global commit 7a8963096b49409a6a38c7df3358bccd457ab368
 # The upstream Makefiles set their own flags (-O3 -Werror) and no -g.
 %global debug_package %{nil}
 Name: omarchy-ane-tools
-Version: 0.5.13
+Version: 0.5.14
 Release: 1%{?dist}
 Summary: Apple Neural Engine userspace tools for the in-kernel ANE driver
 License: GPL-2.0-only OR MIT
@@ -11,14 +11,13 @@ Source0: omarchy-ane-tools-%{commit}.tar.gz
 # The full upstream archive contains unrelated binary research inputs. Keep
 # the verified URL/hash in sources.json; distribute only the recipe in SRPMs.
 NoSource: 0
-Source1: 70-omarchy-ane.rules
-Source2: omarchy-ane-tools.sysusers
 Source3: fix-smoke.py
 ExclusiveArch: aarch64
 BuildRequires: gcc make binutils libdrm-devel python3
 Requires: python3
-BuildRequires: systemd-rpm-macros
-%{?sysusers_requires_compat}
+# The device policy (/dev/accel/accel*: group accel, mode 0660, the session
+# user's ACL) and the accel group come from the platform, on every install.
+Requires: aurora-platform-core >= 44-51
 
 %description
 Userspace for the Apple Neural Engine driver that the Aurora kernel ships
@@ -42,8 +41,6 @@ make -C tools ane-run
 python3 tools/test_ane_firmware_fetch.py
 
 %install
-install -Dm644 %{SOURCE1} %{buildroot}%{_udevrulesdir}/70-omarchy-ane.rules
-install -Dm644 %{SOURCE2} %{buildroot}%{_sysusersdir}/omarchy-ane-tools.conf
 install -Dm755 tools/ane-run %{buildroot}%{_bindir}/omarchy-ane-run
 install -Dm755 packaging/omarchy-ane-smoke %{buildroot}%{_bindir}/omarchy-ane-smoke
 install -Dm755 packaging/omarchy-ane-firmware-fetch %{buildroot}%{_bindir}/omarchy-ane-firmware-fetch
@@ -53,12 +50,7 @@ for gen in h13 h14; do
     %{buildroot}%{_datadir}/omarchy-ane/fixtures/$gen-anec/add/program-0.anec
 done
 
-%pre
-%sysusers_create_compat %{SOURCE2}
-
 %files
-%{_udevrulesdir}/70-omarchy-ane.rules
-%{_sysusersdir}/omarchy-ane-tools.conf
 %license LICENSE
 %{_bindir}/omarchy-ane-run
 %{_bindir}/omarchy-ane-smoke
@@ -66,6 +58,14 @@ done
 %{_datadir}/omarchy-ane/
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.5.14-1
+- Update to upstream v0.5.14 (7a896309).
+
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.5.13-2
+- Drop the udev rule and the accel group: aurora-platform-core 44-51 sets
+  the /dev/accel policy on every install, so it no longer depends on
+  whether these tools are installed.
+
 * Tue Nov 17 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.5.13-1
 - Update to upstream 0.5.13.
 

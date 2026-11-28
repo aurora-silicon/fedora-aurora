@@ -34,6 +34,20 @@ class FedoraSpecTests(unittest.TestCase):
         return {'key': key, 'old': self.pins[key]['commit'], 'new': NEW, 'repository': 'aurora-silicon/x',
                 'branch': 'main', 'archive_root': root, 'new_subject': 'Merge pull request #1', **extra}
 
+    def test_guard_snapshot_increments_its_counter_and_records_exact_evr(self):
+        key = 'speakerguardd-v2'
+        item = self.item(key)
+        self.assertEqual(module.tl.load_tracking(ROOT)['sources'][key]['merge'], 'manual')
+        before = self.spec(key)
+        version = module.tl.spec_field(before, 'Version')
+        counter, _ = module.guard_snapshot_release(before, item['old'])
+        date = datetime.date(2099, 11, 28)
+        module.update_recipe(self.root, item, date)
+        release = f'0.{counter + 1}.20991128git{NEW[:12]}'
+        self.assertEqual(item['package_version'], f'{version}-{release}.fc44')
+        self.assertIn('%global snapdate 20991128', self.spec(key))
+        self.assertIn(f' - {version}-{release}\n', self.spec(key))
+
     def test_aura_bumps_release_and_records_a_changelog_entry(self):
         before = int(module.tl.spec_field(self.spec('aura'), 'Release').split('%')[0])
         version = module.tl.spec_field(self.spec('aura'), 'Version')
@@ -45,6 +59,22 @@ class FedoraSpecTests(unittest.TestCase):
         self.assertIn(f'%changelog\n* Fri Oct 23 2026 Aurora Silicon <hey@djdev.me> - {version}-{before + 1}\n'
                       f'- Track aurora-silicon/x main at {NEW[:7]}.\n', text)
         self.assertEqual(notes, [])
+
+    def test_additional_recipes_track_their_merged_source_with_manual_review(self):
+        tracking = module.tl.load_tracking(ROOT)['sources']
+        for name in ('alsa-ucm-conf-aurora', 'aurora-bless',
+                     'aurora-diag', 'aurora-firstboot', 'aurora-kbd-light',
+                     'aurora-neo-platform-config', 'aurora-xart', 'upower-aurora'):
+            with self.subTest(name=name):
+                before = module.tl.spec_field(self.spec(name), 'Release').split('%')[0]
+                notes = module.update_recipe(self.root, self.item(name), TODAY)
+                text = self.spec(name)
+                self.assertEqual(tracking[name]['merge'], 'manual')
+                self.assertIn(f'%global commit {NEW}\n', text)
+                self.assertEqual(int(module.tl.spec_field(text, 'Release').split('%')[0]), int(before) + 1)
+                self.assertEqual(notes, [])
+                self.assertTrue(any(re.fullmatch(pattern, f'packages/{name}/{name}.spec')
+                                    for pattern in module.PATCH_PATHS))
 
     def test_kernel_release_candidate_uses_an_rpm_safe_version_and_resets_release(self):
         item = self.item('kernel-aurora', version='7.9.0-rc1')
@@ -77,6 +107,11 @@ class FedoraSpecTests(unittest.TestCase):
                       + module.tl.spec_field(host, 'Release') + '}\n', gl)
         self.assertTrue(any(re.fullmatch(pattern, f'packages/{name}/{name}.spec')
                             for pattern in module.PATCH_PATHS))
+
+    def test_mesa_dispatch_builds_the_lockstep_packages(self):
+        requested = module.ci_inputs(['aura', 'mesa-aurora'])['rpms.yml']['packages'].split()
+        self.assertEqual(requested, ['aura', module.FLATPAK_GL, 'mesa-aurora', module.GUEST])
+        self.assertEqual(module.ci_inputs(['aura'])['rpms.yml']['packages'], 'aura')
 
     def test_mesa_moves_its_fedora45_overlays_with_it(self):
         name = module.GUEST

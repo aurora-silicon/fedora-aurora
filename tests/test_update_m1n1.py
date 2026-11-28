@@ -20,12 +20,12 @@ import zlib
 
 sys.dont_write_bytecode = True
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / 'packages/update-m1n1/update-m1n1'
-HELPER = ROOT / 'packages/update-m1n1/bootchain.py'
+SCRIPT = ROOT / 'packages/update-aura/update-aura'
+HELPER = ROOT / 'packages/update-aura/bootchain.py'
 _helper_spec = importlib.util.spec_from_file_location('ctxr_bootchain', HELPER)
 bootchain = importlib.util.module_from_spec(_helper_spec)
 _helper_spec.loader.exec_module(bootchain)
-SPEC = ROOT / 'packages/update-m1n1/update-m1n1.spec'
+SPEC = ROOT / 'packages/update-aura/update-aura.spec'
 
 # Every chip AuraStage1Format.usesMachO admits or names, and every one below it.
 MACHO_CHIPS = ('t8132', 't6040', 't6041', 't8140', 't8142', 't8152', 't6050', 't6051', 't6052', 't8130', 't8fff', 't6fff')
@@ -414,9 +414,9 @@ class PrepareCtxrStage2(unittest.TestCase):
 class Recipes(unittest.TestCase):
     def test_the_package_ships_the_tested_script_and_replaces_fedoras_files(self):
         spec = SPEC.read_text()
-        self.assertRegex(spec, r'(?m)^Source0: update-m1n1$')
-        self.assertIn('install -Dpm0755 %{SOURCE0} %{buildroot}%{_sbindir}/update-m1n1', spec)
-        self.assertRegex(spec, r'(?m)^Name: update-m1n1$')
+        self.assertRegex(spec, r'(?m)^Source0: update-aura$')
+        self.assertIn('install -Dpm0755 %{SOURCE0} %{buildroot}%{_sbindir}/update-aura', spec)
+        self.assertRegex(spec, r'(?m)^Name: update-aura$')
         self.assertIn('%config(noreplace) %{_sysconfdir}/sysconfig/update-m1n1', spec)
         self.assertIn('%{_kernel_install_dir}/15-update-m1n1.install', spec)
         self.assertIn('%transfiletriggerin -- /usr/lib/m1n1 /usr/lib64/m1n1 /usr/share/uboot/apple_m1 /etc/m1n1.conf', spec)
@@ -425,9 +425,9 @@ class Recipes(unittest.TestCase):
         spec = SPEC.read_text()
         # Before the transaction, with the rpm process that runs it.
         self.assertIn('%transfiletriggerun -- /usr/lib/modules\n'
-                      'AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-m1n1 --transaction-begin || :\n', spec)
+                      'AURORA_RPM_TRANSACTION_PID=$PPID %{_sbindir}/update-aura --transaction-begin || :\n', spec)
         for trigger in ('%transfiletriggerpostun', '%transfiletriggerin'):
-            self.assertIn(f'{trigger} -- /usr/lib/modules\n%{{_sbindir}}/update-m1n1 --transaction-end || :\n', spec)
+            self.assertIn(f'{trigger} -- /usr/lib/modules\n%{{_sbindir}}/update-aura --transaction-end || :\n', spec)
 
     def test_aura_needs_the_capability_only_this_package_provides(self):
         self.assertRegex(SPEC.read_text(), r'(?m)^Provides: aurora-stage2-ctxr-slot = 1$')
@@ -485,12 +485,80 @@ class Recipes(unittest.TestCase):
                                             cwd=root, capture_output=True, text=True)
                     self.assertEqual(result.returncode == 0, value == source, result.stderr)
 
+    def test_the_kernel_repair_runs_after_the_transaction_under_systemd(self):
+        # In %posttrans dnf still holds the rpm lock the repair's queries need.
+        spec = self.spec('update-aura')
+        self.assertRegex(spec, r'(?m)^Source14: aurora-kernel-install-repair\.service$')
+        self.assertIn('%{_unitdir}/aurora-kernel-install-repair.service\n', spec)
+        unit = (ROOT / 'packages/update-aura/aurora-kernel-install-repair.service').read_text()
+        self.assertIn('ExecStart=/usr/libexec/aurora/kernel-install-repair --after-transaction\n', unit)
+        self.assertIn('Type=oneshot\n', unit)
+        # Due until a run succeeds: also at boot, as after an offline upgrade.
+        self.assertIn('ConditionPathExists=/var/lib/update-aura/repair-pending\n', unit)
+        self.assertIn('[Install]\nWantedBy=multi-user.target\n', unit)
+        self.assertIn('enable aurora-kernel-install-repair.service\n',
+                      (ROOT / 'packages/update-aura/90-aurora-stage2.preset').read_text())
+        version = re.search(r'(?m)^Version:\s*(\S+)$', spec)[1]
+        release = re.search(r'(?m)^Release:\s*([0-9]+)', spec)[1]
+        self.assertIn(f'%triggerpostun -- update-aura < {version}-{release}\n'
+                      '/usr/bin/systemctl --no-reload preset aurora-kernel-install-repair.service || :\n', spec)
+        post = spec.split('%post\n', 1)[1].split('\n%preun', 1)[0]
+        self.assertIn('\nfi\n%systemd_post aurora-kernel-install-repair.service', post)
+        posttrans = spec.split('%posttrans\n', 1)[1].split('\n%transfiletriggerin', 1)[0]
+        for booted, call in ((True, 'systemctl --no-block start aurora-kernel-install-repair.service'),
+                             (False, 'kernel-install-repair')):
+            with self.subTest(booted=booted), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                (root / 'bin').mkdir()
+                (root / 'libexec/aurora').mkdir(parents=True)
+                if booted:
+                    (root / 'run/systemd/system').mkdir(parents=True)
+                log = root / 'calls'
+                for tool in (root / 'bin/systemctl', root / 'libexec/aurora/kernel-install-repair'):
+                    tool.write_text(f'#!/bin/sh\necho "$(basename "$0") $*" >> {log}\n')
+                    tool.chmod(0o755)
+                script = posttrans.replace('/run/systemd/system', str(root / 'run/systemd/system'))
+                script = script.replace('/run/update-aura', str(root / 'run-update-aura'))
+                script = script.replace('%{_libexecdir}', str(root / 'libexec'))
+                script = script.replace('/var/lib/update-aura', str(root / 'state'))
+                result = subprocess.run(['sh', '-ec', script], capture_output=True, text=True,
+                                        env=dict(os.environ, PATH=f'{root / "bin"}:{os.environ["PATH"]}'))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual([line.strip() for line in log.read_text().splitlines()], [call])
+                self.assertTrue((root / 'state/repair-pending').exists())
+
+    def test_allow_downgrade_flag_forwards_to_helper_and_rejects_mode_flags(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'bin').mkdir()
+            calls = root / 'calls'
+            (root / 'bin/python3').write_text(f'#!/bin/sh\necho "${{2:-apply}}" >> {calls}\nexit 0\n')
+            (root / 'bin/flock').write_text('#!/bin/sh\nexit 0\n')
+            (root / 'bin/findmnt').write_text('#!/bin/sh\necho /esp\n')
+            for tool in ('python3', 'flock', 'findmnt'):
+                (root / 'bin' / tool).chmod(0o755)
+            (root / 'present').write_bytes(compatible_file('j700', 't8140'))
+            script = SCRIPT.read_text().replace('/run/lock', str(root / 'lock')).replace(
+                '/etc/sysconfig/update-m1n1', str(root / 'none')).replace(
+                '/etc/u-boot.conf', str(root / 'none'))
+            (root / 'update-aura').write_text(script)
+            env = dict(os.environ, PATH=f'{root / "bin"}:{os.environ["PATH"]}',
+                       AURORA_DEVICE_TREE_COMPATIBLE=str(root / 'present'))
+            env.pop('TARGET', None)
+            result = subprocess.run(['bash', str(root / 'update-aura'), '--allow-downgrade', '/esp/m1n1/boot.bin'],
+                                    env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(calls.read_text().split(), ['--check', '--allow-downgrade'])
+        result, mode_calls = self.run_entry_point('--allow-downgrade', '--commit')
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(mode_calls, [])
+
     def test_the_package_keeps_the_upstream_license(self):
         spec = SPEC.read_text()
         self.assertRegex(spec, r'(?m)^Source5: LICENSE$')
         self.assertRegex(spec, r'(?m)^%license LICENSE$')
         self.assertIn('Copyright The Asahi Linux Contributors',
-                      (ROOT / 'packages/update-m1n1/LICENSE').read_text())
+                      (ROOT / 'packages/update-aura/LICENSE').read_text())
 
     def test_the_tool_and_the_recipe_agree_on_the_marker_path(self):
         for path in (SCRIPT, HELPER):
@@ -511,7 +579,7 @@ class Recipes(unittest.TestCase):
                 script = SCRIPT.read_text().replace('/run/lock', str(root / 'lock')).replace(
                     '/etc/sysconfig/update-m1n1', str(root / 'none')).replace(
                     '/etc/u-boot.conf', str(root / 'none')).replace(
-                    '/usr/share/asahi-scripts/functions.sh', str(root / 'functions.sh'))
+                    '/usr/libexec/aurora/mount-system-esp.sh', str(root / 'functions.sh'))
                 (root / 'update-m1n1').write_text(script)
                 env = dict(os.environ, PATH=f'{root / "bin"}:{os.environ["PATH"]}',
                            AURORA_DEVICE_TREE_COMPATIBLE=compatible if compatible.startswith('/')
@@ -539,7 +607,7 @@ class Recipes(unittest.TestCase):
             script = SCRIPT.read_text().replace('/run/lock', str(root / 'lock')).replace(
                 '/etc/sysconfig/update-m1n1', str(root / 'none')).replace(
                 '/etc/u-boot.conf', str(root / 'none')).replace(
-                '/usr/share/asahi-scripts/functions.sh', str(root / 'functions.sh'))
+                '/usr/libexec/aurora/mount-system-esp.sh', str(root / 'functions.sh'))
             (root / 'update-m1n1').write_text(script)
             settings = dict(os.environ, PATH=f'{root / "bin"}:{os.environ["PATH"]}',
                             AURORA_DEVICE_TREE_COMPATIBLE=str(root / 'present'), **env)

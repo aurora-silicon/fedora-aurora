@@ -1,7 +1,9 @@
 # Applies to every Aurora repository file, including one changed locally.
-# dnf5 asks before it trusts a metadata key and skips the repository when
-# nobody answers, so only the packages are signature-checked.
+# The packages and the repository metadata (repomd.xml.asc) are both
+# signature-checked against the key in /etc/pki/rpm-gpg.
 [aurora]
-repo_gpgcheck=0
-# dnf5 releases that know this option import the package key without asking.
+repo_gpgcheck=1
+# Trust that local key for the metadata without asking (libdnf5 >= 5.4.7),
+# so a refresh nobody answers, such as the makecache timer, keeps the
+# repository instead of skipping it.
 auto_import_local_keys=1

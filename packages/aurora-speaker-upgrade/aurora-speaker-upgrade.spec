@@ -1,10 +1,10 @@
-%global commit 29263b5cfa8dbe393bb67b5dadfc51e9df2b6b03
+%global commit 89b6e40e6dab5bee69790d783a11628f85591338
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261121
+%global snapdate 20261127
 
 Name: aurora-speaker-upgrade
 Version: 0.1
-Release: 0.20.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.28.%{snapdate}git%{shortcommit}%{?dist}
 Summary: Move the speakers to speakerguardd v2 with this Mac's own tuning
 # The vendored installer collector (asahi_firmware) and the AEA range port
 # (from macos-firmware-extract) are MIT as well.
@@ -52,6 +52,14 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.pr
 %postun
 %systemd_postun aurora-speaker-upgrade.service
 
+# %%systemd_post applies the preset on the first install only, so a Mac that
+# was installed before the preset shipped (0.1-0.18) and upgraded since still
+# has the unit disabled and never moves to v2. Apply the preset once, on the
+# upgrade from any older build. enable-only: a masked unit stays masked, and
+# the boot unit still moves only a speaker whose playback rows are on record.
+%triggerpostun -- aurora-speaker-upgrade < 0.1-0.27
+systemctl --no-reload --preset-mode=enable-only preset aurora-speaker-upgrade.service >/dev/null 2>&1 || :
+
 %files
 %license LICENSE
 %doc packaging/upgrade/README.md
@@ -62,6 +70,56 @@ install -Dm644 %{SOURCE1} %{buildroot}%{_presetdir}/50-aurora-speaker-upgrade.pr
 %{_presetdir}/50-aurora-speaker-upgrade.preset
 
 %changelog
+* Fri Nov 27 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.28.20261127git89b6e40e6dab
+- Rebuilt from speakerguardd main 89b6e40e. speakerguardd#270: the gate
+  data carries the AID12 (J473, Mac mini M2) playback row, so the boot
+  unit moves Mac mini M2 installs to v2.
+
+* Thu Nov 26 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.27.20261126git7a1f538ca794
+- Rebuilt from speakerguardd main 7a1f538c (speakerguardd#265, #266, #268):
+  speakerguardd-v2's gate data now carries the J713 (AID37) and J615 (AID21)
+  playback rows, so the boot unit moves those installs to v2.
+- Apply the preset once on the upgrade from an older build: installs made
+  before 0.1-0.18 kept the unit disabled through every upgrade since, so
+  their speakers never moved to v2 at boot. A masked unit stays masked.
+
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 0.1-0.26.20261125git4136af409161
+- Refresh to speakerguardd 4136af40 (aligned with speakerguardd-v2).
+
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.25.20261124gitb3aaa4a7c75f
+- Rebuilt from speakerguardd main b3aaa4a7 (speakerguardd#250, #251): a
+  restore image range cut short is retried and then treated as "not now",
+  never as a refusal.
+
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.24.20261124git1008c7a4f210
+- Rebuilt from speakerguardd main 1008c7a4 (speakerguardd#248): the tuning
+  comes only from Apple's restore image of the pinned macOS release (27.2),
+  never from an installed macOS; only per-unit values (ADT calibration,
+  speaker ID, unit) come from the Mac. No network at boot is a retry, not
+  a refusal. apfs_ro decodes decmpfs type 9 files correctly.
+
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.23.20261124git8966bdd4f11d
+- Rebuilt from speakerguardd main 8966bdd4 (speakerguardd#246): the tool
+  collects and keeps the BuzzKill quadrature matrix (vendored installer
+  collector at aurora-installer e1ddef7f); an installer bundle without it,
+  for a tuning with a BuzzKill unit, is used only when this Mac's own
+  macOS gives no bundle.
+
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.22.20261124git80b02063f3d8
+- Rebuilt from speakerguardd main 80b02063 with speakerguardd-v2
+  (speakerguardd#239 to #244). speakerguardd#240: the boot unit judges the
+  playback record strictly and per unit.
+
+* Mon Nov 23 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.21.20261123git9b7285c420a7
+- Rebuilt from speakerguardd main 9b7285c4 with speakerguardd-v2
+  (speakerguardd#200, #228, #229, #231, #232, #234, #236, #238).
+- speakerguardd#238: the boot unit moves a speaker to v2 only when
+  protected playback rows (a loud step and a thermal ramp) are on record
+  for it in speakerguardd-v2's gate data; otherwise it leaves the speakers
+  as they are, collects nothing and records no refusal. `run` by hand is
+  unchanged, `status` shows boot_migration, and a new row retries a Mac
+  the boot unit refused.
+
 * Sat Nov 21 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 0.1-0.20.20261121git29263b5cfa8d
 - Rebuilt from speakerguardd main 29263b5c with speakerguardd-v2: the
   self-check it relies on refuses V/I sense that a bit-clock misframe

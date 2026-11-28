@@ -64,7 +64,45 @@ untouched, and outside Power Saver the daemon only waits on D-Bus. The GPU,
 ANE, display and fan legs of Low Power Mode are not covered yet. Measurements
 are in the aurora-platform README.
 
+Where the kernel registers apple-clpc's power modes as a platform profile
+(`/sys/class/platform-profile/*/name` is `apple-clpc`), tuned's `acpi` plugin does not reach it: it
+drives only `/sys/firmware/acpi/platform_profile`, which a device tree boot
+does not have. `aurora-power-budget` hands each profile to that class device
+instead, by the names its `choices` file lists. It does not cap the CPU
+while the kernel holds `low-power`, caps it as before if the kernel refuses,
+and puts `balanced` back when it stops. `journalctl -u aurora-power-budget`
+logs each hand-over, and `/run/aurora-power-budget/status.json` shows
+`kernel_profiles`. Which Macs get that class device depends on the kernel:
+the pinned `kernel-aurora` registers it from built-in tables (M4 Max, M5 Pro
+and Max); a kernel carrying linux 37106688
+(https://github.com/aurora-silicon/linux/pull/2816) takes the ceiling from
+the boot loader's device tree instead, which adds Macs such as the M4 Pro.
+Without the class device the CPU budget above applies, as before.
+
+The same subpackage ships `aurora-power-modes` (enabled by preset) for the
+other legs of each profile: in Power Saver the realtime threads lose their
+top-clock floor (`kernel.sched_util_clamp_min_rt_default` 0) and the PCIe
+links use L1.1/L1.2 (ASPM `powersupersave`); every other platform-profile
+handler (`apple-smc`, High Power mode only) follows the profile, so
+Performance turns on High Power mode. The `apple-smc` handler needs a kernel
+carrying linux 2b67c4e0 (https://github.com/aurora-silicon/linux/pull/2784)
+and a boot loader that passes High Power mode in the device tree; the pinned
+kernel lacks the handler, so there this leg has nothing to write. Under
+power-profiles-daemon, which writes the class itself, the leg stands aside.
+Leaving a profile, or stopping the service, restores the values found at
+boot. `/etc/aurora/power-modes.conf` (installed with every line commented
+out) has macOS's optional "Low Power Mode on battery" setting (default
+`never`).
+
 ## Distribution parity
+
+Fedora systems installed with `power-profiles-daemon` instead of `tuned-ppd`
+receive Aurora's `power-profiles-daemon` build (`0.30-4.aurora1` on Fedora 45,
+`0.30-3.aurora1` on Fedora 44), which carries the same
+`/sys/class/platform-profile` fallback patch as ALARM and NixOS so GNOME
+exposes all three kernel platform-profile modes (`Power Saver`, `Balanced`,
+`Performance`) through `apple-clpc` instead of falling back to two placeholder
+profiles. Systems using `tuned-ppd` are unaffected.
 
 ALARM and NixOS use power-profiles-daemon rather than tuned-ppd. Its current
 Apple path has no Apple CPU/platform-profile driver. The placeholder path

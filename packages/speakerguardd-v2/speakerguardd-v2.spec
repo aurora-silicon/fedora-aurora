@@ -1,6 +1,6 @@
-%global commit 29263b5cfa8dbe393bb67b5dadfc51e9df2b6b03
+%global commit 89b6e40e6dab5bee69790d783a11628f85591338
 %global shortcommit %{lua:print(string.sub(rpm.expand("%{commit}"), 1, 12))}
-%global snapdate 20261121
+%global snapdate 20261127
 %global selinuxtype targeted
 %global modulename speakerguardd
 # The crates this package ships; the rig and benchmark crates stay out.
@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.2
-Release: 0.53.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.62.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -89,6 +89,8 @@ bzip2 -9 %{modulename}.pp
 %check
 cargo test --locked --release %{cargo_pkgs}
 python3 -I packaging/session/test_provision.py
+python3 -I packaging/session/test_wiring.py
+python3 -I packaging/session/test_session.py
 
 %install
 install -Dm755 target/release/speakerguardd %{buildroot}%{_libexecdir}/speakerguardd-v2/speakerguardd
@@ -248,6 +250,75 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Fri Nov 27 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.2-0.62.20261127git89b6e40e6dab
+- Rebuilt from speakerguardd main 89b6e40e. speakerguardd#270: the gate
+  data carries the AID12 (J473, Mac mini M2) playback row, so the boot
+  unit moves Mac mini M2 installs to v2.
+
+* Thu Nov 26 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.2-0.61.20261126git7a1f538ca794
+- Rebuilt from speakerguardd main 7a1f538c. speakerguardd#266 and #268:
+  protected playback rows for AID37 (J713) and AID21 (J615) in the gate
+  data, so aurora-speaker-upgrade's boot unit moves both Airs to v2;
+  speakerguardd#265: provisioning runs after sound.target and polls at 25 ms.
+
+* Wed Nov 25 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.60.20261125git4136af409161
+- Rebuilt from speakerguardd main 4136af40. speakerguardd#262: the session
+  helper links the amps by the graph's own channel counts, so ATSP Macs
+  (M1/M2 minis, Airs, 13-inch Pros) drive their speakers under v2;
+  speakerguardd#218: the self-check fails closed.
+
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.59.20261124git6c714e3b7db9
+- Rebuilt from speakerguardd main 6c714e3b. speakerguardd#252: a new BuzzKill
+  line starts shallower and released tracks that still cut are kept,
+  with parity attestations for all four builds (AID2/6/12 now pass).
+
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.58.20261124gitb3aaa4a7c75f
+- Rebuilt from speakerguardd main b3aaa4a7. speakerguardd#249: the BuzzKill
+  rejection rings out at the analysis design's rate, with parity
+  attestations for all four builds; the upgrader fixes of #250 and #251.
+
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.57.20261124git1008c7a4f210
+- Rebuilt from speakerguardd main 1008c7a4 with aurora-speaker-upgrade
+  (speakerguardd#248); the daemon and the voicing law are unchanged since
+  8966bdd4.
+
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.56.20261124git8966bdd4f11d
+- Rebuilt from speakerguardd main 8966bdd4 with aurora-speaker-upgrade
+  (speakerguardd#246); the daemon is unchanged since 80b02063.
+
+* Tue Nov 24 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.55.20261124git80b02063f3d8
+- Rebuilt from speakerguardd main 80b02063 (speakerguardd#239 to #244):
+  the self-check and provisioning bound their root reads of user-owned
+  files (#239); the gate and the upgrade judge the playback record
+  strictly and per unit (#240); a lone desktop amp's sense switches are
+  named without a prefix (Mac mini M2, #243); the BuzzKill detector takes
+  the installed unit's front end, with its quadrature matrix read only from
+  the Mac's own tuning bundle (#244, supersedes #138). The macOS parity
+  attestations are re-gated for all four builds; verdicts are unchanged.
+
+* Mon Nov 23 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.54.20261123git9b7285c420a7
+- Rebuilt from speakerguardd main 9b7285c4: the machine description is
+  built from the Mac's own capabilities (device tree, running card, its
+  tuning bundle) and the card is the one bound to the device tree's sound
+  node (speakerguardd#229); the voicing tables are keyed by the bundle's
+  speaker identity, not the board (#231); a Mac's bundle on a by-vendor
+  database with no known speaker ID is refused and stays muted (#232); a
+  self-check record is current only for this board and audio stack (#234);
+  the gate, provisioning and self-check take the speaker card only once
+  ALSA registered it, which fixes the legacy answer at an early boot, and
+  a registered card whose controls cannot be read starts neither stack, so
+  the kernel's floor holds where speakersafetyd used to start (#236); the
+  operating-point match holds to the gain control's own dB step (#200).
+- Four-lane LSID companions release on their static model (#228), but the
+  gate and provisioning run that release only on a speaker whose protected
+  playback rows (a loud step and a thermal ramp) are on record in
+  gate.json; the J713 (AID37) and J813 (AID42) have none yet and stay
+  muted, as before (#238).
+- aurora-platform-core installs v2 with its units enabled: the gate starts
+  it on a v2-only kernel wherever the records qualify, and on a dual kernel
+  once aurora-speaker-upgrade has switched the Mac.
+- %%check also runs upstream's test_wiring.py and test_session.py.
+
 * Sat Nov 21 2026 Ryan Murray <81541646+RyanTheTide@users.noreply.github.com> - 1.0.0~alpha.2-0.53.20261121git29263b5cfa8d
 - Rebuilt from speakerguardd main 29263b5c: the self-check refuses V/I
   sense that a bit-clock misframe corrupts, where idle noise reads near

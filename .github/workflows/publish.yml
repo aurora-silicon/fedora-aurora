@@ -215,10 +215,12 @@ jobs:
             ' assemble "${options[@]}"; then
             status=complete
           elif [[ -s missing-packages.txt ]]; then
+            missing=$(cat missing-packages.txt)
             echo 'status=missing' >> "$GITHUB_OUTPUT"
-            echo "rebuild=$(cat missing-packages.txt)" >> "$GITHUB_OUTPUT"
-            echo "Packages without a current build: $(cat missing-packages.txt)" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+            echo "rebuild=$missing" >> "$GITHUB_OUTPUT"
+            echo "Testing snapshot rejected. Packages without a current build: $missing" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=Testing snapshot rejected::Wait for a successful native main build of: $missing"
+            exit 1
           else
             exit 1
           fi
@@ -251,7 +253,12 @@ jobs:
           mkdir candidate
           mv complete-rpms candidate/
           mkdir -p candidate/srpms candidate/manifests candidate/builds
-          cp input-build/srpms/*.{src,nosrc}.rpm candidate/srpms/ 2>/dev/null || true
+          # Copy the source RPMs that exist: most packages have a .src.rpm and
+          # no .nosrc.rpm, and a cp of an unmatched pattern fails.
+          shopt -s nullglob
+          srpms=(input-build/srpms/*.{src,nosrc}.rpm)
+          (( ${#srpms[@]} == 0 )) || cp -- "${srpms[@]}" candidate/srpms/
+          shopt -u nullglob
           cp input-build/manifests/*.json candidate/manifests/
           cp build-[0-9]*.json candidate/builds/
           tar --sort=name --owner=0 --group=0 --numeric-owner --mtime=@0 -cf candidate.tar -C candidate .

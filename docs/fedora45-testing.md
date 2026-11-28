@@ -70,8 +70,9 @@ promotion is rejected. Automatic image builds remain Fedora 44 only.
 (testing channel only). It uses the Fedora 45 container and the Fedora Asahi
 Remix 45 description pinned in `images/upstream-f45.json`, which reads Fedora's
 signing keys from `/usr/share/pki/rpm-gpg` as Fedora 45 requires. Its artifact
-is `<profile>-f45-candidate`. No image reaches an installer catalog without a
-deliberate payload run (`publish-payload.yml`).
+is `<profile>-candidate`, the same name as a Fedora 44 build, so
+`publish-payload.yml` can deliver it. No image reaches an installer catalog
+without that deliberate payload run.
 
 These changes provide the publication path. Merging, publishing, deploying and
 machine rollout are separate operator actions.

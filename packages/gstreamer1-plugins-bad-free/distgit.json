@@ -1,0 +1,5 @@
+{
+  "repository": "https://src.fedoraproject.org/rpms/gstreamer1-plugins-bad-free.git",
+  "branch": "f45",
+  "commit": "2b9acae85441732e1af0bdba4552c031c25de014"
+}

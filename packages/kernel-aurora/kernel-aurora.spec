@@ -1,4 +1,4 @@
-%global commit 9125b31475836ce0a6634df45b539c6d604f36a5
+%global commit 4a42f31050028aa7b9e5dc007e7ea231acc66356
 %global krel %{version}-%{release}.aarch64
 %global debug_package %{nil}
 # modules_install signs every module (CONFIG_MODULE_SIG_ALL) after
@@ -14,7 +14,7 @@
 %global ctxr_execmem 1
 Name: kernel-aurora
 Version: 7.3.0
-Release: 41%{?dist}.aurora
+Release: 46%{?dist}.aurora
 Summary: Aurora kernel for Apple Silicon Macs
 License: GPL-2.0-only
 URL: https://github.com/aurora-silicon/linux
@@ -50,8 +50,9 @@ Conflicts: aurora-fido < 0.2.0-2
 # SN012776 amp settings come from the DT that aura 1.0.0b5 fills in
 # (https://github.com/aurora-silicon/linux/pull/981,
 # https://github.com/aurora-silicon/aura/pull/75); under an older Stage 2
-# the speakers stay off.
-Requires: aura >= 1.0.0~b12
+# the speakers stay off. This pin's device trees were qualified with
+# aura 1.0.0b17 (the Stage 2 this repository ships), so require it.
+Requires: aura >= 1.0.0~b17
 # apple-avd loads apple/avd-fw-v*.bin from /usr/lib/firmware; without the
 # images the decoder does not probe. Its queued transport needs queue ABI 2
 # with per-image codec VP pools (avd-fw 6756ca99), and the T8122 (M3) device
@@ -184,6 +185,39 @@ fi
 %{_docdir}/aurora-userpages/
 
 %changelog
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-46
+- Pin aurora-silicon/linux main at 4a42f310. Adds the K114s dark-panel fix
+  (linux#3427: keep iBoot's refresh rate) and linux#3416, #3436, #3358 and
+  #3423 (ANE, AVD H.264, Thunderbolt).
+
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-45
+- Pin aurora-silicon/linux main at e25b4a0b. Adds the K boards' Touch ID
+  (linux#3376) and the other fixes merged since 94ea195b.
+
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-44
+- Pin aurora-silicon/linux main at 94ea195b, the frozen nightly SHA. Adds
+  the rest of the K-board set: the shared internal panel (linux#3350),
+  writable NVRAM (linux#3383), PMU RTC and SD reader (linux#3363), plus
+  the other fixes merged since dc7c873a.
+
+* Fri Nov 27 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-43
+- Pin aurora-silicon/linux main at dc7c873a (merge of linux#3337). Adds the
+  K114s/K116c device trees (USB-C, N1, GPU, sound/AOP, ANE, MagSafe, USB4)
+  and the fixes merged since a851ca0e, among them linux#2818, linux#3252,
+  linux#3256 (SEP HDCP client), linux#3343 (J615 DP855), linux#2395 (T8132
+  MagSafe) and linux#3178.
+
+* Fri Nov 27 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-42
+- Pin aurora-silicon/linux main at a851ca0e (merge of linux#3236). 9125b314
+  was an 11-14 candidate outside main; its two G17 render-pool commits
+  are on main as linux#1946 and linux#1948. The pin brings two weeks of
+  merged fixes, among them linux#3133 (T6030 DCP on firmware 27.2),
+  linux#2533 (T8132 PMP on 27.2), linux#2189 (M4 Air display DART),
+  linux#2576 (M3 Air MTP), linux#3177 (M2 mini AFK display services),
+  linux#3182 (G14 firmware 27.2 pool lifetime) and linux#3236 (DCP
+  DisplayPort service endpoint).
+- Require aura 1.0.0b17, the Stage 2 these device trees are qualified with.
+
 * Mon Nov 16 2026 Ryan Murray <ryan@aurorasilicon.org> - 7.3.0-41
 - Require avd-fw 0.1-3 or later, so a kernel installed or upgraded on its
   own always has the video decoder firmware it loads (queue ABI 2 with

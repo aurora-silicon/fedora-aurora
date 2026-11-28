@@ -114,8 +114,8 @@ ln -sfn "dtb-$new" /boot/dtb
 install -m644 packages/kernel-aurora/dtb-abi "/usr/lib/modules/$new/dtb-abi"
 
 # Build the replacement RPM, including its failure-injection %check suite.
-bash scripts/build-rpm update-m1n1 > "$proof/rpmbuild.log" 2>&1
-cp out/rpms/update-m1n1-*.rpm "$proof/"
+bash scripts/build-rpm update-aura > "$proof/rpmbuild.log" 2>&1
+cp out/rpms/update-aura-*.rpm "$proof/"
 # Exercise the candidate core's actual %preun body with two coinstalled RPM
 # versions. The historical $1=0 guard incorrectly skipped this first erase.
 python3 - <<'PY'
@@ -169,8 +169,8 @@ KERNEL_INSTALL_PLUGINS=/tmp/record-erase.install dnf remove -y bootchain-erase-p
 [[ $(rpm -q bootchain-erase-probe) == bootchain-erase-probe-1-2.noarch ]]
 cp /tmp/erased-kernels.log "$proof/erased-kernels.log"
 KERNEL_INSTALL_PLUGINS=/tmp/record-erase.install dnf remove -y bootchain-erase-probe > /dev/null 2>&1
-dnf upgrade -y out/rpms/update-m1n1-*.noarch.rpm 2>&1 | tee "$proof/dnf-updater-upgrade.log"
-rpm -q update-m1n1 > "$proof/candidate-nevra.txt"
+dnf install -y out/rpms/update-aura-*.noarch.rpm 2>&1 | tee "$proof/dnf-updater-upgrade.log"
+rpm -q update-aura > "$proof/candidate-nevra.txt"
 [[ -f /etc/kernel/install.d/10-devicetree.install ]]
 before=$(sha256sum /boot/efi/m1n1/boot.bin)
 if kernel-install add 7.3-no-dtb /usr/lib/modules/7.3-no-dtb/vmlinuz > "$proof/candidate-missing-dtb.log" 2>&1; then

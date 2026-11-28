@@ -260,6 +260,17 @@ programs() { # MODE
   RUN_VIA_SH=1 run "$1" /var/tmp/fex-binfmt/x86/prog64 from-a-shell c d
 }
 
+# The dispatcher reads its vendor drop-ins in directory order. Fedora's
+# 00-default.toml and Aurora's 50-aurora-fex.toml both name the FEX interpreter.
+# Use the installed Aurora config in the user's override for cases that
+# deliberately select the dispatcher. The direct FEX checks use no override.
+dispatcher_programs() { # MODE
+  local config_home=$top/dispatcher-config
+  install -Dm644 /usr/lib/binfmt-dispatcher.d/50-aurora-fex.toml \
+    "$config_home/binfmt-dispatcher/binfmt-dispatcher.toml"
+  XDG_CONFIG_HOME=$config_home programs "$1"
+}
+
 echo '== fex-emu 2610-6 beside binfmt-dispatcher (an Asahi upgrade): binfmt-dispatcher wins'
 dnf -y -q install binfmt-dispatcher
 dnf -y -q --repo=stub-base install fex-emu-2610-6.aurora
@@ -269,7 +280,7 @@ systemctl start systemd-binfmt.service
 systemctl is-active systemd-binfmt.service
 expect_handlers FEX-x86 FEX-x86_64 binfmt-dispatcher-x86 binfmt-dispatcher-x86_64
 snapshot before
-programs old | tee "$proof/programs-before.txt"
+dispatcher_programs old | tee "$proof/programs-before.txt"
 
 echo "== dnf upgrade to fex-emu 2610-$new_release: FEX's handlers alone, without a reboot"
 dnf -y --repo=stub-base --repo=stub-update upgrade fex-emu | tee "$proof/upgrade.txt"
@@ -299,5 +310,5 @@ cp /usr/lib/binfmt.d/zz-binfmt-dispatcher-x86*.conf /etc/binfmt.d/
 systemctl restart systemd-binfmt.service
 expect_handlers FEX-x86 FEX-x86_64 binfmt-dispatcher-x86 binfmt-dispatcher-x86_64
 snapshot dispatcher-on
-programs dispatcher | tee "$proof/programs-dispatcher-on.txt"
+dispatcher_programs dispatcher | tee "$proof/programs-dispatcher-on.txt"
 echo FEX-BINFMT-PASS

@@ -1,6 +1,6 @@
 Name: aurora-repos
 Version: 44
-Release: 5%{?dist}
+Release: 7%{?dist}
 Summary: Aurora Silicon package repository, signing key and dnf vendor policies
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -8,6 +8,10 @@ BuildArch: noarch
 
 # The vendor policies moved here from aurora-release 44-7.
 Conflicts: aurora-release < 44-8
+# auto_import_local_keys (dnf5 5.4.7): without it, the metadata check in the
+# override would ask before trusting the key, and an unanswered refresh
+# would skip the repository.
+Requires: libdnf5 >= 5.4.7
 
 Source100: aurora.repo
 Source101: RPM-GPG-KEY-aurora
@@ -45,6 +49,17 @@ install -Dm644 %{SOURCE105} %{buildroot}/usr/share/dnf5/repos.override.d/50-auro
 /usr/share/dnf5/repos.override.d/50-aurora.repo
 
 %changelog
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-7
+- Keep power-profiles-daemon on Aurora's vendor policy so systems using it
+  instead of tuned-ppd upgrade cleanly to Aurora's class-interface build.
+
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-6
+- Check the repository metadata signature again (repo_gpgcheck=1 in the
+  dnf5 override). Fedora 44 and 45 now ship dnf5 5.4.7 or later, whose
+  auto_import_local_keys trusts the local Aurora key for the metadata
+  without a prompt, so non-interactive refreshes keep the repository.
+  Require libdnf5 >= 5.4.7.
+
 * Sat Nov 07 2026 Diljit Singh <hey@djdev.me> - 44-5
 - Keep aurora-xart on Aurora's own vendor policy, like the other Aurora
   packages.

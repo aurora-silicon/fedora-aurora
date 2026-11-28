@@ -16,12 +16,19 @@ import trackerlib as tl  # noqa: E402
 import updatelib as lib  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
+ARCHIVE_RECIPES = (
+    'alsa-ucm-conf-aurora', 'aurora-bless', 'aurora-camera-denoise',
+    'aurora-diag', 'aurora-firstboot', 'aurora-kbd-light', 'aurora-neo-platform-config',
+    'aurora-xart', 'speakerguardd-v2', 'upower-aurora',
+)
 RECIPES = {'kernel-aurora': 'kernel-aurora', 'aura': 'aura', 'mesa-aurora': 'mesa-aurora',
-           'fex-emu': 'fex-emu', 'aurora-steam-native': 'aurora-steam-native'}
+           'fex-emu': 'fex-emu', 'aurora-steam-native': 'aurora-steam-native',
+           **{name: name for name in ARCHIVE_RECIPES}}
 KINDS = {'kernel-aurora': 'kernel', 'mesa-aurora': 'mesa'}
 CI_WORKFLOWS = ['rpms.yml', 'checks.yml']
 # The only files a tracker proposal may change.
-PATCH_PATHS = [r'sources\.json', r'packages/(kernel-aurora|aura|mesa-aurora|mesa-aurora-fex-guest|aurora-flatpak-gl|fex-emu|aurora-steam-native)/(f45/)?[^/]+\.spec']
+PATCH_PATHS = [r'sources\.json', r'packages/(kernel-aurora|aura|mesa-aurora|mesa-aurora-fex-guest|aurora-flatpak-gl|fex-emu|aurora-steam-native)/(f45/)?[^/]+\.spec',
+               rf"packages/({'|'.join(ARCHIVE_RECIPES)})/(f45/)?\1\.spec"]
 # Fedora 45 overlays of a tracked recipe follow it to the same commit and Release.
 OVERLAYS = ('f45',)
 # fex-emu tracks by hand (merge: manual): its submodules are pinned as
@@ -32,12 +39,25 @@ GUEST = 'mesa-aurora-fex-guest'
 FLATPAK_GL = 'aurora-flatpak-gl'
 
 
+def guard_snapshot_release(text, commit):
+    date = re.search(r'^%global snapdate (\d{8})$', text, re.M)
+    release = re.fullmatch(r'0\.(\d+)\.%\{snapdate\}git%\{shortcommit\}%\{\?dist\}',
+                           tl.spec_field(text, 'Release'))
+    if not date or not release:
+        raise ValueError('speakerguardd-v2: invalid snapshot Release or snapdate')
+    return int(release[1]), f'0.{release[1]}.{date[1]}git{commit[:12]}'
+
+
 def update_recipe(root, item, today):
     """Apply one source update to its spec. Returns review notes."""
     key = item['key']
     spec = root / 'packages' / RECIPES[key] / f'{RECIPES[key]}.spec'
     original = spec.read_text()
     previous = (tl.spec_field(original, 'Version'), tl.spec_field(original, 'Release').split('%')[0])
+    guard_snapshot = key == 'speakerguardd-v2'
+    if guard_snapshot:
+        counter, previous_release = guard_snapshot_release(original, item['old'])
+        previous = previous[0], previous_release
     # Earlier %changelog entries are history: never rewrite them.
     head, marker, history = original.partition('\n%changelog\n')
     text = tl.replace_commit(head, item['old'], item['new']) + marker + history
@@ -51,7 +71,14 @@ def update_recipe(root, item, today):
     if new_version != old_version:
         text = tl.set_spec_field(text, 'Version', new_version)
         notes.append(f'Version {old_version} -> {new_version}: review the spec and configuration')
-    text, release = tl.bump_spec_release(text, reset=new_version != old_version)
+    if guard_snapshot:
+        counter = 1 if new_version != old_version else counter + 1
+        text = tl.set_spec_field(text, 'Release', f'0.{counter}.%{{snapdate}}git%{{shortcommit}}%{{?dist}}')
+        text = re.sub(r'^(%global snapdate )\d{8}$',
+                      lambda match: match[1] + today.strftime('%Y%m%d'), text, count=1, flags=re.M)
+        _, release = guard_snapshot_release(text, item['new'])
+    else:
+        text, release = tl.bump_spec_release(text, reset=new_version != old_version)
     setup = re.search(r'^%autosetup\b.*?-n\s+(\S+)', text, re.M)
     if setup and setup[1].replace('%{commit}', item['new']) != item.get('archive_root', setup[1]):
         notes.append(f'%autosetup -n {setup[1]} does not name the archive root {item["archive_root"]}')
@@ -62,7 +89,8 @@ def update_recipe(root, item, today):
     text = tl.add_spec_changelog(text, new_version, release, lines, today)
     spec.write_text(text)
     dist = tl.spec_field(text, 'Release')
-    item['package_version'] = f'{new_version}-{dist.replace("%{?dist}", ".fc44")}'
+    reported_release = release + '.fc44' if guard_snapshot else dist.replace('%{?dist}', '.fc44')
+    item['package_version'] = f'{new_version}-{reported_release}'
     if lib.rpm_evr_compare(('0', new_version, str(release)), ('0', *previous)) <= 0:
         raise ValueError(f'{key}: {new_version}-{release} would not upgrade {"-".join(previous)}')
     sync_overlays(root, RECIPES[key], item['old'], item['new'], new_version, dist, lines, today)
@@ -130,6 +158,8 @@ def run_checks(root):
 
 
 def ci_inputs(packages):
+    if 'mesa-aurora' in packages:
+        packages = sorted(set(packages) | {GUEST, FLATPAK_GL})
     return {'rpms.yml': {'packages': ' '.join(packages)}}
 
 

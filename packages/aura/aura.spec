@@ -1,12 +1,12 @@
 %global debug_package %{nil}
-%global commit 3ff77894567239362a116e7fcbb214c55dccf5a4
+%global commit 5a244b5bcbaf4a2751abea18dc0dd8e71c325e46
 # 1 once the pinned source has no monitor (aura#77); %%prep checks it. Such an aura
 # moves the kernel into the CTXR window, so it requires a kernel built with
 # CONFIG_ARM64_CTXR_EXECMEM, which kernel-aurora-core provides as aurora-ctxr-execmem.
 %global monitor_free 1
 Name: aura
-Version: 1.0.0~b14.1
-Release: 1%{?dist}
+Version: 1.0.0~b17
+Release: 2%{?dist}
 Summary: Aurora bootloader for Apple Silicon
 License: MIT AND GPL-2.0-only
 URL: https://github.com/aurora-silicon/aura
@@ -26,7 +26,7 @@ Requires: aurora-ctxr-execmem
 Aurora bootloader for Apple Silicon. Built from the recorded Aurora source revision.
 
 %prep
-%autosetup -n aura-3ff77894567239362a116e7fcbb214c55dccf5a4
+%autosetup -n aura-5a244b5bcbaf4a2751abea18dc0dd8e71c325e46
 found=0
 if [ -f src/ctxr_exec.c ] || [ ! -f src/monitor.c ]; then found=1; fi
 if [ "$found" != %{monitor_free} ]; then
@@ -49,6 +49,7 @@ make clean
 python3 -c 'import os, sys; sys.path.insert(0, "tools"); import secboot_sign; sys.stdout.buffer.write(secboot_sign.pubkey(os.urandom(32)))' > ../aurora-stage1/nobody.pub
 make %{?_smp_mflags} BUILDSTD=1 RELEASE=1 CHAINLOADING=1 USE_CLANG=1 BUILTIN_LOGO=aurora SECBOOT=audit SECBOOT_FLAVOUR=secure SECBOOT_PUBKEY=../aurora-stage1/nobody.pub %{?release_tag:AURA_VERSION_TAG=%{release_tag}}
 cp build/aura.bin ../aurora-stage1/aura-secure-raw.bin
+cp build/aura-boot.macho ../aurora-stage1/aura-secure-boot.macho
 make clean
 make %{?_smp_mflags} BUILDSTD=1 RELEASE=1 CHAINLOADING=1 ESP_STAGE2=1 USE_CLANG=1 BUILTIN_LOGO=aurora %{?release_tag:AURA_VERSION_TAG=%{release_tag}}
 
@@ -63,6 +64,8 @@ install -Dm644 ../aurora-stage1/aura-raw.bin %{buildroot}%{_datadir}/aura/stage1
 install -Dm644 ../aurora-stage1/aura-boot.macho %{buildroot}%{_datadir}/aura/stage1/aura-boot.macho
 install -Dm644 ../aurora-stage1/aura.macho %{buildroot}%{_datadir}/aura/stage1/aura.macho
 install -Dm644 ../aurora-stage1/aura-secure-raw.bin %{buildroot}%{_datadir}/aura/stage1/aura-secure-raw.bin
+# Its Mach-O boot object: the installer enrolls it when the owner chooses their own key.
+install -Dm644 ../aurora-stage1/aura-secure-boot.macho %{buildroot}%{_datadir}/aura/stage1/aura-secure-boot.macho
 # aura's own Stage 1 and signing tools, for aurora-secboot stage1 build and stage2 sign.
 for t in fill_stage1_config.py secboot_sign.py macho_boot_object.py; do
   install -Dm644 tools/$t %{buildroot}%{_datadir}/aura/tools/$t
@@ -76,6 +79,32 @@ install -Dm644 tools/recovery/enroll-stage1.sh %{buildroot}%{_datadir}/aura/tool
 %{_datadir}/aura/
 
 %changelog
+* Fri Nov 27 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b17-2
+- Ship the secure-flavour Stage 1's Mach-O boot object as
+  aura/stage1/aura-secure-boot.macho. Images put it on the ESP, and the
+  installer enrolls it when the owner chooses their own startup keys: the
+  common Stage 1 has no key block, so that choice always failed.
+
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b17-1
+- Pin published Aura 1.0.0b17 for the SIO boot table handoff.
+
+* Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b16-1
+- Pin the published Aura 1.0.0b16 release at da8bc83b.
+
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~b15-1
+- Update to aura 1.0.0b15 (tag v1.0.0b15, merge commit 56299352 of
+  aura#459), labelled 1.0.0b15-g56299352 from the archive directory.
+- Every M2 (T8112) on a 27.2 stub boots again: a GPU firmware with no
+  initdata layout leaves the GPU disabled and the boot continues
+  (aura#381). With 1.0.0b14.1 the Stage 2 stops at 'Failed to prepare
+  FDT' and drops to the proxy.
+- The M3 (T8122) and M4 (T8132) GPU on 27.2 (aura#448, #379), the M4
+  internal DCP on 27.2 (#404) and the M3 Air external DCP by default
+  (#437); the full list is in aura's docs/releases/1.0.0b15.md.
+- The Stage 1 links under rpmbuild again: the exported RUSTFLAGS no longer
+  reach aura's Rust build (aura#454). With them, aura main past 1.0.0b14.1
+  ran past the DCP log buffer.
+
 * Sat Nov 21 2026 Diljit Singh <hey@djdev.me> - 1.0.0~b14.1-1
 - Update to aura 1.0.0b14.1 (release commit 3ff77894 on release/1.0.0b14):
   1.0.0b14 plus aura#421, labelled 1.0.0b14-g3ff77894 from the archive

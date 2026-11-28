@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 48%{?dist}
+Release: 55%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -12,10 +12,8 @@ BuildRequires: systemd-rpm-macros
 BuildRequires: selinux-policy-devel make bzip2
 Requires: aurora-platform-core = %{version}-%{release}
 Requires: fastfetch >= 2.68.1-2
-Requires: linux-firmware amd-gpu-firmware intel-gpu-firmware nvidia-gpu-firmware
-Requires: iwlwifi-dvm-firmware iwlwifi-mvm-firmware realtek-firmware
 Requires: aurora-sep libfprint(aurora-sep) = 4
-Requires: aurora-firstboot avd-fw upower >= 1.91.4
+Requires: aurora-firstboot upower >= 1.91.4
 # T6050 boots without arm64.nomte: 7.3.0-37 keeps MTE off on an Apple SoC
 # whose device tree reserves no MTE tag storage; aura 1.0.0~b13 reserves it.
 Requires: kernel-aurora >= 7.3.0-37
@@ -56,12 +54,19 @@ Source126: 60-aurora-t6041-trackpad.quirks
 Source127: aurora-power-defaults.service
 Source128: aurora-irq-steerable
 Source129: 60_aurora-apple-keys.gschema.override
+Source130: 70-aurora-accel.rules
+Source131: aurora-accel.sysusers
+Source132: force-click-preview-extension.js
+Source133: force-click-preview-metadata.json
+Source134: org.gnome.shell.extensions.force-click-preview.gschema.xml
+Source135: 60_aurora-force-click.gschema.override
 
 %description
 Aurora Apple Silicon hardware stack.
 
 %package core
 Summary: Aurora hardware services without a kernel or boot chain
+License: MIT AND GPL-2.0-or-later
 # The Fedora Asahi metapackages require the stock kernel-16k. This package
 # keeps the hardware services they bring in and lets the stock kernel go.
 Provides: asahi-platform-metapackage = %{version}-%{release}
@@ -71,7 +76,8 @@ Obsoletes: asahi-platform-metapackage < 1
 Obsoletes: asahi-platform-metapackage-core < 1
 Obsoletes: asahi-platform-metapackage-audio < 1
 Conflicts: asahi-platform-metapackage < 1
-Requires: update-m1n1 asahi-scripts dracut-asahi asahi-fwupdate
+# Keep the virtual name for lab systems with a pinned boot helper.
+Requires: update-m1n1 aurora-vendor-firmware aurora-firmware-refresh
 # The established protection daemons stay installed as the fallback;
 # aurora-speaker-upgrade moves a Mac to v2 only when its self-check passes.
 Requires: speakersafetyd speakerguardd
@@ -87,7 +93,7 @@ Requires: aurora-wifi-firmware
 # The VA-API driver for the video decoder, so players and browsers that
 # use VA-API decode in hardware (images install it; this brings it to Macs
 # that update with dnf).
-Requires: libva-v4l2-request-avd
+Requires: avd-fw libva-v4l2-request-avd
 Requires: aurora-kbd-light
 # One built-in panel brightness, shared with the boot loader and macOS
 # through NVRAM backlight-nits.
@@ -107,8 +113,8 @@ Requires: (aurora-platform-selinux = %{version}-%{release} if selinux-policy-%{s
 
 %description core
 The Apple Silicon hardware services that every Aurora system needs: the
-boot.bin assembler (update-m1n1), vendor firmware in the initramfs
-(dracut-asahi), firmware refresh (asahi-fwupdate), speaker protection
+boot.bin assembler (update-aura), vendor firmware in the initramfs
+(aurora-vendor-firmware), firmware refresh (aurora-firmware-refresh), speaker protection
 (speakersafetyd and speakerguardd), the Aurora audio graphs and UCM
 profiles, the noise filter for the built-in camera
 (aurora-camera-denoise), and the keyboard backlight that follows the ambient
@@ -145,6 +151,16 @@ initramfs and keeps across the switch to the real root. The socket is made
 before the policy is loaded, so it carries the kernel's label, and every
 boot logged a denial for it.
 
+%package -n aurora-extra-hardware-firmware
+Summary: Firmware for optional network adapters
+Requires: atheros-firmware brcmfmac-firmware iwlbluetooth-firmware
+Requires: iwlegacy-firmware iwlwifi-dvm-firmware iwlwifi-mld-firmware iwlwifi-mvm-firmware
+Requires: mt7xxx-firmware realtek-firmware
+
+%description -n aurora-extra-hardware-firmware
+Firmware for optional wireless network and Bluetooth adapters. Built-in Mac
+Wi-Fi and Bluetooth use firmware provisioned for the target Mac by Aurora.
+
 %prep
 %setup -q -c -T
 cp -p %{SOURCE109} .
@@ -176,8 +192,19 @@ install -Dm755 %{SOURCE113} %{buildroot}%{_libexecdir}/aurora/aurora-ppd-config
 install -Dm755 %{SOURCE115} %{buildroot}%{_libexecdir}/aurora/aurora-wake-for-network
 install -Dm644 %{SOURCE116} %{buildroot}%{_udevrulesdir}/63-aurora-wake-for-network.rules
 install -Dm644 %{SOURCE120} %{buildroot}%{_udevrulesdir}/64-aurora-trackpad-clicks.rules
+# /dev/accel (the Neural Engine) for the accel group and the local session
+# user, instead of systemd's mode 0666; rpm creates the group from sysusers.d.
+install -Dm644 %{SOURCE130} %{buildroot}%{_udevrulesdir}/70-aurora-accel.rules
+install -Dm644 %{SOURCE131} %{buildroot}%{_sysusersdir}/aurora-accel.conf
 install -Dm644 %{SOURCE126} %{buildroot}%{_datadir}/libinput/60-aurora-t6041-trackpad.quirks
 install -Dm644 %{SOURCE129} %{buildroot}%{_datadir}/glib-2.0/schemas/60_aurora-apple-keys.gschema.override
+# Force click in Files opens the preview: the GNOME Shell extension that turns
+# hid-magicmouse's force-click key (XF86Info) into Files' preview, its schema,
+# and the default that enables it.
+install -Dm644 %{SOURCE132} %{buildroot}%{_datadir}/gnome-shell/extensions/force-click-preview@aurorasilicon.org/extension.js
+install -Dm644 %{SOURCE133} %{buildroot}%{_datadir}/gnome-shell/extensions/force-click-preview@aurorasilicon.org/metadata.json
+install -Dm644 %{SOURCE134} %{buildroot}%{_datadir}/glib-2.0/schemas/org.gnome.shell.extensions.force-click-preview.gschema.xml
+install -Dm644 %{SOURCE135} %{buildroot}%{_datadir}/glib-2.0/schemas/60_aurora-force-click.gschema.override
 install -Dm644 %{SOURCE127} %{buildroot}%{_unitdir}/aurora-power-defaults.service
 # Wanted by sysinit.target itself: a preset would not reach Macs that
 # already have aurora-platform-core. ConditionFirmware skips machines that
@@ -192,6 +219,15 @@ install -Dm755 %{SOURCE124} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora
 install -Dm755 %{SOURCE125} %{buildroot}%{_prefix}/lib/dracut/modules.d/99aurora-kdump-clock/aurora-kdump-clock.sh
 
 %posttrans core
+# Give an existing /dev/accel node the rule's group and mode now, not at the
+# next boot. systemd-udev's file trigger only marks udevd for a reload, so
+# reload first; and send an add event, since a change event does not
+# reapply GROUP and MODE. Skipped in a chroot (image or mock build) and
+# without a running udevd, so a build never touches the build host's nodes.
+if [ -S /run/udev/control ] && ! systemd-detect-virt -q --chroot; then
+  udevadm control --reload >/dev/null 2>&1 || :
+  udevadm trigger --action=add --subsystem-match=accel >/dev/null 2>&1 || :
+fi
 # Fedora's flicker-free GRUB output, once per system; see the script.
 %{_libexecdir}/aurora/aurora-grub-console || :
 # A grub.cfg whose only stale lines are partition UUID searches; see the script.
@@ -258,8 +294,13 @@ fi
 %{_udevrulesdir}/62-aurora-gpu-render-only.rules
 %{_udevrulesdir}/63-aurora-wake-for-network.rules
 %{_udevrulesdir}/64-aurora-trackpad-clicks.rules
+%{_udevrulesdir}/70-aurora-accel.rules
+%{_sysusersdir}/aurora-accel.conf
 %{_datadir}/libinput/60-aurora-t6041-trackpad.quirks
 %{_datadir}/glib-2.0/schemas/60_aurora-apple-keys.gschema.override
+%{_datadir}/gnome-shell/extensions/force-click-preview@aurorasilicon.org/
+%{_datadir}/glib-2.0/schemas/org.gnome.shell.extensions.force-click-preview.gschema.xml
+%{_datadir}/glib-2.0/schemas/60_aurora-force-click.gschema.override
 %{_udevhwdbdir}/60-aurora-dmi-vendor.hwdb
 %{_prefix}/lib/systemd/system.conf.d/90-aurora-reboot-watchdog.conf
 %{_prefix}/lib/dracut/modules.d/91aurora-usb4/
@@ -283,7 +324,43 @@ fi
 %{_datadir}/selinux/packages/%{selinuxtype}/%{modulename}.pp.bz2
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
+%files -n aurora-extra-hardware-firmware
+
 %changelog
+* Thu Nov 26 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-55
+- Install the AVD firmware with the platform core and its VA-API driver.
+
+* Tue Nov 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-54
+- A force click on an item in Files opens its preview, like Quick Look:
+  force-click-preview@aurorasilicon.org binds XF86Info, the key
+  hid-magicmouse holds during the deep stage of a Force Touch click, and
+  sends Files the Space that opens its previewer. It does nothing in other
+  windows. Enabled by default (60_aurora-force-click.gschema.override).
+
+* Tue Nov 24 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-53
+- Use the Aurora firmware refresh tool.
+
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-52
+- Make stock accessory firmware opt-in through aurora-extra-hardware-firmware.
+- Use Aurora's vendor firmware loader without the stock firmware bundle.
+
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-51
+- /dev/accel/accel* (the Neural Engine) is mode 0660, group accel, with a
+  uaccess ACL for the user of the active local session
+  (70-aurora-accel.rules, group from aurora-accel.conf). systemd's default
+  rule left it mode 0666; the only narrower rule was in the opt-in
+  omarchy-ane-tools, which no longer carries one. %posttrans reloads udev
+  and sends existing accel nodes an add event (not in a chroot). Users
+  outside the local session, such as ssh-only accounts, now need the accel
+  group ("usermod -aG accel USER").
+
+* Mon Nov 23 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-50
+- aurora-kdump-setup (aurora-platform-kdump) reports a failed
+  systemctl enable/disable of kdump.service and a failed grubby
+  --remove-args=crashkernel, with the command to run instead. It used to
+  discard both. The rest of the step still runs and it still exits 0, so
+  the %%post/%%preun outcome is unchanged.
+
 * Sat Nov 21 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-48
 - The Mission Control key (F3, keysym XF86LaunchA) opens and closes the
   GNOME Activities overview, as Mission Control does on macOS

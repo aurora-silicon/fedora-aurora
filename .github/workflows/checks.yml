@@ -22,12 +22,13 @@ jobs:
       - run: |
           sudo apt-get update
           sudo apt-get install -y device-tree-compiler shellcheck
-          shellcheck packages/update-m1n1/update-m1n1 packages/update-m1n1/aurora-stage2-commit packages/update-m1n1/*.install scripts/test-stage2-transactions scripts/test-bootchain-upgrade
+          shellcheck -s bash packages/update-aura/mount-system-esp.sh
+          shellcheck packages/update-aura/update-aura packages/update-aura/aurora-stage2-commit packages/update-aura/*.install scripts/test-stage2-transactions scripts/test-bootchain-upgrade
           python3 -m unittest discover -s tests -p 'test_*.py'
           python3 images/test_configure.py
           python3 -m compileall -q scripts images
           for script in scripts/build-rpm scripts/build-flatpak-gl-repo \
-            packages/aurora-flatpak-gl/build-extension.sh scripts/test-graphics-upgrade scripts/test-fex-overlay-upgrade scripts/test-fex-guest-default scripts/test-fex-binfmt scripts/test-touchid-upgrade scripts/test-fedora-repository scripts/check-repository-closure scripts/test-repository-closure scripts/test-fedora44-compatibility scripts/test-system-upgrade scripts/test-vendor-change scripts/test-repo-trust scripts/test-bootchain-upgrade packages/update-m1n1/update-m1n1 packages/update-m1n1/aurora-stage2-commit scripts/fleet-kit/*.sh; do
+            packages/aurora-flatpak-gl/build-extension.sh scripts/test-graphics-upgrade scripts/test-fex-overlay-upgrade scripts/test-fex-guest-default scripts/test-fex-binfmt scripts/test-touchid-upgrade scripts/test-fedora-repository scripts/check-repository-closure scripts/test-repository-closure scripts/test-fedora44-compatibility scripts/test-system-upgrade scripts/test-vendor-change scripts/test-repo-trust scripts/test-bootchain-upgrade packages/update-aura/update-aura packages/update-aura/aurora-stage2-commit scripts/fleet-kit/*.sh; do
             bash -n "$script"
           done
           git diff --check
@@ -105,15 +106,13 @@ jobs:
           RUN dnf install -y systemd util-linux rpm-build createrepo_c python3 systemd-rpm-macros && dnf clean all
           CMD ["/sbin/init"]
           DOCKER
-          docker run -d --name fex-guest --privileged --cgroupns=host \
+          trap 'docker logs fex-guest > "$RUNNER_TEMP/proof/systemd.log" 2>&1; docker rm -f fex-guest' EXIT
+          # Returns once systemd reports start-up finished (READY=1).
+          python3 scripts/start-systemd-container.py fex-guest --privileged --cgroupns=host \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /tmp \
             -v "$PWD:/src:ro" -v "$RUNNER_TEMP/old:/old:ro" -v "$RUNNER_TEMP/proof:/proof" \
             aurora-fex-systemd:${{ matrix.release }}
-          trap 'docker logs fex-guest > "$RUNNER_TEMP/proof/systemd.log" 2>&1; docker rm -f fex-guest' EXIT
-          for attempt in {1..30}; do
-            if docker exec fex-guest systemctl is-active multi-user.target; then break; fi
-            sleep 1
-          done
+          docker exec fex-guest systemctl is-active multi-user.target
           docker exec fex-guest bash /src/scripts/test-fex-guest-default /old/packages/fex-emu /src/packages /proof
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
@@ -144,15 +143,13 @@ jobs:
           RUN dnf install -y systemd util-linux rpm-build createrepo_c python3 systemd-rpm-macros gcc && dnf clean all
           CMD ["/sbin/init"]
           DOCKER
-          docker run -d --name fex-binfmt --privileged --cgroupns=host \
+          trap 'docker logs fex-binfmt > "$RUNNER_TEMP/proof/systemd.log" 2>&1; docker rm -f fex-binfmt' EXIT
+          # Returns once systemd reports start-up finished (READY=1).
+          python3 scripts/start-systemd-container.py fex-binfmt --privileged --cgroupns=host \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /tmp \
             -v "$PWD:/src:ro" -v "$RUNNER_TEMP/old:/old:ro" -v "$RUNNER_TEMP/proof:/proof" \
             aurora-fex-binfmt:${{ matrix.release }}
-          trap 'docker logs fex-binfmt > "$RUNNER_TEMP/proof/systemd.log" 2>&1; docker rm -f fex-binfmt' EXIT
-          for attempt in {1..30}; do
-            if docker exec fex-binfmt systemctl is-active multi-user.target; then break; fi
-            sleep 1
-          done
+          docker exec fex-binfmt systemctl is-active multi-user.target
           docker exec fex-binfmt bash /src/scripts/test-fex-binfmt /old/packages/fex-emu /src/packages /proof
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
@@ -242,15 +239,13 @@ jobs:
           RUN dnf install -y systemd util-linux dnf5-plugins rpm-build && dnf clean all
           CMD ["/sbin/init"]
           DOCKER
-          docker run -d --name fex-overlay --privileged --cgroupns=host \
+          trap 'docker logs fex-overlay > "$RUNNER_TEMP/proof/systemd.log" 2>&1; docker rm -f fex-overlay' EXIT
+          # Returns once systemd reports start-up finished (READY=1).
+          python3 scripts/start-systemd-container.py fex-overlay --privileged --cgroupns=host \
             -v /sys/fs/cgroup:/sys/fs/cgroup:rw --tmpfs /run --tmpfs /tmp \
             -v "$PWD:/src:ro" -v "$RUNNER_TEMP/candidates/rpms:/candidates:ro" \
             -v "$RUNNER_TEMP/baselines:/baselines:ro" -v "$RUNNER_TEMP/proof:/proof" aurora-fex-systemd
-          trap 'docker logs fex-overlay > "$RUNNER_TEMP/proof/systemd.log" 2>&1; docker rm -f fex-overlay' EXIT
-          for attempt in {1..30}; do
-            if docker exec fex-overlay systemctl is-active multi-user.target; then break; fi
-            sleep 1
-          done
+          docker exec fex-overlay systemctl is-active multi-user.target
           docker exec fex-overlay bash /src/scripts/test-fex-overlay-upgrade /baselines/10 /candidates /proof/fex-overlay
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
