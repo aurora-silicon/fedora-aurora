@@ -1,8 +1,8 @@
-%global commit 4085a62eadbbd296f3acab00ec8890baab370e2d
+%global commit b2383137c7f6049ca3652722a2346dd928d54c45
 %global refreshdir %{_prefix}/lib/aurora-firmware-refresh
 
 Name: aurora-firmware-refresh
-Version: 20261125
+Version: 20261128
 Release: 1%{?dist}
 Summary: Refresh the firmware supplied by the Aurora installer
 License: MIT
@@ -51,6 +51,10 @@ PYTHONPATH=%{buildroot}%{refreshdir} %{python3} -B %{SOURCE2}
 %{refreshdir}/
 
 %changelog
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261128-1
+- Refresh to aurora-installer b2383137 (N1 support in the shared Wi-Fi
+  firmware tool, aurora-installer#266).
+
 * Wed Nov 25 2026 Ryan Murray <ryan@aurorasilicon.org> - 20261125-1
 - Refresh to aurora-installer 4085a62e.
 
