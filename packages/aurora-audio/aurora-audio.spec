@@ -25,11 +25,14 @@ Requires(posttrans): python3
 # speakerguardd v2 is the speaker protection: every install has this package,
 # so it brings v2 and retires the Asahi stack (speakersafetyd, its Aurora
 # profiles and speakerguardd 0.1) on the upgrade. The speakersafetyd
-# Obsoletes are versioned to the builds this repository shipped (2.0.1-1.*,
-# profiles 1-1), so a speakersafetyd a user later installs and selects on
-# purpose is not removed again by the next upgrade.
+# Obsoletes match only the builds this repository shipped (2.0.1-1.fc*.aurora1
+# and < 2.0.1-1, profiles < 1-2), not stock Fedora's 2.0.1-1.fc*, so a
+# speakersafetyd a user installs via aurora-speaker-stack select speakersafetyd
+# installs cleanly under DNF5 and is not removed again by the next upgrade.
 Requires: speakerguardd-v2 >= 1.0.0~alpha.2-0.63 aurora-speaker-upgrade
-Obsoletes: speakersafetyd < 2.0.1-2
+Obsoletes: speakersafetyd = 2.0.1-1.fc44.aurora1
+Obsoletes: speakersafetyd = 2.0.1-1.fc45.aurora1
+Obsoletes: speakersafetyd < 2.0.1-1
 Obsoletes: speakersafetyd-aurora-profiles < 1-2
 Obsoletes: speakerguardd < 0.2
 Conflicts: speakerguardd < 0.2

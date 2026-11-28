@@ -836,11 +836,16 @@ class SpecTests(unittest.TestCase):
             self.assertNotIn(name, pins)
         audio = (ROOT / 'packages/aurora-audio/aurora-audio.spec').read_text()
         self.assertRegex(audio, r'(?m)^Requires: speakerguardd-v2 >= 1\.0\.0~alpha\.2-0\.63 aurora-speaker-upgrade$')
-        # Versioned: only the builds this repository shipped, so a speakersafetyd
-        # a user installs and selects later is not removed by the next upgrade.
+        # Targeted: only the Aurora builds this repository shipped (never stock
+        # Fedora 2.0.1-1.fc*), so a speakersafetyd a user installs and selects
+        # later installs cleanly and is not removed by the next upgrade.
         self.assertNotRegex(audio, r'(?m)^(Obsoletes|Conflicts): speakersafetyd(-aurora-profiles)?$')
         self.assertNotRegex(audio, r'(?m)^Conflicts: speakersafetyd')
-        for line in ('Obsoletes: speakersafetyd < 2.0.1-2', 'Obsoletes: speakersafetyd-aurora-profiles < 1-2',
+        self.assertNotRegex(audio, r'(?m)^Obsoletes: speakersafetyd < 2\.0\.1-2$')
+        for line in ('Obsoletes: speakersafetyd = 2.0.1-1.fc44.aurora1',
+                     'Obsoletes: speakersafetyd = 2.0.1-1.fc45.aurora1',
+                     'Obsoletes: speakersafetyd < 2.0.1-1',
+                     'Obsoletes: speakersafetyd-aurora-profiles < 1-2',
                      'Obsoletes: speakerguardd < 0.2', 'Conflicts: speakerguardd < 0.2',
                      'Provides: asahi-audio = %{version}-%{release}', 'Obsoletes: asahi-audio < %{version}-%{release}',
                      'Conflicts: asahi-audio',
