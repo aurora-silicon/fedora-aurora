@@ -8,7 +8,7 @@
 
 Name: speakerguardd-v2
 Version: 1.0.0~alpha.2
-Release: 0.62.%{snapdate}git%{shortcommit}%{?dist}
+Release: 0.63.%{snapdate}git%{shortcommit}%{?dist}
 Summary: In-graph speaker protection for Apple Silicon Macs (speakerguardd 1.0)
 # aurora-speaker-tuning is based on aurora-audio-dsp by saku, also MIT.
 License: MIT
@@ -49,11 +49,12 @@ input where the Mac has it, driven by that Mac's own tuning bundle.
 It ships the supervisor, provisioning (the parameter blob compiled from the
 Mac's tuning, the seat user, the configuration, the speaker graph), the
 first-boot wiring self-check, the session helper, the sgv2 LV2 bundle and the
-aurora-speaker-tuning reader. It installs on every Mac beside speakerguardd
-0.1 and speakersafetyd, and the fleet gate picks one stack per boot: v2 on a
-board gated for it whose kernel has the v2 interface, the older daemons
-everywhere else. The kernel is the switch: a fleet kernel without the
-interface keeps every Mac on the older daemons.
+aurora-speaker-tuning reader. It is the only speaker stack on every Mac and
+the only program that takes the kernel's speaker interlock: aurora-audio
+requires it and retires speakersafetyd and speakerguardd 0.1. The gate
+starts it on a qualified board whose kernel has the v2 interface; on any
+other board no speaker daemon runs and the kernel holds the speakers at its
+floor.
 
 %package selinux
 Summary: SELinux policy module for speakerguardd 1.0
@@ -121,8 +122,8 @@ done
 for f in packaging/wireplumber/60-sgv2-*.conf; do
     install -Dpm644 $f %{buildroot}%{_datadir}/speakerguardd/wireplumber/$(basename $f)
 done
-# The upstream units, under their own names so they install beside the 0.1
-# unit, with the programs where this package installs them.
+# The upstream units, under their own names (speakerguardd-v2*), with the
+# programs where this package installs them.
 rename_units() {
     sed -e "s@/usr/libexec/speakerguardd/@$lx/@g" -e "s@^ExecStart=/usr/bin/speakerguardd @ExecStart=$lx/speakerguardd @" \
         -e 's@\bspeakerguardd\(-[a-z]\+\)\?\.\(service\|path\)\b@speakerguardd-v2\1.\2@g' "$1"
@@ -179,13 +180,8 @@ done
 for u in speakerguardd-v2-session.service speakerguardd-v2-graph.service; do
     install -Dm644 $u %{buildroot}%{_userunitdir}/$u
 done
-# The older daemons start only where v2 does not run and the kernel has no
-# v2 interface: exactly one stack holds the speakers on each boot.
-sed -e "s@/usr/libexec/speakerguardd/@$lx/@g" packaging/systemd/legacy-gate.conf > legacy-gate.conf
-grep -qx "ExecCondition=+$lx/speakerguardd-gate legacy" legacy-gate.conf
-for u in speakersafetyd speakerguardd; do
-    install -Dm644 legacy-gate.conf %{buildroot}%{_unitdir}/$u.service.d/60-speakerguardd-v2-gate.conf
-done
+# No other speaker daemon exists to gate: upstream's legacy-gate.conf (in
+# trees older than its removal) is not installed.
 install -Dpm644 %{SOURCE3} %{buildroot}%{_presetdir}/50-speakerguardd-v2.preset
 install -d %{buildroot}%{_userpresetdir}
 printf 'enable speakerguardd-v2-graph.service\nenable speakerguardd-v2-session.service\n' > %{buildroot}%{_userpresetdir}/50-speakerguardd-v2.preset
@@ -238,10 +234,6 @@ fi
 %{_unitdir}/speakerguardd-v2-sleep.service
 %{_userunitdir}/speakerguardd-v2-session.service
 %{_userunitdir}/speakerguardd-v2-graph.service
-%dir %{_unitdir}/speakersafetyd.service.d
-%{_unitdir}/speakersafetyd.service.d/60-speakerguardd-v2-gate.conf
-%dir %{_unitdir}/speakerguardd.service.d
-%{_unitdir}/speakerguardd.service.d/60-speakerguardd-v2-gate.conf
 %{_presetdir}/50-speakerguardd-v2.preset
 %{_userpresetdir}/50-speakerguardd-v2.preset
 
@@ -250,6 +242,11 @@ fi
 %ghost %verify(not md5 size mode mtime) %{_sharedstatedir}/selinux/%{selinuxtype}/active/modules/200/%{modulename}
 
 %changelog
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.2-0.63.20261127git89b6e40e6dab
+- speakerguardd v2 is the only speaker stack: stop installing the gate
+  drop-ins for speakersafetyd.service and speakerguardd.service, whose
+  daemons aurora-audio now obsoletes, and say so in the description.
+
 * Fri Nov 27 2026 Ryan Murray <ryan@aurorasilicon.org> - 1.0.0~alpha.2-0.62.20261127git89b6e40e6dab
 - Rebuilt from speakerguardd main 89b6e40e. speakerguardd#270: the gate
   data carries the AID12 (J473, Mac mini M2) playback row, so the boot

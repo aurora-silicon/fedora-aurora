@@ -19,8 +19,8 @@ sid=$(loginctl show-seat seat0 -p ActiveSession --value)
 uid=$(loginctl show-session "$sid" -p User --value)
 [[ $uid =~ ^[0-9]+$ && $uid -gt 0 ]] || exit 2
 [[ -f $D/state/pre-shell && $(pgrep -u "$uid" -x gnome-shell | sort) == "$(cat "$D/state/pre-shell")" ]] || exit 2
-[[ -f $D/state/pre-sg && $(systemctl show speakerguardd -p MainPID -p NRestarts -p ActiveEnterTimestampMonotonic) == "$(cat "$D/state/pre-sg")" ]] || exit 2
-systemctl is-active --quiet speakerguardd
+[[ -f $D/state/pre-sg && $(systemctl show speakerguardd-v2 -p MainPID -p NRestarts -p ActiveEnterTimestampMonotonic) == "$(cat "$D/state/pre-sg")" ]] || exit 2
+systemctl is-active --quiet speakerguardd-v2
 cd "$D"
 sha256sum --check SHA256SUMS
 [[ -f state/install-completed && -s state/rollback-rpms && ! -e state/rollback-started ]] || {
