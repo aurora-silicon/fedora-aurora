@@ -3,7 +3,7 @@
 
 Name: aurora-platform
 Version: 44
-Release: 55%{?dist}
+Release: 56%{?dist}
 Summary: Aurora Apple Silicon hardware stack
 License: MIT
 URL: https://github.com/aurora-silicon/fedora-aurora
@@ -78,11 +78,10 @@ Obsoletes: asahi-platform-metapackage-audio < 1
 Conflicts: asahi-platform-metapackage < 1
 # Keep the virtual name for lab systems with a pinned boot helper.
 Requires: update-m1n1 aurora-vendor-firmware aurora-firmware-refresh
-# The established protection daemons stay installed as the fallback;
-# aurora-speaker-upgrade moves a Mac to v2 only when its self-check passes.
-Requires: speakersafetyd speakerguardd
-Requires: speakerguardd-v2 >= 1.0.0~alpha.2-0.51 aurora-speaker-upgrade >= 0.1-0.18
-Requires: aurora-audio >= 4.1-12
+# speakerguardd v2 is the only speaker protection. aurora-audio 4.1-18
+# retires speakersafetyd, its Aurora profiles and speakerguardd 0.1.
+Requires: speakerguardd-v2 >= 1.0.0~alpha.2-0.63 aurora-speaker-upgrade >= 0.1-0.29
+Requires: aurora-audio >= 4.1-18
 Requires: alsa-ucm-conf-aurora
 # BlueZ 5.86 attempts an empty default-parameter transaction at startup.
 # 5.87 includes the upstream empty-TLV fix; retain real error reporting.
@@ -115,9 +114,8 @@ Requires: (aurora-platform-selinux = %{version}-%{release} if selinux-policy-%{s
 The Apple Silicon hardware services that every Aurora system needs: the
 boot.bin assembler (update-aura), vendor firmware in the initramfs
 (aurora-vendor-firmware), firmware refresh (aurora-firmware-refresh), speaker protection
-(speakersafetyd and speakerguardd), the Aurora audio graphs and UCM
-profiles, the noise filter for the built-in camera
-(aurora-camera-denoise), and the keyboard backlight that follows the ambient
+(speakerguardd v2), the Aurora audio and UCM profiles, the noise filter for
+the built-in camera (aurora-camera-denoise), and the keyboard backlight that follows the ambient
 light sensor (aurora-kbd-light). It installs no kernel, bootloader or release
 identity, so it fits a Fedora Asahi Remix install whose kernel and boot
 chain are managed separately. It replaces asahi-platform-metapackage, whose
@@ -327,6 +325,12 @@ fi
 %files -n aurora-extra-hardware-firmware
 
 %changelog
+* Sat Nov 28 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-56
+- speakerguardd v2 is the only speaker protection: stop requiring
+  speakersafetyd and speakerguardd 0.1, and require aurora-audio 4.1-18,
+  which retires them, with speakerguardd-v2 0.63 and
+  aurora-speaker-upgrade 0.29.
+
 * Thu Nov 26 2026 Ryan Murray <ryan@aurorasilicon.org> - 44-55
 - Install the AVD firmware with the platform core and its VA-API driver.
 

@@ -1,7 +1,7 @@
-# speakerguardd 1.0 is installed on every Mac; the fleet gate
-# (speakerguardd-gate, ExecCondition of each unit) picks v2 or the older
-# daemons at every boot, so enabling the units changes nothing on a board
-# or kernel v2 does not run on.
+# speakerguardd 1.0 is the only speaker stack and is installed on every Mac.
+# The gate (speakerguardd-gate, ExecCondition of the units) starts it on a
+# qualified board whose kernel has the v2 interface; elsewhere no speaker
+# daemon runs and the kernel holds the speakers at its floor.
 enable speakerguardd-v2.service
 enable speakerguardd-v2-provision.service
 enable speakerguardd-v2-selfcheck.service
