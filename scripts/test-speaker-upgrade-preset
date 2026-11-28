@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Run in a disposable Fedora container with no host devices or service manager.
+set -euo pipefail
+old=${1:?old aurora-speaker-upgrade RPM}
+new=${2:?candidate aurora-speaker-upgrade RPM}
+unit=aurora-speaker-upgrade.service
+[[ -f /.dockerenv && ! -d /run/systemd/system && ! -e /dev/snd && $(id -u) == 0 ]]
+for rpm in "$old" "$new"; do
+    [[ $(rpm -qp --qf '%{NAME}' "$rpm") == aurora-speaker-upgrade ]]
+    sha256sum "$rpm"
+done
+
+dnf_options=(--assumeyes --setopt=install_weak_deps=False --setopt=timeout=15 --setopt=retries=1
+             --exclude='speakersafetyd*' --exclude=speakerguardd)
+dnf "${dnf_options[@]}" install "$old"
+systemctl --root=/ disable "$unit"
+[[ $(systemctl --root=/ is-enabled "$unit" || :) == disabled ]]
+dnf "${dnf_options[@]}" upgrade "$new"
+[[ $(systemctl --root=/ is-enabled "$unit") == enabled ]]
+rpm -q aurora-speaker-upgrade
+echo "A previously disabled boot upgrader is enabled by the RPM transition"
+
+dnf "${dnf_options[@]}" downgrade "$old"
+systemctl --root=/ disable "$unit"
+systemctl --root=/ mask "$unit"
+dnf "${dnf_options[@]}" upgrade "$new"
+[[ $(systemctl --root=/ is-enabled "$unit" || :) == masked ]]
+echo "An explicit mask survives the same RPM transition"
