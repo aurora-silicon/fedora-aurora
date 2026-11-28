@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+"""Rehearse an existing kernel's Stage 2 transition in a disposable root."""
+
+import argparse
+import hashlib
+import importlib.util
+import os
+from pathlib import Path
+import re
+import subprocess
+import tempfile
+from unittest.mock import patch
+
+
+def read_rpm(rpm, root, patterns):
+    subprocess.run(["bsdtar", "-xf", str(rpm), "-C", str(root), *patterns], check=True)
+
+
+def install_core(rpm, root):
+    modules = root / "usr/lib/modules"
+    before = set(modules.iterdir()) if modules.exists() else set()
+    read_rpm(rpm, root, ["*/dtb/apple/*.dtb", "*/vmlinuz", "*/dtb-abi"])
+    (installed,) = set(modules.iterdir()) - before
+    return installed
+
+
+def amp_count(dtb, compatible):
+    # Reading the compiled tree through dtc preserves exact node names.
+    # fdtget's path matching can confuse /soc and /soc@... siblings.
+    source = subprocess.check_output(["dtc", "-q", "-I", "dtb", "-O", "dts", str(dtb)], text=True)
+    return sum(f'"{compatible}"' in values for values in re.findall(r"^\s*compatible = ([^;]+);", source, re.M))
+
+
+def put(root, path, data):
+    target = root / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
+    return target
+
+
+def install_entry(root, kernel):
+    put(root, f"boot/loader/entries/fixture-{kernel.name}.conf",
+        f"title Fixture {kernel.name}\nversion {kernel.name}\nlinux /vmlinuz-{kernel.name}\n".encode())
+    (root / f"boot/vmlinuz-{kernel.name}").symlink_to(kernel / "vmlinuz")
+    put(root, "boot/grub2/grubenv", f"saved_entry=fixture-{kernel.name}\n".encode())
+
+
+def record_stage1_measurement(root, image):
+    node = "proc/device-tree/chosen/aurora,boot-security/measurement@0"
+    put(root, node + "/stage", b"stage1\0")
+    put(root, node + "/component", b"next-stage\0")
+    put(root, node + "/sha256", hashlib.sha256(image).digest())
+
+
+def exercise(args, root, bootchain):
+    old = install_core(args.old_core, root)
+    old_dtb = old / "dtb/apple" / args.dtb
+    compatible = subprocess.check_output(
+        ["fdtget", "-t", "s", str(old_dtb), "/", "compatible"], text=True).split()
+    put(root, "proc/device-tree/compatible", b"\0".join(value.encode() for value in compatible) + b"\0")
+    put(root, "proc/device-tree/chosen/aura,stage1-version", b"1.0.0b17\0")
+
+    read_rpm(args.aura, root, ["*/m1n1.bin", "./usr/share/aura/monitor-free"])
+    read_rpm(args.uboot, root, ["*/u-boot-nodtb.bin"])
+    env = {
+        "TARGET": "/boot/efi/m1n1/boot.bin",
+        "ESP_ROOT": "/boot/efi",
+        "M1N1": "/usr/lib64/m1n1/m1n1.bin",
+        "U_BOOT": "/usr/share/uboot/apple_m1/u-boot-nodtb.bin",
+    }
+    install_entry(root, old)
+    baseline = bootchain.Update(root, env)
+    live = baseline.target()
+    classic = live.with_name("boot.bin")
+    if classic != live:
+        put(root, "boot/efi/m1n1/boot.bin", b"separate non-CTXR slot\n")
+    # Seed an installed Stage 2 and model the running Stage 1's measurement
+    # of the file it loaded. The enrolled-target guard uses that observation.
+    _, _, _, old_stage2 = baseline.plan()
+    put(root, live.relative_to(root), old_stage2)
+    record_stage1_measurement(root, old_stage2)
+    baseline.apply()
+    if live.read_bytes() != old_stage2 or old_dtb.read_bytes() not in old_stage2:
+        raise RuntimeError("old Stage 2 does not embed the old device tree")
+
+    new = install_core(args.new_core, root)
+    new_dtb = new / "dtb/apple" / args.dtb
+    if args.candidate_dtb:
+        print(f"Testing an unpublished DTB replacement from {args.candidate_dtb.name}")
+        new_dtb.write_bytes(args.candidate_dtb.read_bytes())
+    new_blob = new_dtb.read_bytes()
+    old_count = amp_count(old_dtb, args.amp_compatible)
+    new_count = amp_count(new_dtb, args.amp_compatible)
+    print(f"{old.name} -> {new.name}: {args.amp_compatible} nodes {old_count} -> {new_count}")
+    if new_count != args.expected_amps:
+        raise RuntimeError(f"candidate has {new_count} amp nodes, expected {args.expected_amps}")
+
+    # These are the action and version exported by 15-update-m1n1.install.
+    # Only the ESP block device, device flush and boot health are supplied by
+    # the fixture. The installed updater builds, verifies and commits the bytes.
+    add = bootchain.Update(root, dict(env, AURORA_KERNEL_ACTION="add", AURORA_KERNEL_VERSION=new.name))
+    with patch.object(bootchain.Update, "check_esp"), patch.object(bootchain.Update, "flush_esp"):
+        add.apply()
+        install_entry(root, new)
+        target, candidate, _, marker, relative = add.trial_paths()
+        if candidate.exists():
+            if live.read_bytes() != old_stage2 or marker.read_text() != f"armed\n{relative}\n":
+                raise RuntimeError("upgrade did not preserve the live image and arm the candidate")
+            candidate_data = candidate.read_bytes()
+            if new_blob not in candidate_data:
+                raise RuntimeError("Stage 2 candidate does not embed the new device tree")
+            marker.write_text(f"spent\n{relative}\n")
+            put(root, "proc/device-tree/chosen/aurora,trial", relative.encode() + b"\0")
+            record_stage1_measurement(root, candidate_data)
+            with patch.object(bootchain.Update, "sanity"):
+                bootchain.Update(root, env).commit()
+            if marker.exists() or candidate.exists() or live.read_bytes() != candidate_data:
+                raise RuntimeError("simulated healthy boot did not commit the candidate")
+            if target.with_name(target.name + ".prev").read_bytes() != old_stage2:
+                raise RuntimeError("Stage 2 rollback copy differs from the old image")
+        elif live.read_bytes() != old_stage2 or old_dtb.read_bytes() != new_blob:
+            raise RuntimeError("changed DTB did not arm a trial")
+
+    if os.readlink(root / "boot/dtb") != f"dtb-{new.name}" or new_blob not in live.read_bytes():
+        raise RuntimeError("installed DTB differs from the new Stage 2")
+    if classic != live and classic.read_bytes() != b"separate non-CTXR slot\n":
+        raise RuntimeError("the CTXR update changed the separate boot.bin")
+    for label, data in [("candidate DTB", new_blob), ("live Stage 2", live.read_bytes())]:
+        print(f"{label}: sha256 {hashlib.sha256(data).hexdigest()}")
+    print("Stage 2 filesystem fixture passed (boot and hardware checks simulated)")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    for name in ["old-core", "new-core", "aura", "uboot", "updater", "candidate-dtb"]:
+        parser.add_argument("--" + name, type=Path, required=name != "candidate-dtb")
+    parser.add_argument("--dtb", required=True)
+    parser.add_argument("--amp-compatible", required=True)
+    parser.add_argument("--expected-amps", required=True, type=int)
+    args = parser.parse_args()
+    with tempfile.TemporaryDirectory(prefix="speaker-stage2-", dir=os.environ.get("TMPDIR", ".")) as directory:
+        root = Path(directory).resolve()
+        read_rpm(args.updater, root, ["./usr/libexec/aurora/bootchain.py"])
+        spec = importlib.util.spec_from_file_location("installed_bootchain", root / "usr/libexec/aurora/bootchain.py")
+        bootchain = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bootchain)
+        exercise(args, root, bootchain)
+
+
+if __name__ == "__main__":
+    main()

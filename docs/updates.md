@@ -120,6 +120,46 @@ next boot uses the configured Stage 2.
 inspect the retained candidate and receipt before making any manual recovery change. A new package
 transaction does not remove a fallback kernel or reset a recorded trial attempt.
 
+## Speaker protection on existing installs
+
+An ordinary `dnf upgrade` delivers amp nodes through the kernel's DTBs. The
+Stage 2 updater handles the ESP, and the next boot handles the trial. Neither
+step needs the installer or the startup-firmware upgrade tool. Systems with
+custom Stage 2 inputs need to verify which DTB actually boots.
+
+Fedora presets `aurora-speaker-upgrade.service` for the first boot with the
+updated packages. The service reads the Mac's identity and calibration,
+fetches that board's tuning from the pinned Apple restore image, and runs the
+v2 self-check on speakers with a qualifying record. If the network or speaker
+card is unavailable, the boot unit can try again on a later boot. The restore
+image data stays on the Mac.
+
+For an offline Stage 2 rehearsal, run `scripts/test-speaker-stage2-upgrade
+--help`. Supply the baseline and candidate `kernel-aurora-core` RPMs and the
+`aura`, U-Boot and `update-aura` RPMs. It checks the amp count in both device
+trees, the candidate bytes in Stage 2, and a simulated healthy commit. An
+unpublished DTB can be tested with `--candidate-dtb`. Omit that option to test
+what the kernel RPM actually contains.
+
+For the older-package enablement check, run `scripts/test-speaker-upgrade-preset`
+with the old and candidate `aurora-speaker-upgrade` RPMs in a disposable Fedora
+container. Enable the repositories that supply the candidate's matching
+dependencies inside the container. The fixture checks the real RPM transition
+and leaves the service unstarted.
+
+Use a disposable install on the target Mac to check the first migration.
+Record the boot ID, old package versions, boot entry and live Stage 2 hash.
+Run `dnf upgrade` and record the staged Stage 2 hash before rebooting normally.
+After the reboot, verify the boot ID changed, the new kernel is running,
+the staged hash is now live, the previous image matches the original hash,
+and the live device tree exposes the speaker DAI and amps.
+
+Use `journalctl -b -u aurora-speaker-upgrade -u speakerguardd-v2` to verify
+the automatic fetch from the pinned IPSW, a passing silent self-check, and
+`protection ready`. Check that `speakerguardd-v2.service` is active. The
+supervisor reports readiness while idle and grants the speaker lease during
+protected playback.
+
 ## DT ABI generations
 
 `kernel-aurora-core` ships `/usr/lib/modules/<release>/dtb-abi`, an integer declaring the DT ABI
