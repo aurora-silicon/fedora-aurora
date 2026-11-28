@@ -1,0 +1,235 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Touch screen test</title>
+<style>
+  html,body{margin:0;height:100%;background:#111;color:#eee;font:28px/1.3 sans-serif;overflow:hidden;
+    -webkit-user-select:none;user-select:none}
+  #stage{position:fixed;inset:0;touch-action:none}
+  #stage.free{touch-action:auto}
+  #msg{position:fixed;left:50%;top:42%;transform:translate(-50%,-50%);width:80%;text-align:center;pointer-events:none}
+  #msg h1{font-size:54px;margin:0 0 12px} #msg p{margin:6px 0;color:#bbb}
+  #count{font-size:72px;font-weight:bold}
+  .t{position:fixed;border-radius:50%;border:6px solid #39f;background:rgba(51,153,255,.25);
+     transform:translate(-50%,-50%);pointer-events:none}
+  .t.ok{border-color:#2c2;background:rgba(40,200,40,.45)} .t.bad{border-color:#e33;background:rgba(230,50,50,.45)}
+  .btns{position:fixed;left:50%;top:68%;transform:translateX(-50%);display:flex;gap:80px}
+  .btn{font-size:56px;padding:30px 90px;border-radius:24px;border:0;color:#fff}
+  .yes{background:#2a2} .no{background:#c33} .skip{position:fixed;right:30px;bottom:30px;font-size:26px;
+     padding:14px 30px;background:#444;color:#ddd;border:0;border-radius:12px}
+  #field{position:fixed;left:50%;top:62%;transform:translateX(-50%);font-size:44px;width:60%;padding:20px}
+  #sum{position:fixed;inset:6% 10%;font-size:30px;overflow:auto}
+  #sum td{padding:4px 18px} .p{color:#4d4} .f{color:#f55}
+</style></head>
+<body>
+<div id="stage"></div><div id="msg"></div>
+<script>
+'use strict';
+const stage = document.getElementById('stage'), msg = document.getElementById('msg');
+const W = () => innerWidth, H = () => innerHeight;
+let results = [], step = -1, st = null;
+const token = location.hash.slice(1);
+async function request(path, data) {
+  const options = { headers: { 'X-Touch-Test': token } };
+  if (data !== undefined) {
+    options.method = 'POST';
+    options.body = JSON.stringify(data);
+  }
+  const response = await fetch(path, options);
+  if (!response.ok) throw new Error(response.status);
+  return response.json();
+}
+function error(message) {
+  clear();
+  show('Test interrupted', message);
+}
+
+function target(px, py, r) {
+  const d = document.createElement('div'); d.className = 't';
+  const R = r * Math.min(W(), H());
+  Object.assign(d.style, { left: px * W() + 'px', top: py * H() + 'px', width: 2 * R + 'px', height: 2 * R + 'px' });
+  stage.appendChild(d); return { el: d, x: px * W(), y: py * H(), r: R * 1.35 };
+}
+function inT(t, x, y) { return Math.hypot(x - t.x, y - t.y) <= t.r; }
+function show(h, p) { msg.innerHTML = '<h1>' + h + '</h1>' + (p ? '<p>' + p + '</p>' : ''); }
+function clear() { stage.innerHTML = ''; stage.className = ''; document.querySelectorAll('.btns,.skip,#field,#sum').forEach(e => e.remove()); }
+async function finish(ok, note = '', source = st.source || 'browser') {
+  if (!st || st.done) return;
+  st.done = true;
+  clearTimeout(st.timer);
+  clearTimeout(st.poll);
+  const row = { step, name: S[step].name, ok, note, source };
+  try {
+    await request('/report', row);
+  } catch {
+    error('The report could not be saved. Close the test and check the output directory.');
+    return;
+  }
+  results.push(row);
+  document.querySelectorAll('.t').forEach(e => e.classList.add(ok ? 'ok' : 'bad'));
+  show(ok ? 'PASS' : 'FAIL', '');
+  setTimeout(next, source === 'manual' ? 400 : ok ? 700 : 1300);
+}
+function skipBtn() { const b = document.createElement('button'); b.className = 'skip'; b.textContent = 'skip this one';
+  b.onclick = () => finish(false, 'skipped'); document.body.appendChild(b); }
+function yesno(h, p, extra) {
+  return { name: h, run() { show(h, p); if (extra) extra(); stage.className = 'free';
+    const d = document.createElement('div'); d.className = 'btns';
+    for (const [c, l, v] of [['yes', 'YES', true], ['no', 'NO', false]]) {
+      const b = document.createElement('button'); b.className = 'btn ' + c; b.textContent = l;
+      b.onclick = () => finish(v, v ? 'Yes' : 'No', 'manual');
+      d.appendChild(b); }
+    document.body.appendChild(d); } };
+}
+// one target, N quick taps
+function taps(name, px, py, n, h) {
+  return { name, run() { const t = target(px, py, 0.07); let c = 0;
+    show(h, 'Tap the blue circle ' + n + ' times, quickly. <span id=count>0</span> / ' + n); skipBtn();
+    st.timer = setTimeout(() => finish(c >= n, c + '/' + n + ' (timeout)'), 30000);
+    st.on = e => { if (e.type !== 'touchstart') return; for (const k of e.changedTouches) if (inT(t, k.clientX, k.clientY)) {
+      c++; document.getElementById('count').textContent = c; if (c >= n) finish(true, c + '/' + n); } }; } };
+}
+function one(name, px, py, h) {
+  return { name, run() { const t = target(px, py, 0.06); show(h, 'One tap on the blue circle, right at the edge of the glass.'); skipBtn();
+    st.timer = setTimeout(() => finish(false, 'timeout'), 20000);
+    st.on = e => { if (e.type === 'touchstart') for (const k of e.changedTouches) if (inT(t, k.clientX, k.clientY)) finish(true); }; } };
+}
+addEventListener('contextmenu', e => {
+  if (st && st.source === 'evdev') e.preventDefault();
+}, { capture: true });
+function rawGesture(name, gesture, heading, instruction, timeout) {
+  return { name, async run() {
+    const current = st;
+    current.source = 'evdev';
+    show(heading, 'Waiting for the touchscreen…');
+    try {
+      let status = await request('/arm', { step, gesture, screen: [W(), H()] });
+      if (st !== current || current.done) return;
+      if (gesture !== 'swipe') target(0.5, 0.62, 0.16);
+      show(heading, instruction);
+      skipBtn();
+      const deadline = performance.now() + timeout;
+      async function poll() {
+        if (st !== current || current.done) return;
+        if (status.ok !== null) return finish(status.ok, status.note);
+        if (performance.now() >= deadline) return finish(false, status.note + ' (timeout)');
+        current.poll = setTimeout(async () => {
+          try {
+            status = await request('/status/' + step);
+            poll();
+          } catch {
+            if (st === current && !current.done) finish(false, 'Could not read evdev score');
+          }
+        }, 80);
+      }
+      poll();
+    } catch {
+      if (st === current && !current.done) finish(false, 'Could not start evdev scoring');
+    }
+  } };
+}
+function hold(name, fingers, secs, heading) {
+  const fingerLabel = fingers === 1 ? 'one finger' : 'two fingers';
+  return rawGesture(name, fingers === 1 ? 'hold' : 'hold-two', heading,
+    'Keep ' + fingerLabel + ' on the circle for ' + secs + ' seconds.', 30000);
+}
+function drag(h) {
+  return { name: 'drag across', run() { const a = target(0.08, 0.6, 0.06), b = target(0.92, 0.6, 0.06); let go = false;
+    show(h, 'Put a finger on the LEFT circle and slide it all the way to the RIGHT circle without lifting.'); skipBtn();
+    st.timer = setTimeout(() => finish(false, 'timeout'), 30000);
+    st.on = e => { const k = e.changedTouches[0];
+      if (e.type === 'touchstart' && inT(a, k.clientX, k.clientY)) go = true;
+      else if (e.type === 'touchmove' && go && inT(b, k.clientX, k.clientY)) finish(true);
+      else if (e.type === 'touchend') go = false; }; } };
+}
+function pinch(name, out, h) {
+  return { name, run() { target(0.5, 0.6, 0.22); let d0 = null;
+    show(h, out ? 'Two fingers on the circle, spread them APART.' : 'Two fingers wide apart on the circle, pinch them TOGETHER.'); skipBtn();
+    st.timer = setTimeout(() => finish(false, 'timeout'), 30000);
+    st.on = e => { if (e.touches.length < 2) { d0 = null; return; }
+      const [p, q] = e.touches, d = Math.hypot(p.clientX - q.clientX, p.clientY - q.clientY);
+      if (d0 === null) d0 = d; else if (out ? d > d0 * 1.6 : d < d0 / 1.6) finish(true, 'ratio ' + (d / d0).toFixed(2)); }; } };
+}
+function swipe3() {
+  return rawGesture('3-finger swipe up (evdev)', 'swipe', 'Three fingers up',
+    'Place three fingers on the screen and swipe up together. If GNOME opens the overview, return to this window.',
+    20000);
+}
+for (const ty of ['touchstart', 'touchmove', 'touchend', 'touchcancel'])
+  stage.addEventListener(ty, e => { if (st && !st.done && st.on) st.on(e); }, { passive: true });
+addEventListener('touchend', e => { if (st && !st.done && st.on && e.target !== stage) st.on(e); }, { passive: true });
+
+const S = [
+  { name: 'start', run() { show('Touch screen test', 'Just follow the screen. About 5 minutes.<br>Tap anywhere to start.');
+      st.on = e => { if (e.type === 'touchstart') { st.done = true; next(); } }; } },
+  taps('quick taps: top (notch band)', 0.5, 0.03, 10, 'Quick taps at the very TOP'),
+  taps('quick taps: centre', 0.5, 0.5, 10, 'Quick taps in the CENTRE'),
+  one('corner top-left', 0.03, 0.04, 'Top-left corner'),
+  one('corner top-right', 0.97, 0.04, 'Top-right corner'),
+  one('corner bottom-left', 0.03, 0.96, 'Bottom-left corner'),
+  one('corner bottom-right', 0.97, 0.96, 'Bottom-right corner'),
+  one('edge top', 0.5, 0.02, 'Top edge, middle'),
+  one('edge bottom', 0.5, 0.98, 'Bottom edge, middle'),
+  one('edge left', 0.015, 0.5, 'Left edge, middle'),
+  one('edge right', 0.985, 0.5, 'Right edge, middle'),
+  hold('hold 3 s', 1, 3, 'Press and HOLD'),
+  hold('2-finger hold 2 s', 2, 2, 'TWO fingers, hold'),
+  drag('Drag across'),
+  pinch('pinch out', true, 'Spread two fingers'),
+  pinch('pinch in', false, 'Pinch two fingers'),
+  swipe3(),
+  yesno('Did the GNOME overview open on the 3-finger swipe?', 'If you are not sure, try it again now, then answer.'),
+  yesno('On-screen keyboard?', 'Tap the text box below. Did an on-screen keyboard appear?',
+    () => { const f = document.createElement('input'); f.id = 'field'; f.placeholder = 'tap here'; document.body.appendChild(f); }),
+  yesno('Did press-and-hold open a context menu?',
+    'Press Super, open Files, and hold a finger on a folder for one second. Use Alt+Tab to return and answer.'),
+  yesno('Pinch to zoom?', 'Pinch apart anywhere on this screen. Did the page zoom? (Pinch back together after.)'),
+  { name: 'summary', run: summary },
+];
+async function summary() {
+  try {
+    await request('/complete', {});
+  } catch {
+    error('The report could not be finalized. Check the output directory.');
+    return;
+  }
+  show('', '');
+  const ok = results.filter(row => row.ok).length;
+  const s = document.createElement('div');
+  s.id = 'sum';
+  const title = document.createElement('h1');
+  title.textContent = (ok === results.length ? 'PASS' : 'FAIL') + ' · ' + ok + ' / ' + results.length;
+  const hint = document.createElement('p');
+  hint.textContent = 'Report saved. Close this window with Alt+F4.';
+  const table = document.createElement('table');
+  for (const row of results) {
+    const tr = table.insertRow();
+    const status = tr.insertCell();
+    status.className = row.ok ? 'p' : 'f';
+    status.textContent = row.ok ? 'PASS' : 'FAIL';
+    tr.insertCell().textContent = row.name;
+    tr.insertCell().textContent = row.note;
+  }
+  s.append(title, hint, table);
+  document.body.appendChild(s);
+}
+function sleepStep() {
+  return { name: 'suspend + wake by key', run() { let last = Date.now();
+    show('Sleep test', 'Close the lid. Count to 10. Open it again and press any key.<br>This page continues by itself.'); skipBtn();
+    st.timer = setTimeout(() => finish(false, 'no suspend seen in 3 min'), 180000);
+    st.iv = setInterval(() => { const now = Date.now(); if (now - last > 5000) finish(true, 'resumed after ' + Math.round((now - last) / 1000) + ' s'); last = now; }, 500); } };
+}
+if (location.search.includes('sleep')) {
+  S.length = 0;
+  S.push({ name: 'start', run() { show('Sleep test', 'About 1 minute. Tap anywhere to start.');
+      st.on = e => { if (e.type === 'touchstart') { st.done = true; next(); } }; } },
+    sleepStep(),
+    taps('after wake: quick taps', 0.5, 0.5, 5, 'Touch after waking'),
+    hold('after wake: hold 3 s', 1, 3, 'Press and HOLD'),
+    { name: 'summary', run: summary });
+}
+function next() {
+  clear(); if (st && st.iv) clearInterval(st.iv); step++;
+  if (step >= S.length) return; st = { done: false }; S[step].run();
+}
+next();
+</script></body></html>
